@@ -499,9 +499,13 @@ async fn owed_intents(
     // cockpit (current Work revision/brief, payment state and prepared command
     // are all enforced there).
     let config = runtime::CompanyConfig::load(&state.daemon.root, company)?;
-    let attention =
-        attention::project_with_spend(&config, &state.daemon.authority, Some(org), &state.daemon.spend)
-            .await?;
+    let attention = attention::project_with_spend(
+        &config,
+        &state.daemon.authority,
+        Some(org),
+        &state.daemon.spend,
+    )
+    .await?;
     let withdrawal_authoritative = attention.source_health.orgintel == "available";
     let owners = org.active_hosted_owners().await?;
     if owners.is_empty() {
@@ -687,7 +691,11 @@ fn for_you_intent(
     intent(
         kind,
         &format!("orgintel:for-you:{}", item.key),
-        &format!("orgintel-for-you:{}:{}", item.key, item.at.timestamp_micros()),
+        &format!(
+            "orgintel-for-you:{}:{}",
+            item.key,
+            item.at.timestamp_micros()
+        ),
         identity,
         pending.recipient.clone(),
         item.actor_ids
@@ -815,7 +823,10 @@ async fn push_company(
 /// What the browser shows. The tag matches the one the open cockpit gives the same item, so a
 /// notice the page already showed is replaced rather than repeated.
 fn push_payload(company: &str, display: &str, intent: &NotificationIntent) -> serde_json::Value {
-    let tag = match (intent.object.kind, intent.object.id.strip_prefix("orgintel:for-you:")) {
+    let tag = match (
+        intent.object.kind,
+        intent.object.id.strip_prefix("orgintel:for-you:"),
+    ) {
         (_, Some(key)) => format!("{company}:for-you:{key}"),
         ("attention" | "review" | "authority", None) => {
             format!("{company}:item:{}", intent.object.id)
@@ -1116,7 +1127,10 @@ mod tests {
                     kind: kind.into(),
                     title: "Pricing".into(),
                     excerpt: "private words".into(),
-                    target: restless_orgintel::ForYouTarget::Document { document_id, thread_id: None },
+                    target: restless_orgintel::ForYouTarget::Document {
+                        document_id,
+                        thread_id: None,
+                    },
                     actor_ids: vec!["bianca".into()],
                     actor_names: vec!["Bianca".into()],
                     at,
@@ -1134,13 +1148,20 @@ mod tests {
         let mention = for_you_intent(
             "company_ab",
             identity,
-            pending(&format!("doc-mention:{}", Uuid::from_u128(4)), "mention", now),
+            pending(
+                &format!("doc-mention:{}", Uuid::from_u128(4)),
+                "mention",
+                now,
+            ),
         );
         assert_eq!(mention.kind, "direct_mention");
         assert_eq!(mention.object.kind, "mention");
         assert_eq!(mention.summary, "Bianca mentioned you in Pricing");
         assert!(mention.deep_link_path.starts_with("/company_ab/"));
-        assert!(!mention.summary.contains("private"), "the email never carries what was said");
+        assert!(
+            !mention.summary.contains("private"),
+            "the email never carries what was said"
+        );
         let thread = format!("thread:{}", Uuid::from_u128(5));
         let reply = for_you_intent("company_ab", identity, pending(&thread, "reply", now));
         assert_eq!(reply.kind, "personal_attention");

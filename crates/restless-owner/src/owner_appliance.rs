@@ -58,7 +58,10 @@ pub(super) fn cli_beside_plane() -> Result<PathBuf> {
     let plane = std::env::current_exe().context("locate the running plane")?;
     let cli = plane.with_file_name("restless");
     if !cli.is_file() {
-        bail!("the restless command is not installed beside this plane at {}", cli.display());
+        bail!(
+            "the restless command is not installed beside this plane at {}",
+            cli.display()
+        );
     }
     Ok(cli)
 }
@@ -69,7 +72,8 @@ pub(super) fn read_job(root: &std::path::Path) -> Option<serde_json::Value> {
     let code = std::fs::read_to_string(&job.exit)
         .ok()
         .and_then(|text| text.trim().parse::<i32>().ok());
-    let stale = code.is_none() && unix_now().saturating_sub(job.started_at_unix_seconds) > JOB_HORIZON_SECONDS;
+    let stale = code.is_none()
+        && unix_now().saturating_sub(job.started_at_unix_seconds) > JOB_HORIZON_SECONDS;
     let state = match code {
         Some(0) => "succeeded",
         Some(_) => "failed",
@@ -80,7 +84,10 @@ pub(super) fn read_job(root: &std::path::Path) -> Option<serde_json::Value> {
     let detail = (state == "failed").then(|| {
         std::fs::read_to_string(&job.log)
             .map(|text| {
-                let lines: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).collect();
+                let lines: Vec<&str> = text
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .collect();
                 lines[lines.len().saturating_sub(12)..].join("\n")
             })
             .unwrap_or_default()
@@ -99,15 +106,19 @@ pub(super) fn job_running(root: &std::path::Path) -> bool {
 
 /// Start `restless <args>` as a job that outlives this plane's restart. Under systemd it is a
 /// transient user unit, outside the plane's own cgroup; under launchd a new process group.
-pub(super) fn spawn_job(root: &std::path::Path, op: &str, cli: &std::path::Path, args: &[String]) -> Result<()> {
+pub(super) fn spawn_job(
+    root: &std::path::Path,
+    op: &str,
+    cli: &std::path::Path,
+    args: &[String],
+) -> Result<()> {
     let started = unix_now();
     let logs = root.join("logs");
     std::fs::create_dir_all(&logs)?;
     std::fs::create_dir_all(root.join("machine"))?;
     let log = logs.join(format!("appliance-{op}-{started}.log"));
     let exit = root.join(format!("machine/appliance-job-{started}.exit"));
-    const SCRIPT: &str =
-        r#"cli="$1"; log="$2"; exit_file="$3"; shift 3; "$cli" "$@" >"$log" 2>&1; echo $? >"$exit_file""#;
+    const SCRIPT: &str = r#"cli="$1"; log="$2"; exit_file="$3"; shift 3; "$cli" "$@" >"$log" 2>&1; echo $? >"$exit_file""#;
     let mut wrapped: Vec<String> = vec![
         "sh".into(),
         "-c".into(),
@@ -270,7 +281,8 @@ pub(super) async fn run(
                     "--cockpit".into(),
                     release.join("web").display().to_string(),
                 ];
-                let environment = release.join(restless_contracts::appliance::RELEASE_ENVIRONMENT_FILE);
+                let environment =
+                    release.join(restless_contracts::appliance::RELEASE_ENVIRONMENT_FILE);
                 if environment.is_file() {
                     args.push("--release-environment".into());
                     args.push(environment.display().to_string());
@@ -280,11 +292,23 @@ pub(super) async fn run(
             }
             Err(error) => return refuse(format!("{error:#}")),
         },
-        _ => return api_error(StatusCode::NOT_FOUND, "appliance", "No such appliance operation."),
+        _ => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "appliance",
+                "No such appliance operation.",
+            )
+        }
     };
     match spawn_job(&root, &op, &cli, &args) {
-        Ok(()) => Json(serde_json::json!({ "started": op, "job": read_job(&root) })).into_response(),
-        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "appliance", format!("{error:#}")),
+        Ok(()) => {
+            Json(serde_json::json!({ "started": op, "job": read_job(&root) })).into_response()
+        }
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "appliance",
+            format!("{error:#}"),
+        ),
     }
 }
 
@@ -344,8 +368,14 @@ pub(super) async fn download_backup(State(state): State<OwnerState>) -> Response
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .and_then(|backup| backup["archive"].as_str().map(PathBuf::from));
-    let Some(archive) = archive.filter(|path| path.starts_with(root.join(BACKUPS)) && path.is_file()) else {
-        return api_error(StatusCode::NOT_FOUND, "appliance", "There is no backup to download.");
+    let Some(archive) =
+        archive.filter(|path| path.starts_with(root.join(BACKUPS)) && path.is_file())
+    else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "appliance",
+            "There is no backup to download.",
+        );
     };
     let name = archive
         .file_name()
@@ -377,6 +407,10 @@ pub(super) async fn resume(State(state): State<OwnerState>) -> Response<Body> {
     }
     match crate::coordination::resume_appliance(&state.daemon) {
         Ok(()) => Json(serde_json::json!({ "resumed": true })).into_response(),
-        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "appliance", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "appliance",
+            format!("{error:#}"),
+        ),
     }
 }

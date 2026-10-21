@@ -32,7 +32,8 @@ pub(crate) fn review_subdomain(plane_host: &str, ticket: &str) -> Option<String>
     let (label, domain) = plane_host.split_once('.')?;
     let plane = label.strip_prefix("owner-")?;
     let hex = |value: &str| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_hexdigit());
-    (hex(plane) && hex(ticket) && !domain.is_empty()).then(|| format!("{ticket}-{plane}-review.{domain}"))
+    (hex(plane) && hex(ticket) && !domain.is_empty())
+        .then(|| format!("{ticket}-{plane}-review.{domain}"))
 }
 
 /// The review subdomain for this ticket, when this plane sits behind the one-address edge.
@@ -71,7 +72,10 @@ pub(crate) fn review_location(
         if let Some(host) = review_host_for(state, ticket) {
             return Ok((format!("https://{host}/{path}"), String::new()));
         }
-        return Ok((format!("{REVIEW_PATH_PREFIX}{ticket}/{path}"), String::new()));
+        return Ok((
+            format!("{REVIEW_PATH_PREFIX}{ticket}/{path}"),
+            String::new(),
+        ));
     }
     materialize_review_url(&state.review_public_url, ticket, path_and_query)
 }
@@ -159,7 +163,12 @@ pub(crate) async fn review_outcome(
     match org
         // The owner reviews what is theirs; the person who owns the Work's team reviews what
         // Exec prepared for them. OrgIntel checks whose review it is.
-        .decide_review_as(handoff, handoff_resolver(&principal), decision, &input.feedback)
+        .decide_review_as(
+            handoff,
+            handoff_resolver(&principal),
+            decision,
+            &input.feedback,
+        )
         .await
     {
         Ok(()) => Json(serde_json::json!({
@@ -200,9 +209,7 @@ pub(crate) async fn issue_review_ticket(
         Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
     };
     // Wake before projecting, so the projection observes the file on a running computer.
-    if let Err(refusal) =
-        wake_for_owner_read(&state, &company, "the owner opened a review").await
-    {
+    if let Err(refusal) = wake_for_owner_read(&state, &company, "the owner opened a review").await {
         return refusal;
     }
     let org = state.daemon.orgintel.get(&company).await.ok();
@@ -309,11 +316,12 @@ pub(crate) async fn issue_library_ticket(
         }
     }
     let (uri, item_id) = match (input.artifact_id, input.path.as_deref().map(str::trim)) {
-        (Some(artifact_id), None) => match recorded_library_file(&state, &company, artifact_id).await
-        {
-            Ok(uri) => (uri, format!("artifact:{artifact_id}")),
-            Err(refusal) => return refusal,
-        },
+        (Some(artifact_id), None) => {
+            match recorded_library_file(&state, &company, artifact_id).await {
+                Ok(uri) => (uri, format!("artifact:{artifact_id}")),
+                Err(refusal) => return refusal,
+            }
+        }
         (None, Some(path)) => {
             if !path.starts_with("/company/") || runtime::runtime_review_file_root(path).is_err() {
                 return api_error(
@@ -352,17 +360,19 @@ pub(crate) async fn issue_library_ticket(
             "this file cannot be shown in the cockpit",
         );
     }
-    let review_url = match open_review_origin(&state, &company, &generation, &uri, is_file, &item_id)
-        .await
-    {
-        Ok(review_url) => review_url,
-        Err(refusal) => return refusal,
-    };
+    let review_url =
+        match open_review_origin(&state, &company, &generation, &uri, is_file, &item_id).await {
+            Ok(review_url) => review_url,
+            Err(refusal) => return refusal,
+        };
     let mut body = serde_json::json!({
         "review_url": review_url,
         "expires_in_seconds": REVIEW_TTL.as_secs(),
     });
-    if let Some(format) = is_file.then(|| runtime::runtime_text_format(&uri)).flatten() {
+    if let Some(format) = is_file
+        .then(|| runtime::runtime_text_format(&uri))
+        .flatten()
+    {
         // Too large or not UTF-8 still opens: on the review origin, as before.
         if let Ok(text) = runtime::read_runtime_text_file(&company, &uri).await {
             body["text"] = text.into();
@@ -385,17 +395,31 @@ async fn teammate_library(
     actor_id: &str,
 ) -> std::result::Result<TeammateLibrary, Response<Body>> {
     let unavailable = |error: anyhow::Error| {
-        api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            format!("{error:#}"),
+        )
     };
-    let org = state.daemon.orgintel.get(company).await.map_err(unavailable)?;
+    let org = state
+        .daemon
+        .orgintel
+        .get(company)
+        .await
+        .map_err(unavailable)?;
     let graph = org
         .collaborator_work_graph_snapshot(actor_id)
         .await
         .map_err(|error| unavailable(error.into()))?;
     let work: std::collections::HashSet<Uuid> = graph.work.iter().map(|work| work.id).collect();
-    let mut library = TeammateLibrary { ids: Default::default(), uris: Default::default() };
+    let mut library = TeammateLibrary {
+        ids: Default::default(),
+        uris: Default::default(),
+    };
     for artifact in graph.artifacts {
-        if artifact.work_id.is_some_and(|work_id| work.contains(&work_id))
+        if artifact
+            .work_id
+            .is_some_and(|work_id| work.contains(&work_id))
             && super::member_collaboration_api::member_library_uri(&artifact.uri).is_some()
         {
             library.ids.insert(artifact.id);
@@ -478,7 +502,12 @@ pub(crate) async fn library_file_content(
     let office = std::path::Path::new(path)
         .extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "docx" | "xlsx" | "pptx"));
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "docx" | "xlsx" | "pptx"
+            )
+        });
     if !office || !path.starts_with("/company/") || runtime::runtime_review_file_root(path).is_err()
     {
         return api_error(
@@ -496,12 +525,8 @@ pub(crate) async fn library_file_content(
         return refusal;
     }
     // Streamed, so a large workbook reads as a small one does.
-    let file = match runtime::stream_runtime_review_file(
-        &company,
-        std::path::Path::new(path),
-        None,
-    )
-    .await
+    let file = match runtime::stream_runtime_review_file(&company, std::path::Path::new(path), None)
+        .await
     {
         Ok(file) => file,
         Err(error) if error.is::<runtime::ReviewFileTooLarge>() => {
@@ -601,17 +626,16 @@ async fn open_review_origin(
     };
 
     let ticket = Uuid::new_v4().simple().to_string();
-    let (review_url, expected_host) =
-        match review_location(state, &ticket, &path_and_query) {
-            Ok(value) => value,
-            Err(error) => {
-                return Err(api_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "review",
-                    format!("review origin is invalid: {error:#}"),
-                ))
-            }
-        };
+    let (review_url, expected_host) = match review_location(state, &ticket, &path_and_query) {
+        Ok(value) => value,
+        Err(error) => {
+            return Err(api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "review",
+                format!("review origin is invalid: {error:#}"),
+            ))
+        }
+    };
     state.reviews.lock().expect("review registry").insert(
         ticket,
         ReviewSession {
@@ -694,10 +718,17 @@ pub(crate) async fn review_path_proxy(
             "review previews are read-only",
         );
     }
-    let rest = uri.path().strip_prefix(REVIEW_PATH_PREFIX).unwrap_or_default();
+    let rest = uri
+        .path()
+        .strip_prefix(REVIEW_PATH_PREFIX)
+        .unwrap_or_default();
     let (token, file) = rest.split_once('/').unwrap_or((rest, ""));
     if token.len() != 32 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return api_error(StatusCode::UNAUTHORIZED, "review", "review ticket is invalid");
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "review",
+            "review ticket is invalid",
+        );
     }
     let session = {
         let mut reviews = state.reviews.lock().expect("review registry");
@@ -718,15 +749,20 @@ pub(crate) async fn review_path_proxy(
         Some(query) => format!("/{file}?{query}"),
         None => format!("/{file}"),
     };
-    let isolation = match headers.get(REVIEW_HOST_HEADER).and_then(|value| value.to_str().ok()) {
-        Some(host) if review_host_for(&state, token).as_deref() == Some(host) => Isolation::ReviewHost {
-            cockpit: state
-                .entry
-                .network()
-                .and_then(|network| network.public_host())
-                .map(|public| format!("https://{public}"))
-                .unwrap_or_else(|| "'self'".into()),
-        },
+    let isolation = match headers
+        .get(REVIEW_HOST_HEADER)
+        .and_then(|value| value.to_str().ok())
+    {
+        Some(host) if review_host_for(&state, token).as_deref() == Some(host) => {
+            Isolation::ReviewHost {
+                cockpit: state
+                    .entry
+                    .network()
+                    .and_then(|network| network.public_host())
+                    .map(|public| format!("https://{public}"))
+                    .unwrap_or_else(|| "'self'".into()),
+            }
+        }
         _ => Isolation::PlaneHost,
     };
     serve_review(session, method, &path, &headers, isolation).await
@@ -932,7 +968,9 @@ pub(crate) fn finish_review_response(
     );
     if let Isolation::ReviewHost { cockpit } = isolation {
         if let Ok(value) = HeaderValue::from_str(&format!("frame-ancestors {cockpit}")) {
-            response.headers_mut().insert("content-security-policy", value);
+            response
+                .headers_mut()
+                .insert("content-security-policy", value);
         }
     }
     if matches!(isolation, Isolation::PlaneHost) {
@@ -978,14 +1016,17 @@ mod tests {
         response
             .headers_mut()
             .insert(CONTENT_TYPE, HeaderValue::from_static("text/html"));
-        response
-            .headers_mut()
-            .insert("set-cookie", HeaderValue::from_static("a=b; Domain=restless.run"));
+        response.headers_mut().insert(
+            "set-cookie",
+            HeaderValue::from_static("a=b; Domain=restless.run"),
+        );
         let response = finish_review_response(
             response,
             &session(),
             "/",
-            &Isolation::ReviewHost { cockpit: "https://app.restless.run".into() },
+            &Isolation::ReviewHost {
+                cockpit: "https://app.restless.run".into(),
+            },
         );
         assert_eq!(
             response.headers().get("content-security-policy").unwrap(),
@@ -1008,7 +1049,11 @@ mod tests {
         }
     }
 
-    fn served(content_type: &'static str, upstream_csp: Option<&'static str>, on_plane_host: bool) -> String {
+    fn served(
+        content_type: &'static str,
+        upstream_csp: Option<&'static str>,
+        on_plane_host: bool,
+    ) -> String {
         served_from(&session(), content_type, upstream_csp, on_plane_host)
     }
 
@@ -1027,7 +1072,11 @@ mod tests {
                 .headers_mut()
                 .insert("content-security-policy", HeaderValue::from_static(csp));
         }
-        let isolation = if on_plane_host { Isolation::PlaneHost } else { Isolation::OwnOrigin };
+        let isolation = if on_plane_host {
+            Isolation::PlaneHost
+        } else {
+            Isolation::OwnOrigin
+        };
         let response = finish_review_response(response, session, "/index.html", &isolation);
         response
             .headers()
@@ -1042,11 +1091,22 @@ mod tests {
     /// sandboxed without `allow-same-origin`, whatever policy the company's own service sent.
     #[test]
     fn plane_host_content_is_sandboxed_into_an_opaque_origin() {
-        for content_type in ["text/html; charset=utf-8", "image/svg+xml", "text/plain; charset=utf-8"] {
-            let csp = served(content_type, Some("sandbox allow-same-origin allow-scripts"), true);
+        for content_type in [
+            "text/html; charset=utf-8",
+            "image/svg+xml",
+            "text/plain; charset=utf-8",
+        ] {
+            let csp = served(
+                content_type,
+                Some("sandbox allow-same-origin allow-scripts"),
+                true,
+            );
             assert!(csp.starts_with("sandbox "), "{content_type}: {csp}");
             assert!(!csp.contains("allow-same-origin"), "{content_type}: {csp}");
-            assert!(csp.contains("frame-ancestors 'self'"), "{content_type}: {csp}");
+            assert!(
+                csp.contains("frame-ancestors 'self'"),
+                "{content_type}: {csp}"
+            );
         }
     }
 
@@ -1054,7 +1114,10 @@ mod tests {
     /// `nosniff` keeps anything else from being read as one.
     #[test]
     fn plane_host_pdf_is_framed_only_by_the_cockpit() {
-        assert_eq!(served("application/pdf", None, true), "frame-ancestors 'self'");
+        assert_eq!(
+            served("application/pdf", None, true),
+            "frame-ancestors 'self'"
+        );
     }
 
     /// A service names its own type, and a browser renders `application/pdf, text/html` or
@@ -1066,7 +1129,11 @@ mod tests {
             source: ReviewSource::Service { port: 8080 },
             ..session()
         };
-        for content_type in ["application/pdf", "application/pdf, text/html", "application/pdf+xml"] {
+        for content_type in [
+            "application/pdf",
+            "application/pdf, text/html",
+            "application/pdf+xml",
+        ] {
             let csp = served_from(&service, content_type, None, true);
             assert!(csp.starts_with("sandbox "), "{content_type}: {csp}");
             assert!(!csp.contains("allow-same-origin"), "{content_type}: {csp}");
@@ -1078,7 +1145,14 @@ mod tests {
     /// and upstream anti-framing is dropped, as before.
     #[test]
     fn separate_origin_adds_no_policy() {
-        assert_eq!(served("text/html; charset=utf-8", Some("frame-ancestors 'none'"), false), "");
+        assert_eq!(
+            served(
+                "text/html; charset=utf-8",
+                Some("frame-ancestors 'none'"),
+                false
+            ),
+            ""
+        );
     }
 
     /// A site recorded at its root URL is issued as `/review/{ticket}/`. That page, like every file
@@ -1097,7 +1171,9 @@ mod tests {
         ] {
             let request = Request::builder().uri(&path).body(Body::empty()).unwrap();
             let response = app.clone().oneshot(request).await.unwrap();
-            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
             assert_eq!(&body[..], b"ticket", "{path}");
         }
     }

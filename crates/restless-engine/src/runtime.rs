@@ -1257,6 +1257,26 @@ pub async fn sync_brand_projection(config: &CompanyConfig) -> Result<&'static st
 }
 
 #[cfg(test)]
+mod browser_locale_tests {
+    use super::valid_browser_locale;
+
+    #[test]
+    fn only_timezones_and_language_tags_reach_the_company_browser() {
+        for ok in [
+            "Australia/Sydney",
+            "en-AU",
+            "America/Argentina/Buenos_Aires",
+            "Etc/GMT+10",
+        ] {
+            assert!(valid_browser_locale(ok), "{ok}");
+        }
+        for bad in ["", "   ", "en AU", "x;rm -rf /", "a=b", &"A".repeat(65)] {
+            assert!(!valid_browser_locale(bad), "{bad}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod company_logo_tests {
     use super::*;
 
@@ -2166,21 +2186,23 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                 args.extend(["--pids-limit", pids]);
             }
             let company_env = format!("RESTLESS_COMPANY={company}");
-            // The owner's timezone and language for the company browser, when the plane is told
-            // them (S104 F3). Unset keeps the browser as it was.
-            let browser_env: Vec<String> = ["RESTLESS_BROWSER_TIMEZONE", "RESTLESS_BROWSER_LANG"]
-                .iter()
-                .filter_map(|name| {
-                    let value = std::env::var(name).ok()?;
-                    let value = value.trim();
-                    (!value.is_empty()
-                        && value.len() <= 64
-                        && value
-                            .chars()
-                            .all(|c| c.is_ascii_alphanumeric() || "/_+-".contains(c)))
-                    .then(|| format!("{name}={value}"))
-                })
-                .collect();
+            // The owner's timezone and language for the company browser (S104 F3): the plane's
+            // environment wins, else what the owner's own browser reported. Unset keeps the
+            // browser as it was.
+            let reported = load_browser_locale();
+            let browser_env: Vec<String> = [
+                ("RESTLESS_BROWSER_TIMEZONE", reported.timezone),
+                ("RESTLESS_BROWSER_LANG", reported.language),
+            ]
+            .into_iter()
+            .filter_map(|(name, reported)| {
+                let value = std::env::var(name)
+                    .ok()
+                    .filter(|value| valid_browser_locale(value))
+                    .or(reported.filter(|value| valid_browser_locale(value)))?;
+                Some(format!("{name}={}", value.trim()))
+            })
+            .collect();
             for setting in &browser_env {
                 args.extend(["--env", setting.as_str()]);
             }
@@ -4635,6 +4657,55 @@ async fn run_ok(args: &[&str]) -> Result<()> {
 }
 
 /// The state root: $RESTLESS_HOME or ~/.restless.
+/// The owner's timezone and language as their own browser reported them, for
+/// the company browsers (S104 F3).
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BrowserLocale {
+    pub timezone: Option<String>,
+    pub language: Option<String>,
+}
+
+/// An IANA zone (`Australia/Sydney`) or a language tag (`en-AU`): short, and
+/// safe to pass through `docker run --env` and Chrome's `--lang`.
+pub fn valid_browser_locale(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/_+-".contains(c))
+}
+
+fn browser_locale_path() -> PathBuf {
+    state_root().join("browser-locale.json")
+}
+
+pub fn load_browser_locale() -> BrowserLocale {
+    std::fs::read(browser_locale_path())
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Record the owner's reported locale. Returns whether it changed; company
+/// browsers take it the next time their computer starts.
+pub fn save_browser_locale(locale: &BrowserLocale) -> Result<bool> {
+    for value in [&locale.timezone, &locale.language].into_iter().flatten() {
+        anyhow::ensure!(
+            valid_browser_locale(value),
+            "not a timezone or language: {value:?}"
+        );
+    }
+    if load_browser_locale() == *locale {
+        return Ok(false);
+    }
+    let path = browser_locale_path();
+    let staged = path.with_extension("json.tmp");
+    std::fs::write(&staged, serde_json::to_vec(locale)?)?;
+    std::fs::rename(&staged, &path)?;
+    Ok(true)
+}
+
 pub fn state_root() -> PathBuf {
     if let Ok(root) = std::env::var("RESTLESS_HOME") {
         return PathBuf::from(root);

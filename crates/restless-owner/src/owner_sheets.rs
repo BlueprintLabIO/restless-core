@@ -16,11 +16,20 @@ where
 {
     Router::new()
         .route("/companies/{company}/sheets", get(list).post(create))
-        .route("/companies/{company}/sheets/{sheet}", get(read).patch(rename))
+        .route(
+            "/companies/{company}/sheets/{sheet}",
+            get(read).patch(rename),
+        )
         .route("/companies/{company}/sheets-archived", get(list_archived))
         .route("/companies/{company}/sheets/search", get(search))
-        .route("/companies/{company}/sheets/{sheet}/archive", axum::routing::post(archive))
-        .route("/companies/{company}/sheets/{sheet}", delete(delete_archived))
+        .route(
+            "/companies/{company}/sheets/{sheet}/archive",
+            axum::routing::post(archive),
+        )
+        .route(
+            "/companies/{company}/sheets/{sheet}",
+            delete(delete_archived),
+        )
         .route(
             "/companies/{company}/sheets/{sheet}/operations",
             post(operation),
@@ -161,7 +170,16 @@ async fn archive(
     AxumPath((c, sheet)): AxumPath<(String, Uuid)>,
     Json(i): Json<ArchiveInput>,
 ) -> Response<Body> {
-    run(s, p, c, SheetOperation::Archive { sheet, archived: i.archived }).await
+    run(
+        s,
+        p,
+        c,
+        SheetOperation::Archive {
+            sheet,
+            archived: i.archived,
+        },
+    )
+    .await
 }
 /// Deleting for good is the owner's tidying of an archived sheet, never an agent operation, so it
 /// goes straight to OrgIntel rather than through the shared sheet commands.
@@ -239,7 +257,18 @@ async fn rename(
     Json(i): Json<PatchInput>,
 ) -> Response<Body> {
     match i {
-        PatchInput::Rename(i) => run(s, p, c, SheetOperation::Rename { sheet, title: i.title }).await,
+        PatchInput::Rename(i) => {
+            run(
+                s,
+                p,
+                c,
+                SheetOperation::Rename {
+                    sheet,
+                    title: i.title,
+                },
+            )
+            .await
+        }
         PatchInput::GeneralAccess(i) => match async {
             let org = org(&s, &p, &c).await?;
             anyhow::Ok(json!(
@@ -269,7 +298,9 @@ async fn search(
 ) -> Response<Body> {
     match async {
         let org = org(&s, &p, &c).await?;
-        anyhow::Ok(json!(org.search_sheets(p.actor_id(), query.q.trim()).await?))
+        anyhow::Ok(json!(
+            org.search_sheets(p.actor_id(), query.q.trim()).await?
+        ))
     }
     .await
     {
@@ -414,7 +445,8 @@ async fn delete_comment(
 ) -> Response<Body> {
     match async {
         let org = org(&s, &p, &c).await?;
-        org.delete_sheet_comment(sheet, p.actor_id(), comment).await?;
+        org.delete_sheet_comment(sheet, p.actor_id(), comment)
+            .await?;
         anyhow::Ok(())
     }
     .await
@@ -438,7 +470,8 @@ async fn ask_for_access(
 ) -> Response<Body> {
     match async {
         let org = org(&s, &p, &c).await?;
-        org.request_sheet_access(sheet, p.actor_id(), &i.access).await?;
+        org.request_sheet_access(sheet, p.actor_id(), &i.access)
+            .await?;
         anyhow::Ok(())
     }
     .await
@@ -659,7 +692,16 @@ async fn duplicate(
     AxumPath((c, id)): AxumPath<(String, Uuid)>,
     Json(i): Json<Duplicate>,
 ) -> Response<Body> {
-    run(s, p, c, SheetOperation::Duplicate { sheet: id, id: i.id }).await
+    run(
+        s,
+        p,
+        c,
+        SheetOperation::Duplicate {
+            sheet: id,
+            id: i.id,
+        },
+    )
+    .await
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -795,7 +837,12 @@ impl SheetHere {
             .or_default()
             .insert(client, (generation, actor.to_string()));
         let _ = hub.send((client, json!({"type":"FACES"})));
-        Self { sheet, client, generation, hub }
+        Self {
+            sheet,
+            client,
+            generation,
+            hub,
+        }
     }
 }
 
@@ -804,20 +851,28 @@ impl Drop for SheetHere {
         let left = {
             let mut here = SHEET_HERE.lock().expect("sheet roster");
             let left = here.get_mut(&self.sheet).is_some_and(|clients| {
-                let current = clients.get(&self.client).is_some_and(|(g, _)| *g == self.generation);
+                let current = clients
+                    .get(&self.client)
+                    .is_some_and(|(g, _)| *g == self.generation);
                 if current {
                     clients.remove(&self.client);
                 }
                 current
             });
-            if here.get(&self.sheet).is_some_and(|clients| clients.is_empty()) {
+            if here
+                .get(&self.sheet)
+                .is_some_and(|clients| clients.is_empty())
+            {
                 here.remove(&self.sheet);
             }
             left
         };
         if left {
             // The face and the grid cursor leave together, however the session ended.
-            let _ = self.hub.send((self.client, json!({"type":"CLIENT_LEFT","version":1,"clientId":self.client.to_string()})));
+            let _ = self.hub.send((
+                self.client,
+                json!({"type":"CLIENT_LEFT","version":1,"clientId":self.client.to_string()}),
+            ));
             let _ = self.hub.send((self.client, json!({"type":"FACES"})));
         }
     }
@@ -850,9 +905,16 @@ fn sheet_faces(
             None => faces.push((other, vec![client.to_string()])),
         }
     }
-    let mut agents: Vec<&String> = editing.keys().filter(|a| *a != actor && !faces.iter().any(|(f, _)| f == *a)).collect();
+    let mut agents: Vec<&String> = editing
+        .keys()
+        .filter(|a| *a != actor && !faces.iter().any(|(f, _)| f == *a))
+        .collect();
     agents.sort();
-    faces.extend(agents.into_iter().map(|a| (a.clone(), editing[a].1.clone())));
+    faces.extend(
+        agents
+            .into_iter()
+            .map(|a| (a.clone(), editing[a].1.clone())),
+    );
     faces
         .into_iter()
         .map(|(a, clients)| json!({"actor_id":a,"name":display(&a),"client_ids":clients,"editing":editing.contains_key(&a)}))
@@ -873,7 +935,11 @@ fn revision_position(message: &Value) -> Option<Value> {
 /// Sends a sheet's faces when they differ from what this session last sent.
 async fn send_faces(socket: &mut WebSocket, sent: &mut Vec<Value>, now: Vec<Value>) -> Result<()> {
     if *sent != now {
-        socket.send(AxumMessage::Text(json!({"type":"FACES","faces":now}).to_string().into())).await?;
+        socket
+            .send(AxumMessage::Text(
+                json!({"type":"FACES","faces":now}).to_string().into(),
+            ))
+            .await?;
         *sent = now;
     }
     Ok(())
@@ -896,7 +962,12 @@ async fn session(
         .await
         .map(|actors| actors.into_iter().map(|a| (a.id, a.display)).collect())
         .unwrap_or_default();
-    let display = |actor_id: &str| names.get(actor_id).cloned().unwrap_or_else(|| actor_id.to_string());
+    let display = |actor_id: &str| {
+        names
+            .get(actor_id)
+            .cloned()
+            .unwrap_or_else(|| actor_id.to_string())
+    };
     let hub = sheet_presence(id);
     let mut presence = hub.subscribe();
     let _here = SheetHere::join(id, client.client_id, client.generation, &actor, hub.clone());
@@ -1004,13 +1075,22 @@ mod tests {
         let second = SheetHere::join(sheet, client, Uuid::new_v4(), "bea", hub.clone());
         drop(first);
         let faces = sheet_faces(sheet, "alice", &HashMap::new(), names);
-        assert_eq!(faces, vec![json!({"actor_id":"bea","name":"bea","client_ids":[client.to_string()],"editing":false})]);
+        assert_eq!(
+            faces,
+            vec![
+                json!({"actor_id":"bea","name":"bea","client_ids":[client.to_string()],"editing":false})
+            ]
+        );
         while let Ok((_, message)) = heard.try_recv() {
-            assert_ne!(message["type"], "CLIENT_LEFT", "a stale session never says the client left");
+            assert_ne!(
+                message["type"], "CLIENT_LEFT",
+                "a stale session never says the client left"
+            );
         }
         drop(second);
         assert!(sheet_faces(sheet, "alice", &HashMap::new(), names).is_empty());
-        let said: Vec<Value> = std::iter::from_fn(|| heard.try_recv().ok().map(|(_, m)| m["type"].clone())).collect();
+        let said: Vec<Value> =
+            std::iter::from_fn(|| heard.try_recv().ok().map(|(_, m)| m["type"].clone())).collect();
         assert_eq!(said, vec![json!("CLIENT_LEFT"), json!("FACES")]);
     }
 

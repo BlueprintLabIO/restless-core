@@ -169,12 +169,8 @@ pub(super) async fn upload_attachments(
     }
     // Kept files live on the company computer's persistent disk. Adding one is real demand, so a
     // computer that slept while idle wakes for it; one the owner stopped stays stopped.
-    if !restless_engine::runtime_sleep::wake_for(
-        &state.daemon,
-        &company,
-        "someone added files",
-    )
-    .await
+    if !restless_engine::runtime_sleep::wake_for(&state.daemon, &company, "someone added files")
+        .await
     {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -272,8 +268,12 @@ pub(super) async fn upload_attachments(
             return files_not_stored();
         }
         // Exec reads it by a name that keeps its extension, as it does a message's attachment.
-        if let Err(error) =
-            runtime::link_owner_attachment_name(&company, item.attachment.upload_id, &item.attachment.name).await
+        if let Err(error) = runtime::link_owner_attachment_name(
+            &company,
+            item.attachment.upload_id,
+            &item.attachment.name,
+        )
+        .await
         {
             tracing::warn!(%error, %company, "library upload keeps only its canonical path");
         }
@@ -373,20 +373,32 @@ pub(super) async fn library_outputs(
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
     static LAST: std::sync::LazyLock<
-        std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, serde_json::Value)>>,
+        std::sync::Mutex<
+            std::collections::HashMap<String, (std::time::Instant, serde_json::Value)>,
+        >,
     > = std::sync::LazyLock::new(Default::default);
     if principal.membership_role() != "owner" || !principal.permits_company(&company) {
         return Json(serde_json::json!({ "files": [] })).into_response();
     }
-    if let Some((at, body)) = LAST.lock().ok().and_then(|cache| cache.get(&company).cloned()) {
+    if let Some((at, body)) = LAST
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(&company).cloned())
+    {
         if at.elapsed() < std::time::Duration::from_secs(30) {
             return Json(body).into_response();
         }
     }
-    let files = restless_engine::runtime_files::output_files(&company).await.unwrap_or_default();
+    let files = restless_engine::runtime_files::output_files(&company)
+        .await
+        .unwrap_or_default();
     if files.is_empty() {
         // Asleep or unreachable: keep showing what was there.
-        if let Some((_, body)) = LAST.lock().ok().and_then(|cache| cache.get(&company).cloned()) {
+        if let Some((_, body)) = LAST
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(&company).cloned())
+        {
             return Json(body).into_response();
         }
     }
@@ -409,27 +421,47 @@ pub(super) async fn library_modified(
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
     static CACHE: std::sync::LazyLock<
-        std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, serde_json::Value)>>,
+        std::sync::Mutex<
+            std::collections::HashMap<String, (std::time::Instant, serde_json::Value)>,
+        >,
     > = std::sync::LazyLock::new(Default::default);
     if principal.membership_role() != "owner" || !principal.permits_company(&company) {
         return Json(serde_json::json!({ "modified": {} })).into_response();
     }
-    if let Some((at, body)) = CACHE.lock().ok().and_then(|cache| cache.get(&company).cloned()) {
+    if let Some((at, body)) = CACHE
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(&company).cloned())
+    {
         if at.elapsed() < std::time::Duration::from_secs(30) {
             return Json(body).into_response();
         }
     }
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
-        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
     };
     let artifacts = match org.list_artifact_refs(None).await {
         Ok(artifacts) => artifacts,
-        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
     };
     let mut paths: Vec<String> = artifacts
         .into_iter()
-        .filter(|artifact| artifact.superseded_at.is_none() && artifact.uri.starts_with("/company/"))
+        .filter(|artifact| {
+            artifact.superseded_at.is_none() && artifact.uri.starts_with("/company/")
+        })
         .map(|artifact| artifact.uri)
         .collect();
     paths.sort();

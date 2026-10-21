@@ -196,10 +196,6 @@ where
         )
 }
 
-
-
-
-
 pub(super) fn is_collaboration_proxy_path(path: &str) -> bool {
     let Some(rest) = path.strip_prefix("/api/companies/") else {
         return false;
@@ -1481,18 +1477,19 @@ async fn create_document_version(
                 .get("checkpoint_id")
                 .and_then(serde_json::Value::as_str)
                 .and_then(|id| Uuid::parse_str(id).ok());
-            match (checkpoint, read.get("content_json").filter(|v| v.is_object())) {
+            match (
+                checkpoint,
+                read.get("content_json").filter(|v| v.is_object()),
+            ) {
                 (Some(checkpoint), Some(content)) => (checkpoint, content.clone()),
                 _ => return unavailable(),
             }
         }
-        _ => {
-            return document_api_error(
-                StatusCode::BAD_REQUEST,
-                "invalid_document_version",
-                "Send both the expected version and its content, or neither to name the live document.",
-            )
-        }
+        _ => return document_api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_document_version",
+            "Send both the expected version and its content, or neither to name the live document.",
+        ),
     };
     let create = || {
         org.create_named_document_version(restless_orgintel::NewNamedDocumentVersion {
@@ -1981,7 +1978,9 @@ async fn request_document_access(
         .request_document_access(
             document,
             principal.actor_id(),
-            input.access.unwrap_or(restless_orgintel::DocumentAccess::Read),
+            input
+                .access
+                .unwrap_or(restless_orgintel::DocumentAccess::Read),
         )
         .await
     {
@@ -2050,7 +2049,10 @@ async fn list_document_comment_reactions(
         .list_document_comment_reactions(document, principal.actor_id())
         .await
     {
-        Ok(reactions) => document_json(StatusCode::OK, serde_json::json!({ "reactions": reactions })),
+        Ok(reactions) => document_json(
+            StatusCode::OK,
+            serde_json::json!({ "reactions": reactions }),
+        ),
         Err(error) => document_error(error),
     }
 }
@@ -2075,7 +2077,10 @@ async fn set_document_comment_reaction(
         )
         .await
     {
-        Ok(reactions) => document_json(StatusCode::OK, serde_json::json!({ "reactions": reactions })),
+        Ok(reactions) => document_json(
+            StatusCode::OK,
+            serde_json::json!({ "reactions": reactions }),
+        ),
         Err(error) => document_error(error),
     }
 }
@@ -2721,7 +2726,8 @@ mod tests {
         let asks = format!("{path}/access-requests");
         let nowhere = format!("{documents}/{}/access-requests", Uuid::new_v4());
         for uri in [&asks, &nowhere] {
-            let response = request(&alice, Method::POST, uri, None, Some(serde_json::json!({}))).await;
+            let response =
+                request(&alice, Method::POST, uri, None, Some(serde_json::json!({}))).await;
             assert_eq!(response.status(), StatusCode::ACCEPTED);
         }
         let (status, _) = request_json(&alice, Method::GET, &asks, None, None).await;
@@ -2733,13 +2739,23 @@ mod tests {
         assert_eq!(listed["items"].as_array().unwrap().len(), 1);
         assert_eq!(listed["items"][0]["actor_id"], "alice");
         assert_eq!(listed["items"][0]["access"], "read");
-        let dismiss = format!("{asks}/{}/dismiss", listed["items"][0]["id"].as_str().unwrap());
+        let dismiss = format!(
+            "{asks}/{}/dismiss",
+            listed["items"][0]["id"].as_str().unwrap()
+        );
         let response = request(&blair, Method::POST, &dismiss, None, None).await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         let response = request(&owner, Method::POST, &dismiss, None, None).await;
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         let other = fixture.app("alice", "member", &fixture.other_company);
-        let response = request(&other, Method::POST, &asks, None, Some(serde_json::json!({}))).await;
+        let response = request(
+            &other,
+            Method::POST,
+            &asks,
+            None,
+            Some(serde_json::json!({})),
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
@@ -2770,12 +2786,23 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
 
         let view = serde_json::json!({"expected_version": 1, "general_access": "view"});
-        let (status, _) =
-            request_json(&alice, Method::PATCH, &path, Some(Uuid::new_v4()), Some(view.clone()))
-                .await;
+        let (status, _) = request_json(
+            &alice,
+            Method::PATCH,
+            &path,
+            Some(Uuid::new_v4()),
+            Some(view.clone()),
+        )
+        .await;
         assert_eq!(status, StatusCode::NOT_FOUND, "a member cannot open it up");
-        let (status, result) =
-            request_json(&owner, Method::PATCH, &path, Some(Uuid::new_v4()), Some(view)).await;
+        let (status, result) = request_json(
+            &owner,
+            Method::PATCH,
+            &path,
+            Some(Uuid::new_v4()),
+            Some(view),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(result["operation"], "document_metadata_update");
 
@@ -2794,8 +2821,14 @@ mod tests {
         assert_eq!(item["access"], "read");
 
         let unknown = serde_json::json!({"expected_version": 2, "general_access": "everyone"});
-        let (status, _) =
-            request_json(&owner, Method::PATCH, &path, Some(Uuid::new_v4()), Some(unknown)).await;
+        let (status, _) = request_json(
+            &owner,
+            Method::PATCH,
+            &path,
+            Some(Uuid::new_v4()),
+            Some(unknown),
+        )
+        .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     }
 

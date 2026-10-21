@@ -25,4 +25,3 @@ pub(super) async fn get_catalog(Query(query): Query<CatalogQuery>) -> Response<B
         ),
     }
 }
-

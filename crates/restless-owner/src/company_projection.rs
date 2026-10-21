@@ -306,7 +306,8 @@ pub fn summarize_parts(
 pub async fn card_for(daemon: &Daemon, company: &str) -> Result<Summary> {
     let config = runtime::CompanyConfig::load(&daemon.root, company)?;
     let org = daemon.orgintel.get(company).await?;
-    let view = attention::project_with_spend(&config, &daemon.authority, Some(&org), &daemon.spend).await?;
+    let view = attention::project_with_spend(&config, &daemon.authority, Some(&org), &daemon.spend)
+        .await?;
     let exec_waking = daemon
         .in_flight
         .lock()
@@ -444,10 +445,7 @@ struct Receipt {
 
 impl ProjectionEmitter {
     /// Only a hosted account plane in network mode, and only when told where Fleet listens.
-    pub fn from_environment(
-        entry: &EntryMode,
-        signer: ProjectionSigner,
-    ) -> Result<Option<Self>> {
+    pub fn from_environment(entry: &EntryMode, signer: ProjectionSigner) -> Result<Option<Self>> {
         let Some((_, plane_id, host)) = entry.network_coordinates() else {
             return Ok(None);
         };
@@ -755,8 +753,13 @@ mod tests {
         let recent = now - chrono::Duration::hours(3);
         let late = now - chrono::Duration::minutes(2);
         // Completed two days ago, completed recently, and still active.
-        let summary =
-            summarize_parts(3, [(early, true), (recent, true), (late, false)], 2, true, now);
+        let summary = summarize_parts(
+            3,
+            [(early, true), (recent, true), (late, false)],
+            2,
+            true,
+            now,
+        );
         assert_eq!(summary.decisions_waiting, 3);
         assert_eq!(summary.last_activity_at, Some(late));
         assert_eq!(

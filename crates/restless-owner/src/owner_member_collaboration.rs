@@ -28,7 +28,6 @@ use crate::{runtime, Daemon};
 
 use super::{api_error, company_display_name, OwnerState};
 
-
 #[derive(Clone)]
 pub(super) struct MemberCollaborationState {
     source: MemberCollaborationSource,
@@ -574,7 +573,9 @@ async fn collaboration_bootstrap(
 /// service on the company computer, never with userinfo, query or fragment.
 pub(super) fn member_library_uri(uri: &str) -> Option<String> {
     if uri.starts_with("/company/") {
-        return runtime::runtime_review_file_root(uri).is_ok().then(|| uri.to_string());
+        return runtime::runtime_review_file_root(uri)
+            .is_ok()
+            .then(|| uri.to_string());
     }
     let mut parsed = url::Url::parse(uri).ok()?;
     if parsed.scheme() != "http"

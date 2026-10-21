@@ -254,7 +254,10 @@ impl Holder {
                             .unwrap_or_else(|| company_display_name(company));
                         Ok(serde_json::json!([{ "id": company, "name": name }]))
                     }
-                    _ => self.call_api(Method::GET, "/companies", ApiBody::Empty).await,
+                    _ => {
+                        self.call_api(Method::GET, "/companies", ApiBody::Empty)
+                            .await
+                    }
                 }
             }
             "inbox" => {
@@ -613,7 +616,10 @@ mod tests {
             // Their own Inbox is theirs; the owner's set-aside list is not.
             (Method::GET, "/api/companies/acme/attention/dismissed"),
             (Method::POST, "/api/companies/acme/approvals/grant"),
-            (Method::POST, "/api/companies/other/actors/exec/conversation"),
+            (
+                Method::POST,
+                "/api/companies/other/actors/exec/conversation",
+            ),
         ] {
             assert!(
                 route_refusal(&principal, &method, path).is_some(),
@@ -632,7 +638,9 @@ mod tests {
         owner.role = "owner".into();
         let principal = token_principal(true, Some(&owner), true).unwrap();
         assert!(route_refusal(&principal, &Method::GET, "/api/companies/acme/attention").is_none());
-        assert!(route_refusal(&principal, &Method::GET, "/api/companies/other/attention").is_some());
+        assert!(
+            route_refusal(&principal, &Method::GET, "/api/companies/other/attention").is_some()
+        );
     }
 
     #[test]

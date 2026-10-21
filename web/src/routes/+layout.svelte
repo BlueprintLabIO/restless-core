@@ -27,6 +27,7 @@
 	import { planeAnswersAccountPaths } from '$lib/model/appliance';
 	import { registerServiceWorkerWhereLocal } from '$lib/model/service-worker-registration';
 	import { knownPlaneOwner } from '$lib/model/known-role';
+	import { reportBrowserLocale } from '$lib/model/browser-locale';
 	import { dev } from '$app/environment';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 
@@ -203,6 +204,8 @@
 		/* The worker serves a local appliance's owner; asking the plane whether it is hosted is the
 		 * owner's read, refused to a member. */
 		if (!dev && knownPlaneOwner()) void registerServiceWorkerWhereLocal().catch(() => {});
+		/* The company browsers follow the owner's timezone and language. */
+		if (knownPlaneOwner()) void reportBrowserLocale().catch(() => {});
 	});
 
 	onMount(() => {

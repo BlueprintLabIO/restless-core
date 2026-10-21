@@ -911,7 +911,10 @@ mod tests {
         filter.filter(&[1], false, false).unwrap();
         // QEMU Extended Key Event: 255, subtype 0, down, keysym 'h', scancode 0x23.
         let key = [255, 0, 0, 1, 0, 0, 0, 0x68, 0, 0, 0, 0x23];
-        assert!(filter.filter(&key, false, false).unwrap().is_empty(), "an observer types nothing");
+        assert!(
+            filter.filter(&key, false, false).unwrap().is_empty(),
+            "an observer types nothing"
+        );
         // Split across frames, as a WebSocket may deliver it.
         assert!(filter.filter(&key[..5], true, false).unwrap().is_empty());
         let forwarded = filter.filter(&key[5..], true, false).unwrap();

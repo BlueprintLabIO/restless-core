@@ -173,7 +173,10 @@ pub(super) async fn save_spend_limit(
             "The spend limit changed. Reload the saved limit before trying again.",
         );
     }
-    if input.warning_percent.is_some_and(|percent| !(1..=99).contains(&percent)) {
+    if input
+        .warning_percent
+        .is_some_and(|percent| !(1..=99).contains(&percent))
+    {
         return api_error(
             StatusCode::BAD_REQUEST,
             "spend_limit",
@@ -245,7 +248,10 @@ pub(super) async fn save_spend_limit(
                     principal.actor_id(),
                     input.ceiling.as_usd()
                 );
-                if let Err(error) = org.send_message(principal.actor_id(), Some("exec"), &body).await {
+                if let Err(error) = org
+                    .send_message(principal.actor_id(), Some("exec"), &body)
+                    .await
+                {
                     tracing::warn!(%error, "could not tell Exec that the spend limit was raised");
                 }
             }
@@ -600,9 +606,7 @@ pub(super) async fn save_logo(
         let _write = state.charter_writes.lock().await;
         let mut config = match runtime::CompanyConfig::load(root, &company) {
             Ok(config) => config,
-            Err(error) => {
-                return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"))
-            }
+            Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
         };
         let name = match runtime::store_company_logo(root, &company, &body) {
             Ok(name) => name,
@@ -651,9 +655,7 @@ pub(super) async fn remove_logo(
         let _write = state.charter_writes.lock().await;
         let mut config = match runtime::CompanyConfig::load(root, &company) {
             Ok(config) => config,
-            Err(error) => {
-                return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"))
-            }
+            Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
         };
         if config.logo.take().is_some() {
             if let Err(error) = runtime::CompanyConfig::save(root, &config) {
@@ -704,7 +706,11 @@ mod logo_tests {
                 company: "aris".into(),
             },
             role: role.into(),
-            actor: Some(if role == "owner" { "owner".into() } else { "human-1".into() }),
+            actor: Some(if role == "owner" {
+                "owner".into()
+            } else {
+                "human-1".into()
+            }),
             company_id: Some(Uuid::new_v4()),
             cell_id: Some(Uuid::new_v4()),
             membership_id: Some("membership-1".into()),
@@ -731,7 +737,10 @@ mod logo_tests {
                     "Only the company's owner or an admin can do that."
                 );
             }
-            for other in ["/api/companies/aris/company/logo/extra", "/api/companies/aris/company"] {
+            for other in [
+                "/api/companies/aris/company/logo/extra",
+                "/api/companies/aris/company",
+            ] {
                 assert!(membership_boundary_violation(&Method::GET, other, &person).is_some());
             }
         }
@@ -795,10 +804,19 @@ pub(super) async fn save_legal_profile(
         Ok(config) => config,
         Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
     };
-    if let Err(error) =
-        legal::set_profile(&state.daemon.authority, &company, input, principal.actor_id()).await
+    if let Err(error) = legal::set_profile(
+        &state.daemon.authority,
+        &company,
+        input,
+        principal.actor_id(),
+    )
+    .await
     {
-        return api_error(StatusCode::BAD_REQUEST, "legal_profile", format!("{error:#}"));
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "legal_profile",
+            format!("{error:#}"),
+        );
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
 }
@@ -905,9 +923,10 @@ pub(super) async fn save_payment_allowance(
     };
     let Some(current) = current else {
         // A new allowance: the account it pays from, its payees and limits, in one record.
-        let (Some(source_account_ref), Some(beneficiary_refs)) =
-            (input.source_account_ref.clone(), input.beneficiary_refs.clone())
-        else {
+        let (Some(source_account_ref), Some(beneficiary_refs)) = (
+            input.source_account_ref.clone(),
+            input.beneficiary_refs.clone(),
+        ) else {
             return api_error(
                 StatusCode::NOT_FOUND,
                 "payment_allowance",
@@ -1190,8 +1209,10 @@ pub(super) async fn delete_company(
     )
     .await
     {
-        Ok(message) => Json(serde_json::json!({ "company": company, "deleted": true, "message": message }))
-            .into_response(),
+        Ok(message) => {
+            Json(serde_json::json!({ "company": company, "deleted": true, "message": message }))
+                .into_response()
+        }
         Err(e) => api_error(StatusCode::CONFLICT, "delete", format!("{e:#}")),
     }
 }
@@ -1266,14 +1287,18 @@ struct PaymentRailResult {
     probe_error: Option<String>,
 }
 
-async fn payment_rail_result(state: &OwnerState, config: &runtime::CompanyConfig) -> Response<Body> {
+async fn payment_rail_result(
+    state: &OwnerState,
+    config: &runtime::CompanyConfig,
+) -> Response<Body> {
     let (probe, probe_error) =
         match restless_engine::airwallex::probe_connection(config, &state.daemon.authority).await {
             Ok(probe) => (Some(probe), None),
             Err(e) => (None, Some(format!("{e:#}"))),
         };
-    let company = serde_json::to_value(company_projection::project(&state.daemon, config, false).await)
-        .unwrap_or_default();
+    let company =
+        serde_json::to_value(company_projection::project(&state.daemon, config, false).await)
+            .unwrap_or_default();
     Json(PaymentRailResult {
         company,
         probe,
@@ -1305,12 +1330,21 @@ pub(super) async fn save_payment_rail(
     let mut bound = false;
     for (binding, suffix, key) in [
         ("finance.airwallex.read", "read", input.read_key.as_deref()),
-        ("finance.airwallex.submit", "submit", input.submit_key.as_deref()),
+        (
+            "finance.airwallex.submit",
+            "submit",
+            input.submit_key.as_deref(),
+        ),
     ] {
-        let reference = format!("infisical:/companies/{company}/finance/airwallex/{suffix}/api-key");
+        let reference =
+            format!("infisical:/companies/{company}/finance/airwallex/{suffix}/api-key");
         if let Some(key) = key.map(str::trim).filter(|key| !key.is_empty()) {
-            if restless_engine::credential::store_reference(&reference, key).await.is_err()
-                || restless_engine::credential::probe_reference(&reference).await.status
+            if restless_engine::credential::store_reference(&reference, key)
+                .await
+                .is_err()
+                || restless_engine::credential::probe_reference(&reference)
+                    .await
+                    .status
                     != restless_engine::credential::ProbeStatus::Present
             {
                 return api_error(
@@ -1411,10 +1445,15 @@ pub(super) async fn decide_payee(
             "Only the owner can approve payees.",
         );
     }
-    let pending = restless_engine::finance::pending_payee_proposals(&state.daemon.authority, &company)
-        .await
-        .ok()
-        .and_then(|pending| pending.into_iter().find(|(record, _)| record.id == proposal));
+    let pending =
+        restless_engine::finance::pending_payee_proposals(&state.daemon.authority, &company)
+            .await
+            .ok()
+            .and_then(|pending| {
+                pending
+                    .into_iter()
+                    .find(|(record, _)| record.id == proposal)
+            });
     if let Err(e) = restless_engine::finance::decide_payee(
         &state.daemon.authority,
         &company,
@@ -1431,15 +1470,26 @@ pub(super) async fn decide_payee(
         let asker = record.actor_id.unwrap_or_else(|| "exec".into());
         let mut body = format!(
             "The owner {} {} as a {} payee.",
-            if input.approve { "approved" } else { "declined" },
+            if input.approve {
+                "approved"
+            } else {
+                "declined"
+            },
             payee.beneficiary_ref,
             payee.currency
         );
-        if let Some(note) = input.note.as_deref().map(str::trim).filter(|note| !note.is_empty()) {
+        if let Some(note) = input
+            .note
+            .as_deref()
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+        {
             body.push_str(&format!(" Their note: “{note}”"));
         }
         // A notice, not the owner's words: see the setting decision above.
-        let _ = org.ensure_actor("daemon", "system", "system-sender", "The daemon").await;
+        let _ = org
+            .ensure_actor("daemon", "system", "system-sender", "The daemon")
+            .await;
         if let Err(error) = org.send_message("daemon", Some(&asker), &body).await {
             tracing::warn!(%error, "could not tell the asker about a payee decision");
         }
@@ -1474,7 +1524,11 @@ pub(super) async fn decide_setting(
     let pending = restless_engine::setting_proposals::pending(&state.daemon.authority, &company)
         .await
         .ok()
-        .and_then(|pending| pending.into_iter().find(|(record, _)| record.id == proposal));
+        .and_then(|pending| {
+            pending
+                .into_iter()
+                .find(|(record, _)| record.id == proposal)
+        });
     if let Err(e) = restless_engine::setting_proposals::decide(
         &state.daemon.authority,
         &company,
@@ -1487,7 +1541,8 @@ pub(super) async fn decide_setting(
     {
         return api_error(StatusCode::CONFLICT, "setting", format!("{e:#}"));
     }
-    if let (Some((record, waiting)), Ok(org)) = (pending, state.daemon.orgintel.get(&company).await) {
+    if let (Some((record, waiting)), Ok(org)) = (pending, state.daemon.orgintel.get(&company).await)
+    {
         let asker = record.actor_id.unwrap_or_else(|| "exec".into());
         // "Set the spend limit to US$200" reads mid-sentence with only its first letter lowered.
         let summary = waiting.change.summary();
@@ -1501,12 +1556,19 @@ pub(super) async fn decide_setting(
         } else {
             format!("The owner declined your proposal to {what}. The setting stays as it is.")
         };
-        if let Some(note) = input.note.as_deref().map(str::trim).filter(|note| !note.is_empty()) {
+        if let Some(note) = input
+            .note
+            .as_deref()
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+        {
             body.push_str(&format!(" Their note: “{note}”"));
         }
         // A notice, not the owner's words: sent as the daemon so it never stands in for the
         // owner's reply to something else the asker is waiting on.
-        let _ = org.ensure_actor("daemon", "system", "system-sender", "The daemon").await;
+        let _ = org
+            .ensure_actor("daemon", "system", "system-sender", "The daemon")
+            .await;
         if let Err(error) = org.send_message("daemon", Some(&asker), &body).await {
             tracing::warn!(%error, "could not tell the asker about a setting decision");
         }
@@ -1526,7 +1588,11 @@ pub(super) async fn away_mode(
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
     if !matches!(principal.membership_role(), "owner" | "admin") {
-        return api_error(StatusCode::FORBIDDEN, "away", "Only the owner and admins see away mode.");
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "away",
+            "Only the owner and admins see away mode.",
+        );
     }
     match restless_engine::away::current(&state.daemon.authority, &company).await {
         Ok(away) => Json(AwayView { away }).into_response(),
@@ -1556,7 +1622,13 @@ pub(super) async fn start_away(
     }
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
-        Err(e) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{e:#}")),
+        Err(e) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{e:#}"),
+            )
+        }
     };
     match restless_engine::away::start(
         &state.daemon.authority,
@@ -1581,14 +1653,29 @@ pub(super) async fn end_away(
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
     if principal.membership_role() != "owner" {
-        return api_error(StatusCode::FORBIDDEN, "away", "Only the owner can end away mode.");
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "away",
+            "Only the owner can end away mode.",
+        );
     }
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
-        Err(e) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{e:#}")),
+        Err(e) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{e:#}"),
+            )
+        }
     };
-    match restless_engine::away::end(&state.daemon.authority, &org, &company, principal.actor_id())
-        .await
+    match restless_engine::away::end(
+        &state.daemon.authority,
+        &org,
+        &company,
+        principal.actor_id(),
+    )
+    .await
     {
         Ok(()) => Json(AwayView { away: None }).into_response(),
         Err(e) => api_error(StatusCode::SERVICE_UNAVAILABLE, "away", format!("{e:#}")),

@@ -89,7 +89,9 @@ pub(super) async fn list(
             Ok(rows) => Some(rows),
             Err(error) => return orgintel_error(error),
         }
-    } else { None };
+    } else {
+        None
+    };
     Json(json!({
         "availability": availability,
         "applications": applications,
@@ -312,11 +314,27 @@ pub(super) async fn install_from_catalogue(
     }
     let item = match restless_engine::app_catalogue::item(&input.key).await {
         Ok(Some(item)) => item,
-        Ok(None) => return api_error(StatusCode::NOT_FOUND, "catalogue", "That app is no longer in the catalogue."),
-        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "catalogue", error.to_string()),
+        Ok(None) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "catalogue",
+                "That app is no longer in the catalogue.",
+            )
+        }
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "catalogue",
+                error.to_string(),
+            )
+        }
     };
     if item.kind != "skill" {
-        return api_error(StatusCode::BAD_REQUEST, "catalogue", "Add a service by its address.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "catalogue",
+            "Add a service by its address.",
+        );
     }
     let org = match org_for(&state, &company).await {
         Ok(org) => org,
@@ -325,35 +343,61 @@ pub(super) async fn install_from_catalogue(
     let skill_md = match restless_engine::app_catalogue::skill_file(&item, "SKILL.md").await {
         Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
         Err(error) => {
-            return api_error(StatusCode::BAD_GATEWAY, "catalogue", format!("The skill could not be fetched: {error:#}"))
+            return api_error(
+                StatusCode::BAD_GATEWAY,
+                "catalogue",
+                format!("The skill could not be fetched: {error:#}"),
+            )
         }
     };
     let Some(name) = restless_contracts::skill_package::parse_frontmatter(&skill_md)
         .map(|frontmatter| frontmatter.name)
         .filter(|name| restless_orgintel::valid_skill_name(name))
     else {
-        return api_error(StatusCode::BAD_GATEWAY, "catalogue", "The skill's SKILL.md has no usable name.");
+        return api_error(
+            StatusCode::BAD_GATEWAY,
+            "catalogue",
+            "The skill's SKILL.md has no usable name.",
+        );
     };
     match org.skill(&name).await {
         Ok(None) => {}
         Ok(Some(_)) => {
-            return api_error(StatusCode::CONFLICT, "catalogue", "The company already has know-how with this name.")
+            return api_error(
+                StatusCode::CONFLICT,
+                "catalogue",
+                "The company already has know-how with this name.",
+            )
         }
         Err(error) => return orgintel_error(error),
     }
-    if !restless_engine::runtime_sleep::wake_for(&state.daemon, &company, "installing know-how").await {
+    if !restless_engine::runtime_sleep::wake_for(&state.daemon, &company, "installing know-how")
+        .await
+    {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "runtime",
             "The company computer is stopped, so know-how cannot be installed. Start it from Company → Computer.",
         );
     }
-    let dir = format!("{}/{name}", restless_contracts::skill_package::CANDIDATE_ROOT);
-    for file in item.files.iter().filter(|file| file.as_str() != "SKILL.md").take(60) {
+    let dir = format!(
+        "{}/{name}",
+        restless_contracts::skill_package::CANDIDATE_ROOT
+    );
+    for file in item
+        .files
+        .iter()
+        .filter(|file| file.as_str() != "SKILL.md")
+        .take(60)
+    {
         let bytes = match restless_engine::app_catalogue::skill_file(&item, file).await {
             Ok(bytes) => bytes,
             Err(error) => {
-                return api_error(StatusCode::BAD_GATEWAY, "catalogue", format!("{file} could not be fetched: {error:#}"))
+                return api_error(
+                    StatusCode::BAD_GATEWAY,
+                    "catalogue",
+                    format!("{file} could not be fetched: {error:#}"),
+                )
             }
         };
         if let Err(error) = crate::skills::write_skill_file(&company, &dir, file, &bytes).await {
@@ -364,8 +408,12 @@ pub(super) async fn install_from_catalogue(
         Ok(observed) => observed,
         Err(error) => return api_error(StatusCode::BAD_REQUEST, "catalogue", format!("{error:#}")),
     };
-    match org.register_skill_candidate(&observed, principal.actor_id(), None, None).await {
-        Ok(row) => Json(serde_json::json!({ "skill": row, "runs_scripts": item.runs_scripts })).into_response(),
+    match org
+        .register_skill_candidate(&observed, principal.actor_id(), None, None)
+        .await
+    {
+        Ok(row) => Json(serde_json::json!({ "skill": row, "runs_scripts": item.runs_scripts }))
+            .into_response(),
         Err(error) => orgintel_error(error),
     }
 }

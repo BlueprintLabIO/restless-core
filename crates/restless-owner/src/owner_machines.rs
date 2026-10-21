@@ -5,11 +5,13 @@
 //! pairing code or the machine's own credential.
 use super::*;
 use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
-use futures_util::{SinkExt as _, StreamExt as _};
 use axum::http::header::AUTHORIZATION;
+use futures_util::{SinkExt as _, StreamExt as _};
 use restless_engine::machines::{self, WireMessage};
+use restless_machine::protocol::{
+    PairRequest, CONNECT_PS1_PATH, CONNECT_SH_PATH, LINK_PATH, PAIR_PATH,
+};
 use serde_json::{json, Value};
-use restless_machine::protocol::{PairRequest, CONNECT_PS1_PATH, CONNECT_SH_PATH, LINK_PATH, PAIR_PATH};
 
 /// Where a new machine fetches the image it starts from, with its pairing code.
 pub(crate) const HELPER_IMAGE_PATH: &str = "/machines/helper-image";
@@ -17,7 +19,10 @@ const PAIRING_HEADER: &str = "x-restless-pairing";
 
 /// Paths a machine reaches without a browser session.
 pub(crate) fn is_machine_path(path: &str) -> bool {
-    matches!(path, PAIR_PATH | LINK_PATH | CONNECT_SH_PATH | CONNECT_PS1_PATH | HELPER_IMAGE_PATH)
+    matches!(
+        path,
+        PAIR_PATH | LINK_PATH | CONNECT_SH_PATH | CONNECT_PS1_PATH | HELPER_IMAGE_PATH
+    )
 }
 
 fn refuse(error: anyhow::Error) -> Response<Body> {
@@ -26,13 +31,21 @@ fn refuse(error: anyhow::Error) -> Response<Body> {
         api_error(StatusCode::BAD_REQUEST, "machines", message)
     } else {
         tracing::warn!(error = %message, "machine change failed");
-        api_error(StatusCode::SERVICE_UNAVAILABLE, "machines", "Computers could not be changed. Try again.")
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "machines",
+            "Computers could not be changed. Try again.",
+        )
     }
 }
 
 fn owner_only(principal: &RequestPrincipal) -> Option<Response<Body>> {
     (!principal.is_account_owner()).then(|| {
-        api_error(StatusCode::FORBIDDEN, "machines", "Only the account owner manages computers.")
+        api_error(
+            StatusCode::FORBIDDEN,
+            "machines",
+            "Only the account owner manages computers.",
+        )
     })
 }
 
@@ -42,12 +55,23 @@ fn owner_only(principal: &RequestPrincipal) -> Option<Response<Body>> {
 /// used.
 fn plane_origin(state: &OwnerState, headers: &HeaderMap) -> Option<String> {
     if let Some(network) = state.entry.network() {
-        let scheme = if network.issuer().starts_with("http://") { "http" } else { "https" };
+        let scheme = if network.issuer().starts_with("http://") {
+            "http"
+        } else {
+            "https"
+        };
         let configured = valid_host(network.host())?;
         // The configured host carries no port; keep the one the browser used to reach it.
-        let reached = headers.get(HOST).and_then(|value| value.to_str().ok()).and_then(valid_host);
+        let reached = headers
+            .get(HOST)
+            .and_then(|value| value.to_str().ok())
+            .and_then(valid_host);
         let host = match reached {
-            Some(reached) if reached.rsplit_once(':').map_or(reached, |(name, _)| name) == configured => reached,
+            Some(reached)
+                if reached.rsplit_once(':').map_or(reached, |(name, _)| name) == configured =>
+            {
+                reached
+            }
             _ => configured,
         };
         return Some(format!("{scheme}://{host}"));
@@ -56,16 +80,27 @@ fn plane_origin(state: &OwnerState, headers: &HeaderMap) -> Option<String> {
 }
 
 fn valid_host(host: &str) -> Option<&str> {
-    (!host.is_empty() && host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']')))
-        .then_some(host)
+    (!host.is_empty()
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']')))
+    .then_some(host)
 }
 
 /// The origin a browser used, from its Host (Cloud's edge sends an empty X-Forwarded-Host).
 fn request_origin(headers: &HeaderMap) -> Option<String> {
-    let named = |name: &str| headers.get(name).and_then(|value| value.to_str().ok()).filter(|value| !value.is_empty());
+    let named = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.is_empty())
+    };
     let host = valid_host(named("x-forwarded-host").or_else(|| named(HOST.as_str()))?)?;
     let bare = host.rsplit_once(':').map_or(host, |(name, _)| name);
-    let local = bare == "localhost" || bare.ends_with(".localhost") || bare == "127.0.0.1" || bare == "[::1]";
+    let local = bare == "localhost"
+        || bare.ends_with(".localhost")
+        || bare == "127.0.0.1"
+        || bare == "[::1]";
     let scheme = headers
         .get("x-forwarded-proto")
         .and_then(|value| value.to_str().ok())
@@ -114,7 +149,11 @@ pub(super) async fn create_pairing(
         return refusal;
     }
     let Some(origin) = plane_origin(&state, &headers) else {
-        return api_error(StatusCode::BAD_REQUEST, "machines", "This plane's address is unknown.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "machines",
+            "This plane's address is unknown.",
+        );
     };
     match machines::create_pairing(state.daemon.authority.pool(), input.label.as_deref()).await {
         Ok(pairing) => (
@@ -163,7 +202,11 @@ pub(super) async fn change(
     }
     match machines::get(pool, &id).await {
         Ok(Some(machine)) => Json(machine).into_response(),
-        Ok(None) => api_error(StatusCode::NOT_FOUND, "machines", "That computer no longer exists."),
+        Ok(None) => api_error(
+            StatusCode::NOT_FOUND,
+            "machines",
+            "That computer no longer exists.",
+        ),
         Err(error) => refuse(error),
     }
 }
@@ -189,17 +232,26 @@ pub(super) async fn company(
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
     if !principal.permits_company(&company) {
-        return api_error(StatusCode::FORBIDDEN, "machines", "You are not in that company.");
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "machines",
+            "You are not in that company.",
+        );
     }
     let pool = state.daemon.authority.pool();
-    let (assignments, held) = match (machines::company_assignments(pool, &company).await, machines::list(pool).await) {
+    let (assignments, held) = match (
+        machines::company_assignments(pool, &company).await,
+        machines::list(pool).await,
+    ) {
         (Ok(assignments), Ok(held)) => (assignments, held),
         (Err(error), _) | (_, Err(error)) => return refuse(error),
     };
     let rows: Vec<Value> = assignments
         .into_iter()
         .filter_map(|assignment| {
-            let machine = held.iter().find(|machine| machine.id == assignment.machine_id)?;
+            let machine = held
+                .iter()
+                .find(|machine| machine.id == assignment.machine_id)?;
             Some(json!({
                 "id": machine.id,
                 "label": machine.label,
@@ -259,9 +311,20 @@ pub(super) async fn assign_helper(
         return refusal;
     }
     if input.machine_id == machines::PLANE_MACHINE {
-        return api_error(StatusCode::BAD_REQUEST, "machines", "The plane already serves every company.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "machines",
+            "The plane already serves every company.",
+        );
     }
-    match machines::assign(state.daemon.authority.pool(), &company, &input.machine_id, machines::ROLE_HELPER).await {
+    match machines::assign(
+        state.daemon.authority.pool(),
+        &company,
+        &input.machine_id,
+        machines::ROLE_HELPER,
+    )
+    .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => refuse(error),
     }
@@ -284,9 +347,20 @@ pub(super) async fn unassign(
 // ---------------------------------------------------------------------------------------------
 // The machine side.
 
-pub(crate) async fn pair(State(state): State<OwnerState>, headers: HeaderMap, Json(input): Json<PairRequest>) -> Response<Body> {
+pub(crate) async fn pair(
+    State(state): State<OwnerState>,
+    headers: HeaderMap,
+    Json(input): Json<PairRequest>,
+) -> Response<Body> {
     let address = observed_address(&headers);
-    match machines::pair(state.daemon.authority.pool(), &input.code, input.facts, address.as_deref()).await {
+    match machines::pair(
+        state.daemon.authority.pool(),
+        &input.code,
+        input.facts,
+        address.as_deref(),
+    )
+    .await
+    {
         Ok(paired) => Json(paired).into_response(),
         Err(error) => {
             let message = format!("{error:#}");
@@ -294,13 +368,21 @@ pub(crate) async fn pair(State(state): State<OwnerState>, headers: HeaderMap, Js
                 api_error(StatusCode::FORBIDDEN, "pairing", message)
             } else {
                 tracing::warn!(error = %message, "pairing failed");
-                api_error(StatusCode::SERVICE_UNAVAILABLE, "pairing", "Pairing could not be saved. Try again.")
+                api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "pairing",
+                    "Pairing could not be saved. Try again.",
+                )
             }
         }
     }
 }
 
-pub(crate) async fn link(State(state): State<OwnerState>, headers: HeaderMap, websocket: WebSocketUpgrade) -> Response<Body> {
+pub(crate) async fn link(
+    State(state): State<OwnerState>,
+    headers: HeaderMap,
+    websocket: WebSocketUpgrade,
+) -> Response<Body> {
     let credential = headers
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -310,10 +392,20 @@ pub(crate) async fn link(State(state): State<OwnerState>, headers: HeaderMap, we
     let pool = state.daemon.authority.pool().clone();
     let (machine_id, epoch) = match machines::authenticate(&pool, &credential).await {
         Ok(Some(found)) => found,
-        Ok(None) => return api_error(StatusCode::UNAUTHORIZED, "machine", "This computer is not paired with this plane."),
+        Ok(None) => {
+            return api_error(
+                StatusCode::UNAUTHORIZED,
+                "machine",
+                "This computer is not paired with this plane.",
+            )
+        }
         Err(error) => {
             tracing::warn!(error = %format!("{error:#}"), "machine authentication failed");
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "machine", "Try again shortly.");
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "machine",
+                "Try again shortly.",
+            );
         }
     };
     let address = observed_address(&headers);
@@ -357,15 +449,37 @@ pub(crate) async fn link(State(state): State<OwnerState>, headers: HeaderMap, we
 
 /// The image a new machine starts from (the plane's company image, which carries the helper), for
 /// a pairing code that is still open. It streams `docker save`; the install script loads it.
-pub(crate) async fn helper_image(State(state): State<OwnerState>, headers: HeaderMap) -> Response<Body> {
-    let code = headers.get(PAIRING_HEADER).and_then(|value| value.to_str().ok()).unwrap_or_default();
+pub(crate) async fn helper_image(
+    State(state): State<OwnerState>,
+    headers: HeaderMap,
+) -> Response<Body> {
+    let code = headers
+        .get(PAIRING_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
     match machines::pairing_is_open(state.daemon.authority.pool(), code).await {
         Ok(true) => {}
-        Ok(false) => return api_error(StatusCode::FORBIDDEN, "pairing", "That code has expired or was already used."),
-        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "pairing", "Try again shortly."),
+        Ok(false) => {
+            return api_error(
+                StatusCode::FORBIDDEN,
+                "pairing",
+                "That code has expired or was already used.",
+            )
+        }
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "pairing",
+                "Try again shortly.",
+            )
+        }
     }
     let Some(image) = machines::allowed_images().await.into_iter().next() else {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "pairing", "This plane has no company image to share yet.");
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pairing",
+            "This plane has no company image to share yet.",
+        );
     };
     let child = tokio::process::Command::new("docker")
         .args(["save", &image.id])
@@ -374,39 +488,72 @@ pub(crate) async fn helper_image(State(state): State<OwnerState>, headers: Heade
         .kill_on_drop(true)
         .spawn();
     let Ok(mut child) = child else {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "pairing", "The plane could not read its image.");
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pairing",
+            "The plane could not read its image.",
+        );
     };
     let stdout = child.stdout.take().unwrap();
     tokio::spawn(async move {
         let _ = child.wait().await;
     });
-    let body = Body::from_stream(tokio_util::io::ReaderStream::with_capacity(stdout, 256 * 1024));
+    let body = Body::from_stream(tokio_util::io::ReaderStream::with_capacity(
+        stdout,
+        256 * 1024,
+    ));
     let mut response = Response::new(body);
     response
         .headers_mut()
         .insert(CONTENT_TYPE, HeaderValue::from_static("application/x-tar"));
-    response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }
 
 const CONNECT_SH: &str = include_str!("machine_connect.sh");
 const CONNECT_PS1: &str = include_str!("machine_connect.ps1");
 
-fn script(state: &OwnerState, headers: &HeaderMap, template: &str, content_type: &'static str) -> Response<Body> {
+fn script(
+    state: &OwnerState,
+    headers: &HeaderMap,
+    template: &str,
+    content_type: &'static str,
+) -> Response<Body> {
     let Some(origin) = plane_origin(state, headers) else {
-        return api_error(StatusCode::BAD_REQUEST, "machines", "This plane's address is unknown.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "machines",
+            "This plane's address is unknown.",
+        );
     };
     let mut response = Response::new(Body::from(template.replace("__RESTLESS_PLANE__", &origin)));
-    response.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
-    response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }
 
-pub(crate) async fn connect_sh(State(state): State<OwnerState>, headers: HeaderMap) -> Response<Body> {
-    script(&state, &headers, CONNECT_SH, "text/x-shellscript; charset=utf-8")
+pub(crate) async fn connect_sh(
+    State(state): State<OwnerState>,
+    headers: HeaderMap,
+) -> Response<Body> {
+    script(
+        &state,
+        &headers,
+        CONNECT_SH,
+        "text/x-shellscript; charset=utf-8",
+    )
 }
 
-pub(crate) async fn connect_ps1(State(state): State<OwnerState>, headers: HeaderMap) -> Response<Body> {
+pub(crate) async fn connect_ps1(
+    State(state): State<OwnerState>,
+    headers: HeaderMap,
+) -> Response<Body> {
     script(&state, &headers, CONNECT_PS1, "text/plain; charset=utf-8")
 }
 
@@ -419,10 +566,16 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(HOST, HeaderValue::from_static("owner-ab12.restless.run"));
         headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
-        assert_eq!(request_origin(&headers).as_deref(), Some("https://owner-ab12.restless.run"));
+        assert_eq!(
+            request_origin(&headers).as_deref(),
+            Some("https://owner-ab12.restless.run")
+        );
         // As Cloud's edge sends it: an empty forwarded host beside the real one.
         headers.insert("x-forwarded-host", HeaderValue::from_static(""));
-        assert_eq!(request_origin(&headers).as_deref(), Some("https://owner-ab12.restless.run"));
+        assert_eq!(
+            request_origin(&headers).as_deref(),
+            Some("https://owner-ab12.restless.run")
+        );
         headers.insert(HOST, HeaderValue::from_static("evil.example/$(rm -rf ~)"));
         assert_eq!(request_origin(&headers), None);
     }
@@ -433,6 +586,10 @@ mod tests {
             assert!(template.contains("__RESTLESS_PLANE__"));
             assert!(!template.to_lowercase().contains("token"));
         }
-        assert!(is_machine_path("/connect") && is_machine_path("/machines/link") && !is_machine_path("/api/machines"));
+        assert!(
+            is_machine_path("/connect")
+                && is_machine_path("/machines/link")
+                && !is_machine_path("/api/machines")
+        );
     }
 }
