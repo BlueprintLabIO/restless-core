@@ -114,3 +114,51 @@ swapfile was added as a net.
 
 Each ticket is checked live on Cloud as owner and member, at desktop and phone widths, with
 screenshots looked at. A UI-only release is shipped once to prove no company restarted.
+
+## Triage cross-check (22 Oct)
+
+Each line of the owner's 21 October triage list, against what shipped:
+
+**Decisions**
+- **D1 Split deploys:** A1 (a UI-only release restarts no company, #422), the plane holds a bundle until it is quiet (restless-cloud#120), and sessions resume (A3, #414).
+- **D2 Inbox rule:** B1 and B2.
+- **D3 Inject DMs:** C3 (#412).
+- **D4 Singapore, always on, "personal" browsers:** the plane stays in Singapore. Browsers are personal through F3 (the owner's timezone and language, Chrome stable), F5 (one sign-in for both browsers) and F2 (each company's own computer container).
+- **D5 Computer stack:** F2 (own container, #431), F3 (Chrome stable, #430), F4 (Chrome's screen feed with the desktop one switch away, #423).
+- **D6 Library:** E2 (outputs indexed) and E3 (responsive).
+- **D7 Comp flag:** D4 (unlimited credit, restless-cloud#118).
+- **D8 Measure, then the smallest plane:** measured from the plane heartbeat (memory, restless-cloud#118).
+  - At 4 GB (cpx22), four awake companies thrashed the plane twice (21–22 Oct).
+  - At 8 GB (cpx32, owner's choice 22 Oct), on release 11 with computers split out: the four computers use 0.4–0.75 GB each (2.5 GB limit), the Runtimes 50–240 MB each, and 2.5 GB of the 7.7 GB stays available.
+  - So 8 GB is the smallest size that holds four awake companies. 4 GB is enough for two.
+
+**Reliability**
+- Release restarts: A1.
+- Sessions not resumed: A3.
+- Stop while reconnecting: A4.
+- "No model connection": A5 (#416).
+- Exec waving off platform faults: A6.
+- DBOS: no, as decided.
+
+**Attention:** Exec raising Inbox items (B1) and the duplicate budget item (B2). The repeat raise prompt that made Reno US$440 is fixed in #428.
+
+**Chat:** C1–C6.
+
+**Models:** one picker (D1), every provider including Meta Muse (D2, #411), usage limits (D3).
+
+**Library:** E1–E3.
+
+**Computer and browser**
+- Expand: F1.
+- Desktop not answering: F9.
+- Blurry VNC: F4.
+- Website login "California": F8. It's Facebook judging the datacenter IP, and the fix is S99 machines.
+- **Authenticator secret:** the design shipped. Each login has an isolated browser. The plane types secrets only on the login's own domains (`fill`, with Enter in the same call). Agents can't read cookies or storage, and since S1 stage 2 they can't run page script, which answers F7's question about reading a filled password field.
+- **Getting to Aside's level:** the act tool is the Stagehand-style layer: open, read (the accessibility tree, as extract and observe), click, type, scroll and screenshot.
+
+**Polish:** pill filters (H1), the connection error screens (A7), the favicon everywhere (H3), app store refresh (H2).
+
+**Open threads**
+- Cost: the measurement under D8.
+- Company sleep is on for hosted planes (#407, #409).
+
