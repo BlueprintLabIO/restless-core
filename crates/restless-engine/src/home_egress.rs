@@ -19,8 +19,9 @@ use sqlx::PgPool;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 
-/// The plane port company containers send their web traffic to when they have home sites.
-pub const HOME_EGRESS_PORT: u16 = 7796;
+/// The plane port company containers send their web traffic to when they have home sites. 7796 is
+/// the OMP model auth gateway's and 7797 the bundled Postgres; release 12 failed when this took 7796.
+pub const HOME_EGRESS_PORT: u16 = 7799;
 
 /// Which company each company container address belongs to, refreshed when an address is unknown.
 static CALLERS: LazyLock<Mutex<(HashMap<IpAddr, String>, Option<Instant>)>> =
@@ -197,6 +198,25 @@ async fn handle(pool: &PgPool, mut stream: TcpStream, peer: IpAddr) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_proxy_port_is_its_own() {
+        for taken in [
+            crate::daemon::COORD_TCP_PORT,
+            crate::model_gateway::RUNTIME_RELAY_PORT,
+            crate::ingress::INGRESS_PORT,
+            crate::airwallex_ingress::AIRWALLEX_INGRESS_PORT,
+            7788, // the owner service
+            7796, // the OMP model auth gateway
+            7797, // the bundled Postgres
+        ] {
+            assert_ne!(HOME_EGRESS_PORT, taken);
+        }
+        assert!(
+            HOME_EGRESS_PORT < 7800,
+            "7800 and up are the model gateway slots"
+        );
+    }
 
     #[test]
     fn home_sites_cover_their_subdomains_only() {
