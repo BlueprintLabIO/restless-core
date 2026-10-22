@@ -83,15 +83,15 @@ RUN set -eu; \
         --connect-timeout 30 "$1" --output "$2"; }; \
     case "$TARGETARCH" in \
         amd64) \
-            fetch "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_155.0.8059.84-1_amd64.deb" /tmp/chrome.deb; \
-            printf '%s  %s\n' 8fbd2ae69cdf7ee98b7513c3396a7b5e06f974f8625fdd590df3091dd0c3e9de /tmp/chrome.deb | sha256sum --check --status; \
+            fetch "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_156.0.8078.47-1_amd64.deb" /tmp/chrome.deb; \
+            printf '%s  %s\n' 6c92cd22e90c6e3e255d782991543fa2091db8614e8536a971a7433a5c4d7ac8 /tmp/chrome.deb | sha256sum --check --status; \
             dpkg-deb -x /tmp/chrome.deb /tmp/chrome; \
             mkdir -p /browser; \
             mv /tmp/chrome/opt/google/chrome /browser/chrome; \
             rm -rf /tmp/chrome /tmp/chrome.deb ;; \
         arm64) \
-            fetch "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.84/linux-arm64/chrome-linux-arm64.zip" /tmp/chrome.zip; \
-            printf '%s  %s\n' 1692a407908867de88eb1f1b2a93ca47c348d8fb2e3c04752d966e0f2e0344b4 /tmp/chrome.zip | sha256sum --check --status; \
+            fetch "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/linux-arm64/chrome-linux-arm64.zip" /tmp/chrome.zip; \
+            printf '%s  %s\n' 9e37000e3ee2731e45e475a6a2eac587d3c0ee5f8aef7cab5211ecd52cf3fb7b /tmp/chrome.zip | sha256sum --check --status; \
             unzip -q /tmp/chrome.zip -d /browser; \
             mv /browser/chrome-linux-arm64 /browser/chrome; \
             rm /tmp/chrome.zip ;; \
