@@ -620,6 +620,11 @@ pub struct CompanyConfig {
     /// stops model work. `None` warns at [`DEFAULT_SPEND_WARNING_PERCENT`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spend_warning_percent: Option<u8>,
+    /// Spend already counted when the owner last changed the limit (S104). The warning then
+    /// fires at its share of the headroom that change gave, not again at once: a raise to US$220
+    /// with US$193 spent left a fresh "Raise the limit" card, and a second save made it US$440.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend_warning_baseline: Option<SpendWarningBaseline>,
     /// Optional monthly running-time cap. It gates new Runtime starts and does
     /// not stop work that is already running. This is a capacity policy, not a
     /// representation of the provider's invoice.
@@ -4713,6 +4718,15 @@ async fn run_ok(args: &[&str]) -> Result<()> {
 }
 
 /// The state root: $RESTLESS_HOME or ~/.restless.
+/// Period spend at the owner's last limit change, and the UTC month it was counted in (`None`
+/// for a total budget). A baseline from an earlier month no longer applies.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SpendWarningBaseline {
+    pub micro_usd: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub month: Option<String>,
+}
+
 /// The owner's timezone and language as their own browser reported them, for
 /// the company browsers (S104 F3).
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -5577,6 +5591,7 @@ worker_harness = "claude_agent"
             spend_ceiling_usd: SpendCeiling::from_micro_usd(5_000_000),
             spend_period: Default::default(),
             spend_warning_percent: None,
+            spend_warning_baseline: None,
             monthly_runtime_cap_hours: None,
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,

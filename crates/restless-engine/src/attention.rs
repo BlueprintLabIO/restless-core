@@ -707,7 +707,7 @@ fn spend_warning_item(
     }
     let monthly = period.period_start.is_some();
     // When the warning share was crossed, from the ledger's own records; the item keeps one age.
-    let threshold = u128::from(period.ceiling_micro_usd) * u128::from(period.warning_percent) / 100;
+    let threshold = period.warning_threshold();
     let crossed_at = spend_crossed_at(config, spend, &period, threshold);
     let reference = format!(
         "{}:{}:{}",
