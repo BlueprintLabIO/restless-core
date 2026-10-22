@@ -71,23 +71,33 @@ FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca
 # The tool sandbox already points UV_CACHE_DIR at the company's tool cache.
 FROM ghcr.io/astral-sh/uv:0.9.7@sha256:ba4857bf2a068e9bc0e64eed8563b065908a4cd6bfb66b531a9c424c8e25e142 AS uv-runtime
 
+# Real Google Chrome on amd64 (S104 F3): the stable channel at a pinned version, with Widevine and
+# the stable user agent sites expect from a person's browser. Google builds no stable Chrome for
+# arm64, which keeps Chrome for Testing at the same version. Both land at /browser/chrome/chrome.
 FROM --platform=$BUILDPLATFORM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60 AS browser-runtime
 ARG TARGETARCH
 RUN set -eu; \
-    case "$TARGETARCH" in \
-        amd64) browser_platform=linux64; browser_sha256=cf0f049892dea22e6a6db26d47ed0d7776b7158edcbec4634086633df8bafcbc ;; \
-        arm64) browser_platform=linux-arm64; browser_sha256=1692a407908867de88eb1f1b2a93ca47c348d8fb2e3c04752d966e0f2e0344b4 ;; \
-        *) echo "Unsupported browser architecture: $TARGETARCH" >&2; exit 1 ;; \
-    esac; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl unzip; \
-    curl --fail --location --show-error --retry 3 --connect-timeout 30 \
-        "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.84/${browser_platform}/chrome-${browser_platform}.zip" \
-        --output /tmp/chrome.zip; \
-    printf '%s  %s\n' "$browser_sha256" /tmp/chrome.zip | sha256sum --check --status; \
-    unzip -q /tmp/chrome.zip -d /browser; \
-    mv "/browser/chrome-${browser_platform}" /browser/chrome; \
-    rm /tmp/chrome.zip
+    fetch() { curl --fail --location --show-error --retry 5 --retry-all-errors --retry-delay 2 \
+        --connect-timeout 30 "$1" --output "$2"; }; \
+    case "$TARGETARCH" in \
+        amd64) \
+            fetch "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_155.0.8059.84-1_amd64.deb" /tmp/chrome.deb; \
+            printf '%s  %s\n' 8fbd2ae69cdf7ee98b7513c3396a7b5e06f974f8625fdd590df3091dd0c3e9de /tmp/chrome.deb | sha256sum --check --status; \
+            dpkg-deb -x /tmp/chrome.deb /tmp/chrome; \
+            mkdir -p /browser; \
+            mv /tmp/chrome/opt/google/chrome /browser/chrome; \
+            rm -rf /tmp/chrome /tmp/chrome.deb ;; \
+        arm64) \
+            fetch "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.84/linux-arm64/chrome-linux-arm64.zip" /tmp/chrome.zip; \
+            printf '%s  %s\n' 1692a407908867de88eb1f1b2a93ca47c348d8fb2e3c04752d966e0f2e0344b4 /tmp/chrome.zip | sha256sum --check --status; \
+            unzip -q /tmp/chrome.zip -d /browser; \
+            mv /browser/chrome-linux-arm64 /browser/chrome; \
+            rm /tmp/chrome.zip ;; \
+        *) echo "Unsupported browser architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    test -x /browser/chrome/chrome
 
 FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60 AS runtime-desktop
 COPY --from=node-runtime /usr/local/ /usr/local/
