@@ -136,6 +136,13 @@ const SCAN_EXCEPTIONS = [
     '/usr/local/lib/node_modules/npm/node_modules/http-cache-semantics/package.json',
     '/usr/local/lib/node_modules/pnpm/dist/node_modules/http-cache-semantics/package.json',
   ] },
+  // Owner-approved waiver, 2026-10-23. The fix (156.0.8087.47) is not published on Google's stable
+  // channel or Chrome for Testing yet. Blocking this release kept production on 155.0.8059.84 with
+  // about twenty Critical CVEs that 156.0.8078.47 fixes. Exact version and SBOM path only; it expires
+  // in five days, and Chrome moves to the fixed build as soon as Google publishes it.
+  { id: 'CVE-2026-113344', name: 'chrome', version: '156.0.8078.47', until: '2026-10-27', locations: [
+    '/usr/local/share/restless/browser.cdx.json',
+  ] },
 ];
 
 /** Grype config that ignores the exceptions still in force on the scan day, at their exact paths. */
