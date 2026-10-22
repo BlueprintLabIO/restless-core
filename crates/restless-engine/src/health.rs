@@ -469,6 +469,11 @@ pub fn classify_provider_error_content(text: &str) -> Option<Blocked> {
 
     let first = trimmed.lines().next().unwrap_or(trimmed).trim();
     let lower = first.to_ascii_lowercase();
+    // Claude Code's own message when it cannot reach the model API. As a turn's whole answer it
+    // is a dropped connection to retry, not Work to review (Potion Scheme, 21 Oct, twice).
+    if lower.starts_with("unable to connect") && lower.contains("access the url") {
+        return Some(Blocked::transport(first));
+    }
     let status_prefix = [
         "401", "402", "403", "404", "413", "429", "500", "502", "503", "504",
     ]
@@ -881,6 +886,17 @@ mod tests {
         let result = classify_provider_error(error).unwrap();
         assert_eq!(result.kind, BlockKind::Transport);
         assert!(result.detail.contains("invalid JSON"));
+    }
+
+    #[test]
+    fn claude_codes_connection_error_is_a_transport_failure() {
+        let blocked = classify_provider_error_content(
+            "Unable to connect. Is the computer able to access the url?",
+        )
+        .unwrap();
+        assert!(matches!(blocked.kind, BlockKind::Transport));
+        assert!(is_provider_failover_kind(blocked.kind));
+        assert!(classify_provider_error_content("Unable to connect the two boards yet.").is_none());
     }
 
     #[test]

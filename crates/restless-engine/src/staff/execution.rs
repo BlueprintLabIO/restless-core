@@ -1494,6 +1494,16 @@ impl StaffDrive {
                 &end.transcript().tool_calls,
             );
             let steered = turn.is_cancelled() && !self.cancellation.is_cancelled();
+            // A Work turn whose whole answer is a provider or connection error did no work: it is
+            // a failover to retry, not a result to ask the completion protocol about.
+            if !steered && !self.turn_kind.is_conversation() {
+                if let Some(blocked) =
+                    health::classify_provider_error_content(&end.transcript().last_message_text)
+                        .filter(|blocked| health::is_provider_failover_kind(blocked.kind))
+                {
+                    return Ok((Termination::Blocked, blocked.message(), spent, None));
+                }
+            }
             if steered {
                 tracing::info!(actor = %self.event_actor, "owner message steered a running Work turn");
             } else if let Some(halt) = staff_halt(&end) {
