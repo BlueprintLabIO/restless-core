@@ -1067,6 +1067,7 @@ fn desired_company_config(
         spend_period: Default::default(),
         spend_warning_percent: None,
         spend_warning_baseline: None,
+        home_sites: Vec::new(),
         monthly_runtime_cap_hours: None,
         native_monthly_turn_limit: None,
         native_monthly_token_limit: None,

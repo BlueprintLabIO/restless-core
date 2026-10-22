@@ -2597,7 +2597,8 @@ fn main() -> Result<()> {
                 format!("RESTLESS_COMPANY={name}"),
                 "-e".to_string(),
                 "RESTLESS_ACTOR=owner".to_string(),
-                restless_contracts::appliance::MachineProfile::from_env()?.docker_container_name(&name),
+                restless_contracts::appliance::MachineProfile::from_env()?
+                    .docker_container_name(&name),
             ]);
             if command.is_empty() {
                 args.push("bash".to_string());
@@ -2842,14 +2843,24 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Tools { company, command } => {
             let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
             match command {
-                ToolsCommand::List { name } => serde_json::json!({ "cmd": "tools-list", "company": company, "tool": name }),
-                ToolsCommand::Check { name } => serde_json::json!({ "cmd": "tools-check", "company": company, "tool": name }),
+                ToolsCommand::List { name } => {
+                    serde_json::json!({ "cmd": "tools-list", "company": company, "tool": name })
+                }
+                ToolsCommand::Check { name } => {
+                    serde_json::json!({ "cmd": "tools-check", "company": company, "tool": name })
+                }
             }
         }
         Command::Job { company, command } => {
             let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
             match command {
-                JobCommand::Run { cpus, memory, timeout, workdir, command } => serde_json::json!({
+                JobCommand::Run {
+                    cpus,
+                    memory,
+                    timeout,
+                    workdir,
+                    command,
+                } => serde_json::json!({
                     "cmd": "job-run",
                     "company": company,
                     "job": {
@@ -2867,7 +2878,11 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 }),
             }
         }
-        Command::Decide { company, state, questions } => serde_json::json!({
+        Command::Decide {
+            company,
+            state,
+            questions,
+        } => serde_json::json!({
             "cmd": "decision-ask",
             "company": company.context("no company: pass -c or set RESTLESS_COMPANY")?,
             "decision": { "state": decision_arg(&state, true)?, "questions": decision_arg(&questions, false)? },
@@ -3133,7 +3148,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 };
                 let mut body = change;
                 body["reason"] = serde_json::Value::String(reason);
-                body["work_id"] = work.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null);
+                body["work_id"] = work
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null);
                 serde_json::json!({
                     "cmd": "setting-propose", "company": company,
                     "body": body.to_string(),
@@ -3719,11 +3736,23 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             None | Some(GoalCommand::List) => {
                 serde_json::json!({ "cmd": "goals", "company": company })
             }
-            Some(GoalCommand::Add { title, body, done_when, due, team }) => serde_json::json!({
+            Some(GoalCommand::Add {
+                title,
+                body,
+                done_when,
+                due,
+                team,
+            }) => serde_json::json!({
                 "cmd": "goal-add", "company": company, "title": title, "body": body,
                 "done_when": done_when, "due": due, "team_name": team, "actor": acting_actor(),
             }),
-            Some(GoalCommand::Update { goal, title, done_when, due, team }) => serde_json::json!({
+            Some(GoalCommand::Update {
+                goal,
+                title,
+                done_when,
+                due,
+                team,
+            }) => serde_json::json!({
                 "cmd": "goal-update", "company": company, "goal": goal, "title": title,
                 "done_when": done_when, "due": due, "team_name": team, "actor": acting_actor(),
             }),
@@ -4346,8 +4375,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
 fn read_json_file(path: &PathBuf) -> Result<serde_json::Value> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("read JSON input from {}", path.display()))?;
-    serde_json::from_str(&text)
-        .with_context(|| format!("parse JSON input from {}", path.display()))
+    serde_json::from_str(&text).with_context(|| format!("parse JSON input from {}", path.display()))
 }
 
 fn read_secret_source(source: &str) -> Result<String> {
@@ -4750,15 +4778,15 @@ fn commission(input: Commission) -> Result<serde_json::Value> {
     let people = daemon_request(serde_json::json!({ "cmd": "people", "company": company }))?;
     let existing = people
         .as_array()
-        .and_then(|rows| rows.iter().find(|row| row["actor_id"] == input.lead.as_str()))
+        .and_then(|rows| {
+            rows.iter()
+                .find(|row| row["actor_id"] == input.lead.as_str())
+        })
         .cloned();
     let (role, appointed) = match existing {
         Some(row) => (row["role"].as_str().unwrap_or_default().to_string(), false),
         None => {
-            let role = input
-                .role
-                .clone()
-                .context("the lead is new: pass --role")?;
+            let role = input.role.clone().context("the lead is new: pass --role")?;
             daemon_request(serde_json::json!({
                 "cmd": "actor-create", "company": company, "as_actor": input.lead,
                 "role": role, "name": "auto",
@@ -4771,7 +4799,10 @@ fn commission(input: Commission) -> Result<serde_json::Value> {
     let teams = daemon_request(serde_json::json!({ "cmd": "teams", "company": company }))?;
     let led = teams["teams"]
         .as_array()
-        .and_then(|rows| rows.iter().find(|row| row["lead_actor_id"] == input.lead.as_str()))
+        .and_then(|rows| {
+            rows.iter()
+                .find(|row| row["lead_actor_id"] == input.lead.as_str())
+        })
         .map(|row| row["id"].clone());
     let (team_id, formed) = match led {
         Some(id) => (id, false),

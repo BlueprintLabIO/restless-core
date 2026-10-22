@@ -13,20 +13,6 @@ use tokio::net::UnixListener;
 use restless_engine::*;
 use restless_owner::owner;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /// Reconcile one bounded attachment-stage batch per configured company. This
 /// runs after startup inventory and periodically even when no browser uploads
 /// arrive, so a crash cannot make linked receipts or abandoned stages live
@@ -51,15 +37,6 @@ async fn reconcile_owner_attachments(daemon: &Daemon, configs: &[runtime::Compan
         }
     }
 }
-
-
-
-
-
-
-
-
-
 
 // Unoptimised builds (the README launcher's `cargo build`) keep large async
 // frames on the stack; a live model turn overflowed Tokio's 2 MiB default.
@@ -188,11 +165,16 @@ async fn run() -> Result<()> {
         runtime::CompanyConfig::load(&root, company)
             .with_context(|| format!("rotation company {company} is not configured"))?;
         anyhow::ensure!(
-            owner_config::OwnerConfig::from_env()?.local_documents_issuer().is_some(),
+            owner_config::OwnerConfig::from_env()?
+                .local_documents_issuer()
+                .is_some(),
             "native Documents credential rotation is supported for the local Docs service only"
         );
         anyhow::ensure!(
-            root.join("cells").join(company).join("database.url").is_file()
+            root.join("cells")
+                .join(company)
+                .join("database.url")
+                .is_file()
                 && cell::native_documents_store_credential_path(&root, company).is_file(),
             "native Documents rotation requires an existing cell and sidecar credential"
         );
@@ -359,14 +341,14 @@ async fn run() -> Result<()> {
     let (recovery_ready_tx, mut recovery_ready_rx) = tokio::sync::watch::channel(false);
     let model_configs = company_configs.clone();
     let model_root = root.clone();
-    tokio::spawn(local_documents::maintain_history_task(std::sync::Arc::clone(
-        &daemon,
-    )));
+    tokio::spawn(local_documents::maintain_history_task(
+        std::sync::Arc::clone(&daemon),
+    ));
 
     let model_capabilities = daemon.capabilities.clone();
     let model_spend = daemon.spend.clone();
-    let tool_gateway_daemon = (!daemon.runtime_bridges.is_hosted())
-        .then(|| std::sync::Arc::clone(&daemon));
+    let tool_gateway_daemon =
+        (!daemon.runtime_bridges.is_hosted()).then(|| std::sync::Arc::clone(&daemon));
     let schedule_daemon = std::sync::Arc::clone(&daemon);
     let idle_daemon = std::sync::Arc::clone(&daemon);
     let mut idle_recovery_ready_rx = recovery_ready_rx.clone();
@@ -401,7 +383,9 @@ async fn run() -> Result<()> {
                     if model_gateway::is_ready() {
                         tracing::info!("model gateway ready");
                     } else {
-                        tracing::info!("account model broker ready; no direct model route is admitted yet");
+                        tracing::info!(
+                            "account model broker ready; no direct model route is admitted yet"
+                        );
                     }
                     // Providers load only when the gateway starts, so restart it
                     // when a company's model route or credential references
@@ -423,7 +407,10 @@ async fn run() -> Result<()> {
                         }
                         if let Ok(current) = load_configs(&model_root) {
                             let unchanged = model_connections::account_oauth_providers(&model_root)
-                                .is_ok_and(|accounts| model_gateway::gateway_fingerprint(&current, &accounts) == started_from);
+                                .is_ok_and(|accounts| {
+                                    model_gateway::gateway_fingerprint(&current, &accounts)
+                                        == started_from
+                                });
                             if !unchanged {
                                 model_configs = current;
                                 break;
@@ -677,8 +664,12 @@ async fn run() -> Result<()> {
                         Ok((stream, _)) => {
                             let daemon = std::sync::Arc::clone(&tcp_daemon);
                             tokio::spawn(async move {
-                                if let Err(error) =
-                                    coordination::serve_tcp(stream, &daemon, ConnectionOrigin::RuntimeTcp).await
+                                if let Err(error) = coordination::serve_tcp(
+                                    stream,
+                                    &daemon,
+                                    ConnectionOrigin::RuntimeTcp,
+                                )
+                                .await
                                 {
                                     tracing::warn!("tcp connection error: {error:#}");
                                 }
@@ -693,6 +684,23 @@ async fn run() -> Result<()> {
             tracing::error!(addr = %coord_addr, "coordination TCP bind failed: {error:#} — \
                 agents in containers will have no coordination channel");
         }
+    }
+
+    // A company's home sites go out through its owner's own computer (S99 step 2). The proxy
+    // answers only company container addresses.
+    let home_addr = format!(
+        "0.0.0.0:{}",
+        port_with_offset(restless_engine::home_egress::HOME_EGRESS_PORT)?
+    );
+    match tokio::net::TcpListener::bind(&home_addr).await {
+        Ok(tcp) => {
+            tracing::info!(addr = %home_addr, "home egress listening (company containers)");
+            tokio::spawn(restless_engine::home_egress::serve(
+                daemon.authority.pool().clone(),
+                tcp,
+            ));
+        }
+        Err(error) => tracing::warn!(addr = %home_addr, "home egress bind failed: {error:#}"),
     }
 
     // S03-T2: the world's front door, on its OWN listener and its own task.
@@ -906,7 +914,10 @@ async fn wait_for_running_work(
             return true;
         }
         if started.elapsed() >= window {
-            tracing::warn!(?running, "stopping with Work still running after the task window");
+            tracing::warn!(
+                ?running,
+                "stopping with Work still running after the task window"
+            );
             return true;
         }
         tokio::select! {

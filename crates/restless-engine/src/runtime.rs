@@ -643,6 +643,11 @@ pub struct CompanyConfig {
     /// with US$193 spent left a fresh "Raise the limit" card, and a second save made it US$440.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spend_warning_baseline: Option<SpendWarningBaseline>,
+    /// Sites this company reaches through its owner's own computer (a paired helper machine), from
+    /// a home IP, rather than from the plane's datacenter address: marketplaces block datacenter
+    /// IPs (S99 step 2). Each is a registrable host such as `ebay.com.au`, covering its subdomains.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub home_sites: Vec<String>,
     /// Optional monthly running-time cap. It gates new Runtime starts and does
     /// not stop work that is already running. This is a capacity policy, not a
     /// representation of the provider's invoice.
@@ -1596,8 +1601,15 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
     let name = computer_container_name(company);
     let owner_label = format!("{{{{index .Config.Labels \"{COMPUTER_OF_LABEL}\"}}}}");
     let attached = inspect_value(&["inspect", "-f", &owner_label, &name]).await?;
+    // The browser takes its home sites when it starts: a changed list gives a fresh computer.
+    let sites_format = format!("{{{{index .Config.Labels \"{HOME_SITES_LABEL}\"}}}}");
+    let sites_now = inspect_value(&["inspect", "-f", &sites_format, &name])
+        .await?
+        .filter(|value| value != "<no value>")
+        .unwrap_or_default();
+    let sites_current = sites_now == config.home_sites.join(",");
     match attached.as_deref() {
-        Some(id) if id == runtime_id => {
+        Some(id) if id == runtime_id && sites_current => {
             if container_state(&name).await? != ContainerStatus::Running {
                 run_ok(&["start", &name]).await?;
             }
@@ -1620,7 +1632,27 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
     let cpus = company_cpus();
     let memory = computer_memory();
     let pids = resource_bound("RESTLESS_COMPANY_PIDS_LIMIT", DEFAULT_PIDS_LIMIT);
-    let browser_env = browser_environment();
+    let mut browser_env = browser_environment();
+    // Home sites (S99 step 2): the browser reaches the plane's home egress proxy at the Runtime's
+    // gateway, since a container sharing the Runtime's network has no host.docker.internal entry.
+    let home_sites = config.home_sites.join(",");
+    if !config.home_sites.is_empty() {
+        let gateway = inspect_value(&[
+            "inspect",
+            "-f",
+            "{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}",
+            &runtime,
+        ])
+        .await?
+        .filter(|_| cfg!(target_os = "linux"))
+        .unwrap_or_else(|| "host.docker.internal".into());
+        browser_env.push(format!("RESTLESS_HOME_SITES={home_sites}"));
+        browser_env.push(format!(
+            "RESTLESS_HOME_PROXY={gateway}:{}",
+            crate::port_with_offset(crate::home_egress::HOME_EGRESS_PORT)?
+        ));
+    }
+    let sites_label = format!("{HOME_SITES_LABEL}={home_sites}");
     let mut args: Vec<&str> = vec![
         "run",
         "-d",
@@ -1653,6 +1685,8 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
         "--label",
         &computer_of,
         "--label",
+        &sites_label,
+        "--label",
         &company_label,
         "--label",
         &namespace_label,
@@ -1666,6 +1700,12 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
     ]);
     run_ok(&args).await?;
     Ok(())
+}
+
+/// Give a running company its computer as the config now says (home sites changed).
+pub async fn refresh_computer(config: &CompanyConfig) -> Result<()> {
+    let _start = company_start_guard(&config.name).await;
+    ensure_computer(config).await
 }
 
 /// Stop the company computer, giving Chrome time to flush its profile.
@@ -1683,6 +1723,7 @@ async fn remove_computer(company: &str) {
 }
 
 const COMPUTER_OF_LABEL: &str = "io.restless.computer-of";
+const HOME_SITES_LABEL: &str = "io.restless.home-sites";
 
 /// The programs that make the company computer: the desktop, its window manager and panel, the
 /// company browser, its broker and the desktop's web viewer.
@@ -4940,6 +4981,20 @@ pub struct SpendWarningBaseline {
     pub month: Option<String>,
 }
 
+/// A site the owner may send through their own computer: a plain host name with a dot, no scheme,
+/// port, path or address.
+pub fn valid_home_site(site: &str) -> bool {
+    let site = site.trim();
+    site.len() <= 253
+        && site.contains('.')
+        && !site.starts_with('.')
+        && !site.ends_with('.')
+        && site.parse::<std::net::IpAddr>().is_err()
+        && site.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'.'
+        })
+}
+
 /// The owner's timezone and language as their own browser reported them, for
 /// the company browsers (S104 F3).
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -5805,6 +5860,7 @@ worker_harness = "claude_agent"
             spend_period: Default::default(),
             spend_warning_percent: None,
             spend_warning_baseline: None,
+            home_sites: Vec::new(),
             monthly_runtime_cap_hours: None,
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,

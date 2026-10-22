@@ -27,7 +27,7 @@ fi
 
 echo "Fetching the Restless computer image from your plane. This is a few GB, once."
 LOADED=$(curl -fSL --progress-bar -H "X-Restless-Pairing: $CODE" "$PLANE/machines/helper-image" | docker load -q)
-IMAGE=$(printf '%s\n' "$LOADED" | sed -n 's/^Loaded image ID: //p' | tail -n 1)
+IMAGE=$(printf '%s\n' "$LOADED" | sed -n 's/^Loaded image ID: //p; s/^Loaded image: //p' | tail -n 1)
 if [ -z "$IMAGE" ]; then
   echo "Could not fetch the image. A code lasts 10 minutes and works once; make a new one and try again." >&2
   exit 1

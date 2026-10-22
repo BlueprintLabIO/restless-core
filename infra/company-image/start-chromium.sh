@@ -19,10 +19,21 @@ if [ -n "${RESTLESS_BROWSER_LANG:-}" ]; then
 	lang_flags="--lang=$RESTLESS_BROWSER_LANG --accept-lang=$RESTLESS_BROWSER_LANG,en"
 fi
 
+# Home sites (S99 step 2): HTTPS to the sites the owner sends through their own computer goes to the
+# plane's home egress proxy, which carries it out from that computer's home IP. Everything else is
+# direct. The plane validated the sites as plain host names.
+proxy_flags=""
+if [ -n "${RESTLESS_HOME_SITES:-}" ] && [ -n "${RESTLESS_HOME_PROXY:-}" ]; then
+	sites=$(printf '%s' "$RESTLESS_HOME_SITES" | tr ',' '\n' | sed '/^$/d; s/.*/"&"/' | paste -sd, -)
+	pac="function FindProxyForURL(url, host) { host = host.toLowerCase(); var sites = [$sites]; if (url.substring(0, 6) != \"https:\") return \"DIRECT\"; for (var i = 0; i < sites.length; i++) { if (host == sites[i] || dnsDomainIs(host, \".\" + sites[i])) return \"PROXY $RESTLESS_HOME_PROXY\"; } return \"DIRECT\"; }"
+	proxy_flags="--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,$(printf '%s' "$pac" | base64 -w0)"
+fi
+
 # shellcheck disable=SC2086
 set -- \
 	/usr/bin/chromium \
 	$lang_flags \
+	$proxy_flags \
 	--display=:1 \
 	--user-data-dir=/company/browser-profile \
 	--download-default-directory=/company/downloads \

@@ -22,8 +22,8 @@ use base64::Engine as _;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use restless_machine::link::{Link, LinkStream};
 use restless_machine::protocol::{
-    AllowedImage, Control, MachineFacts, PairResponse, STREAM_CONNECT, STREAM_DOCKER, STREAM_IMAGE,
-    STREAM_PLANE,
+    AllowedImage, Control, MachineFacts, PairResponse, STREAM_CONNECT, STREAM_DOCKER,
+    STREAM_EGRESS, STREAM_IMAGE, STREAM_PLANE,
 };
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
@@ -565,13 +565,70 @@ pub async fn allowed_images() -> Vec<AllowedImage> {
     }
 }
 
-fn settings(machine_id: &str, allowed_images: Vec<AllowedImage>) -> String {
+fn settings(
+    machine_id: &str,
+    allowed_images: Vec<AllowedImage>,
+    egress_hosts: Vec<String>,
+) -> String {
     serde_json::to_string(&Control::Settings {
         machine_id: machine_id.into(),
         allowed_images,
         plane_ports: plane_ports(),
+        egress_hosts,
     })
     .unwrap()
+}
+
+/// The sites a machine carries: every home site of the companies it helps (S99 step 2).
+pub async fn egress_hosts_for(pool: &PgPool, machine_id: &str) -> Vec<String> {
+    let companies: Vec<String> = sqlx::query_scalar(
+        "SELECT company FROM restless_authority.company_machines WHERE machine_id = $1 AND role = 'helper'",
+    )
+    .bind(machine_id)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    let root = crate::runtime::state_root();
+    let mut hosts: Vec<String> = companies
+        .iter()
+        .filter_map(|company| crate::runtime::CompanyConfig::load(&root, company).ok())
+        .flat_map(|config| config.home_sites)
+        .collect();
+    hosts.sort();
+    hosts.dedup();
+    hosts
+}
+
+/// Send a linked machine its settings again, after the sites it carries changed.
+pub async fn push_settings(pool: &PgPool, machine_id: &str) {
+    let control = LINKS
+        .lock()
+        .unwrap()
+        .get(machine_id)
+        .map(|linked| linked.control.clone());
+    if let Some(control) = control {
+        let hosts = egress_hosts_for(pool, machine_id).await;
+        let _ = control.send(settings(machine_id, allowed_images().await, hosts));
+    }
+}
+
+/// A connection out to `host:port` from machine `id`'s own address.
+pub async fn egress(id: &str, host: &str, port: u16) -> std::io::Result<LinkStream> {
+    let link = linked(id).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotConnected, "that computer is offline")
+    })?;
+    link.open(STREAM_EGRESS, &format!("{host}:{port}")).await
+}
+
+/// The online helper machine that carries `company`'s home sites, if one is linked now.
+pub async fn online_helper(pool: &PgPool, company: &str) -> Option<String> {
+    company_assignments(pool, company)
+        .await
+        .ok()?
+        .into_iter()
+        .filter(|assignment| assignment.role == ROLE_HELPER)
+        .map(|assignment| assignment.machine_id)
+        .find(|machine| is_online(machine))
 }
 
 /// Where the plane's own Docker client reaches a linked machine.
@@ -616,12 +673,7 @@ fn answer(incoming: restless_machine::link::Incoming, allowed: Vec<AllowedImage>
                     incoming.refuse("not an image this machine may run");
                     return;
                 }
-                let child = tokio::process::Command::new("docker")
-                    .args(["save", &incoming.target])
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::null())
-                    .kill_on_drop(true)
-                    .spawn();
+                let child = save_image(&incoming.target).await;
                 let Ok(mut child) = child else {
                     incoming.refuse("the plane could not read the image");
                     return;
@@ -636,6 +688,25 @@ fn answer(incoming: restless_machine::link::Incoming, allowed: Vec<AllowedImage>
             _ => incoming.refuse("the plane does not offer that"),
         }
     });
+}
+
+/// `docker save` of an allowed image under a plain local name. Saved by bare id, the archive names
+/// no image, and Docker's containerd image store (Docker Desktop's and current Engine's default)
+/// discards an unnamed load before it can run, so pairing failed with "content digest … not found"
+/// on the owner's own PC (22 Oct). The name changes nothing else: the id is the same.
+pub async fn save_image(id: &str) -> std::io::Result<tokio::process::Child> {
+    let short: String = id.trim_start_matches("sha256:").chars().take(12).collect();
+    let name = format!("restless-machine-image:{short}");
+    let _ = tokio::process::Command::new("docker")
+        .args(["tag", id, &name])
+        .output()
+        .await;
+    tokio::process::Command::new("docker")
+        .args(["save", &name])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
 }
 
 /// The plane's Docker client reaches the machine through a local socket; each connection to it is
@@ -694,7 +765,8 @@ pub async fn serve_link(
     let cut = std::sync::Arc::new(tokio::sync::Notify::new());
     let (control, mut controls) = mpsc::unbounded_channel::<String>();
     let allowed = allowed_images().await;
-    let _ = control.send(settings(&machine_id, allowed.clone()));
+    let hosts = egress_hosts_for(&pool, &machine_id).await;
+    let _ = control.send(settings(&machine_id, allowed.clone(), hosts));
     let previous = LINKS.lock().unwrap().insert(
         machine_id.clone(),
         Linked {

@@ -2183,12 +2183,19 @@ async fn launch_agent(
         "restless-managed" => {
             let profile = session_root.join("omp-profile");
             std::fs::create_dir_all(&profile)?;
-            let provider = model.split_once('/').map(|pair| pair.0).context("model must include provider")?;
+            let provider = model
+                .split_once('/')
+                .map(|pair| pair.0)
+                .context("model must include provider")?;
             // omp discovers models at `{baseUrl}/v1/models` etc.; the relay serves `/v1/*` under the model-gateway prefix.
             // The granted model is declared as well as discovered: a provider OMP already knows
             // lists only its built-in models at session start, so a newer one (claude-sonnet-5-5)
             // was missing and every turn failed. A bare entry keeps OMP's metadata for a known model.
-            let local_id = model.split_once('/').map(|pair| pair.1).unwrap_or(&model).replace(':', "~");
+            let local_id = model
+                .split_once('/')
+                .map(|pair| pair.1)
+                .unwrap_or(&model)
+                .replace(':', "~");
             let id = serde_json::to_string(&local_id)?;
             let models = format!("providers:\n  {provider}:\n    baseUrl: {model_url}/v1\n    apiKey: RESTLESS_MODEL_CAPABILITY\n    transport: pi-native\n    api: openai-responses\n    discovery:\n      type: proxy\n    models:\n      - id: {id}\n        name: {id}\n");
             write_private(&profile.join("models.yml"), models.as_bytes())?;
@@ -2221,7 +2228,9 @@ async fn launch_agent(
             )
         }
         "claude-agent" => {
-            let selected_model = model.strip_prefix("anthropic/").filter(|value| !value.is_empty())
+            let selected_model = model
+                .strip_prefix("anthropic/")
+                .filter(|value| !value.is_empty())
                 .context("Claude Agent requires an anthropic model route")?;
             if !matches!(reasoning_effort.as_str(), "low" | "medium" | "high" | "max") {
                 bail!("Claude Agent reasoning effort is unsupported");
@@ -2241,17 +2250,32 @@ async fn launch_agent(
             ("claude-agent-acp", Vec::new(), profile)
         }
         "codex" => {
-            model.strip_prefix("openai-codex/").filter(|value| !value.is_empty())
+            model
+                .strip_prefix("openai-codex/")
+                .filter(|value| !value.is_empty())
                 .context("Codex requires an openai-codex model route")?;
-            if !matches!(reasoning_effort.as_str(), "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra") {
+            if !matches!(
+                reasoning_effort.as_str(),
+                "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+            ) {
                 bail!("Codex reasoning effort is unsupported");
             }
             let scope = format!("{}\0{actor}\0{responsibility}", config.identity.company);
             let scope_hash = format!("{:x}", Sha256::digest(scope.as_bytes()));
-            let profile = PathBuf::from(format!("/company/home/.restless/codex-agent/homes/{scope_hash}"));
-            let created = run_company_command("mkdir", &["-p".into(), profile.to_string_lossy().to_string()]).await?;
+            let profile = PathBuf::from(format!(
+                "/company/home/.restless/codex-agent/homes/{scope_hash}"
+            ));
+            let created = run_company_command(
+                "mkdir",
+                &["-p".into(), profile.to_string_lossy().to_string()],
+            )
+            .await?;
             require_success("prepare scoped Codex home", &created)?;
-            ("node", vec!["/usr/local/bin/restless-codex-runner".into()], profile)
+            (
+                "node",
+                vec!["/usr/local/bin/restless-codex-runner".into()],
+                profile,
+            )
         }
         _ => bail!("hosted Runtime bridge accepts only supported agent harnesses"),
     };
@@ -2334,7 +2358,10 @@ async fn launch_agent(
 /// What runs after a supervised process ends, given its exit code; an error it
 /// returns is reported in the `Exit`.
 type Finish = Box<
-    dyn FnOnce(Option<i32>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send>>
+    dyn FnOnce(
+            Option<i32>,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send>>
         + Send,
 >;
 
@@ -2393,7 +2420,10 @@ fn supervise_process(
         kill_process_group(process_group, nix::sys::signal::Signal::SIGKILL);
         let (code, mut error) = match outcome {
             Ok(code) => (code, None),
-            Err(error) => (None, Some(format!("Runtime process supervision failed: {error}"))),
+            Err(error) => (
+                None,
+                Some(format!("Runtime process supervision failed: {error}")),
+            ),
         };
         if let Some(finished) = finish(code).await {
             error = Some(finished);
@@ -2418,7 +2448,10 @@ fn supervise_process(
 /// A connected app's local command, run in the company computer as the tool
 /// identity (uid 2001, group 2000) with a private data folder agents cannot
 /// read. Its stdio is MCP; what it prints to stderr comes back in its `Exit`.
-async fn launch_tool(message: BridgeMessage, outbound: mpsc::Sender<Outbound>) -> Result<AgentControl> {
+async fn launch_tool(
+    message: BridgeMessage,
+    outbound: mpsc::Sender<Outbound>,
+) -> Result<AgentControl> {
     let BridgeMessage::LaunchTool {
         operation_id,
         connection,
@@ -2445,7 +2478,11 @@ async fn launch_tool(message: BridgeMessage, outbound: mpsc::Sender<Outbound>) -
         std::os::unix::fs::chown(&data, Some(2001), Some(2000))
             .context("give the tool its data folder")?;
     }
-    let workdir = if Path::new("/company/tools").is_dir() { PathBuf::from("/company/tools") } else { data.clone() };
+    let workdir = if Path::new("/company/tools").is_dir() {
+        PathBuf::from("/company/tools")
+    } else {
+        data.clone()
+    };
     let mut command = tokio::process::Command::new(&program);
     command
         .args(&args)
@@ -2470,7 +2507,9 @@ async fn launch_tool(message: BridgeMessage, outbound: mpsc::Sender<Outbound>) -
     unsafe {
         command.pre_exec(drop_tool_privileges);
     }
-    let mut child = command.spawn().with_context(|| format!("start {connection}'s command {program:?}"))?;
+    let mut child = command
+        .spawn()
+        .with_context(|| format!("start {connection}'s command {program:?}"))?;
     let tail = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
     if let Some(mut stderr) = child.stderr.take() {
         let tail = std::sync::Arc::clone(&tail);
@@ -2496,7 +2535,9 @@ async fn launch_tool(message: BridgeMessage, outbound: mpsc::Sender<Outbound>) -
                 .map(|tail| String::from_utf8_lossy(&tail).trim().to_string())
                 .unwrap_or_default();
             (code != Some(0) && !said.is_empty()).then(|| {
-                said.chars().filter(|c| !c.is_control() || *c == '\n').collect::<String>()
+                said.chars()
+                    .filter(|c| !c.is_control() || *c == '\n')
+                    .collect::<String>()
             })
         })
     });
@@ -2510,7 +2551,10 @@ async fn purge_codex_profile_capabilities(profile: &Path, values: &[String]) -> 
         }
         let mut command = tokio::process::Command::new("python3");
         command
-            .args(["-c", include_str!("../../restless-engine/src/purge_capability.py")])
+            .args([
+                "-c",
+                include_str!("../../restless-engine/src/purge_capability.py"),
+            ])
             .arg(profile)
             .env_clear()
             .env("RESTLESS_PURGE_SECRET", value)
@@ -2521,7 +2565,10 @@ async fn purge_codex_profile_capabilities(profile: &Path, values: &[String]) -> 
         unsafe {
             command.pre_exec(drop_agent_privileges);
         }
-        let output = command.output().await.context("scan Codex profile for capability residue")?;
+        let output = command
+            .output()
+            .await
+            .context("scan Codex profile for capability residue")?;
         if !output.status.success() {
             bail!("persistent Codex profile retained a scoped capability");
         }

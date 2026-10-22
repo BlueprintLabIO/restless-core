@@ -6,6 +6,7 @@
 	import EditorForm from './editors/EditorForm.svelte';
 	import MachineRows from './editors/MachineRows.svelte';
 	import MoveCompanyEditor from './editors/MoveCompanyEditor.svelte';
+	import HomeSitesEditor from './editors/HomeSitesEditor.svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import {
 		companyMachines,
@@ -27,6 +28,10 @@
 	const moving = $derived(view?.move && !view.move.done ? view.move : null);
 	const choices = $derived(
 		owned.filter((machine) => machine.id !== main?.id && !machine.paused && machine.online)
+	);
+	/* The owner's own computers that could carry home sites while the company stays where it runs. */
+	const helperChoices = $derived(
+		owned.filter((machine) => machine.kind === 'own' && machine.id !== main?.id && !machine.paused)
 	);
 
 	async function refresh() {
@@ -110,6 +115,26 @@
 						onstarted={started}
 					/>
 				</EditorForm>
+			{/if}
+			{#if helperChoices.length}
+				<h3>Sites through your computer</h3>
+				<p class="hint">
+					Marketplaces block cloud addresses. These sites go out from your computer's home
+					connection; everything else keeps running here.
+				</p>
+				<EditorForm>
+					<HomeSitesEditor
+						{companyId}
+						{companyName}
+						helper={helpers[0]?.id ?? null}
+						choices={helperChoices}
+						sites={view.home_sites ?? []}
+						onsaved={async () => {
+							toast(`${companyName}'s sites now go through your computer.`);
+							await refresh();
+						}}
+					/>
+				</EditorForm>
 			{:else if !owned.some((machine) => machine.kind === 'own')}
 				<p class="hint">
 					Want it to run at home or in your office? <a href="/account/settings/computers"
@@ -128,10 +153,14 @@
 		width: min(560px, 100%);
 		margin: 24px auto 0;
 	}
-	h2 {
+	h2,
+	h3 {
 		margin: 0;
 		font-size: var(--t-body);
 		font-weight: 600;
+	}
+	h3 {
+		margin-top: 8px;
 	}
 
 	.hint {

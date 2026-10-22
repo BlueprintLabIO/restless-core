@@ -452,9 +452,9 @@ pub fn install(
     // release that can take over: keep waiting for it instead.
     let rollback_refused = !ready
         && upgrading
-        && previous_target.as_ref().is_some_and(|previous| {
-            run_candidate_preflight(previous, &layout.state_root).is_err()
-        });
+        && previous_target
+            .as_ref()
+            .is_some_and(|previous| run_candidate_preflight(previous, &layout.state_root).is_err());
     if rollback_refused {
         eprintln!(
             "the new release is still starting, and it is the only release that can open company data; waiting up to {} minutes for it",
@@ -1477,7 +1477,10 @@ fn stable_listener_pids() -> Result<BTreeSet<u32>> {
 /// The listeners on the stable port from ss, as `users:(("restlessd",pid=123,fd=9))`. Without ss
 /// either, the plane's singleton lock (checked beside this) still finds a running plane.
 fn ss_listener_pids() -> Result<BTreeSet<u32>> {
-    let output = match Command::new("ss").args(["-Hltnp", "sport = :7788"]).output() {
+    let output = match Command::new("ss")
+        .args(["-Hltnp", "sport = :7788"])
+        .output()
+    {
         Ok(output) => output,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
         Err(error) => return Err(error).context("inspect the stable owner port"),

@@ -131,11 +131,20 @@ impl CharterCommand {
         };
         let operation = match self {
             Self::Show => json!({"operation":"charter_show"}),
-            Self::Apply { requester, file, source_message } => json!({
+            Self::Apply {
+                requester,
+                file,
+                source_message,
+            } => json!({
                 "operation":"charter_apply","requester":requester,"markdown":read(&file)?,
                 "source_message":source_message,
             }),
-            Self::Propose { requester, file, reason, source_message } => json!({
+            Self::Propose {
+                requester,
+                file,
+                reason,
+                source_message,
+            } => json!({
                 "operation":"charter_propose","requester":requester,"markdown":read(&file)?,
                 "reason":reason,"source_message":source_message,
             }),
@@ -155,15 +164,32 @@ fn envelope(company: String, operation: Value) -> Value {
 impl DirectionCommand {
     pub(crate) fn request(self, company: String) -> Result<Value> {
         let operation = match self {
-            Self::Path { requester, class, team } => {
+            Self::Path {
+                requester,
+                class,
+                team,
+            } => {
                 json!({"operation":"path","requester":requester,"class":class,"team":team})
             }
-            Self::Applied { requester, class, team, summary, target, undo, source_message, request } => json!({
+            Self::Applied {
+                requester,
+                class,
+                team,
+                summary,
+                target,
+                undo,
+                source_message,
+                request,
+            } => json!({
                 "operation":"applied","requester":requester,"class":class,"team":team,
                 "summary":summary,"target":parse("target", &target)?,"undo":parse("undo", &undo)?,
                 "source_message":source_message,"request":request,
             }),
-            Self::Done { request, target, failure } => json!({
+            Self::Done {
+                request,
+                target,
+                failure,
+            } => json!({
                 "operation":"request_done","id":request,
                 "target":target.map(|target| parse("target", &target)).transpose()?,"failure":failure,
             }),
@@ -176,7 +202,15 @@ impl DirectionCommand {
 impl RequestCommand {
     pub(crate) fn request(self, company: String) -> Result<Value> {
         let operation = match self {
-            Self::File { requester, class, team, summary, change, reason, source_message } => json!({
+            Self::File {
+                requester,
+                class,
+                team,
+                summary,
+                change,
+                reason,
+                source_message,
+            } => json!({
                 "operation":"request_file","requester":requester,"class":class,"team":team,
                 "summary":summary,"change":change,"reason":reason,"source_message":source_message,
             }),
@@ -205,7 +239,9 @@ mod tests {
 
     #[test]
     fn applied_carries_its_target_and_undo_as_json() {
-        let value = applied(r#"{"kind":"charter"}"#).request("acme_test".into()).unwrap();
+        let value = applied(r#"{"kind":"charter"}"#)
+            .request("acme_test".into())
+            .unwrap();
         assert_eq!(value["cmd"], "direction-operation");
         assert_eq!(value["direction_operation"]["operation"], "applied");
         assert_eq!(value["direction_operation"]["target"]["kind"], "charter");

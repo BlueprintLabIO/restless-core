@@ -266,12 +266,91 @@ pub(super) async fn company(
             }))
         })
         .collect();
+    let home_sites = runtime::CompanyConfig::load(&state.daemon.root, &company)
+        .map(|config| config.home_sites)
+        .unwrap_or_default();
     Json(json!({
         "machines": rows,
         "can_manage": principal.is_account_owner(),
         "move": restless_engine::machine_move::progress(&company),
+        "home_sites": home_sites,
     }))
     .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct HomeSitesInput {
+    sites: Vec<String>,
+}
+
+/// The sites this company reaches through its helper machines, from a home IP (S99 step 2). The
+/// helpers learn the new list at once, and the company browser takes it on a fresh start.
+pub(super) async fn set_home_sites(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<HomeSitesInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let mut sites: Vec<String> = input
+        .sites
+        .iter()
+        .map(|site| {
+            site.trim()
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .trim_start_matches("www.")
+                .trim_end_matches('/')
+                .to_ascii_lowercase()
+        })
+        .filter(|site| !site.is_empty())
+        .collect();
+    if let Some(bad) = sites.iter().find(|site| !runtime::valid_home_site(site)) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "home_sites",
+            format!("{bad} is not a site name. Use names like ebay.com.au."),
+        );
+    }
+    sites.sort();
+    sites.dedup();
+    if sites.len() > 40 {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "home_sites",
+            "Name at most 40 sites.",
+        );
+    }
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    config.home_sites = sites.clone();
+    if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
+        return refuse(error);
+    }
+    let pool = state.daemon.authority.pool();
+    if let Ok(assignments) = machines::company_assignments(pool, &company).await {
+        for assignment in assignments
+            .iter()
+            .filter(|a| a.role == machines::ROLE_HELPER)
+        {
+            machines::push_settings(pool, &assignment.machine_id).await;
+        }
+    }
+    // A running computer restarts its browser with the new sites; an asleep one takes them on waking.
+    if runtime::status(&company).await.ok() == Some(runtime::ContainerStatus::Running) {
+        if let Err(error) = runtime::refresh_computer(&config).await {
+            tracing::warn!(
+                company,
+                "home sites saved; the computer did not restart: {error:#}"
+            );
+        }
+    }
+    Json(json!({ "home_sites": sites })).into_response()
 }
 
 /// Move the company's computer to another machine. Answers at once; the company view reports
@@ -481,12 +560,7 @@ pub(crate) async fn helper_image(
             "This plane has no company image to share yet.",
         );
     };
-    let child = tokio::process::Command::new("docker")
-        .args(["save", &image.id])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true)
-        .spawn();
+    let child = machines::save_image(&image.id).await;
     let Ok(mut child) = child else {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,

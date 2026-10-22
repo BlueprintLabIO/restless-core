@@ -57,6 +57,8 @@ export interface CompanyMachines {
 	machines: CompanyMachine[];
 	can_manage: boolean;
 	move: MoveProgress | null;
+	/** Sites this company reaches through the owner's own computer, from a home IP. */
+	home_sites?: string[];
 }
 
 export async function listMachines(): Promise<Machine[]> {
@@ -89,4 +91,17 @@ export function companyMachines(id: string): Promise<CompanyMachines> {
 
 export function moveCompany(id: string, machine: string) {
 	return ownerSend(`${company(id)}/move`, { method: 'POST', json: { machine_id: machine } });
+}
+
+/** Lend one of the owner's computers to the company as a helper (S99 step 2). */
+export function assignHelper(id: string, machine: string) {
+	return ownerSend(company(id), { method: 'POST', json: { machine_id: machine } });
+}
+
+/** The sites the company reaches through its helper computers. */
+export function setHomeSites(id: string, sites: string[]) {
+	return ownerRequest<{ home_sites: string[] }>(`${company(id)}/home-sites`, {
+		method: 'PUT',
+		json: { sites }
+	});
 }

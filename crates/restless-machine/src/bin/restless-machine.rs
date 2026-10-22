@@ -29,19 +29,27 @@ fn docker_socket() -> PathBuf {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let state = state_path();
     let socket = docker_socket();
-    let paired = match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+    let paired = match args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
         ["connect", plane, code] => match Paired::load(&state)? {
             Some(paired) if paired.plane == plane.trim_end_matches('/') => {
                 tracing::info!(machine = %paired.label, "already paired");
                 paired
             }
             _ => {
-                let lookup = DockerProxy::new(socket.clone(), Arc::new(RwLock::new(Scope::default())));
+                let lookup =
+                    DockerProxy::new(socket.clone(), Arc::new(RwLock::new(Scope::default())));
                 let facts = machine::facts(&lookup).await;
                 if facts.docker_version.is_empty() {
                     bail!("Docker is not answering on {}", socket.display());
@@ -52,7 +60,8 @@ async fn main() -> Result<()> {
                 paired
             }
         },
-        ["run"] | [] => Paired::load(&state)?.context("this computer is not paired; run connect with a code first")?,
+        ["run"] | [] => Paired::load(&state)?
+            .context("this computer is not paired; run connect with a code first")?,
         _ => bail!("usage: restless-machine connect <plane URL> <code> | run"),
     };
     machine::run(paired, socket, state).await

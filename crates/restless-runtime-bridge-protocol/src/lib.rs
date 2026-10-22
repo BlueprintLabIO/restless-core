@@ -784,7 +784,9 @@ fn validate_message(message: &Message) -> Result<(), ProtocolError> {
                 && connection.len() <= 64
                 && bounded(command, 1_024)
                 && args.len() <= 64
-                && args.iter().all(|arg| arg.len() <= 4_096 && !arg.contains('\0'))
+                && args
+                    .iter()
+                    .all(|arg| arg.len() <= 4_096 && !arg.contains('\0'))
                 && valid_mcp_environment(env)
                 && valid_deadline(*deadline_ms)
         }
@@ -1164,23 +1166,46 @@ fn identifier(value: &str) -> bool {
 
 fn valid_mcp_environment(values: &BTreeMap<String, String>) -> bool {
     const RESERVED: &[&str] = &[
-        "HOME", "PATH", "CODEX_HOME", "OPENAI_API_KEY", "OPENAI_BASE_URL",
-        "RESTLESS_ACTOR", "RESTLESS_COORDINATOR", "RESTLESS_SESSION_CAPABILITY",
-        "RESTLESS_MODEL_CAPABILITY", "CLAUDE_CONFIG_DIR", "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
-        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
-        "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS",
+        "HOME",
+        "PATH",
+        "CODEX_HOME",
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "RESTLESS_ACTOR",
+        "RESTLESS_COORDINATOR",
+        "RESTLESS_SESSION_CAPABILITY",
+        "RESTLESS_MODEL_CAPABILITY",
+        "CLAUDE_CONFIG_DIR",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_BASE_URL",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "SSL_CERT_FILE",
+        "NODE_EXTRA_CA_CERTS",
     ];
     values.len() <= 32
-        && values.iter().map(|(name, value)| name.len() + value.len()).sum::<usize>() <= 64 * 1024
+        && values
+            .iter()
+            .map(|(name, value)| name.len() + value.len())
+            .sum::<usize>()
+            <= 64 * 1024
         && values.iter().all(|(name, value)| {
             !name.is_empty()
                 && name.len() <= 128
                 && name.bytes().enumerate().all(|(index, byte)| {
-                    if index == 0 { byte.is_ascii_alphabetic() || byte == b'_' }
-                    else { byte.is_ascii_alphanumeric() || byte == b'_' }
+                    if index == 0 {
+                        byte.is_ascii_alphabetic() || byte == b'_'
+                    } else {
+                        byte.is_ascii_alphanumeric() || byte == b'_'
+                    }
                 })
-                && !RESERVED.iter().any(|reserved| name.eq_ignore_ascii_case(reserved))
+                && !RESERVED
+                    .iter()
+                    .any(|reserved| name.eq_ignore_ascii_case(reserved))
                 && !value.is_empty()
                 && value.len() <= 8 * 1024
                 && !value.contains('\0')
@@ -1266,8 +1291,15 @@ mod tests {
                 operation_id: Uuid::new_v4(),
                 connection: connection.into(),
                 command: "uvx".into(),
-                args: vec!["--from".into(), "git+https://github.com/acme/tool".into(), "tool".into()],
-                env: env.iter().map(|(name, value)| (name.to_string(), value.to_string())).collect(),
+                args: vec![
+                    "--from".into(),
+                    "git+https://github.com/acme/tool".into(),
+                    "tool".into(),
+                ],
+                env: env
+                    .iter()
+                    .map(|(name, value)| (name.to_string(), value.to_string()))
+                    .collect(),
                 browser: true,
                 deadline_ms: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -1277,8 +1309,14 @@ mod tests {
             },
         };
         let accepted = launch("frankensurf", &[("GITHUB_TOKEN", "t0ken-value")]);
-        assert_eq!(Frame::decode(&accepted.encode().unwrap()).unwrap(), accepted);
-        assert_eq!(launch("../escape", &[]).validate(), Err(ProtocolError::Invalid));
+        assert_eq!(
+            Frame::decode(&accepted.encode().unwrap()).unwrap(),
+            accepted
+        );
+        assert_eq!(
+            launch("../escape", &[]).validate(),
+            Err(ProtocolError::Invalid)
+        );
         assert_eq!(launch("..", &[]).validate(), Err(ProtocolError::Invalid));
         assert_eq!(
             launch("tool", &[("RESTLESS_SESSION_CAPABILITY", "stolen")]).validate(),
@@ -1314,7 +1352,10 @@ mod tests {
             },
         };
         let accepted = launch("# Operating rules\n\n- be honest\n\treport evidence\r\n");
-        assert_eq!(Frame::decode(&accepted.encode().unwrap()).unwrap(), accepted);
+        assert_eq!(
+            Frame::decode(&accepted.encode().unwrap()).unwrap(),
+            accepted
+        );
         assert_eq!(launch("bell\u{7}").validate(), Err(ProtocolError::Invalid));
         assert_eq!(launch("nul\0byte").validate(), Err(ProtocolError::Invalid));
         assert_eq!(launch("  \n ").validate(), Err(ProtocolError::Invalid));

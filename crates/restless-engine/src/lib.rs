@@ -45,6 +45,7 @@ pub mod entry;
 pub mod exec;
 pub mod finance;
 pub mod health;
+pub mod home_egress;
 pub mod inbound;
 pub mod ingress;
 pub mod launch;

@@ -1424,6 +1424,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/machines/move",
             post(machines_api::move_main),
         )
+        .route(
+            "/companies/{company}/machines/home-sites",
+            axum::routing::put(machines_api::set_home_sites),
+        )
         .route("/companies/{company}/accounts", get(accounts_api::company))
         .route(
             "/companies/{company}/accounts/uses",

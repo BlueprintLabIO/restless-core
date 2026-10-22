@@ -19,8 +19,8 @@ use crate::docker_filter::Scope;
 use crate::docker_proxy::DockerProxy;
 use crate::link::{Incoming, Link, Side};
 use crate::protocol::{
-    Control, MachineFacts, PairRequest, PairResponse, HEARTBEAT_SECONDS, LINK_PATH, MACHINE_LABEL, MACHINE_NETWORK,
-    PAIR_PATH, STREAM_CONNECT, STREAM_DOCKER, STREAM_PLANE,
+    Control, MachineFacts, PairRequest, PairResponse, HEARTBEAT_SECONDS, LINK_PATH, MACHINE_LABEL,
+    MACHINE_NETWORK, PAIR_PATH, STREAM_CONNECT, STREAM_DOCKER, STREAM_EGRESS, STREAM_PLANE,
 };
 
 /// What a paired machine keeps, readable only by root inside the helper's volume.
@@ -35,7 +35,9 @@ pub struct Paired {
 impl Paired {
     pub fn load(path: &Path) -> Result<Option<Self>> {
         match std::fs::read(path) {
-            Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes).context("read the saved pairing")?)),
+            Ok(bytes) => Ok(Some(
+                serde_json::from_slice(&bytes).context("read the saved pairing")?,
+            )),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error).context("read the saved pairing"),
         }
@@ -65,7 +67,8 @@ fn plane_url(plane: &str, path: &str, websocket: bool) -> Result<url::Url> {
             "http" => "ws",
             other => bail!("unexpected plane scheme {other}"),
         };
-        url.set_scheme(scheme).map_err(|_| anyhow::anyhow!("cannot use {scheme}"))?;
+        url.set_scheme(scheme)
+            .map_err(|_| anyhow::anyhow!("cannot use {scheme}"))?;
     }
     url.set_path(path);
     Ok(url)
@@ -74,16 +77,29 @@ fn plane_url(plane: &str, path: &str, websocket: bool) -> Result<url::Url> {
 /// What this machine is, as Docker reports it.
 pub async fn facts(proxy: &DockerProxy) -> MachineFacts {
     let info: Value = match proxy.call(Method::GET, "/info", None).await {
-        Ok((status, bytes)) if status.is_success() => serde_json::from_slice(&bytes).unwrap_or_default(),
+        Ok((status, bytes)) if status.is_success() => {
+            serde_json::from_slice(&bytes).unwrap_or_default()
+        }
         _ => Value::Null,
     };
-    let text = |key: &str| info.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
+    let text = |key: &str| {
+        info.get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
     MachineFacts {
-        hostname: std::env::var("RESTLESS_MACHINE_NAME").ok().filter(|name| !name.trim().is_empty()).unwrap_or_else(|| text("Name")),
+        hostname: std::env::var("RESTLESS_MACHINE_NAME")
+            .ok()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| text("Name")),
         os: text("OperatingSystem"),
         arch: text("Architecture"),
         cpus: info.get("NCPU").and_then(Value::as_u64).unwrap_or_default() as u32,
-        memory_bytes: info.get("MemTotal").and_then(Value::as_u64).unwrap_or_default(),
+        memory_bytes: info
+            .get("MemTotal")
+            .and_then(Value::as_u64)
+            .unwrap_or_default(),
         docker_version: text("ServerVersion"),
         helper_version: env!("CARGO_PKG_VERSION").to_string(),
     }
@@ -93,7 +109,10 @@ pub async fn facts(proxy: &DockerProxy) -> MachineFacts {
 pub async fn pair(plane: &str, code: &str, facts: MachineFacts) -> Result<Paired> {
     let response = reqwest::Client::new()
         .post(plane_url(plane, PAIR_PATH, false)?)
-        .json(&PairRequest { code: code.trim().to_string(), facts })
+        .json(&PairRequest {
+            code: code.trim().to_string(),
+            facts,
+        })
         .timeout(Duration::from_secs(30))
         .send()
         .await
@@ -101,17 +120,27 @@ pub async fn pair(plane: &str, code: &str, facts: MachineFacts) -> Result<Paired
     if !response.status().is_success() {
         let status = response.status();
         let body: Value = response.json().await.unwrap_or_default();
-        let message = body.get("message").and_then(Value::as_str).unwrap_or("pairing was refused");
+        let message = body
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("pairing was refused");
         bail!("{message} ({status})");
     }
     let paired: PairResponse = response.json().await.context("read the plane's answer")?;
-    Ok(Paired { plane: plane.trim_end_matches('/').to_string(), machine_id: paired.machine_id, label: paired.label, credential: paired.credential })
+    Ok(Paired {
+        plane: plane.trim_end_matches('/').to_string(),
+        machine_id: paired.machine_id,
+        label: paired.label,
+        credential: paired.credential,
+    })
 }
 
 /// Make sure the machine network exists, the helper is on it, and return the helper's address
 /// there.
 async fn join_machine_network(proxy: &DockerProxy, machine_id: &str) -> Result<String> {
-    let (status, _) = proxy.call(Method::GET, &format!("/networks/{MACHINE_NETWORK}"), None).await?;
+    let (status, _) = proxy
+        .call(Method::GET, &format!("/networks/{MACHINE_NETWORK}"), None)
+        .await?;
     if status == http::StatusCode::NOT_FOUND {
         proxy
             .call(
@@ -124,12 +153,20 @@ async fn join_machine_network(proxy: &DockerProxy, machine_id: &str) -> Result<S
     let me = std::env::var("HOSTNAME").context("the helper runs in a container")?;
     // Already joined answers 403; either way it is on the network afterwards.
     let _ = proxy
-        .call(Method::POST, &format!("/networks/{MACHINE_NETWORK}/connect"), Some(json!({ "Container": me })))
+        .call(
+            Method::POST,
+            &format!("/networks/{MACHINE_NETWORK}/connect"),
+            Some(json!({ "Container": me })),
+        )
         .await?;
-    let (_, bytes) = proxy.call(Method::GET, &format!("/containers/{me}/json"), None).await?;
+    let (_, bytes) = proxy
+        .call(Method::GET, &format!("/containers/{me}/json"), None)
+        .await?;
     let inspected: Value = serde_json::from_slice(&bytes)?;
     inspected
-        .pointer(&format!("/NetworkSettings/Networks/{MACHINE_NETWORK}/IPAddress"))
+        .pointer(&format!(
+            "/NetworkSettings/Networks/{MACHINE_NETWORK}/IPAddress"
+        ))
         .and_then(Value::as_str)
         .filter(|address| !address.is_empty())
         .map(str::to_string)
@@ -137,14 +174,21 @@ async fn join_machine_network(proxy: &DockerProxy, machine_id: &str) -> Result<S
 }
 
 async fn connect_to_container(proxy: &DockerProxy, target: &str) -> Result<TcpStream> {
-    let (name, port) = target.rsplit_once(':').context("connect target is name:port")?;
+    let (name, port) = target
+        .rsplit_once(':')
+        .context("connect target is name:port")?;
     let port: u16 = port.parse().context("connect port")?;
     if port == 0 || !proxy.owns_container(name).await {
         bail!("not a Restless container on this machine");
     }
-    let (_, bytes) = proxy.call(Method::GET, &format!("/containers/{name}/json"), None).await?;
+    let (_, bytes) = proxy
+        .call(Method::GET, &format!("/containers/{name}/json"), None)
+        .await?;
     let inspected: Value = serde_json::from_slice(&bytes)?;
-    let networks = inspected.pointer("/NetworkSettings/Networks").and_then(Value::as_object).context("no networks")?;
+    let networks = inspected
+        .pointer("/NetworkSettings/Networks")
+        .and_then(Value::as_object)
+        .context("no networks")?;
     let address = networks
         .get(MACHINE_NETWORK)
         .into_iter()
@@ -155,9 +199,66 @@ async fn connect_to_container(proxy: &DockerProxy, target: &str) -> Result<TcpSt
     Ok(TcpStream::connect((address, port)).await?)
 }
 
-fn answer(incoming: Incoming, proxy: Arc<DockerProxy>) {
+/// Whether `target` (`host:port`) is a site the plane may reach through this machine: a named host
+/// or one of its subdomains, by name (never an address), on the web's own ports.
+pub fn egress_target(target: &str, hosts: &[String]) -> Option<(String, u16)> {
+    let (host, port) = target.rsplit_once(':')?;
+    let port: u16 = port.parse().ok()?;
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if !matches!(port, 80 | 443)
+        || host.parse::<std::net::IpAddr>().is_ok()
+        || host.is_empty()
+        || !host
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'.')
+    {
+        return None;
+    }
+    hosts
+        .iter()
+        .any(|allowed| host == *allowed || host.ends_with(&format!(".{allowed}")))
+        .then_some((host, port))
+}
+
+/// Open a named site from this machine. A name that resolves into this machine's own network
+/// (loopback, private, link-local) is refused, so a company can never reach the owner's LAN.
+async fn connect_egress(target: &str, hosts: &[String]) -> Result<TcpStream> {
+    let (host, port) = egress_target(target, hosts).context("not a site this computer carries")?;
+    let addresses: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
+        .await?
+        .collect();
+    let public = addresses.into_iter().find(|address| match address.ip() {
+        std::net::IpAddr::V4(ip) => {
+            !(ip.is_loopback()
+                || ip.is_private()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_broadcast())
+        }
+        std::net::IpAddr::V6(ip) => {
+            !(ip.is_loopback()
+                || ip.is_unspecified()
+                || (ip.segments()[0] & 0xfe00) == 0xfc00
+                || (ip.segments()[0] & 0xffc0) == 0xfe80)
+        }
+    });
+    let address = public.context("that site resolves only to a private address")?;
+    Ok(TcpStream::connect(address).await?)
+}
+
+fn answer(incoming: Incoming, proxy: Arc<DockerProxy>, egress: Arc<RwLock<Vec<String>>>) {
     tokio::spawn(async move {
         match incoming.kind.as_str() {
+            STREAM_EGRESS => {
+                let hosts = egress.read().unwrap().clone();
+                match connect_egress(&incoming.target, &hosts).await {
+                    Ok(mut tcp) => {
+                        let mut stream = incoming.accept();
+                        let _ = tokio::io::copy_bidirectional(&mut stream, &mut tcp).await;
+                    }
+                    Err(error) => incoming.refuse(&format!("{error:#}")),
+                }
+            }
             STREAM_DOCKER => {
                 let stream = incoming.accept();
                 proxy.serve(stream).await;
@@ -206,7 +307,9 @@ fn plane_listeners(link: &Link, ports: &[u16], running: &mut HashMap<u16, JoinHa
                             Ok(mut stream) => {
                                 let _ = tokio::io::copy_bidirectional(&mut tcp, &mut stream).await;
                             }
-                            Err(error) => tracing::debug!(port, %error, "plane refused a company call"),
+                            Err(error) => {
+                                tracing::debug!(port, %error, "plane refused a company call")
+                            }
                         }
                     });
                 }
@@ -224,12 +327,18 @@ pub enum Ended {
 
 /// Hold one link open until it drops or the machine is removed.
 pub async fn link_once(paired: &Paired, socket: &Path, state_path: &Path) -> Result<Ended> {
-    let scope = Arc::new(RwLock::new(Scope { machine_id: paired.machine_id.clone(), ..Scope::default() }));
+    let scope = Arc::new(RwLock::new(Scope {
+        machine_id: paired.machine_id.clone(),
+        ..Scope::default()
+    }));
     let proxy = DockerProxy::new(socket.to_path_buf(), Arc::clone(&scope));
-    let mut request = plane_url(&paired.plane, LINK_PATH, true)?.as_str().into_client_request()?;
-    request
-        .headers_mut()
-        .insert(http::header::AUTHORIZATION, format!("Bearer {}", paired.credential).parse()?);
+    let mut request = plane_url(&paired.plane, LINK_PATH, true)?
+        .as_str()
+        .into_client_request()?;
+    request.headers_mut().insert(
+        http::header::AUTHORIZATION,
+        format!("Bearer {}", paired.credential).parse()?,
+    );
     let (socket_stream, _) = match tokio_tungstenite::connect_async(request).await {
         Ok(connected) => connected,
         Err(tokio_tungstenite::tungstenite::Error::Http(response))
@@ -261,8 +370,13 @@ pub async fn link_once(paired: &Paired, socket: &Path, state_path: &Path) -> Res
         let text_out = text_out.clone();
         tokio::spawn(async move {
             loop {
-                let control = Control::Heartbeat { facts: facts(&proxy).await };
-                if text_out.send(serde_json::to_string(&control).unwrap()).is_err() {
+                let control = Control::Heartbeat {
+                    facts: facts(&proxy).await,
+                };
+                if text_out
+                    .send(serde_json::to_string(&control).unwrap())
+                    .is_err()
+                {
                     break;
                 }
                 tokio::time::sleep(Duration::from_secs(HEARTBEAT_SECONDS)).await;
@@ -270,17 +384,24 @@ pub async fn link_once(paired: &Paired, socket: &Path, state_path: &Path) -> Res
         })
     };
     let mut listeners = HashMap::new();
+    let egress: Arc<RwLock<Vec<String>>> = Arc::default();
     let mut ended = Ended::Dropped;
     while let Some(message) = source.next().await {
         let Ok(message) = message else { break };
         match message {
             Message::Binary(frame) => {
                 if let Some(incoming) = link.receive(&frame) {
-                    answer(incoming, Arc::clone(&proxy));
+                    answer(incoming, Arc::clone(&proxy), Arc::clone(&egress));
                 }
             }
             Message::Text(text) => match serde_json::from_str::<Control>(&text) {
-                Ok(Control::Settings { machine_id, allowed_images, plane_ports }) => {
+                Ok(Control::Settings {
+                    machine_id,
+                    allowed_images,
+                    plane_ports,
+                    egress_hosts,
+                }) => {
+                    *egress.write().unwrap() = egress_hosts;
                     let helper_address = match join_machine_network(&proxy, &machine_id).await {
                         Ok(address) => Some(address),
                         Err(error) => {
@@ -288,7 +409,11 @@ pub async fn link_once(paired: &Paired, socket: &Path, state_path: &Path) -> Res
                             None
                         }
                     };
-                    *scope.write().unwrap() = Scope { machine_id, allowed_images, helper_address };
+                    *scope.write().unwrap() = Scope {
+                        machine_id,
+                        allowed_images,
+                        helper_address,
+                    };
                     plane_listeners(&link, &plane_ports, &mut listeners);
                 }
                 Ok(Control::Removed) => {
@@ -326,5 +451,39 @@ pub async fn run(paired: Paired, socket: PathBuf, state_path: PathBuf) -> Result
         }
         tokio::time::sleep(wait).await;
         wait = (wait * 2).min(Duration::from_secs(60));
+    }
+}
+
+#[cfg(test)]
+mod egress_tests {
+    use super::egress_target;
+
+    #[test]
+    fn only_named_sites_on_web_ports_go_out_through_the_machine() {
+        let hosts = vec!["ebay.com.au".to_string(), "facebook.com".to_string()];
+        assert_eq!(
+            egress_target("www.ebay.com.au:443", &hosts),
+            Some(("www.ebay.com.au".into(), 443))
+        );
+        assert_eq!(
+            egress_target("FACEBOOK.com.:80", &hosts),
+            Some(("facebook.com".into(), 80))
+        );
+        for refused in [
+            "ebay.com.au.evil.example:443",
+            "notebay.com.au:443",
+            "www.ebay.com.au:22",
+            "192.168.1.1:443",
+            "[::1]:443",
+            "gumtree.com.au:443",
+            "ebay.com.au",
+        ] {
+            assert_eq!(egress_target(refused, &hosts), None, "{refused}");
+        }
+        assert_eq!(
+            egress_target("www.ebay.com.au:443", &[]),
+            None,
+            "no hosts named, nothing opens"
+        );
     }
 }

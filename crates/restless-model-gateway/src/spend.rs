@@ -1411,8 +1411,14 @@ mod tests {
         assert_eq!(correction.corrected_by, "owner");
         assert_eq!(store.accounted_micro_usd("acme"), 2_380_000);
         let report = store.report_records_for_company("acme").unwrap();
-        assert_eq!(report.iter().map(|row| row.cost_micro_usd).sum::<u64>(), 2_380_000);
-        assert!(store.report_records_for_company("other").unwrap().is_empty());
+        assert_eq!(
+            report.iter().map(|row| row.cost_micro_usd).sum::<u64>(),
+            2_380_000
+        );
+        assert!(store
+            .report_records_for_company("other")
+            .unwrap()
+            .is_empty());
         assert_eq!(
             store.breakdown_micro_usd("acme"),
             vec![("lead".into(), "kimi-k3".into(), 2_380_000)]
