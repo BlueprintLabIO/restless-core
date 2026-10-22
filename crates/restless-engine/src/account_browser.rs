@@ -697,17 +697,87 @@ pub async fn holds_lease(account_id: &str, company: &str, actor: &str) -> bool {
     })
 }
 
-/// A DevTools message an agent sent, refused when it reads what keeps the account signed in.
+/// What a signed-in account's browser answers over DevTools (S104 S1 stage 2): looking, pointing
+/// and typing, served by the browser itself. Nothing that runs script in the page (Runtime,
+/// Debugger, injected scripts), rewrites it (DOM edits that could add a script), or reads what
+/// keeps it signed in (Network, Storage, Fetch). Agents use the act tool; this guards any socket.
+pub fn devtools_allowed(method: &str) -> bool {
+    if REFUSED_METHODS.contains(&method) {
+        return false;
+    }
+    let Some((domain, command)) = method.split_once('.') else {
+        return false;
+    };
+    match domain {
+        "Accessibility" | "Input" => true,
+        "Page" => matches!(
+            command,
+            "enable"
+                | "disable"
+                | "navigate"
+                | "reload"
+                | "stopLoading"
+                | "captureScreenshot"
+                | "getLayoutMetrics"
+                | "getFrameTree"
+                | "getNavigationHistory"
+                | "navigateToHistoryEntry"
+                | "bringToFront"
+                | "setLifecycleEventsEnabled"
+                | "startScreencast"
+                | "stopScreencast"
+                | "screencastFrameAck"
+                | "handleJavaScriptDialog"
+                | "close"
+        ),
+        "DOM" => matches!(
+            command,
+            "enable"
+                | "disable"
+                | "getDocument"
+                | "querySelector"
+                | "querySelectorAll"
+                | "describeNode"
+                | "getBoxModel"
+                | "getContentQuads"
+                | "getNodeForLocation"
+                | "scrollIntoViewIfNeeded"
+                | "focus"
+                | "requestChildNodes"
+                | "pushNodesByBackendIdsToFrontend"
+        ),
+        "Target" => matches!(
+            command,
+            "getTargets"
+                | "getTargetInfo"
+                | "attachToTarget"
+                | "detachFromTarget"
+                | "createTarget"
+                | "closeTarget"
+                | "activateTarget"
+                | "setDiscoverTargets"
+                | "setAutoAttach"
+        ),
+        "Browser" => matches!(command, "getVersion" | "getWindowForTarget"),
+        "Emulation" => matches!(
+            command,
+            "setDeviceMetricsOverride" | "clearDeviceMetricsOverride"
+        ),
+        _ => false,
+    }
+}
+
+/// A DevTools message an agent sent, refused unless it is a high-level browser step.
 /// Returns the error reply to send back instead of forwarding it.
 pub fn refusal(message: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(message).ok()?;
     let method = value["method"].as_str()?;
-    if !REFUSED_METHODS.contains(&method) {
+    if devtools_allowed(method) {
         return None;
     }
     let mut reply = serde_json::json!({
         "id": value["id"],
-        "error": { "code": -32000, "message": format!("Restless: {method} is not available in an account's browser; its sign-in stays with the owner.") }
+        "error": { "code": -32000, "message": format!("Restless: {method} is not available in an account's browser: no script runs in a signed-in page. Use the account's act tool (open, read, click, type, scroll, screenshot).") }
     });
     if let Some(session) = value.get("sessionId") {
         reply["sessionId"] = session.clone();
@@ -952,10 +1022,12 @@ pub enum ActOutput {
 }
 
 /// The most of the accessibility tree one read returns.
-const READ_LIMIT: usize = 24_000;
+const READ_LIMIT: usize = 48_000;
 
 /// The page's accessibility tree as numbered lines: `[ref] role "name"`. A ref is the node the
-/// browser knows (its backend DOM id), which click and type take.
+/// browser knows (its backend DOM id), which click and type take. The page's main region comes
+/// first, and text that only repeats its parent's name is left out: on Facebook Marketplace the
+/// header and navigation filled the whole read before any listing (Sydney Resale, 22 Oct).
 pub fn render_ax_tree(nodes: &[serde_json::Value]) -> String {
     const QUIET: &[&str] = &[
         "none",
@@ -965,30 +1037,90 @@ pub fn render_ax_tree(nodes: &[serde_json::Value]) -> String {
         "RootWebArea",
         "presentation",
     ];
-    let mut out = String::new();
-    for node in nodes {
+    let by_id: std::collections::HashMap<&str, &serde_json::Value> = nodes
+        .iter()
+        .filter_map(|node| Some((node["nodeId"].as_str()?, node)))
+        .collect();
+    let name_of = |node: &serde_json::Value| -> String {
+        node["name"]["value"]
+            .as_str()
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    };
+    // Inside the main landmark (or a feed) when the page has one.
+    let in_main = |node: &serde_json::Value| -> bool {
+        if matches!(node["role"]["value"].as_str(), Some("main" | "feed")) {
+            return true;
+        }
+        let mut current = node["parentId"].as_str();
+        while let Some(id) = current {
+            let Some(parent) = by_id.get(id) else { break };
+            if matches!(parent["role"]["value"].as_str(), Some("main" | "feed")) {
+                return true;
+            }
+            current = parent["parentId"].as_str();
+        }
+        false
+    };
+    let has_main = nodes
+        .iter()
+        .any(|node| matches!(node["role"]["value"].as_str(), Some("main" | "feed")));
+    let line = |node: &serde_json::Value| -> Option<String> {
         if node["ignored"] == true {
-            continue;
+            return None;
         }
         let role = node["role"]["value"].as_str().unwrap_or_default();
-        let name = node["name"]["value"].as_str().unwrap_or_default().trim();
+        let name = name_of(node);
         if role.is_empty() || QUIET.contains(&role) || (role == "StaticText" && name.is_empty()) {
-            continue;
+            return None;
         }
-        let Some(reference) = node["backendDOMNodeId"].as_i64() else {
-            continue;
-        };
+        // A text node that only repeats the name its link or button already carries.
+        if role == "StaticText" {
+            if let Some(parent) = node["parentId"].as_str().and_then(|id| by_id.get(id)) {
+                if name_of(parent) == name {
+                    return None;
+                }
+            }
+        }
+        let reference = node["backendDOMNodeId"].as_i64()?;
         let name: String = name.chars().take(160).collect();
-        let line = if name.is_empty() {
+        Some(if name.is_empty() {
             format!("[{reference}] {role}\n")
         } else {
             format!("[{reference}] {role} {name:?}\n")
-        };
-        if out.len() + line.len() > READ_LIMIT {
-            out.push_str("… (the page is longer; scroll and read again)\n");
+        })
+    };
+    let mut out = String::new();
+    let mut full = false;
+    let passes: &[Option<bool>] = if has_main {
+        &[Some(true), Some(false)]
+    } else {
+        &[None]
+    };
+    for pass in passes {
+        if full {
             break;
         }
-        out.push_str(&line);
+        if has_main {
+            out.push_str(if *pass == Some(true) {
+                "Main:\n"
+            } else {
+                "Rest of the page:\n"
+            });
+        }
+        for node in nodes {
+            if pass.is_some_and(|main| in_main(node) != main) {
+                continue;
+            }
+            let Some(text) = line(node) else { continue };
+            if out.len() + text.len() > READ_LIMIT {
+                out.push_str("… (the page is longer; scroll and read again)\n");
+                full = true;
+                break;
+            }
+            out.push_str(&text);
+        }
     }
     out
 }
@@ -1197,6 +1329,29 @@ mod tests {
     }
 
     #[test]
+    fn the_main_region_reads_first_without_repeated_text() {
+        let nodes = serde_json::json!([
+            {"nodeId": "1", "role": {"value": "RootWebArea"}, "backendDOMNodeId": 1},
+            {"nodeId": "2", "parentId": "1", "role": {"value": "navigation"}, "name": {"value": "Facebook"}, "backendDOMNodeId": 2},
+            {"nodeId": "3", "parentId": "2", "role": {"value": "link"}, "name": {"value": "Home"}, "backendDOMNodeId": 3},
+            {"nodeId": "4", "parentId": "3", "role": {"value": "StaticText"}, "name": {"value": "Home"}, "backendDOMNodeId": 4},
+            {"nodeId": "5", "parentId": "1", "role": {"value": "main"}, "name": {"value": ""}, "backendDOMNodeId": 5},
+            {"nodeId": "6", "parentId": "5", "role": {"value": "link"}, "name": {"value": "RTX 3080 A$650 Parramatta"}, "backendDOMNodeId": 6},
+            {"nodeId": "7", "parentId": "6", "role": {"value": "StaticText"}, "name": {"value": "RTX 3080 A$650 Parramatta"}, "backendDOMNodeId": 7}
+        ]);
+        assert_eq!(
+            render_ax_tree(nodes.as_array().unwrap()),
+            "Main:
+[5] main
+[6] link \"RTX 3080 A$650 Parramatta\"
+Rest of the page:
+[2] navigation \"Facebook\"
+[3] link \"Home\"
+"
+        );
+    }
+
+    #[test]
     fn the_accessibility_tree_reads_as_numbered_lines() {
         let nodes = serde_json::json!([
             {"role": {"value": "RootWebArea"}, "name": {"value": "Inbox"}, "backendDOMNodeId": 1},
@@ -1260,6 +1415,33 @@ mod tests {
         )
         .is_none());
         assert!(refusal("not json").is_none());
+        // Stage 2: no page script, no DOM rewrite, no network or storage reads.
+        for method in [
+            "Runtime.evaluate",
+            "Runtime.callFunctionOn",
+            "Page.addScriptToEvaluateOnNewDocument",
+            "Page.createIsolatedWorld",
+            "DOM.setOuterHTML",
+            "DOM.setAttributeValue",
+            "Network.enable",
+            "Fetch.enable",
+            "Debugger.enable",
+            "Browser.close",
+            "nonsense",
+        ] {
+            assert!(!devtools_allowed(method), "{method}");
+        }
+        for method in [
+            "Accessibility.getFullAXTree",
+            "Input.dispatchMouseEvent",
+            "Input.insertText",
+            "DOM.getBoxModel",
+            "DOM.focus",
+            "Page.captureScreenshot",
+            "Target.attachToTarget",
+        ] {
+            assert!(devtools_allowed(method), "{method}");
+        }
     }
 
     /// A real identity browser from the local company image (opt in: RESTLESS_IDENTITY_E2E=1 and

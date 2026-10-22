@@ -361,9 +361,9 @@ pub fn browser_tool_definitions(usable: &Usable) -> Vec<(String, String, serde_j
     let mut tools = vec![(
         base.replace(TOOL_SUFFIX, BROWSER_SUFFIX),
         format!(
-            "[{} · the owner's signed-in browser for {domains}, granted to this company] For ordinary steps (open, read, click, type) use the act tool, which runs no script in the signed-in page. Borrow it here only when you need more: answers a DevTools endpoint to drive with Playwright \
-             (`chromium.connectOverCDP(endpoint)`) or any CDP client, already signed in. One session at a time holds it for up to 30 minutes; \
-             `release: true` hands it back. Cookies and site storage cannot be read through it. Needs `purpose`.",
+            "[{} · the owner's signed-in browser for {domains}, granted to this company] Borrow it, signed in, for up to 30 minutes, then drive it with the act tool (open, read, click, type, scroll, screenshot). \
+             No script runs in the signed-in page and cookies and site storage cannot be read. One session at a time holds it; \
+             `release: true` hands it back. Needs `purpose`.",
             account.label
         ),
         serde_json::json!({
