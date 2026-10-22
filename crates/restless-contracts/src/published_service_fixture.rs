@@ -859,8 +859,8 @@ mod tests {
     use std::io::BufReader;
 
     use futures_util::SinkExt as _;
-    use serde_json::Value;
     use rustls::pki_types::ServerName;
+    use serde_json::Value;
     use tokio::time::{Duration, Instant};
     use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
     use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;

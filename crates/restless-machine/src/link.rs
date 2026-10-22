@@ -83,14 +83,28 @@ impl Shared {
         self.out.send(frame).is_ok()
     }
 
-    fn new_slot(&self, id: u32, opened: Option<oneshot::Sender<Result<(), String>>>) -> Option<(mpsc::UnboundedReceiver<Chunk>, Arc<Mutex<Credit>>)> {
+    fn new_slot(
+        &self,
+        id: u32,
+        opened: Option<oneshot::Sender<Result<(), String>>>,
+    ) -> Option<(mpsc::UnboundedReceiver<Chunk>, Arc<Mutex<Credit>>)> {
         let (data, rx) = mpsc::unbounded_channel();
-        let credit = Arc::new(Mutex::new(Credit { available: u64::from(WINDOW), ..Credit::default() }));
+        let credit = Arc::new(Mutex::new(Credit {
+            available: u64::from(WINDOW),
+            ..Credit::default()
+        }));
         let mut slots = self.slots.lock().unwrap();
         if self.closed.load(Ordering::SeqCst) || slots.contains_key(&id) {
             return None;
         }
-        slots.insert(id, Slot { data, credit: Arc::clone(&credit), opened });
+        slots.insert(
+            id,
+            Slot {
+                data,
+                credit: Arc::clone(&credit),
+                opened,
+            },
+        );
         Some((rx, credit))
     }
 }
@@ -110,7 +124,10 @@ pub struct Incoming {
 
 impl Incoming {
     pub fn accept(mut self) -> LinkStream {
-        let stream = self.stream.take().expect("an incoming stream is answered once");
+        let stream = self
+            .stream
+            .take()
+            .expect("an incoming stream is answered once");
         stream.shared.send(ACCEPT, stream.id, &[]);
         stream
     }
@@ -153,10 +170,16 @@ impl Link {
 
     /// Open a stream of `kind` to `target`; the other end decides whether to accept it.
     pub async fn open(&self, kind: &str, target: &str) -> io::Result<LinkStream> {
-        let payload = serde_json::to_vec(&OpenPayload { kind: kind.into(), target: target.into() })
-            .map_err(io::Error::other)?;
+        let payload = serde_json::to_vec(&OpenPayload {
+            kind: kind.into(),
+            target: target.into(),
+        })
+        .map_err(io::Error::other)?;
         if payload.len() > MAX_OPEN_PAYLOAD {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "stream target too long"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "stream target too long",
+            ));
         }
         let id = self.shared.next_id.fetch_add(2, Ordering::SeqCst);
         let (opened, answer) = oneshot::channel();
@@ -179,7 +202,10 @@ impl Link {
                 stream.forget();
                 Err(io::Error::new(io::ErrorKind::NotConnected, "link closed"))
             }
-            Err(_) => Err(io::Error::new(io::ErrorKind::TimedOut, "the other end did not answer")),
+            Err(_) => Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "the other end did not answer",
+            )),
         }
     }
 
@@ -202,7 +228,11 @@ impl Link {
                 return None;
             };
             let stream = LinkStream::new(id, Arc::clone(&self.shared), rx, credit);
-            return Some(Incoming { kind: open.kind, target: open.target, stream: Some(stream) });
+            return Some(Incoming {
+                kind: open.kind,
+                target: open.target,
+                stream: Some(stream),
+            });
         }
         let mut slots = self.shared.slots.lock().unwrap();
         match kind {
@@ -225,7 +255,8 @@ impl Link {
             }
             CREDIT if payload.len() == 4 => {
                 if let Some(slot) = slots.get(&id) {
-                    let grant = u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                    let grant =
+                        u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
                     let mut credit = slot.credit.lock().unwrap();
                     credit.available = credit.available.saturating_add(u64::from(grant));
                     if let Some(waker) = credit.waker.take() {
@@ -251,7 +282,14 @@ impl Link {
     /// The websocket ended: every stream fails and no new one opens.
     pub fn close(&self) {
         self.shared.closed.store(true, Ordering::SeqCst);
-        let slots: Vec<Slot> = self.shared.slots.lock().unwrap().drain().map(|(_, slot)| slot).collect();
+        let slots: Vec<Slot> = self
+            .shared
+            .slots
+            .lock()
+            .unwrap()
+            .drain()
+            .map(|(_, slot)| slot)
+            .collect();
         for slot in slots {
             reset_slot(slot, "link closed");
         }
@@ -284,7 +322,12 @@ pub struct LinkStream {
 }
 
 impl LinkStream {
-    fn new(id: u32, shared: Arc<Shared>, rx: mpsc::UnboundedReceiver<Chunk>, credit: Arc<Mutex<Credit>>) -> Self {
+    fn new(
+        id: u32,
+        shared: Arc<Shared>,
+        rx: mpsc::UnboundedReceiver<Chunk>,
+        credit: Arc<Mutex<Credit>>,
+    ) -> Self {
         Self {
             id,
             shared,
@@ -312,7 +355,11 @@ impl LinkStream {
 }
 
 impl AsyncRead for LinkStream {
-    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
         let this = &mut *self;
         while this.pending.is_empty() {
             if this.read_done {
@@ -323,7 +370,10 @@ impl AsyncRead for LinkStream {
                 Poll::Ready(Some(Chunk::Fin)) => this.read_done = true,
                 Poll::Ready(Some(Chunk::Reset)) | Poll::Ready(None) => {
                     this.read_done = true;
-                    return Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionReset, "stream reset")));
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::ConnectionReset,
+                        "stream reset",
+                    )));
                 }
                 Poll::Pending => return Poll::Pending,
             }
@@ -332,7 +382,8 @@ impl AsyncRead for LinkStream {
         buf.put_slice(&this.pending.split_to(n));
         this.unacknowledged += n as u32;
         if this.unacknowledged >= WINDOW / 2 {
-            this.shared.send(CREDIT, this.id, &this.unacknowledged.to_be_bytes());
+            this.shared
+                .send(CREDIT, this.id, &this.unacknowledged.to_be_bytes());
             this.unacknowledged = 0;
         }
         Poll::Ready(Ok(()))
@@ -340,9 +391,16 @@ impl AsyncRead for LinkStream {
 }
 
 impl AsyncWrite for LinkStream {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, data: &[u8]) -> Poll<io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        data: &[u8],
+    ) -> Poll<io::Result<usize>> {
         if self.write_done {
-            return Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "stream closed for writing")));
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "stream closed for writing",
+            )));
         }
         if data.is_empty() {
             return Poll::Ready(Ok(0));
@@ -350,7 +408,10 @@ impl AsyncWrite for LinkStream {
         let n = {
             let mut credit = self.credit.lock().unwrap();
             if credit.closed {
-                return Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionReset, "stream reset")));
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::ConnectionReset,
+                    "stream reset",
+                )));
             }
             if credit.available == 0 {
                 credit.waker = Some(cx.waker().clone());
@@ -361,7 +422,10 @@ impl AsyncWrite for LinkStream {
             n
         };
         if !self.shared.send(DATA, self.id, &data[..n]) {
-            return Poll::Ready(Err(io::Error::new(io::ErrorKind::NotConnected, "link closed")));
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "link closed",
+            )));
         }
         Poll::Ready(Ok(n))
     }
@@ -398,7 +462,12 @@ mod tests {
 
     /// Two ends joined directly, as if by a websocket. Streams the machine end is asked to open
     /// arrive on the returned channel.
-    fn joined() -> (Link, Link, mpsc::UnboundedReceiver<Incoming>, mpsc::UnboundedReceiver<Incoming>) {
+    fn joined() -> (
+        Link,
+        Link,
+        mpsc::UnboundedReceiver<Incoming>,
+        mpsc::UnboundedReceiver<Incoming>,
+    ) {
         let (plane, mut to_machine) = Link::new(Side::Plane);
         let (machine, mut to_plane) = Link::new(Side::Machine);
         let (machine_incoming, machine_rx) = mpsc::unbounded_channel();
@@ -429,7 +498,10 @@ mod tests {
         let (plane, _machine, _plane_rx, mut machine_rx) = joined();
         tokio::spawn(async move {
             let incoming = machine_rx.recv().await.unwrap();
-            assert_eq!((incoming.kind.as_str(), incoming.target.as_str()), ("docker", "x"));
+            assert_eq!(
+                (incoming.kind.as_str(), incoming.target.as_str()),
+                ("docker", "x")
+            );
             let mut stream = incoming.accept();
             let mut received = Vec::new();
             stream.read_to_end(&mut received).await.unwrap();
@@ -437,7 +509,9 @@ mod tests {
             stream.shutdown().await.unwrap();
         });
         let mut stream = plane.open("docker", "x").await.unwrap();
-        let sent: Vec<u8> = (0..(3 * WINDOW as usize + 17)).map(|i| (i % 251) as u8).collect();
+        let sent: Vec<u8> = (0..(3 * WINDOW as usize + 17))
+            .map(|i| (i % 251) as u8)
+            .collect();
         let writer = {
             let sent = sent.clone();
             async move {
@@ -448,7 +522,9 @@ mod tests {
                 echoed
             }
         };
-        let echoed = tokio::time::timeout(Duration::from_secs(10), writer).await.unwrap();
+        let echoed = tokio::time::timeout(Duration::from_secs(10), writer)
+            .await
+            .unwrap();
         assert_eq!(echoed, sent);
     }
 
@@ -456,7 +532,11 @@ mod tests {
     async fn a_refused_stream_says_why() {
         let (plane, _machine, _plane_rx, mut machine_rx) = joined();
         tokio::spawn(async move {
-            machine_rx.recv().await.unwrap().refuse("not a Restless container");
+            machine_rx
+                .recv()
+                .await
+                .unwrap()
+                .refuse("not a Restless container");
         });
         let error = plane.open("connect", "postgres:5432").await.err().unwrap();
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);

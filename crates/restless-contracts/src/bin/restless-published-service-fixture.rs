@@ -12,5 +12,6 @@ async fn main() -> Result<()> {
     if arguments.next().is_some() {
         bail!("fixture accepts exactly one config path");
     }
-    restless_contracts::published_service_fixture::run_from_config_path(&PathBuf::from(config_path)).await
+    restless_contracts::published_service_fixture::run_from_config_path(&PathBuf::from(config_path))
+        .await
 }

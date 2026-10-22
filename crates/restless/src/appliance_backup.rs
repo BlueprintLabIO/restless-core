@@ -120,7 +120,11 @@ pub fn backup(output: PathBuf, force: bool) -> Result<BackupReport> {
             .is_file();
         let volume = docker_ok(&["volume", "inspect", &profile.docker_volume_name(&name)])?;
         let tools = tool_data_volumes(&profile, &name)?;
-        let attachments = docker_ok(&["volume", "inspect", &attachments_volume_name(&profile, &name)])?;
+        let attachments = docker_ok(&[
+            "volume",
+            "inspect",
+            &attachments_volume_name(&profile, &name),
+        ])?;
         companies.push(CompanyEntry {
             name,
             database,
@@ -176,14 +180,26 @@ pub fn backup(output: PathBuf, force: bool) -> Result<BackupReport> {
     // The plane is stopped, so no file is being kept while its volume is read.
     for company in companies.iter().filter(|company| company.attachments) {
         let image = helper_image(&profile, &company.name)?;
-        export_volume(&attachments_volume_name(&profile, &company.name), &image, &piece)?;
-        append_piece(&mut builder, &piece, &format!("attachments/{}.tar", company.name))?;
+        export_volume(
+            &attachments_volume_name(&profile, &company.name),
+            &image,
+            &piece,
+        )?;
+        append_piece(
+            &mut builder,
+            &piece,
+            &format!("attachments/{}.tar", company.name),
+        )?;
     }
     // A tool runs only while it is called; the plane is stopped, so its data is at rest.
     for company in &companies {
         for tool in &company.tools {
             let image = helper_image(&profile, &company.name)?;
-            export_volume(&tool_volume_name(&profile, &company.name, tool), &image, &piece)?;
+            export_volume(
+                &tool_volume_name(&profile, &company.name, tool),
+                &image,
+                &piece,
+            )?;
             append_piece(
                 &mut builder,
                 &piece,
@@ -382,11 +398,21 @@ pub fn restore(archive: PathBuf, force: bool) -> Result<RestoreReport> {
         import_volume(&profile, &volume, &image, &piece, &[])?;
         std::fs::remove_file(&piece)?;
     }
-    for company in manifest.companies.iter().filter(|company| company.attachments) {
+    for company in manifest
+        .companies
+        .iter()
+        .filter(|company| company.attachments)
+    {
         let entry = next_entry(&mut entries, &format!("attachments/{}.tar", company.name))?;
         stream_to(entry, &piece)?;
         let image = helper_image(&profile, &company.name)?;
-        import_volume(&profile, &attachments_volume_name(&profile, &company.name), &image, &piece, &[])?;
+        import_volume(
+            &profile,
+            &attachments_volume_name(&profile, &company.name),
+            &image,
+            &piece,
+            &[],
+        )?;
         std::fs::remove_file(&piece)?;
     }
     for company in &manifest.companies {
@@ -703,9 +729,8 @@ fn database_name(url: &str) -> Result<String> {
 const BUNDLED_DATABASE: &str = "restless-stable-postgres";
 
 fn on_path(program: &str) -> bool {
-    std::env::var_os("PATH").is_some_and(|paths| {
-        std::env::split_paths(&paths).any(|dir| dir.join(program).is_file())
-    })
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(program).is_file()))
 }
 
 /// A libpq client for `url`, and whether it runs inside the bundled database's container (files
@@ -718,8 +743,8 @@ fn libpq(program: &str, url: &str) -> Result<(Command, bool)> {
             .into_owned()
     });
     let _ = parsed.set_password(None);
-    let bundled =
-        !on_path(program) && docker_ok(&["container", "inspect", BUNDLED_DATABASE]).unwrap_or(false);
+    let bundled = !on_path(program)
+        && docker_ok(&["container", "inspect", BUNDLED_DATABASE]).unwrap_or(false);
     let mut command = if bundled {
         // Inside the container the server is on its own loopback, at the default port.
         let _ = parsed.set_host(Some("127.0.0.1"));
@@ -939,7 +964,14 @@ fn import_volume(
 ) -> Result<()> {
     let profile_label = format!("io.restless.profile={}", profile.kind.as_str());
     let namespace_label = format!("io.restless.namespace={}", profile.resource_namespace);
-    let mut create = vec!["volume", "create", "--label", &profile_label, "--label", &namespace_label];
+    let mut create = vec![
+        "volume",
+        "create",
+        "--label",
+        &profile_label,
+        "--label",
+        &namespace_label,
+    ];
     for label in labels {
         create.extend(["--label", label.as_str()]);
     }
@@ -994,7 +1026,10 @@ fn tool_volume_name(profile: &MachineProfile, company: &str, tool: &str) -> Stri
     if profile.resource_namespace.is_empty() {
         format!("restless-mcp-data-{company}-{tool}")
     } else {
-        format!("restless-{}-mcp-data-{company}-{tool}", profile.resource_namespace)
+        format!(
+            "restless-{}-mcp-data-{company}-{tool}",
+            profile.resource_namespace
+        )
     }
 }
 

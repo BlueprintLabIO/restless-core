@@ -152,6 +152,7 @@ async fn a_paired_machine_runs_only_what_restless_may() {
     ));
     std::fs::create_dir_all(&home).unwrap();
     std::env::set_var("RESTLESS_HOME", &home);
+    std::fs::create_dir_all(home.join("companies")).unwrap();
     std::env::set_var("RESTLESS_PORT_OFFSET", OFFSET.to_string());
     std::env::set_var("RESTLESS_COMPANY_IMAGE", COMPANY_IMAGE);
 
@@ -328,6 +329,44 @@ async fn a_paired_machine_runs_only_what_restless_may() {
         ),
     );
     assert!(ok && text == "plane", "plane port: {text}");
+
+    // A company's home sites go out from the machine's own address (S99 step 2, US-353); nothing
+    // else does.
+    let root = crate::runtime::state_root();
+    std::fs::create_dir_all(root.join("companies")).unwrap();
+    let config: crate::runtime::CompanyConfig = serde_json::from_value(serde_json::json!({
+        "name": "home_sites_test", "mission": "Home sites fixture", "home_sites": ["example.com"]
+    }))
+    .unwrap();
+    crate::runtime::CompanyConfig::save(&root, &config).expect("save the fixture company");
+    machines::assign(&pool, "home_sites_test", &machine_id, machines::ROLE_HELPER)
+        .await
+        .expect("assign the helper");
+    machines::push_settings(&pool, &machine_id).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let mut out = machines::egress(&machine_id, "example.com", 80)
+        .await
+        .expect("a home site opens through the machine");
+    out.write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut page = String::new();
+    let _ = out.read_to_string(&mut page).await;
+    assert!(
+        page.starts_with("HTTP/1.1"),
+        "home site answered: {}",
+        &page[..page.len().min(120)]
+    );
+    for refused in ["example.org", "93.184.215.14"] {
+        assert!(
+            machines::egress(&machine_id, refused, 80).await.is_err(),
+            "{refused} is not a home site"
+        );
+    }
+    machines::unassign(&pool, "home_sites_test", &machine_id)
+        .await
+        .unwrap();
+    let _ = std::fs::remove_file(root.join("companies/home_sites_test.toml"));
 
     // A company moves there and back with its files (US-347), and while it is there every Docker
     // call the plane makes for it goes to the machine.

@@ -20,7 +20,8 @@ pub fn incoming(body: Incoming) -> Body {
 /// Send `request` to the Docker socket at `socket`.
 pub async fn forward(socket: &Path, request: Request<Body>) -> anyhow::Result<Response<Incoming>> {
     let stream = UnixStream::connect(socket).await?;
-    let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream)).await?;
+    let (mut sender, connection) =
+        hyper::client::conn::http1::handshake(TokioIo::new(stream)).await?;
     tokio::spawn(async move {
         if let Err(error) = connection.with_upgrades().await {
             tracing::debug!(%error, "docker socket connection ended");

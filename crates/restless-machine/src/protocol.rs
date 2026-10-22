@@ -22,6 +22,10 @@ pub const STREAM_IMAGE: &str = "image";
 /// A company container on the machine calling one of the plane's own ports, which the plane names
 /// in [`Control::Settings`] and checks again on every stream. Machine → plane. Target: the port.
 pub const STREAM_PLANE: &str = "plane";
+/// A connection out to the internet from this machine's own address, for a site a company sends
+/// through its owner's computer (S99 step 2: marketplace work from a home IP). Plane → machine.
+/// Target: `<host>:<port>`, only a host the plane named in [`Control::Settings`], on 80 or 443.
+pub const STREAM_EGRESS: &str = "egress";
 
 /// What the machine is, sent when it pairs and on every heartbeat. The plane never trusts these for
 /// security; they are what the owner sees. Its address, region and network type are observed by
@@ -64,6 +68,9 @@ pub enum Control {
         machine_id: String,
         allowed_images: Vec<AllowedImage>,
         plane_ports: Vec<u16>,
+        /// The sites companies send through this machine; the machine opens nothing else.
+        #[serde(default)]
+        egress_hosts: Vec<String>,
     },
     /// Plane → machine: the machine was removed. The helper forgets its credential and stops.
     Removed,
@@ -103,6 +110,12 @@ mod tests {
             r#"{"type":"settings","machine_id":"m","allowed_images":[],"plane_ports":[7300]}"#,
         )
         .unwrap();
-        assert!(matches!(settings, Control::Settings { plane_ports, .. } if plane_ports == [7300]));
+        assert!(
+            matches!(&settings, Control::Settings { plane_ports, .. } if *plane_ports == [7300])
+        );
+        // An older plane sends no egress hosts: the machine then opens none.
+        assert!(
+            matches!(&settings, Control::Settings { egress_hosts, .. } if egress_hosts.is_empty())
+        );
     }
 }

@@ -32,7 +32,7 @@ try {
 } finally {
   Remove-Item -Force -ErrorAction SilentlyContinue $Archive
 }
-$Image = ($Loaded | Select-String -Pattern '^Loaded image ID: (.+)$' | Select-Object -Last 1).Matches.Groups[1].Value
+$Image = ($Loaded | Select-String -Pattern '^Loaded image(?: ID)?: (.+)$' | Select-Object -Last 1).Matches.Groups[1].Value
 if (-not $Image) {
   Write-Host 'The image did not load. Try again with a new code.'
   return

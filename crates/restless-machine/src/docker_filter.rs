@@ -14,7 +14,9 @@
 use http::Method;
 use serde_json::{Map, Value};
 
-use crate::protocol::{AllowedImage, HELPER_CONTAINER, MACHINE_LABEL, MACHINE_NETWORK, NAME_PREFIX};
+use crate::protocol::{
+    AllowedImage, HELPER_CONTAINER, MACHINE_LABEL, MACHINE_NETWORK, NAME_PREFIX,
+};
 
 /// What the helper knows about itself when it filters.
 #[derive(Debug, Clone, Default)]
@@ -39,26 +41,47 @@ pub enum Route {
     /// Allowed; the event stream carries only this machine's objects.
     Events,
     /// Create a container with this name (body checked and rewritten).
-    CreateContainer { name: String },
+    CreateContainer {
+        name: String,
+    },
     /// Any call on an existing container, which must be this machine's.
-    Container { id: String },
+    Container {
+        id: String,
+    },
     /// Create an exec in a container, which must be this machine's.
-    CreateExec { container: String },
+    CreateExec {
+        container: String,
+    },
     /// Any call on an exec, which must be one the helper saw created.
-    Exec { id: String },
+    Exec {
+        id: String,
+    },
     /// `docker commit` of a container, which must be this machine's.
-    Commit { container: String },
+    Commit {
+        container: String,
+    },
     CreateVolume,
-    Volume { name: String },
+    Volume {
+        name: String,
+    },
     CreateNetwork,
-    Network { name: String },
+    Network {
+        name: String,
+    },
     /// Read an image's metadata.
     ImageRead,
     /// Pull an image, which must be allowed.
-    PullImage { image: String },
+    PullImage {
+        image: String,
+    },
     /// Tag an image: both names must be Restless's own.
-    TagImage { source: String, repo: String },
-    RemoveImage { name: String },
+    TagImage {
+        source: String,
+        repo: String,
+    },
+    RemoveImage {
+        name: String,
+    },
     Refused(&'static str),
 }
 
@@ -66,7 +89,10 @@ pub enum Route {
 fn unversioned(path: &str) -> &str {
     if let Some(rest) = path.strip_prefix("/v") {
         if let Some(slash) = rest.find('/') {
-            if rest[..slash].chars().all(|c| c.is_ascii_digit() || c == '.') {
+            if rest[..slash]
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == '.')
+            {
                 return &rest[slash..];
             }
         }
@@ -75,7 +101,9 @@ fn unversioned(path: &str) -> &str {
 }
 
 fn query_value(query: &str, key: &str) -> Option<String> {
-    url::form_urlencoded::parse(query.as_bytes()).find(|(k, _)| k == key).map(|(_, v)| v.into_owned())
+    url::form_urlencoded::parse(query.as_bytes())
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.into_owned())
 }
 
 pub fn is_restless_name(name: &str) -> bool {
@@ -95,22 +123,41 @@ pub fn classify(method: &Method, path: &str, query: &str) -> Route {
         ["containers", "create"] if method == Method::POST => match query_value(query, "name") {
             Some(name) if is_restless_name(&name) => Route::CreateContainer { name },
             // Docker names it; the machine label still marks it as Restless's.
-            None => Route::CreateContainer { name: String::new() },
+            None => Route::CreateContainer {
+                name: String::new(),
+            },
             Some(_) => Route::Refused("containers here must be named restless-…"),
         },
         ["containers", "prune"] => Route::Refused("pruning is never allowed"),
-        ["containers", id, "exec"] if method == Method::POST => Route::CreateExec { container: (*id).into() },
+        ["containers", id, "exec"] if method == Method::POST => Route::CreateExec {
+            container: (*id).into(),
+        },
         ["containers", id] if method == Method::DELETE => Route::Container { id: (*id).into() },
         ["containers", id, action]
             if matches!(
                 *action,
-                "json" | "start" | "stop" | "restart" | "kill" | "wait" | "attach" | "logs" | "archive"
-                    | "resize" | "top" | "stats" | "update" | "changes" | "rename"
+                "json"
+                    | "start"
+                    | "stop"
+                    | "restart"
+                    | "kill"
+                    | "wait"
+                    | "attach"
+                    | "logs"
+                    | "archive"
+                    | "resize"
+                    | "top"
+                    | "stats"
+                    | "update"
+                    | "changes"
+                    | "rename"
             ) =>
         {
             Route::Container { id: (*id).into() }
         }
-        ["exec", id, action] if matches!(*action, "start" | "resize" | "json") => Route::Exec { id: (*id).into() },
+        ["exec", id, action] if matches!(*action, "start" | "resize" | "json") => {
+            Route::Exec { id: (*id).into() }
+        }
         ["commit"] if method == Method::POST => match query_value(query, "container") {
             Some(container) => match query_value(query, "repo") {
                 Some(repo) if !repo.is_empty() && !is_restless_name(&repo) => {
@@ -123,14 +170,18 @@ pub fn classify(method: &Method, path: &str, query: &str) -> Route {
         ["volumes"] if get => Route::ListVolumes,
         ["volumes", "create"] if method == Method::POST => Route::CreateVolume,
         ["volumes", "prune"] => Route::Refused("pruning is never allowed"),
-        ["volumes", name] if get || method == Method::DELETE => Route::Volume { name: (*name).into() },
+        ["volumes", name] if get || method == Method::DELETE => Route::Volume {
+            name: (*name).into(),
+        },
         ["networks"] if get => Route::ListNetworks,
         ["networks", "create"] if method == Method::POST => Route::CreateNetwork,
         ["networks", "prune"] => Route::Refused("pruning is never allowed"),
-        ["networks", name] if get || method == Method::DELETE => Route::Network { name: (*name).into() },
-        ["networks", name, "connect" | "disconnect"] if method == Method::POST => {
-            Route::Network { name: (*name).into() }
-        }
+        ["networks", name] if get || method == Method::DELETE => Route::Network {
+            name: (*name).into(),
+        },
+        ["networks", name, "connect" | "disconnect"] if method == Method::POST => Route::Network {
+            name: (*name).into(),
+        },
         ["images", "create"] if method == Method::POST => match query_value(query, "fromImage") {
             Some(image) => {
                 let tag = query_value(query, "tag").unwrap_or_default();
@@ -146,15 +197,21 @@ pub fn classify(method: &Method, path: &str, query: &str) -> Route {
             None => Route::Refused("importing images is not allowed"),
         },
         ["images", "prune"] => Route::Refused("pruning is never allowed"),
-        ["images", rest @ ..] if get && rest.last() == Some(&"json") && rest.len() >= 2 => Route::ImageRead,
-        ["images", rest @ ..] if method == Method::POST && rest.last() == Some(&"tag") && rest.len() >= 2 => {
+        ["images", rest @ ..] if get && rest.last() == Some(&"json") && rest.len() >= 2 => {
+            Route::ImageRead
+        }
+        ["images", rest @ ..]
+            if method == Method::POST && rest.last() == Some(&"tag") && rest.len() >= 2 =>
+        {
             Route::TagImage {
                 source: rest[..rest.len() - 1].join("/"),
                 repo: query_value(query, "repo").unwrap_or_default(),
             }
         }
         ["images", rest @ ..] if method == Method::DELETE && !rest.is_empty() => {
-            Route::RemoveImage { name: rest.join("/") }
+            Route::RemoveImage {
+                name: rest.join("/"),
+            }
         }
         _ => Route::Refused("this Docker call is not available to Restless on this machine"),
     }
@@ -179,7 +236,9 @@ pub fn allowed_image<'a>(image: &str, scope: &'a Scope) -> Option<&'a AllowedIma
             || allowed
                 .reference
                 .split_once('@')
-                .is_some_and(|(_, digest)| image == digest || image.ends_with(&format!("@{digest}")))
+                .is_some_and(|(_, digest)| {
+                    image == digest || image.ends_with(&format!("@{digest}"))
+                })
     })
 }
 
@@ -187,7 +246,12 @@ pub fn allowed_image<'a>(image: &str, scope: &'a Scope) -> Option<&'a AllowedIma
 /// image store (the plane's may be containerd's, the machine's the classic one), so the machine
 /// names what the plane sent by the plane's id instead of trusting its own.
 pub fn local_tag(allowed: &AllowedImage) -> String {
-    let hex: String = allowed.id.trim_start_matches("sha256:").chars().take(32).collect();
+    let hex: String = allowed
+        .id
+        .trim_start_matches("sha256:")
+        .chars()
+        .take(32)
+        .collect();
     format!("restless-company:{hex}")
 }
 
@@ -207,10 +271,10 @@ fn add_label(body: &mut Map<String, Value>, key: &str, scope: &Scope) {
     if !labels.is_object() {
         *labels = Value::Object(Map::new());
     }
-    labels
-        .as_object_mut()
-        .unwrap()
-        .insert(MACHINE_LABEL.into(), Value::String(scope.machine_id.clone()));
+    labels.as_object_mut().unwrap().insert(
+        MACHINE_LABEL.into(),
+        Value::String(scope.machine_id.clone()),
+    );
 }
 
 fn non_empty(value: Option<&Value>) -> bool {
@@ -232,8 +296,13 @@ pub fn rewrite_container_create(
     scope: &Scope,
     ours: impl Fn(&str) -> bool,
 ) -> Result<(), &'static str> {
-    let body = body.as_object_mut().ok_or("container create body must be an object")?;
-    let image = body.get("Image").and_then(Value::as_str).unwrap_or_default();
+    let body = body
+        .as_object_mut()
+        .ok_or("container create body must be an object")?;
+    let image = body
+        .get("Image")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     if !image_allowed(image, scope) {
         return Err("this image is not one Restless may run here");
     }
@@ -241,18 +310,35 @@ pub fn rewrite_container_create(
         body.insert("Image".into(), Value::String(id));
     }
     add_label(body, "Labels", scope);
-    let host = body.entry("HostConfig").or_insert_with(|| Value::Object(Map::new()));
+    let host = body
+        .entry("HostConfig")
+        .or_insert_with(|| Value::Object(Map::new()));
     let host = host.as_object_mut().ok_or("HostConfig must be an object")?;
     if host.get("Privileged").and_then(Value::as_bool) == Some(true) {
         return Err("privileged containers are not allowed");
     }
-    for key in ["PidMode", "IpcMode", "UTSMode", "UsernsMode", "CgroupnsMode", "Cgroup"] {
+    for key in [
+        "PidMode",
+        "IpcMode",
+        "UTSMode",
+        "UsernsMode",
+        "CgroupnsMode",
+        "Cgroup",
+    ] {
         let value = host.get(key).and_then(Value::as_str).unwrap_or_default();
         if value == "host" || (key == "PidMode" && value.starts_with("container:")) {
             return Err("host namespaces are not allowed");
         }
     }
-    for key in ["Devices", "DeviceRequests", "DeviceCgroupRules", "CapAdd", "VolumesFrom", "Sysctls", "Links"] {
+    for key in [
+        "Devices",
+        "DeviceRequests",
+        "DeviceCgroupRules",
+        "CapAdd",
+        "VolumesFrom",
+        "Sysctls",
+        "Links",
+    ] {
         if non_empty(host.get(key)) {
             return Err("devices, added capabilities, sysctls and shared volumes are not allowed");
         }
@@ -267,15 +353,25 @@ pub fn rewrite_container_create(
     if let Some(binds) = host.get("Binds").and_then(Value::as_array) {
         for bind in binds.iter().filter_map(Value::as_str) {
             let source = bind.split(':').next().unwrap_or_default();
-            if source.starts_with('/') || source.starts_with('.') || source.contains('\\') || !is_restless_name(source) {
+            if source.starts_with('/')
+                || source.starts_with('.')
+                || source.contains('\\')
+                || !is_restless_name(source)
+            {
                 return Err("only Restless's own volumes may be mounted");
             }
         }
     }
     if let Some(mounts) = host.get("Mounts").and_then(Value::as_array) {
         for mount in mounts {
-            let kind = mount.get("Type").and_then(Value::as_str).unwrap_or("volume");
-            let source = mount.get("Source").and_then(Value::as_str).unwrap_or_default();
+            let kind = mount
+                .get("Type")
+                .and_then(Value::as_str)
+                .unwrap_or("volume");
+            let source = mount
+                .get("Source")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             let fine = match kind {
                 "tmpfs" => true,
                 "volume" => is_restless_name(source),
@@ -286,7 +382,11 @@ pub fn rewrite_container_create(
             }
         }
     }
-    let network = host.get("NetworkMode").and_then(Value::as_str).unwrap_or_default().to_string();
+    let network = host
+        .get("NetworkMode")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     match network.as_str() {
         "" | "default" | "bridge" => {
             host.insert("NetworkMode".into(), Value::String(MACHINE_NETWORK.into()));
@@ -307,14 +407,19 @@ pub fn rewrite_container_create(
             .cloned()
             .unwrap_or_default()
             .into_iter()
-            .filter(|entry| !entry.as_str().is_some_and(|text| text.starts_with("host.docker.internal:")))
+            .filter(|entry| {
+                !entry
+                    .as_str()
+                    .is_some_and(|text| text.starts_with("host.docker.internal:"))
+            })
             .collect();
         if let Some(address) = &scope.helper_address {
             hosts.push(Value::String(format!("host.docker.internal:{address}")));
         }
         host.insert("ExtraHosts".into(), Value::Array(hosts));
     }
-    let joined_machine_network = host.get("NetworkMode").and_then(Value::as_str) == Some(MACHINE_NETWORK);
+    let joined_machine_network =
+        host.get("NetworkMode").and_then(Value::as_str) == Some(MACHINE_NETWORK);
     // The CLI names the network a second time, per endpoint; keep the two in step, and allow only
     // Restless's own networks there too.
     if let Some(endpoints) = body
@@ -329,7 +434,10 @@ pub fn rewrite_container_create(
                 }
             }
         }
-        if endpoints.keys().any(|name| !is_restless_name(name) && name != MACHINE_NETWORK) {
+        if endpoints
+            .keys()
+            .any(|name| !is_restless_name(name) && name != MACHINE_NETWORK)
+        {
             return Err("host and foreign networks are not allowed");
         }
     }
@@ -348,7 +456,9 @@ pub fn rewrite_container_create(
 
 /// Check and label a volume or network create body.
 pub fn rewrite_named_create(body: &mut Value, scope: &Scope) -> Result<(), &'static str> {
-    let body = body.as_object_mut().ok_or("create body must be an object")?;
+    let body = body
+        .as_object_mut()
+        .ok_or("create body must be an object")?;
     let name = body.get("Name").and_then(Value::as_str).unwrap_or_default();
     if !is_restless_name(name) {
         return Err("volumes and networks here must be named restless-…");
@@ -400,7 +510,10 @@ mod tests {
     fn scope() -> Scope {
         Scope {
             machine_id: "m1".into(),
-            allowed_images: vec![AllowedImage { reference: "ghcr.io/x/company@sha256:abc".into(), id: "sha256:c0f".into() }],
+            allowed_images: vec![AllowedImage {
+                reference: "ghcr.io/x/company@sha256:abc".into(),
+                id: "sha256:c0f".into(),
+            }],
             helper_address: Some("172.30.0.2".into()),
         }
     }
@@ -416,17 +529,46 @@ mod tests {
         assert_eq!(classify(&get, "/v1.47/_ping", ""), Route::Open);
         assert_eq!(
             classify(&post, "/v1.47/containers/create", "name=restless-acme"),
-            Route::CreateContainer { name: "restless-acme".into() }
+            Route::CreateContainer {
+                name: "restless-acme".into()
+            }
         );
-        assert_eq!(classify(&post, "/containers/restless-acme/exec", ""), Route::CreateExec { container: "restless-acme".into() });
-        assert_eq!(classify(&post, "/exec/e1/start", ""), Route::Exec { id: "e1".into() });
-        assert_eq!(classify(&Method::PUT, "/containers/restless-acme/archive", "path=/x"), Route::Container { id: "restless-acme".into() });
-        assert_eq!(classify(&Method::DELETE, "/volumes/restless-att-acme", ""), Route::Volume { name: "restless-att-acme".into() });
         assert_eq!(
-            classify(&post, "/images/create", "fromImage=ghcr.io/x/company&tag=sha256:abc"),
-            Route::PullImage { image: "ghcr.io/x/company@sha256:abc".into() }
+            classify(&post, "/containers/restless-acme/exec", ""),
+            Route::CreateExec {
+                container: "restless-acme".into()
+            }
         );
-        assert_eq!(classify(&get, "/images/ghcr.io/x/company@sha256:abc/json", ""), Route::ImageRead);
+        assert_eq!(
+            classify(&post, "/exec/e1/start", ""),
+            Route::Exec { id: "e1".into() }
+        );
+        assert_eq!(
+            classify(&Method::PUT, "/containers/restless-acme/archive", "path=/x"),
+            Route::Container {
+                id: "restless-acme".into()
+            }
+        );
+        assert_eq!(
+            classify(&Method::DELETE, "/volumes/restless-att-acme", ""),
+            Route::Volume {
+                name: "restless-att-acme".into()
+            }
+        );
+        assert_eq!(
+            classify(
+                &post,
+                "/images/create",
+                "fromImage=ghcr.io/x/company&tag=sha256:abc"
+            ),
+            Route::PullImage {
+                image: "ghcr.io/x/company@sha256:abc".into()
+            }
+        );
+        assert_eq!(
+            classify(&get, "/images/ghcr.io/x/company@sha256:abc/json", ""),
+            Route::ImageRead
+        );
     }
 
     #[test]
@@ -444,15 +586,27 @@ mod tests {
             (Method::POST, "/images/load", ""),
             (Method::POST, "/commit", "container=restless-acme&repo=evil"),
         ] {
-            assert!(matches!(classify(&method, path, query), Route::Refused(_)), "{method} {path}?{query}");
+            assert!(
+                matches!(classify(&method, path, query), Route::Refused(_)),
+                "{method} {path}?{query}"
+            );
         }
     }
 
     #[test]
     fn allowed_images_run_by_their_exact_id() {
-        assert_eq!(local_id("ghcr.io/x/company@sha256:abc", &scope()).as_deref(), Some("restless-company:c0f"));
-        assert_eq!(local_id("sha256:c0f", &scope()).as_deref(), Some("restless-company:c0f"));
-        assert_eq!(local_id("restless-company:c0f", &scope()).as_deref(), Some("restless-company:c0f"));
+        assert_eq!(
+            local_id("ghcr.io/x/company@sha256:abc", &scope()).as_deref(),
+            Some("restless-company:c0f")
+        );
+        assert_eq!(
+            local_id("sha256:c0f", &scope()).as_deref(),
+            Some("restless-company:c0f")
+        );
+        assert_eq!(
+            local_id("restless-company:c0f", &scope()).as_deref(),
+            Some("restless-company:c0f")
+        );
         assert_eq!(local_id("alpine", &scope()), None);
         let mut body = create(json!({}));
         rewrite_container_create(&mut body, &scope(), |_| false).unwrap();
@@ -461,16 +615,24 @@ mod tests {
 
     #[test]
     fn a_company_container_is_labelled_and_joined_to_the_machine() {
-        let mut body = create(json!({ "Binds": ["restless-acme:/company"], "ExtraHosts": ["host.docker.internal:host-gateway"] }));
+        let mut body = create(
+            json!({ "Binds": ["restless-acme:/company"], "ExtraHosts": ["host.docker.internal:host-gateway"] }),
+        );
         body["NetworkingConfig"] = json!({ "EndpointsConfig": { "default": {} } });
         rewrite_container_create(&mut body, &scope(), |_| false).unwrap();
-        assert_eq!(body["NetworkingConfig"]["EndpointsConfig"], json!({ MACHINE_NETWORK: {} }));
+        assert_eq!(
+            body["NetworkingConfig"]["EndpointsConfig"],
+            json!({ MACHINE_NETWORK: {} })
+        );
         let mut foreign = create(json!({}));
         foreign["NetworkingConfig"] = json!({ "EndpointsConfig": { "host": {} } });
         assert!(rewrite_container_create(&mut foreign, &scope(), |_| false).is_err());
         assert_eq!(body["Labels"][MACHINE_LABEL], "m1");
         assert_eq!(body["HostConfig"]["NetworkMode"], MACHINE_NETWORK);
-        assert_eq!(body["HostConfig"]["ExtraHosts"], json!(["host.docker.internal:172.30.0.2"]));
+        assert_eq!(
+            body["HostConfig"]["ExtraHosts"],
+            json!(["host.docker.internal:172.30.0.2"])
+        );
     }
 
     #[test]
@@ -492,7 +654,10 @@ mod tests {
         ];
         for mut body in refused {
             let shown = body.to_string();
-            assert!(rewrite_container_create(&mut body, &scope(), |_| false).is_err(), "{shown}");
+            assert!(
+                rewrite_container_create(&mut body, &scope(), |_| false).is_err(),
+                "{shown}"
+            );
         }
     }
 
@@ -513,7 +678,8 @@ mod tests {
 
     #[test]
     fn volumes_and_networks_are_named_and_labelled() {
-        let mut volume = json!({ "Name": "restless-att-acme", "Labels": { "io.restless.profile": "stable" } });
+        let mut volume =
+            json!({ "Name": "restless-att-acme", "Labels": { "io.restless.profile": "stable" } });
         rewrite_named_create(&mut volume, &scope()).unwrap();
         assert_eq!(volume["Labels"][MACHINE_LABEL], "m1");
         assert_eq!(volume["Labels"]["io.restless.profile"], "stable");
@@ -534,10 +700,17 @@ mod tests {
         ]);
         filter_list(&mut containers, &scope());
         assert_eq!(containers.as_array().unwrap().len(), 1);
-        let mut volumes = json!({ "Volumes": [{ "Name": "photos", "Labels": null }], "Warnings": ["x"] });
+        let mut volumes =
+            json!({ "Volumes": [{ "Name": "photos", "Labels": null }], "Warnings": ["x"] });
         filter_list(&mut volumes, &scope());
         assert_eq!(volumes, json!({ "Volumes": [], "Warnings": [] }));
-        assert!(event_is_ours(br#"{"Actor":{"Attributes":{"io.restless.machine":"m1"}}}"#, &scope()));
-        assert!(!event_is_ours(br#"{"Actor":{"Attributes":{"name":"postgres"}}}"#, &scope()));
+        assert!(event_is_ours(
+            br#"{"Actor":{"Attributes":{"io.restless.machine":"m1"}}}"#,
+            &scope()
+        ));
+        assert!(!event_is_ours(
+            br#"{"Actor":{"Attributes":{"name":"postgres"}}}"#,
+            &scope()
+        ));
     }
 }

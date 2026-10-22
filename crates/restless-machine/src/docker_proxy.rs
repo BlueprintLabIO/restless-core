@@ -34,13 +34,18 @@ const MAX_LIST_BODY: usize = 32 * 1024 * 1024;
 const MAX_REMEMBERED_EXECS: usize = 10_000;
 
 fn full(bytes: impl Into<Bytes>) -> Body {
-    Full::new(bytes.into()).map_err(|never: Infallible| match never {}).boxed()
+    Full::new(bytes.into())
+        .map_err(|never: Infallible| match never {})
+        .boxed()
 }
 
 fn message(status: StatusCode, text: &str) -> Response<Body> {
     let mut response = Response::new(full(json!({ "message": text }).to_string()));
     *response.status_mut() = status;
-    response.headers_mut().insert(http::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    response.headers_mut().insert(
+        http::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
     response
 }
 
@@ -96,13 +101,20 @@ impl DockerProxy {
     }
 
     /// One call to the local Docker socket, for the proxy's own lookups.
-    pub async fn call(&self, method: Method, path: &str, body: Option<Value>) -> anyhow::Result<(StatusCode, Bytes)> {
+    pub async fn call(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> anyhow::Result<(StatusCode, Bytes)> {
         let request = Request::builder()
             .method(method)
             .uri(path)
             .header(HOST, "docker")
             .header(http::header::CONTENT_TYPE, "application/json")
-            .body(full(body.map(|value| value.to_string()).unwrap_or_default()))?;
+            .body(full(
+                body.map(|value| value.to_string()).unwrap_or_default(),
+            ))?;
         let response = self.forward(request).await?;
         let status = response.status();
         let bytes = response.into_body().collect().await?.to_bytes();
@@ -127,19 +139,25 @@ impl DockerProxy {
 
     pub async fn owns_container(&self, id: &str) -> bool {
         let scope = self.scope();
-        let labels = self.labels_of(&format!("/containers/{id}/json"), &["Config", "Labels"]).await;
+        let labels = self
+            .labels_of(&format!("/containers/{id}/json"), &["Config", "Labels"])
+            .await;
         docker_filter::labelled_ours(labels.as_ref(), &scope)
     }
 
     async fn owns_volume(&self, name: &str) -> bool {
         let scope = self.scope();
-        let labels = self.labels_of(&format!("/volumes/{name}"), &["Labels"]).await;
+        let labels = self
+            .labels_of(&format!("/volumes/{name}"), &["Labels"])
+            .await;
         docker_filter::labelled_ours(labels.as_ref(), &scope)
     }
 
     async fn owns_network(&self, name: &str) -> bool {
         let scope = self.scope();
-        let labels = self.labels_of(&format!("/networks/{name}"), &["Labels"]).await;
+        let labels = self
+            .labels_of(&format!("/networks/{name}"), &["Labels"])
+            .await;
         docker_filter::labelled_ours(labels.as_ref(), &scope)
     }
 
@@ -183,7 +201,9 @@ impl DockerProxy {
                 }
                 self.pass(request, None).await
             }
-            Route::CreateVolume | Route::CreateNetwork => return self.create_named(request, &scope).await,
+            Route::CreateVolume | Route::CreateNetwork => {
+                return self.create_named(request, &scope).await
+            }
             Route::Volume { name } => {
                 if !self.owns_volume(&name).await {
                     return absent("volume", &name);
@@ -208,7 +228,10 @@ impl DockerProxy {
                     .unwrap_or_default()
                     .to_string();
                 if let Some(id) = docker_filter::local_id(&image, &scope) {
-                    return match self.call(Method::GET, &format!("/images/{id}/json"), None).await {
+                    return match self
+                        .call(Method::GET, &format!("/images/{id}/json"), None)
+                        .await
+                    {
                         Ok((status, bytes)) => {
                             let mut response = Response::new(full(bytes));
                             *response.status_mut() = status;
@@ -224,21 +247,32 @@ impl DockerProxy {
             }
             Route::PullImage { image } => return self.pull(&image, &scope).await,
             Route::TagImage { source, repo } => {
-                if !docker_filter::is_restless_name(&repo) || !docker_filter::image_allowed(&source, &scope) {
-                    return message(StatusCode::FORBIDDEN, "only Restless's own images may be tagged, as restless-…");
+                if !docker_filter::is_restless_name(&repo)
+                    || !docker_filter::image_allowed(&source, &scope)
+                {
+                    return message(
+                        StatusCode::FORBIDDEN,
+                        "only Restless's own images may be tagged, as restless-…",
+                    );
                 }
                 self.pass(request, None).await
             }
             Route::RemoveImage { name } => {
                 if !docker_filter::is_restless_name(&name) {
-                    return message(StatusCode::FORBIDDEN, "only Restless's own images may be removed");
+                    return message(
+                        StatusCode::FORBIDDEN,
+                        "only Restless's own images may be removed",
+                    );
                 }
                 self.pass(request, None).await
             }
         };
         match outcome {
             Ok(response) => response,
-            Err(error) => message(StatusCode::BAD_GATEWAY, &format!("Docker on this machine: {error:#}")),
+            Err(error) => message(
+                StatusCode::BAD_GATEWAY,
+                &format!("Docker on this machine: {error:#}"),
+            ),
         }
     }
 
@@ -247,9 +281,13 @@ impl DockerProxy {
         *request.method_mut() = parts.method.clone();
         *request.uri_mut() = parts.uri.clone();
         *request.headers_mut() = parts.headers.clone();
-        request.headers_mut().insert(HOST, HeaderValue::from_static("docker"));
+        request
+            .headers_mut()
+            .insert(HOST, HeaderValue::from_static("docker"));
         if let Some(length) = length {
-            request.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from(length));
+            request
+                .headers_mut()
+                .insert(CONTENT_LENGTH, HeaderValue::from(length));
         }
         request
     }
@@ -262,7 +300,12 @@ impl DockerProxy {
         upgrade: Option<hyper::upgrade::OnUpgrade>,
     ) -> anyhow::Result<Response<Body>> {
         let (parts, body) = request.into_parts();
-        http_forward::forward_upgrading(&self.socket, Self::rebuild(&parts, incoming(body), None), upgrade).await
+        http_forward::forward_upgrading(
+            &self.socket,
+            Self::rebuild(&parts, incoming(body), None),
+            upgrade,
+        )
+        .await
     }
 
     async fn read_json(body: Incoming, limit: usize) -> Result<Value, Response<Body>> {
@@ -274,18 +317,25 @@ impl DockerProxy {
         if bytes.is_empty() {
             return Ok(json!({}));
         }
-        serde_json::from_slice(&bytes).map_err(|_| message(StatusCode::BAD_REQUEST, "request body is not JSON"))
+        serde_json::from_slice(&bytes)
+            .map_err(|_| message(StatusCode::BAD_REQUEST, "request body is not JSON"))
     }
 
     async fn send_json(&self, parts: &http::request::Parts, value: &Value) -> Response<Body> {
         let bytes = value.to_string();
         let length = bytes.len();
-        match self.forward(Self::rebuild(parts, full(bytes), Some(length))).await {
+        match self
+            .forward(Self::rebuild(parts, full(bytes), Some(length)))
+            .await
+        {
             Ok(response) => {
                 let (parts, body) = response.into_parts();
                 Response::from_parts(parts, incoming(body))
             }
-            Err(error) => message(StatusCode::BAD_GATEWAY, &format!("Docker on this machine: {error:#}")),
+            Err(error) => message(
+                StatusCode::BAD_GATEWAY,
+                &format!("Docker on this machine: {error:#}"),
+            ),
         }
     }
 
@@ -311,10 +361,17 @@ impl DockerProxy {
         }
         // Docker does not pull on create; the plane's runtime pulls on its own host, so here the
         // helper fetches an allowed image the machine does not yet have.
-        let image = value.get("Image").and_then(Value::as_str).unwrap_or_default().to_string();
+        let image = value
+            .get("Image")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
         if let Some(allowed) = docker_filter::allowed_image(&image, scope) {
             if let Err(error) = self.ensure_image(allowed).await {
-                return message(StatusCode::BAD_GATEWAY, &format!("could not fetch the company image: {error:#}"));
+                return message(
+                    StatusCode::BAD_GATEWAY,
+                    &format!("could not fetch the company image: {error:#}"),
+                );
             }
         }
         self.send_json(&parts, &value).await
@@ -338,7 +395,10 @@ impl DockerProxy {
             Ok(value) => value,
             Err(refusal) => return refusal,
         };
-        let container = value.get("Container").and_then(Value::as_str).unwrap_or_default();
+        let container = value
+            .get("Container")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         if !self.owns_container(container).await {
             return absent("container", container);
         }
@@ -356,16 +416,27 @@ impl DockerProxy {
         }
         let bytes = value.to_string();
         let length = bytes.len();
-        let response = match self.forward(Self::rebuild(&parts, full(bytes), Some(length))).await {
+        let response = match self
+            .forward(Self::rebuild(&parts, full(bytes), Some(length)))
+            .await
+        {
             Ok(response) => response,
-            Err(error) => return message(StatusCode::BAD_GATEWAY, &format!("Docker on this machine: {error:#}")),
+            Err(error) => {
+                return message(
+                    StatusCode::BAD_GATEWAY,
+                    &format!("Docker on this machine: {error:#}"),
+                )
+            }
         };
         let (parts, body) = response.into_parts();
         let bytes = match body.collect().await {
             Ok(collected) => collected.to_bytes(),
             Err(error) => return message(StatusCode::BAD_GATEWAY, &format!("{error}")),
         };
-        if let Some(id) = serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| v.get("Id")?.as_str().map(str::to_string)) {
+        if let Some(id) = serde_json::from_slice::<Value>(&bytes)
+            .ok()
+            .and_then(|v| v.get("Id")?.as_str().map(str::to_string))
+        {
             let mut execs = self.execs.lock().unwrap();
             if execs.len() >= MAX_REMEMBERED_EXECS {
                 execs.clear();
@@ -375,14 +446,29 @@ impl DockerProxy {
         Response::from_parts(parts, full(bytes))
     }
 
-    async fn pass_filtered_list(&self, request: Request<Incoming>, scope: &Scope) -> Response<Body> {
+    async fn pass_filtered_list(
+        &self,
+        request: Request<Incoming>,
+        scope: &Scope,
+    ) -> Response<Body> {
         let (parts, body) = request.into_parts();
-        let response = match self.forward(Self::rebuild(&parts, incoming(body), None)).await {
+        let response = match self
+            .forward(Self::rebuild(&parts, incoming(body), None))
+            .await
+        {
             Ok(response) => response,
-            Err(error) => return message(StatusCode::BAD_GATEWAY, &format!("Docker on this machine: {error:#}")),
+            Err(error) => {
+                return message(
+                    StatusCode::BAD_GATEWAY,
+                    &format!("Docker on this machine: {error:#}"),
+                )
+            }
         };
         let (mut parts, body) = response.into_parts();
-        let bytes = match http_body_util::Limited::new(body, MAX_LIST_BODY).collect().await {
+        let bytes = match http_body_util::Limited::new(body, MAX_LIST_BODY)
+            .collect()
+            .await
+        {
             Ok(collected) => collected.to_bytes(),
             Err(_) => return message(StatusCode::BAD_GATEWAY, "list too large"),
         };
@@ -396,9 +482,17 @@ impl DockerProxy {
 
     async fn pass_events(&self, request: Request<Incoming>, scope: Scope) -> Response<Body> {
         let (parts, body) = request.into_parts();
-        let response = match self.forward(Self::rebuild(&parts, incoming(body), None)).await {
+        let response = match self
+            .forward(Self::rebuild(&parts, incoming(body), None))
+            .await
+        {
             Ok(response) => response,
-            Err(error) => return message(StatusCode::BAD_GATEWAY, &format!("Docker on this machine: {error:#}")),
+            Err(error) => {
+                return message(
+                    StatusCode::BAD_GATEWAY,
+                    &format!("Docker on this machine: {error:#}"),
+                )
+            }
         };
         let (mut parts, body) = response.into_parts();
         parts.headers.remove(CONTENT_LENGTH);
@@ -409,35 +503,54 @@ impl DockerProxy {
                     if let Some(end) = buffer.iter().position(|byte| *byte == b'\n') {
                         let line: Vec<u8> = buffer.drain(..=end).collect();
                         if docker_filter::event_is_ours(&line, &scope) {
-                            return Some((Ok(Frame::data(Bytes::from(line))), (data, buffer, scope)));
+                            return Some((
+                                Ok(Frame::data(Bytes::from(line))),
+                                (data, buffer, scope),
+                            ));
                         }
                         continue;
                     }
                     match data.next().await {
                         Some(Ok(chunk)) => buffer.extend_from_slice(&chunk),
                         Some(Err(error)) => {
-                            return Some((Err(std::io::Error::other(error)), (data, buffer, scope)));
+                            return Some((
+                                Err(std::io::Error::other(error)),
+                                (data, buffer, scope),
+                            ));
                         }
                         None => return None,
                     }
                 }
             },
         );
-        Response::from_parts(parts, http_body_util::BodyExt::boxed(StreamBody::new(lines)))
+        Response::from_parts(
+            parts,
+            http_body_util::BodyExt::boxed(StreamBody::new(lines)),
+        )
     }
 
     async fn pull(&self, image: &str, scope: &Scope) -> Response<Body> {
         let Some(allowed) = docker_filter::allowed_image(image, scope) else {
-            return message(StatusCode::FORBIDDEN, "this image is not one Restless may run here");
+            return message(
+                StatusCode::FORBIDDEN,
+                "this image is not one Restless may run here",
+            );
         };
         match self.ensure_image(allowed).await {
             Ok(()) => {
-                let status = json!({ "status": format!("Status: Image is up to date for {image}") });
+                let status =
+                    json!({ "status": format!("Status: Image is up to date for {image}") });
                 let mut response = Response::new(full(status.to_string() + "\n"));
-                response.headers_mut().insert(http::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                response.headers_mut().insert(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json"),
+                );
                 response
             }
-            Err(error) => message(StatusCode::BAD_GATEWAY, &format!("could not fetch {image}: {error:#}")),
+            Err(error) => message(
+                StatusCode::BAD_GATEWAY,
+                &format!("could not fetch {image}: {error:#}"),
+            ),
         }
     }
 
@@ -456,10 +569,16 @@ impl DockerProxy {
         if self.has_image(&tag).await {
             return Ok(());
         }
-        let link = self.link.read().unwrap().clone().ok_or_else(|| anyhow::anyhow!("not linked to the plane"))?;
+        let link = self
+            .link
+            .read()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("not linked to the plane"))?;
         let stream = link.open(STREAM_IMAGE, &allowed.id).await?;
         let body = StreamBody::new(
-            tokio_util::io::ReaderStream::with_capacity(stream, 64 * 1024).map(|chunk| chunk.map(Frame::data)),
+            tokio_util::io::ReaderStream::with_capacity(stream, 64 * 1024)
+                .map(|chunk| chunk.map(Frame::data)),
         );
         let request = Request::builder()
             .method(Method::POST)
@@ -471,27 +590,43 @@ impl DockerProxy {
         let status = response.status();
         let bytes = response.into_body().collect().await?.to_bytes();
         let mut loaded = None;
-        for event in String::from_utf8_lossy(&bytes).lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()) {
+        for event in String::from_utf8_lossy(&bytes)
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        {
             if let Some(error) = event.get("error").and_then(Value::as_str) {
                 anyhow::bail!("{error}");
             }
-            let text = event.get("stream").and_then(Value::as_str).unwrap_or_default().trim();
-            if let Some(found) = text.strip_prefix("Loaded image ID: ").or_else(|| text.strip_prefix("Loaded image: ")) {
+            let text = event
+                .get("stream")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim();
+            if let Some(found) = text
+                .strip_prefix("Loaded image ID: ")
+                .or_else(|| text.strip_prefix("Loaded image: "))
+            {
                 loaded = Some(found.trim().to_string());
             }
         }
         if !status.is_success() {
             anyhow::bail!("Docker answered {status}");
         }
-        let loaded = loaded.ok_or_else(|| anyhow::anyhow!("Docker did not say which image it loaded"))?;
+        let loaded =
+            loaded.ok_or_else(|| anyhow::anyhow!("Docker did not say which image it loaded"))?;
         let (repo, version) = tag.split_once(':').expect("a local tag has a version");
         let query: String = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("repo", repo)
             .append_pair("tag", version)
             .finish();
-        let (tagged, answer) = self.call(Method::POST, &format!("/images/{loaded}/tag?{query}"), None).await?;
+        let (tagged, answer) = self
+            .call(Method::POST, &format!("/images/{loaded}/tag?{query}"), None)
+            .await?;
         if !tagged.is_success() {
-            anyhow::bail!("could not name the loaded image: {}", String::from_utf8_lossy(&answer));
+            anyhow::bail!(
+                "could not name the loaded image: {}",
+                String::from_utf8_lossy(&answer)
+            );
         }
         Ok(())
     }
