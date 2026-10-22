@@ -436,6 +436,8 @@ pub struct PeriodSpend {
     pub ceiling_micro_usd: u64,
     pub warning_percent: u8,
     pub budget: ModelBudgetState,
+    /// Spend already counted when the owner last changed the limit, this period.
+    pub baseline_micro_usd: u64,
 }
 
 impl PeriodSpend {
@@ -444,8 +446,17 @@ impl PeriodSpend {
     pub fn warning(&self) -> bool {
         self.ceiling_micro_usd > 0
             && self.budget.is_available()
-            && u128::from(self.accounted_micro_usd) * 100
-                >= u128::from(self.ceiling_micro_usd) * u128::from(self.warning_percent)
+            && u128::from(self.accounted_micro_usd) >= self.warning_threshold()
+    }
+
+    /// Where the warning fires: its share of the limit, or after a limit change, its share of
+    /// the headroom that change gave above the spend already counted.
+    #[must_use]
+    pub fn warning_threshold(&self) -> u128 {
+        let share = |amount: u64| u128::from(amount) * u128::from(self.warning_percent) / 100;
+        let plain = share(self.ceiling_micro_usd);
+        let base = self.baseline_micro_usd.min(self.ceiling_micro_usd);
+        plain.max(u128::from(base) + share(self.ceiling_micro_usd - base))
     }
 }
 
@@ -670,12 +681,19 @@ impl SpendLedger {
         let warning_percent = company
             .spend_warning_percent
             .unwrap_or(crate::runtime::DEFAULT_SPEND_WARNING_PERCENT);
+        let month = start.map(|start| start.format("%Y-%m").to_string());
+        let baseline_micro_usd = company
+            .spend_warning_baseline
+            .as_ref()
+            .filter(|baseline| baseline.month == month)
+            .map_or(0, |baseline| baseline.micro_usd);
         PeriodSpend {
             period_start: start,
             accounted_micro_usd,
             ceiling_micro_usd,
             warning_percent,
             budget,
+            baseline_micro_usd,
         }
     }
 
@@ -900,6 +918,42 @@ impl SpendLedger {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .remove(company);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod warning_baseline_tests {
+    use super::*;
+
+    fn period(accounted: u64, ceiling: u64, baseline: u64) -> PeriodSpend {
+        PeriodSpend {
+            period_start: None,
+            accounted_micro_usd: accounted,
+            ceiling_micro_usd: ceiling,
+            warning_percent: 80,
+            budget: ModelBudgetState::Available {
+                accounted_micro_usd: accounted,
+                ceiling_micro_usd: ceiling,
+                remaining_micro_usd: ceiling.saturating_sub(accounted),
+            },
+            baseline_micro_usd: baseline,
+        }
+    }
+
+    #[test]
+    fn a_raise_is_not_asked_again_until_its_headroom_is_mostly_used() {
+        let usd = 1_000_000;
+        // Reno, 20 Oct: US$193 spent, limit raised to US$220.
+        assert!(
+            period(193 * usd, 220 * usd, 0).warning(),
+            "without a baseline it warns at once"
+        );
+        assert!(!period(193 * usd, 220 * usd, 193 * usd).warning());
+        // 80% of the US$27 headroom on top of US$193 is about US$214.6.
+        assert!(!period(214 * usd, 220 * usd, 193 * usd).warning());
+        assert!(period(215 * usd, 220 * usd, 193 * usd).warning());
+        // A baseline below the usual share never warns earlier than usual.
+        assert!(!period(100 * usd, 220 * usd, 10 * usd).warning());
     }
 }
 

@@ -882,6 +882,7 @@ mod tests {
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(30_000_000),
             spend_period: Default::default(),
             spend_warning_percent: None,
+            spend_warning_baseline: None,
             monthly_runtime_cap_hours: None,
             native_monthly_turn_limit: None,
             native_monthly_token_limit: None,

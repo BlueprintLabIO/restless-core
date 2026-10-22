@@ -219,6 +219,14 @@ pub(super) async fn save_spend_limit(
         config.spend_ceiling_usd = input.ceiling;
         config.spend_period = period;
         config.spend_warning_percent = warning;
+        // The warning restarts from what is already spent, so this change is not asked again.
+        let counted = state.daemon.spend.period_spend(&config);
+        config.spend_warning_baseline = Some(runtime::SpendWarningBaseline {
+            micro_usd: counted.accounted_micro_usd,
+            month: counted
+                .period_start
+                .map(|start| start.format("%Y-%m").to_string()),
+        });
         if let Err(e) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
