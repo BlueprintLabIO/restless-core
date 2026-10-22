@@ -33,6 +33,9 @@ const SOURCE_DIGEST_LABEL: &str = "io.restless.source-digest";
 /// value are the same computer, even when a release rebuilt it with a new id (S104 A1).
 const BUILD_INPUT_LABEL: &str = "io.restless.build-input-sha256";
 const COMPANY_SUPERVISOR_CONFIG: &str = "/etc/supervisor/conf.d/company.conf";
+/// The company computer's own supervisor (S104 F2). Its socket is on the company volume, so the
+/// plane reaches it from the Runtime container like the company supervisor.
+const COMPUTER_SUPERVISOR_CONFIG: &str = "/etc/supervisor/conf.d/computer.conf";
 
 // Startup Doctor and an explicit `up` can arrive together. Serialize the
 // observe/create/seed sequence for one computer while other companies proceed.
@@ -224,6 +227,21 @@ fn company_cpus() -> Option<String> {
 
 /// The memory bound for a company container, kept under this host's memory: a 4 GB bound on a
 /// 4 GB server is no bound at all, so one company could take the whole plane down (21 October).
+/// The company computer's memory bound (S104 F2): its own, so a heavy browser is stopped inside
+/// the computer and never takes the agents' Runtime down with it.
+fn computer_memory() -> Option<String> {
+    fit_memory(
+        resource_bound(
+            "RESTLESS_COMPUTER_MEMORY",
+            &host_memory_bytes().map_or_else(
+                || "2g".into(),
+                |bytes| format!("{}m", bytes / 3 / (1024 * 1024)),
+            ),
+        ),
+        host_memory_bytes(),
+    )
+}
+
 fn company_memory() -> Option<String> {
     fit_memory(
         resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY),
@@ -1265,6 +1283,30 @@ pub async fn sync_brand_projection(config: &CompanyConfig) -> Result<&'static st
 }
 
 #[cfg(test)]
+mod computer_container_tests {
+    use super::*;
+
+    #[test]
+    fn the_computer_sits_beside_its_runtime_and_owns_the_desktop_programs() {
+        if std::env::var("RESTLESS_RESOURCE_NAMESPACE").is_err() {
+            assert_eq!(computer_container_name("reno"), "restless-pc-reno");
+            assert_eq!(container_name("reno"), "restless-co-reno");
+        }
+        for program in [
+            "desktop",
+            "openbox",
+            "desktop-panel",
+            "chromium",
+            "browser-broker",
+            "desktop-web",
+        ] {
+            assert!(DESKTOP_PROGRAMS.contains(&program), "{program}");
+        }
+        assert!(!DESKTOP_PROGRAMS.contains(&"release-health"));
+    }
+}
+
+#[cfg(test)]
 mod build_input_tests {
     use super::same_build_input_label;
 
@@ -1504,6 +1546,172 @@ pub fn validate_new_company_name(name: &str) -> Result<()> {
         bail!("invalid company name {name:?}: it is reserved for an app page; choose another");
     }
     Ok(())
+}
+
+/// The company computer runs in its own container (S104 F2): the desktop and the company browser,
+/// in the Runtime's network namespace. `RESTLESS_COMPUTER_CONTAINER=0` keeps them in the Runtime.
+pub fn computer_split() -> bool {
+    std::env::var("RESTLESS_COMPUTER_CONTAINER").map_or(true, |value| value.trim() != "0")
+}
+
+/// The supervisor that runs the desktop and the company browser.
+fn desktop_supervisor_config() -> &'static str {
+    if computer_split() {
+        COMPUTER_SUPERVISOR_CONFIG
+    } else {
+        COMPANY_SUPERVISOR_CONFIG
+    }
+}
+
+/// The company computer's own container, beside its Runtime.
+pub fn computer_container_name(company: &str) -> String {
+    container_name(company).replacen("-co-", "-pc-", 1)
+}
+
+async fn container_state(name: &str) -> Result<ContainerStatus> {
+    let out = docker_observe(&["inspect", "-f", "{{.State.Status}}", name]).await?;
+    if !out.status.success() {
+        return Ok(ContainerStatus::Absent);
+    }
+    Ok(match String::from_utf8_lossy(&out.stdout).trim() {
+        "running" => ContainerStatus::Running,
+        _ => ContainerStatus::Stopped,
+    })
+}
+
+/// Start the company computer beside its running Runtime: created on first use, started when it
+/// was stopped, and replaced when the Runtime it shared a network with was replaced.
+async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
+    if !computer_split() {
+        return Ok(());
+    }
+    let company = &config.name;
+    let runtime = container_name(company);
+    let runtime_id = inspect_value(&["inspect", "-f", "{{.Id}}", &runtime])
+        .await?
+        .context("the company Runtime is not running")?;
+    let runtime_image = inspect_value(&["inspect", "-f", "{{.Config.Image}}", &runtime])
+        .await?
+        .context("the company Runtime has no image")?;
+    let name = computer_container_name(company);
+    let owner_label = format!("{{{{index .Config.Labels \"{COMPUTER_OF_LABEL}\"}}}}");
+    let attached = inspect_value(&["inspect", "-f", &owner_label, &name]).await?;
+    match attached.as_deref() {
+        Some(id) if id == runtime_id => {
+            if container_state(&name).await? != ContainerStatus::Running {
+                run_ok(&["start", &name]).await?;
+            }
+            return Ok(());
+        }
+        Some(_) => {
+            run_ok(&["rm", "-f", &name]).await?;
+        }
+        None => {}
+    }
+    let network = format!("container:{runtime}");
+    let computer_of = format!("{COMPUTER_OF_LABEL}={runtime_id}");
+    let company_label = format!("io.restless.company={company}");
+    let namespace_label = format!(
+        "io.restless.namespace={}",
+        std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default()
+    );
+    let company_env = format!("RESTLESS_COMPANY={company}");
+    let volume_mount = format!("{}:/company", volume_name(company));
+    let cpus = company_cpus();
+    let memory = computer_memory();
+    let pids = resource_bound("RESTLESS_COMPANY_PIDS_LIMIT", DEFAULT_PIDS_LIMIT);
+    let browser_env = browser_environment();
+    let mut args: Vec<&str> = vec![
+        "run",
+        "-d",
+        "--name",
+        &name,
+        "--network",
+        &network,
+        "--log-driver",
+        "local",
+        "--log-opt",
+        "max-size=10m",
+        "--log-opt",
+        "max-file=3",
+        "--cpu-shares",
+        "512",
+    ];
+    if let Some(cpus) = cpus.as_deref() {
+        args.extend(["--cpus", cpus]);
+    }
+    if let Some(memory) = memory.as_deref() {
+        args.extend(["--memory", memory, "--memory-swap", memory]);
+    }
+    if let Some(pids) = pids.as_deref() {
+        args.extend(["--pids-limit", pids]);
+    }
+    for setting in &browser_env {
+        args.extend(["--env", setting.as_str()]);
+    }
+    args.extend([
+        "--label",
+        &computer_of,
+        "--label",
+        &company_label,
+        "--label",
+        &namespace_label,
+        "-e",
+        &company_env,
+        "-v",
+        &volume_mount,
+        "--entrypoint",
+        "/usr/local/bin/start-computer-supervisor",
+        &runtime_image,
+    ]);
+    run_ok(&args).await?;
+    Ok(())
+}
+
+/// Stop the company computer, giving Chrome time to flush its profile.
+async fn stop_computer(company: &str) {
+    let name = computer_container_name(company);
+    if container_state(&name).await.ok() == Some(ContainerStatus::Running) {
+        let _ = run_ok(&["stop", "--time", "30", &name]).await;
+    }
+}
+
+/// Remove the company computer's container; its files stay on the company volume.
+async fn remove_computer(company: &str) {
+    stop_computer(company).await;
+    let _ = docker_observe(&["rm", "-f", &computer_container_name(company)]).await;
+}
+
+const COMPUTER_OF_LABEL: &str = "io.restless.computer-of";
+
+/// The programs that make the company computer: the desktop, its window manager and panel, the
+/// company browser, its broker and the desktop's web viewer.
+const DESKTOP_PROGRAMS: &[&str] = &[
+    "desktop",
+    "openbox",
+    "desktop-panel",
+    "chromium",
+    "browser-broker",
+    "desktop-web",
+];
+
+/// The owner's timezone and language for the company browser (S104 F3): the plane's environment
+/// wins, else what the owner's own browser reported. Unset keeps the browser as it was.
+fn browser_environment() -> Vec<String> {
+    let reported = load_browser_locale();
+    [
+        ("RESTLESS_BROWSER_TIMEZONE", reported.timezone),
+        ("RESTLESS_BROWSER_LANG", reported.language),
+    ]
+    .into_iter()
+    .filter_map(|(name, reported)| {
+        let value = std::env::var(name)
+            .ok()
+            .filter(|value| valid_browser_locale(value))
+            .or(reported.filter(|value| valid_browser_locale(value)))?;
+        Some(format!("{name}={}", value.trim()))
+    })
+    .collect()
 }
 
 pub fn container_name(company: &str) -> String {
@@ -2087,6 +2295,7 @@ pub async fn retire_stale_stopped(config: &CompanyConfig) -> Result<bool> {
     // Kept files move to their own volume before the shell that held them goes; on failure the
     // old computer stays as it was.
     preserve_attachments(company, &image).await?;
+    remove_computer(company).await;
     run_ok(&["rm", &container_name(company)]).await?;
     Ok(true)
 }
@@ -2127,6 +2336,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             // profile before replacing the shell. Docker's ten-second default
             // is shorter than Chromium's configured 20-second stop window and
             // was observed dropping a persistent cookie during reconciliation.
+            remove_computer(company).await;
             if status(company).await? == ContainerStatus::Running {
                 run_ok(&["stop", "--time", "30", &name]).await?;
                 // Record the exact FinishedAt before replacing the container,
@@ -2222,25 +2432,13 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                 args.extend(["--pids-limit", pids]);
             }
             let company_env = format!("RESTLESS_COMPANY={company}");
-            // The owner's timezone and language for the company browser (S104 F3): the plane's
-            // environment wins, else what the owner's own browser reported. Unset keeps the
-            // browser as it was.
-            let reported = load_browser_locale();
-            let browser_env: Vec<String> = [
-                ("RESTLESS_BROWSER_TIMEZONE", reported.timezone),
-                ("RESTLESS_BROWSER_LANG", reported.language),
-            ]
-            .into_iter()
-            .filter_map(|(name, reported)| {
-                let value = std::env::var(name)
-                    .ok()
-                    .filter(|value| valid_browser_locale(value))
-                    .or(reported.filter(|value| valid_browser_locale(value)))?;
-                Some(format!("{name}={}", value.trim()))
-            })
-            .collect();
+            let browser_env = browser_environment();
             for setting in &browser_env {
                 args.extend(["--env", setting.as_str()]);
+            }
+            // The desktop and browser run in the computer's own container (S104 F2).
+            if computer_split() {
+                args.extend(["--env", "RESTLESS_DESKTOP_AUTOSTART=false"]);
             }
             // The image default names the appliance's established port, but an
             // isolated account plane may use RESTLESS_PORT_OFFSET.  ACP turns
@@ -2324,6 +2522,11 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                 .await?;
             }
         }
+    }
+    // The company computer beside its Runtime (S104 F2). A computer that fails to start leaves the
+    // agents working; the doctor reports the missing desktop.
+    if let Err(error) = ensure_computer(config).await {
+        tracing::warn!(company = %config.name, error = %format!("{error:#}"), "company computer did not start");
     }
     seed_mission(config).await?;
     // A logo agents cannot copy is a lesser company, not a broken one.
@@ -2853,30 +3056,35 @@ async fn browser_doctor(company: &str, supervisor: &SupervisorDoctor) -> Browser
 
 async fn supervisor_doctor(company: &str) -> SupervisorDoctor {
     let name = container_name(company);
-    let output = docker_observe(&[
-        "exec",
-        &name,
-        "supervisorctl",
-        "-c",
-        COMPANY_SUPERVISOR_CONFIG,
-        "status",
-    ])
-    .await;
-    let services = match output {
+    let mut configs = vec![COMPANY_SUPERVISOR_CONFIG];
+    if computer_split() {
+        configs.push(COMPUTER_SUPERVISOR_CONFIG);
+    }
+    let mut services = Vec::new();
+    for config in configs {
+        let output =
+            docker_observe(&["exec", &name, "supervisorctl", "-c", config, "status"]).await;
         // supervisorctl exits nonzero when any optional program is stopped,
         // but its stdout still contains the status of every other program.
-        Ok(output) => String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter_map(|line| {
-                let mut parts = line.split_whitespace();
-                Some(SupervisedService {
-                    name: parts.next()?.to_string(),
-                    state: parts.next()?.to_lowercase(),
+        let Ok(output) = output else { continue };
+        services.extend(
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .filter_map(|line| {
+                    let mut parts = line.split_whitespace();
+                    Some(SupervisedService {
+                        name: parts.next()?.to_string(),
+                        state: parts.next()?.to_lowercase(),
+                    })
                 })
-            })
-            .collect::<Vec<_>>(),
-        _ => Vec::new(),
-    };
+                // The Runtime keeps the desktop's programs, stopped, while the computer runs them.
+                .filter(|service| {
+                    config == COMPUTER_SUPERVISOR_CONFIG
+                        || !computer_split()
+                        || !DESKTOP_PROGRAMS.contains(&service.name.as_str())
+                }),
+        );
+    }
     let status =
         // Chrome stopped on request is the browser asleep (S104 F6); a crash is BACKOFF, FATAL or
         // EXITED, never STOPPED.
@@ -3726,10 +3934,13 @@ pub async fn devtools_stream(company: &str) -> Result<DesktopStream> {
 /// port. Core and apps that use Chrome's port directly call this first; the broker wakes it for
 /// agents. Best effort: a browser that will not start is reported by whatever uses it next.
 pub async fn wake_company_browser(company: &str) {
-    const WAKE: &str = "[ -f /company/run/browser-asleep ] || exit 0; \
-        supervisorctl -c /etc/supervisor/conf.d/company.conf start chromium >/dev/null 2>&1; \
+    let wake = format!(
+        "[ -f /company/run/browser-asleep ] || exit 0; \
+        supervisorctl -c {} start chromium >/dev/null 2>&1; \
         i=0; while [ $i -lt 60 ]; do curl -fsS -m 1 http://127.0.0.1:9222/json/version >/dev/null 2>&1 && break; i=$((i+1)); sleep 0.5; done; \
-        rm -f /company/run/browser-asleep";
+        rm -f /company/run/browser-asleep",
+        desktop_supervisor_config()
+    );
     let _ = docker_bounded(
         &[
             "exec",
@@ -3738,7 +3949,7 @@ pub async fn wake_company_browser(company: &str) {
             &container_name(company),
             "sh",
             "-c",
-            WAKE,
+            &wake,
         ],
         Duration::from_secs(45),
     )
@@ -4268,7 +4479,8 @@ async fn down_running_locked(company: &str) -> Result<()> {
     let name = container_name(company);
     // Chromium's supervisor stop window is 20 seconds. Use a longer
     // container deadline so cookies and profile state reach disk before
-    // Docker escalates to SIGKILL.
+    // Docker escalates to SIGKILL. The computer goes first: it lives in the Runtime's network.
+    stop_computer(company).await;
     run_ok(&["stop", "--time", "30", &name]).await?;
     Ok(())
 }
@@ -4295,6 +4507,7 @@ pub async fn destroy(
         .await
         .context("remove local Documents service before dropping its cell")?;
 
+    remove_computer(company).await;
     if status(company).await? != ContainerStatus::Absent {
         let name = container_name(company);
         // `rm -f` covers running and stopped in one call; stopping first would

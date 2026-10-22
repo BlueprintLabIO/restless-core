@@ -395,6 +395,7 @@ COPY infra/company-image/entrypoint.sh \
     infra/company-image/start-godot.sh \
     infra/company-image/start-runtime-bridge.sh \
     infra/company-image/start-company-supervisor.sh \
+    infra/company-image/start-computer-supervisor.sh \
     infra/company-image/company-supervisorctl.sh \
     infra/company-image/company-tools.sh \
     infra/company-image/validate-company-supervisor-config.py \
@@ -409,6 +410,7 @@ COPY infra/company-image/entrypoint.sh \
     infra/company-image/release-health.mjs \
     infra/company-image/supervisord.conf \
     infra/company-image/company-supervisord.conf \
+    infra/company-image/computer-supervisord.conf \
     /tmp/restless-runtime-assets/
 COPY infra/company-image/skills /layer/opt/restless/skills
 COPY tools/scenario/restless-scenario.mjs \
@@ -435,6 +437,7 @@ RUN set -eu; \
         start-godot.sh:start-company-godot \
         start-runtime-bridge.sh:start-runtime-bridge \
         start-company-supervisor.sh:start-company-supervisor \
+        start-computer-supervisor.sh:start-computer-supervisor \
         company-supervisorctl.sh:company-supervisorctl \
         company-tools.sh:company-tools \
         validate-company-supervisor-config.py:validate-company-supervisor-config \
@@ -451,7 +454,8 @@ RUN set -eu; \
         browser-broker.mjs:/usr/local/lib/restless/browser-broker.mjs \
         release-health.mjs:/usr/local/lib/restless/release-health.mjs \
         supervisord.conf:/etc/supervisor/conf.d/restless.conf \
-        company-supervisord.conf:/etc/supervisor/conf.d/company.conf; do \
+        company-supervisord.conf:/etc/supervisor/conf.d/company.conf \
+        computer-supervisord.conf:/etc/supervisor/conf.d/computer.conf; do \
         install -Dm0444 "/tmp/restless-runtime-assets/${mapping%%:*}" "$layer${mapping#*:}"; \
     done; \
     chmod 0555 "$layer/usr/local/lib/restless/restless-scenario.mjs" \
