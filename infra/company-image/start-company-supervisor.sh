@@ -29,4 +29,6 @@ fi
 /usr/local/bin/assert-runtime-privileges company
 umask 077
 /usr/local/bin/validate-company-supervisor-config /company/services/supervisor
+# The desktop runs here unless the company computer has its own container (S104 F2).
+export RESTLESS_DESKTOP_AUTOSTART="${RESTLESS_DESKTOP_AUTOSTART:-true}"
 exec /usr/bin/supervisord -n -c /etc/supervisor/conf.d/company.conf

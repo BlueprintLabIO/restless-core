@@ -25,7 +25,8 @@ const desktopEnv = { ...process.env, DISPLAY: ':1' };
 // (x-restless-probe) is answered without waking it.
 const idleMs = Number(process.env.RESTLESS_BROWSER_IDLE_MS ?? 15 * 60 * 1000);
 const asleepPath = '/company/run/browser-asleep';
-const supervisor = ['-c', '/etc/supervisor/conf.d/company.conf'];
+// The supervisor that runs Chrome: the company computer's own (S104 F2), else the Runtime's.
+const supervisor = ['-c', process.env.RESTLESS_SUPERVISOR_CONF || '/etc/supervisor/conf.d/company.conf'];
 let lastUse = Date.now();
 let waking = null;
 // Supervisor starts Chrome with the container, so a marker left from before is stale.
