@@ -137,10 +137,13 @@
 					<li>
 						<a href="/account/settings/this-computer">
 							<strong>Last backup</strong>
-							<small class:warning={!backup}
+							<!-- A fresh install has nothing to lose yet; only a company makes a missing backup a warning. -->
+							<small class:warning={!backup && companies.length > 0}
 								>{backup
 									? `${day(backup.created_at_unix_seconds * 1000)} · ${size(backup.bytes)}`
-									: 'Never backed up'}</small
+									: companies.length > 0
+										? 'Never backed up'
+										: 'Nothing to back up yet'}</small
 							>
 						</a>
 					</li>
