@@ -35,7 +35,7 @@ concurrency:
 jobs:
   libraries:
     if: github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, linux, x64, restless-core]
+    runs-on: [self-hosted, linux, x64, restless-core, restless-core-ci]
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
