@@ -28,7 +28,7 @@ permissions:
 jobs:
   qualify:
     name: Qualify exact candidate
-    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core"]') }}
+    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core","restless-core-release"]') }}
     timeout-minutes: 60
     env:
       DAGGER_NO_NAG: "1"
@@ -137,7 +137,7 @@ jobs:
     name: Publish exact platform artifacts
     needs: qualify
     if: inputs.publish
-    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core"]') }}
+    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core","restless-core-release"]') }}
     timeout-minutes: 75
     env:
       DAGGER_NO_NAG: "1"
@@ -192,7 +192,7 @@ jobs:
     name: Seal and verify the Core contract
     needs: publish
     if: inputs.publish
-    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core"]') }}
+    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core","restless-core-release"]') }}
     timeout-minutes: 30
     env:
       DAGGER_NO_NAG: "1"

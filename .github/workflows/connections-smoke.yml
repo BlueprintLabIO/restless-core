@@ -30,7 +30,7 @@ permissions:
 
 jobs:
   smoke:
-    runs-on: [self-hosted, linux, x64, restless-core]
+    runs-on: [self-hosted, linux, x64, restless-core, restless-core-ci]
     timeout-minutes: 75
     # `runner` is not available in job-level env, so the evidence path is set
     # in the first step and shared through GITHUB_ENV.
