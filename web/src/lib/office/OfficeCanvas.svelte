@@ -361,7 +361,18 @@
 				if (destroyed) return;
 				stopLoop = startGameLoop(canvas, {
 					update: (delta) => {
-						if (documentVisible && onScreen && !reducedMotion) updateOffice(delta);
+						if (!(documentVisible && onScreen && !reducedMotion)) {
+							simulationDue = 0;
+							return;
+						}
+						/* The floor paints 24 times a second, so stepping the people 60 times a second
+						 * only did work nobody saw; on a phone it was the floor's largest cost while
+						 * scrolling (23 October). Step once per painted frame with the time that passed;
+						 * a paint the camera asks for in between shows the last step. */
+						simulationDue += delta;
+						if (simulationDue < SIMULATION_STEP_SEC) return;
+						updateOffice(Math.min(simulationDue, MAX_SIMULATION_STEP_SEC));
+						simulationDue = 0;
 					},
 					render: (context) => {
 						/* The floor paints at a steady 24 frames a second on a fixed clock, so every
@@ -910,6 +921,11 @@
 	}
 
 	const PAINT_INTERVAL_MS = 1000 / 24;
+	/* One simulation step per painted frame (half a 60Hz frame of slack, as the paint clock has),
+	 * never more time at once than the engine's own per-frame cap. */
+	const SIMULATION_STEP_SEC = (PAINT_INTERVAL_MS - 8) / 1000;
+	const MAX_SIMULATION_STEP_SEC = 0.1;
+	let simulationDue = 0;
 	let lastPaintAt = 0;
 	/* When the next frame of the fixed 24 fps clock is due. */
 	let nextPaintAt = 0;
