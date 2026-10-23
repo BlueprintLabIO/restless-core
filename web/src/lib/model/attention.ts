@@ -513,6 +513,14 @@ export async function sendActorMessage(
 	};
 }
 
+/** What the composer says once Stop has answered (S104 O1): plain words, never the server's. */
+export function stopNotice(name: string, result: MessageInterruptResult | undefined): string {
+	if (result?.cancelled)
+		return `${name} stopped before reading your message. It stays in the conversation, unanswered.`;
+	if (result?.interrupted) return `${name} stopped. Your message is still with them.`;
+	return `${name} had already finished.`;
+}
+
 /** Stop the turn answering one of the viewer's messages, without sending anything new. The
  * message stays in the conversation, marked read; whatever the turn already did is kept. */
 export async function interruptActorMessage(

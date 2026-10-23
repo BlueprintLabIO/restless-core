@@ -2954,6 +2954,23 @@ impl OrgIntel {
         actor: &str,
         message_id: i64,
     ) -> Result<bool> {
+        Ok(self
+            .stop_human_conversation_turn(human_actor, actor, message_id)
+            .await?
+            == ConversationStop::Consumed)
+    }
+
+    /// Stop the turn answering one of a human's direct messages (S104 O1). An
+    /// unread message is consumed as above. One the agent already read (it is
+    /// answering it, or it was handed to the agent's running Work) still stops:
+    /// the actor's cognitive lease is revoked and the message stays as it was.
+    /// Only the message's own sender, in a live direct room with the actor, may.
+    pub async fn stop_human_conversation_turn(
+        &self,
+        human_actor: &str,
+        actor: &str,
+        message_id: i64,
+    ) -> Result<ConversationStop> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("SELECT id FROM actors WHERE id=$1 AND retired_at IS NULL FOR UPDATE")
             .bind(actor)
@@ -2993,7 +3010,27 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         let Some(consumed) = consumed else {
-            return Ok(false);
+            let theirs: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM messages \
+                 WHERE id=$1 AND from_actor=$2 AND to_actor=$3 \
+                   AND EXISTS (SELECT 1 FROM rooms room \
+                     JOIN room_participants human ON human.room_id=room.id \
+                       AND human.actor_id=$2 AND human.left_at IS NULL \
+                     JOIN room_participants target ON target.room_id=room.id \
+                       AND target.actor_id=$3 AND target.left_at IS NULL \
+                     WHERE room.id=messages.room_id AND room.kind='direct' \
+                       AND room.archived_at IS NULL))",
+            )
+            .bind(message_id)
+            .bind(human_actor)
+            .bind(actor)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !theirs {
+                return Ok(ConversationStop::NotTheirs);
+            }
+            tx.commit().await?;
+            return Ok(ConversationStop::AlreadyRead);
         };
         sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ($1,$2,$3)")
             .bind("owner_conversation_interrupted")
@@ -3006,7 +3043,7 @@ impl OrgIntel {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        Ok(true)
+        Ok(ConversationStop::Consumed)
     }
 
     pub async fn interrupt_owner_conversation_message(
@@ -3336,4 +3373,15 @@ pub(crate) async fn reroute_unread_work_inputs_for_reassignment_in_tx(
         .execute(&mut **tx)
         .await?;
     Ok(message_ids.len() as u64)
+}
+
+/// What stopping the reply to a human's direct message did (S104 O1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversationStop {
+    /// The message was still unread; it is consumed and will not be answered.
+    Consumed,
+    /// The agent had read it; its turn is stopped and the message is kept.
+    AlreadyRead,
+    /// Not this human's message in a live direct room with that actor.
+    NotTheirs,
 }

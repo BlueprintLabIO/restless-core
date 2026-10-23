@@ -15,7 +15,7 @@
 	import AttentionDocument from '$lib/components/AttentionDocument.svelte';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
-	import Composer from '$lib/primitives/Composer.svelte';
+	import Composer, { type StopOutcome } from '$lib/primitives/Composer.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import InboxList from '$lib/components/InboxList.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
@@ -48,7 +48,7 @@
 	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
 	import { getOwnershipHandover, handoverNotice, type OwnershipHandover } from '$lib/model/members';
 	import { browserTabClientId } from '$lib/model/browserTab';
-	import { fetchDecisionHistory, issueDesktopTicket } from '$lib/model/attention';
+	import { fetchDecisionHistory, issueDesktopTicket, stopNotice } from '$lib/model/attention';
 	import { DesktopControl } from '$lib/model/desktop-control.svelte';
 	import { dropComputerFile } from '$lib/model/computer-files';
 	import type { LibraryArtifact } from '$lib/model/library-files';
@@ -477,12 +477,13 @@
 		await goto(item ? itemHref(item.id) : baseHref, { replaceState: true });
 	}
 
-	async function stopConversation(): Promise<string | null> {
+	async function stopConversation(): Promise<StopOutcome> {
 		try {
-			await leadConversation?.stopTurn();
-			return null;
+			return { notice: stopNotice(requestingActorName, await leadConversation?.stopTurn()) };
 		} catch (cause) {
-			return failureSentence(cause, 'The reply could not be stopped; it may already have ended.');
+			return {
+				error: failureSentence(cause, 'The reply could not be stopped; it may already have ended.')
+			};
 		}
 	}
 

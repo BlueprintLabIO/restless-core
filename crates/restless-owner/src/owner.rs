@@ -11436,11 +11436,21 @@ async fn interrupt_actor_conversation(
         );
     }
 
+    // Stop always stops the turn (S104 O1): a message the agent already read is
+    // kept as it is, and only an unread one is withdrawn from its inbox.
     let cancelled = match org
-        .interrupt_human_conversation_message(principal.actor_id(), &actor, message_id)
+        .stop_human_conversation_turn(principal.actor_id(), &actor, message_id)
         .await
     {
-        Ok(cancelled) => cancelled,
+        Ok(restless_orgintel::ConversationStop::Consumed) => true,
+        Ok(restless_orgintel::ConversationStop::AlreadyRead) => false,
+        Ok(restless_orgintel::ConversationStop::NotTheirs) => {
+            return api_error(
+                StatusCode::CONFLICT,
+                "conversation",
+                "Only the person who sent a message can stop the reply to it.",
+            )
+        }
         Err(error) => {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -11449,13 +11459,6 @@ async fn interrupt_actor_conversation(
             )
         }
     };
-    if !cancelled {
-        return api_error(
-            StatusCode::CONFLICT,
-            "conversation",
-            "message is no longer an unread ordinary owner conversation",
-        );
-    }
 
     // End the reconnectable projection first so every attached client sees a
     // terminal state promptly. The durable `read_at` above is still the

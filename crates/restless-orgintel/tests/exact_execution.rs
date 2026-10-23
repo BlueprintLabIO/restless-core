@@ -1016,6 +1016,20 @@ async fn human_conversation_interrupt_is_scoped_to_the_exact_sender_and_room() {
         turn.iter().map(|message| message.id).collect::<Vec<_>>(),
         vec![bob_input]
     );
+    // Stop always stops (S104 O1): a message already read still stops the reply to it, for its
+    // sender only, and stays as it was.
+    assert_eq!(
+        org.stop_human_conversation_turn("human-alice", "exec", alice_input)
+            .await
+            .unwrap(),
+        restless_orgintel::ConversationStop::AlreadyRead
+    );
+    assert_eq!(
+        org.stop_human_conversation_turn("human-bob", "exec", alice_input)
+            .await
+            .unwrap(),
+        restless_orgintel::ConversationStop::NotTheirs
+    );
     org.drop_schema().await.unwrap();
 }
 
