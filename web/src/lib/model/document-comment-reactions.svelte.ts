@@ -2,6 +2,7 @@
  * in the company's records. Reacting is a stored signal: it never sends a message or wakes anyone.
  * Anyone who may read the document sees them; anyone who may comment adds or takes back their own. */
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+import { pollEvery } from './connection.svelte';
 import { ownerJson } from './failure';
 import { REACTIONS, type ReactionSummary } from './reactions.svelte';
 
@@ -28,7 +29,7 @@ export function documentCommentReactionsQuery(
 		},
 		enabled: !!company() && !!documentId(),
 		staleTime: 10_000,
-		refetchInterval: 30_000
+		refetchInterval: pollEvery(30_000)
 	}));
 
 	function summaryFor(commentId: string): ReactionSummary[] {
@@ -36,7 +37,13 @@ export function documentCommentReactionsQuery(
 		return REACTIONS.flatMap((emoji) => {
 			const matching = rows.filter((row) => row.emoji === emoji);
 			return matching.length
-				? [{ emoji, count: matching.length, mine: matching.some((row) => row.actor_id === viewer()) }]
+				? [
+						{
+							emoji,
+							count: matching.length,
+							mine: matching.some((row) => row.actor_id === viewer())
+						}
+					]
 				: [];
 		});
 	}

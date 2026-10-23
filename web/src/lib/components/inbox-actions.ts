@@ -1,4 +1,5 @@
 import { goto } from '$app/navigation';
+import { pollEvery } from '$lib/model/connection.svelte';
 import { SHOW_CONVERSATION_EVENT } from '$lib/model/ask-exec';
 /* The Inbox's own moves on one item, shared by the list's row menu, the item detail and the
  * computer view, so all say the same thing and all can be taken back: skip (with Undo),
@@ -206,7 +207,7 @@ export function appRequestHandoffs(companyId: () => string, enabled: () => boole
 			(principal.data as { membership_role?: string } | null | undefined)?.membership_role ===
 				'owner',
 		staleTime: 30_000,
-		refetchInterval: 60_000,
+		refetchInterval: pollEvery(60_000),
 		retry: 1
 	}));
 }

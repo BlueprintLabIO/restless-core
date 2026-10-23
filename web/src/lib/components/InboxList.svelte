@@ -5,6 +5,7 @@
 	 * list on into For you, and what the owner opened or snoozed is kept on the
 	 * server, so every device agrees. */
 	import { goto } from '$app/navigation';
+	import { pollEvery } from '$lib/model/connection.svelte';
 	import { page } from '$app/state';
 	import { onMount, tick, untrack } from 'svelte';
 	import CircleCheck from '@lucide/svelte/icons/circle-check';
@@ -97,7 +98,7 @@
 		queryFn: () => getInboxMarks(companyId),
 		enabled: Boolean(companyId),
 		staleTime: 10_000,
-		refetchInterval: 30_000
+		refetchInterval: pollEvery(60_000)
 	}));
 	const marks = $derived(new Map((marksQuery.data ?? []).map((mark) => [mark.item_id, mark])));
 	const snoozedUntil = (item: AttentionItem) => {
@@ -391,8 +392,7 @@
 									{#if canComplete(item)}<button disabled={!!completing} onclick={() => done(item)}
 											>{completing === item.id ? 'Recording…' : 'Mark done'} <kbd>E</kbd></button
 										>{/if}
-									{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Decline…</a
-										>{/if}
+									{#if canDecline(item)}<a href={`${href(item.id)}&decline=1`}>Decline…</a>{/if}
 									{#if snoozedNow}
 										<button onclick={() => void wakeInboxItem(client, companyId, item.id)}
 											>Wake now</button

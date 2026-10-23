@@ -2,6 +2,7 @@
  * to a lead, a lead asking a worker. The owner sees each one as a receipt in
  * the conversation at the moment it happened, not as a separate log. */
 import { createQuery } from '@tanstack/svelte-query';
+import { pollEvery } from './connection.svelte';
 import { ownerJson } from './failure';
 
 export type AgentExchange = {
@@ -34,7 +35,7 @@ export function agentExchangesQuery(
 			),
 		enabled: enabled() && !!company() && !!actor(),
 		staleTime: 15_000,
-		refetchInterval: 30_000
+		refetchInterval: pollEvery(30_000)
 	}));
 	return {
 		/** Oldest first, like the conversation they sit in. */

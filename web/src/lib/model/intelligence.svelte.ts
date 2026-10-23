@@ -1,4 +1,5 @@
 import { ownerRequest } from './setting.svelte';
+import { pollEvery } from './connection.svelte';
 import { ownerJson } from './failure';
 import { bootFetch } from './boot-fetch.ts';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -74,8 +75,13 @@ export function intelligenceQuery(company: string, enabled: () => boolean = () =
 		enabled: enabled(),
 		staleTime: 5000,
 		// Events handle known changes. Poll for CLI and broker changes made
-		// outside this browser, without making a sign-in wait a full minute.
-		refetchInterval: 15_000
+		// outside this browser: quickly only while a sign-in can be under way (no
+		// connection yet, or one still loading), so it never waits a full minute.
+		refetchInterval: (query: { state: { data: IntelligenceView | undefined } }) => {
+			const view = query.state.data;
+			const settling = !view?.has_connections || view.connections.some((row) => !row.loaded);
+			return settling ? 15_000 : pollEvery(120_000)();
+		}
 	}));
 	return {
 		get view() {
