@@ -1,3 +1,8 @@
+<script lang="ts" module>
+	/** What Stop did: a notice to show, or why it failed. */
+	export type StopOutcome = { notice?: string; error?: string } | null;
+</script>
+
 <script lang="ts">
 	/* The one message composer for the persistent executive rail.
 	 *
@@ -78,19 +83,24 @@
 		/** Sending while the recipient replies redirects it immediately. With an empty draft,
 		 * the same anchored button stops the reply instead. */
 		interruptible?: boolean;
-		onstop?: (() => Promise<string | null>) | null;
+		/** Stops the reply; answers with what happened, or why it could not. */
+		onstop?: (() => Promise<StopOutcome>) | null;
 		/** Set just before submit: whether this send interrupts. */
 		interrupt?: boolean;
 	} = $props();
 
 	let stopping = $state(false);
 	let stopFailure = $state('');
+	let stopNotice = $state('');
 	async function stopReply() {
 		if (!onstop || stopping) return;
 		stopping = true;
 		stopFailure = '';
+		stopNotice = '';
 		try {
-			stopFailure = (await onstop()) ?? '';
+			const outcome = await onstop();
+			stopFailure = outcome?.error ?? '';
+			stopNotice = outcome?.notice ?? '';
 		} catch (cause) {
 			stopFailure = failureSentence(cause, 'The reply did not stop.');
 		} finally {
@@ -517,6 +527,11 @@
 				<span>{stopFailure}</span><button type="button" onclick={() => (stopFailure = '')}
 					>Dismiss</button
 				>
+			</div>
+		{:else if stopNotice}
+			<div class="hc-voice-state notice" role="status">
+				<span title={stopNotice}>{stopNotice}</span>
+				<button type="button" onclick={() => (stopNotice = '')}>Dismiss</button>
 			</div>
 		{:else if attachmentNotice}
 			<div class="hc-voice-state notice" role="status">

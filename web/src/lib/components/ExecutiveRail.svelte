@@ -45,7 +45,7 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import RotateCw from '@lucide/svelte/icons/rotate-cw';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-	import Composer from '$lib/primitives/Composer.svelte';
+	import Composer, { type StopOutcome } from '$lib/primitives/Composer.svelte';
 	import ConversationHistoryTools from '$lib/primitives/ConversationHistoryTools.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
@@ -206,7 +206,7 @@
 		/** How much of a sending message's files has gone, 0 to 1, while they go. */
 		uploadProgress?: number | null;
 		/** Stops the reply to your message without sending anything; resolves to an error. */
-		onstopturn?: (() => Promise<string | null>) | null;
+		onstopturn?: (() => Promise<StopOutcome>) | null;
 		/** Answers your message again after its reply failed; resolves to an error. */
 		onretryturn?: (() => Promise<string | null>) | null;
 		/** What the agent is doing when no person's message started it (a schedule, a result). */

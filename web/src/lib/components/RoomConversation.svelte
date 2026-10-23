@@ -47,7 +47,8 @@
 		cockpitContextPath,
 		sendActorMessage,
 		openAgentActivityStream,
-		type AgentActivityState
+		type AgentActivityState,
+		stopNotice
 	} from '$lib/model/attention';
 	import {
 		roomActivityStream,
@@ -83,7 +84,7 @@
 		type RoomMessageSearchResult
 	} from '$lib/model/rooms';
 	import type { AttentionItem, ThreadMessage } from '$lib/model/view';
-	import Composer from '$lib/primitives/Composer.svelte';
+	import Composer, { type StopOutcome } from '$lib/primitives/Composer.svelte';
 	import { followChat } from '$lib/actions/follow-chat';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
@@ -747,13 +748,23 @@
 		() => currentActorId
 	);
 	const directTurn = $derived(directAgent ? (actorConversation?.activeTurn ?? null) : null);
-	async function stopDirectReply(): Promise<string | null> {
+	async function stopDirectReply(): Promise<StopOutcome> {
 		try {
-			await actorConversation?.stopTurn();
-			return null;
+			const result = await actorConversation?.stopTurn();
+			return { notice: stopNotice(directPerson?.display || 'The agent', result) };
 		} catch (cause) {
-			return failureSentence(cause, 'The reply could not be stopped; it may already have ended.');
+			return {
+				error: failureSentence(cause, 'The reply could not be stopped; it may already have ended.')
+			};
 		}
+	}
+	/* Your own message can be edited or deleted while it can still change something. In a direct
+	 * conversation with an agent that means until the agent reads it; after that, send another
+	 * (S104 O1), as you would with a person. */
+	function mayChange(message: RoomMessageRecord): boolean {
+		if (message.id <= 0 || message.deleted_at || message.from_actor !== currentActorId)
+			return false;
+		return !(directAgent && message.legacy_read_at);
 	}
 	function attentionFor(actorId: string): AttentionItem[] {
 		if (!ownerAccess) return [];
@@ -927,7 +938,7 @@
 
 	function mayDelete(message: RoomMessageRecord): boolean {
 		if (message.id <= 0 || message.deleted_at) return false;
-		if (message.from_actor === currentActorId) return true;
+		if (message.from_actor === currentActorId) return mayChange(message);
 		return (
 			selectedRoom !== null &&
 			selectedRoom.kind !== 'direct' &&
@@ -1716,9 +1727,7 @@
 								? () => askExec(workDraftFrom(actorName(message.from_actor), message.body))
 								: null}
 							onthread={message.id > 0 ? () => openThread(message.id) : null}
-							canEdit={message.id > 0 &&
-								!message.deleted_at &&
-								message.from_actor === currentActorId}
+							canEdit={mayChange(message)}
 							canDelete={mayDelete(message)}
 							historyOpen={historyMessageId === message.id}
 							revisions={historyMessageId === message.id
@@ -1925,7 +1934,7 @@
 						mentionPeople={roster}
 						askable={isParticipant}
 						thread
-						canEdit={message.id > 0 && !message.deleted_at && message.from_actor === currentActorId}
+						canEdit={mayChange(message)}
 						canDelete={mayDelete(message)}
 						historyOpen={historyMessageId === message.id}
 						revisions={historyMessageId === message.id ? (revisionProjection?.revisions ?? []) : []}

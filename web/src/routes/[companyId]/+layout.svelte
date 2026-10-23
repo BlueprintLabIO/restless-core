@@ -28,7 +28,8 @@
 	import { presence } from '$lib/model/presence.svelte';
 	import { desktopNotify, notifyPortfolio } from '$lib/model/desktop-notify.svelte';
 	import { ASK_EXEC_EVENT, SHOW_CONVERSATION_EVENT } from '$lib/model/ask-exec';
-	import { cockpitContextPath } from '$lib/model/attention';
+	import { cockpitContextPath, stopNotice } from '$lib/model/attention';
+	import type { StopOutcome } from '$lib/primitives/Composer.svelte';
 	import { isOutcomeReview } from '$lib/model/attention-presentation';
 	import { prepareCompanyBrowser } from '$lib/model/company-browser';
 	import {
@@ -866,12 +867,13 @@
 		}
 	}
 
-	async function stopRailTurn(): Promise<string | null> {
+	async function stopRailTurn(): Promise<StopOutcome> {
 		try {
-			await railConversation.stopTurn();
-			return null;
+			return { notice: stopNotice(railActorName, await railConversation.stopTurn()) };
 		} catch (cause) {
-			return failureSentence(cause, 'The reply could not be stopped; it may already have ended.');
+			return {
+				error: failureSentence(cause, 'The reply could not be stopped; it may already have ended.')
+			};
 		}
 	}
 

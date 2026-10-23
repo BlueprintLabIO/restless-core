@@ -66,6 +66,7 @@ pub use for_you::*;
 pub use invocations::*;
 pub use library_items::*;
 pub use library_pins::*;
+pub use messages::ConversationStop;
 pub use notifications::*;
 pub use pending_shares::*;
 pub use responsibility::*;
