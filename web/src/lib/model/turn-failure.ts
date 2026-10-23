@@ -54,7 +54,7 @@ const RULES: {
 		fix: INTELLIGENCE
 	},
 	{
-		test: /timed? ?out|timeout|econnreset|econnrefused|connection (reset|refused|closed)|network|socket hang up/i,
+		test: /timed? ?out|timeout|econnreset|econnrefused|connection (reset|refused|closed)|connection was closed unexpectedly|network|socket hang up/i,
 		say: 'the connection to the model dropped. Try again.'
 	}
 ];
@@ -108,6 +108,12 @@ export function replyIsError(
 	const text = (reply ?? '').trim();
 	if (!text) return false;
 	if (/^\d{3}\s*\{/.test(text) || /^\{\s*"type"\s*:\s*"error"/.test(text)) return true;
+	// Bun's fetch error, which the agent runtime once sent as the whole reply when a model switch
+	// cut the stream (23 October). Only the exact sentence: prose about sockets is a real answer.
+	if (BUN_FETCH_CLOSED.test(text)) return true;
 	const raw = (error ?? '').trim();
 	return !!raw && raw.includes(text.slice(0, 60));
 }
+
+const BUN_FETCH_CLOSED =
+	/^The socket connection was closed unexpectedly\. For more information, pass `?verbose: true`? in the second argument to fetch\(\)\.?$/;
