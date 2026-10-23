@@ -857,7 +857,10 @@ mod tests {
         for (partial, error) in [
             (Some("Here is the launch plan so far. Monday: "), SOCKET),
             (None, SOCKET),
-            (None, "Unable to connect. Is the computer able to access the url?"),
+            (
+                None,
+                "Unable to connect. Is the computer able to access the url?",
+            ),
         ] {
             let mut turn = transcript(Some(9_000), None);
             if let Some(partial) = partial {
@@ -913,7 +916,10 @@ mod tests {
             turn.note_text(reply, message.clone());
             assert_eq!(turn.last_message_text, reply);
             assert!(
-                matches!(classify(&acp::TurnEnd::Completed { transcript: turn }), Verdict::Ran),
+                matches!(
+                    classify(&acp::TurnEnd::Completed { transcript: turn }),
+                    Verdict::Ran
+                ),
                 "{reply}"
             );
         }
