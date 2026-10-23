@@ -136,15 +136,16 @@ export async function createCoreReleaseBundle({
   exactKeys(release, ['manifest_version', ...(release.manifest_version === 2 ? ['platforms'] : []),
     'core_version', 'source_revision', 'images', 'contracts', 'deployment'], 'release manifest');
   match(release.source_revision, SOURCE_REVISION, 'release source revision');
-  exactKeys(release.images, ['account_plane', 'company_runtime', 'native_documents'], 'release images');
+  exactKeys(release.images, ['account_plane', 'company_runtime', 'native_documents', ...('cockpit' in release.images ? ['cockpit'] : [])], 'release images');
   for (const [name, image] of Object.entries(release.images)) match(image, OCI_DIGEST, `release image ${name}`);
   const expectedImages = {
     account_plane: 'ghcr.io/blueprintlabio/restless-account-plane@',
     company_runtime: 'ghcr.io/blueprintlabio/restless-company-runtime@',
     native_documents: 'ghcr.io/blueprintlabio/restless-native-documents-collaboration@',
+    cockpit: 'ghcr.io/blueprintlabio/restless-cockpit@',
   };
   for (const [name, prefix] of Object.entries(expectedImages)) {
-    if (!release.images[name].startsWith(prefix)) fail(`release image ${name} is not from its canonical repository`);
+    if (name in release.images && !release.images[name].startsWith(prefix)) fail(`release image ${name} is not from its canonical repository`);
   }
   exactKeys(contract, ['format', 'contract_set', 'release', 'capabilities', 'artifacts'], 'contract-set manifest');
   if (contract.format !== 'restless.core.contract-set.v1' || contract.contract_set !== 'company-collaboration') {
