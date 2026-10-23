@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { resolveDesktopRoute } from '$lib/model/company-actions';
 	import { failureSentence } from '$lib/model/failure';
-	import { onDestroy, onMount, tick, untrack } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import Maximize2 from '@lucide/svelte/icons/maximize-2';
 	import Minimize2 from '@lucide/svelte/icons/minimize-2';
+	import Scaling from '@lucide/svelte/icons/scaling';
 	import Clipboard from '@lucide/svelte/icons/clipboard';
 	import Keyboard from '@lucide/svelte/icons/keyboard';
 	import FileUp from '@lucide/svelte/icons/file-up';
@@ -92,7 +93,9 @@
 	let clipboardClips = $state<ClipboardClip[]>([]);
 	let selectedClipId = $state<number | null>(null);
 	let nextClipId = 0;
-	let fullscreen = $state(false);
+	/* Actual size: the computer's own pixels, one to one, scrolling where it does not fit (small
+	 * print such as a sign-in code); otherwise it is scaled to fit its frame. */
+	let actualSize = $state(false);
 	let utilityMessage = $state('');
 	let clipboardPanelOpen = $state(false);
 	let manualClipboardOpen = $state(false);
@@ -272,7 +275,7 @@
 			 * the computer to the card, so sites drew their phone layout and read as zoomed in
 			 * (20 October); there the computer keeps its size and is scaled to fit. */
 			client.resizeSession = canResize;
-			client.scaleViewport = true;
+			client.scaleViewport = !actualSize;
 			client.background = '#101217';
 			// Measured 19 October (docs/audits/desktop-trial-2026-10-19.md): JPEG quality 9 fell to
 			// 6 fps on a 20 Mbit, 90 ms link and 2.6 fps at 8 Mbit; quality 6 kept 18 and 7.
@@ -408,7 +411,7 @@
 				const signature = `${width}x${height}`;
 				if (signature === lastReportedSize || document.visibilityState !== 'visible') return;
 				lastReportedSize = signature;
-				if (rfb) rfb.scaleViewport = true;
+				if (rfb) rfb.scaleViewport = !actualSize;
 				ondisplayresize?.(width, height);
 			});
 		};
@@ -679,30 +682,30 @@
 		}
 	}
 
-	/* Fullscreen where the browser allows it; where it does not (an embedded browser such as the
-	 * Claude app's pane refuses the Fullscreen API), the viewer fills the main area instead, so the
-	 * button always does something (20 October). It stops short of the Exec rail, so the owner can
-	 * watch the computer and talk to Exec at once (21 October). Escape leaves either. */
+	/* Expand fills the main area and stops short of the Exec rail, so the owner can watch the
+	 * computer and talk to Exec at once (21 October). One in-page switch, the same everywhere
+	 * (23 October): the browser's own fullscreen behaved differently per browser and could not be
+	 * toggled again from a card. The viewer moves to the top layer (a popover), so no card, pane or
+	 * transform above it can clip it. Escape always leaves, even while you hold the keyboard: it is
+	 * caught before the computer sees it. */
 	let expanded = $state(false);
 	let expandedBox = $state('');
-	async function toggleFullscreen() {
-		if (!target) return;
-		if (expanded) {
-			expanded = false;
-			return;
-		}
-		try {
-			if (document.fullscreenElement === target) await document.exitFullscreen();
-			else if (document.fullscreenEnabled) await target.requestFullscreen();
-			else expanded = true;
-		} catch {
-			expanded = true;
-		}
+	function toggleExpanded() {
+		expanded = !expanded;
 	}
+	$effect(() => {
+		const element = target;
+		if (!element) return;
+		if (expanded && !element.matches(':popover-open')) element.showPopover();
+		else if (!expanded && element.matches(':popover-open')) element.hidePopover();
+	});
 	$effect(() => {
 		if (!expanded) return;
 		const leave = (event: KeyboardEvent) => {
-			if (event.key === 'Escape' && !event.defaultPrevented) expanded = false;
+			if (event.key !== 'Escape') return;
+			event.preventDefault();
+			event.stopPropagation();
+			expanded = false;
 		};
 		const main = document.getElementById('main-content');
 		const measure = () => {
@@ -715,11 +718,11 @@
 		const observer = main ? new ResizeObserver(measure) : null;
 		if (main) observer?.observe(main);
 		window.addEventListener('resize', measure);
-		window.addEventListener('keydown', leave);
+		window.addEventListener('keydown', leave, true);
 		return () => {
 			observer?.disconnect();
 			window.removeEventListener('resize', measure);
-			window.removeEventListener('keydown', leave);
+			window.removeEventListener('keydown', leave, true);
 			expandedBox = '';
 		};
 	});
@@ -841,10 +844,9 @@
 		void connect(current, src, screen);
 	}
 
-	onMount(() => {
-		const syncFullscreen = () => (fullscreen = document.fullscreenElement === target);
-		document.addEventListener('fullscreenchange', syncFullscreen);
-		return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+	$effect(() => {
+		const scale = !actualSize;
+		if (rfb) rfb.scaleViewport = scale;
 	});
 
 	onDestroy(() => {
@@ -862,6 +864,10 @@
 	class:dragging
 	class:expanded
 	style={expanded ? expandedBox : undefined}
+	popover="manual"
+	ontoggle={(event: ToggleEvent) => {
+		if (event.newState === 'closed') expanded = false;
+	}}
 	bind:this={target}
 	aria-label={title}
 	role="region"
@@ -946,11 +952,21 @@
 				</button>
 				<button
 					type="button"
-					title="Toggle fullscreen"
-					aria-label="Toggle fullscreen"
-					onclick={toggleFullscreen}
+					title={actualSize ? 'Fit to this frame' : 'Actual size (scroll to see it all)'}
+					aria-label="Actual size"
+					aria-pressed={actualSize}
+					onclick={() => (actualSize = !actualSize)}
 				>
-					{#if fullscreen || expanded}<Minimize2 size={14} />{:else}<Maximize2 size={14} />{/if}
+					<Scaling size={14} />
+				</button>
+				<button
+					type="button"
+					title={expanded ? 'Leave expanded (Esc)' : 'Expand'}
+					aria-label={expanded ? 'Leave expanded' : 'Expand'}
+					aria-pressed={expanded}
+					onclick={toggleExpanded}
+				>
+					{#if expanded}<Minimize2 size={14} />{:else}<Maximize2 size={14} />{/if}
 				</button>
 			</div>
 		</div>
@@ -1146,18 +1162,29 @@
 		outline: 2px dashed var(--intent-conversation);
 		outline-offset: -4px;
 	}
-	.desktop-viewport:fullscreen {
-		width: 100vw;
-		height: 100vh;
+	/* A popover only so Expand can reach the top layer: closed, it stays in its frame as ever. */
+	.desktop-viewport[popover]:not(:popover-open) {
+		display: flex;
+		position: relative;
+		inset: auto;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		color: inherit;
+		overflow: hidden;
 	}
-	/* The stand-in for fullscreen: it fills the main area (measured), or the window when there is
-	 * no main area, and leaves the Exec rail beside it. */
-	.desktop-viewport.expanded {
+	/* Expanded: fills the main area (measured), or the window when there is no main area, and
+	 * leaves the Exec rail beside it. */
+	.desktop-viewport.expanded:popover-open {
 		position: fixed;
 		inset: 0;
-		z-index: 60;
+		margin: 0;
+		padding: 0;
+		border: 0;
 		width: 100vw;
 		height: 100vh;
+		max-width: none;
+		max-height: none;
 		background: #101217;
 	}
 	.desktop-screen {
@@ -1193,7 +1220,6 @@
 		border-top: 1px solid var(--border-strong);
 		background: var(--surface-pane);
 	}
-	.desktop-viewport:fullscreen > .desktop-tools,
 	.desktop-viewport.expanded > .desktop-tools {
 		padding-right: max(12px, env(safe-area-inset-right));
 	}
@@ -1238,7 +1264,6 @@
 		box-shadow: var(--shadow-lift);
 		font: var(--t-body) var(--font-ui);
 	}
-	.desktop-viewport:fullscreen > .clipboard-panel,
 	.desktop-viewport.expanded > .clipboard-panel {
 		right: 12px;
 	}
