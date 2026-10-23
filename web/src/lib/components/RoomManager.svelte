@@ -25,6 +25,7 @@
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import { matches } from '$lib/search/search';
 	type PickerPerson = { actor_id: string; display: string; team_id?: string | null; kind?: string };
 	let {
 		companyId,
@@ -106,13 +107,8 @@
 	const pickerGroups = $derived.by(() => {
 		const query = pickerQuery.trim().toLocaleLowerCase();
 		const inTeam = (person: PickerPerson) => teams.some((team) => team.id === person.team_id);
-		const shown = availablePeople.filter(
-			(person) =>
-				!query ||
-				person.display.toLocaleLowerCase().includes(query) ||
-				(teams.find((team) => team.id === person.team_id)?.name ?? '')
-					.toLocaleLowerCase()
-					.includes(query)
+		const shown = availablePeople.filter((person) =>
+			matches(query, [person.display, teams.find((team) => team.id === person.team_id)?.name])
 		);
 		const groups: { label: string; people: PickerPerson[] }[] = [];
 		const add = (label: string, members: PickerPerson[]) => {

@@ -8,6 +8,7 @@
 	import { fetchSetAside, restoreAttention, type SetAside } from '$lib/model/attention';
 	import { failureSentence } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
+	import { keep } from '$lib/search/search';
 
 	let { companyId, version = 0 }: { companyId: string; version?: number } = $props();
 	const client = useQueryClient();
@@ -22,13 +23,7 @@
 			? (cockpit.view?.people.find((person) => person.actor_id === entry.responsible_actor)
 					?.display ?? entry.responsible_actor.replaceAll('-', ' '))
 			: '';
-	const shown = $derived(
-		query.trim()
-			? items.filter((entry) =>
-					`${entry.title} ${asker(entry)}`.toLowerCase().includes(query.trim().toLowerCase())
-				)
-			: items
-	);
+	const shown = $derived(keep(items, query, (entry) => [entry.title, asker(entry)]));
 
 	/* The company whose items are listed; the fold is reused across a company switch. */
 	let listedFor = '';

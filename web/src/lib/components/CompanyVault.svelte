@@ -17,6 +17,7 @@
 		vaultKey,
 		type VaultSecret
 	} from '$lib/model/harness-auth';
+	import { keep } from '$lib/search/search';
 	let { companyId }: { companyId: string } = $props();
 	const source = settingQuery({
 		key: () => vaultKey(companyId),
@@ -32,11 +33,7 @@
 		binding = $state(''),
 		secret = $state(''),
 		notice = $state('');
-	const rows = $derived(
-		view?.secrets?.filter((s) =>
-			`${s.name} ${s.path}`.toLowerCase().includes(search.toLowerCase())
-		) ?? []
-	);
+	const rows = $derived(keep(view?.secrets ?? [], search, (s) => [s.name, s.path]));
 	const external = $derived(
 		view?.references.filter((r) => !view?.secrets?.some((s) => s.reference === r.reference)) ?? []
 	);

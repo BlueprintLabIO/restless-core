@@ -101,6 +101,7 @@
 	import { proposalChanges, versionChanges, type BlockChange } from '$lib/model/document-diff';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { withDocumentImages } from '$lib/model/document-editor-schema';
+	import { matches } from '$lib/search/search';
 
 	export type DocumentInspectorPanel = 'comments' | 'review' | 'versions';
 
@@ -422,12 +423,7 @@
 		const query = mentionQuery.query.toLowerCase();
 		return people
 			.filter((person) => person.kind !== 'system')
-			.filter(
-				(person) =>
-					!query ||
-					person.display.toLowerCase().includes(query) ||
-					person.actor_id.toLowerCase().includes(query)
-			)
+			.filter((person) => matches(query, [person.display, person.actor_id]))
 			.toSorted(
 				(left, right) =>
 					Number(!left.display.toLowerCase().startsWith(query)) -

@@ -629,3 +629,14 @@
 	background: var(--wash-hover);
 	color: var(--ink);
 }
+
+/* Find in a page (lib/search): every match is tinted where it is shown and the one in hand is
+ * solid, painted without touching the text (the CSS Custom Highlight API). */
+::highlight(search-hit) {
+	background-color: color-mix(in srgb, var(--intent-authority) 26%, transparent);
+	color: inherit;
+}
+::highlight(search-current) {
+	background-color: var(--intent-authority);
+	color: var(--surface-raised);
+}

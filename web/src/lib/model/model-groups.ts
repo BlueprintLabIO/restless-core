@@ -1,3 +1,5 @@
+import { keep } from '../search/search.ts';
+
 /* A model list a person can scan: the newest releases first, older ones folded away, and a filter
  * when a provider offers many (OpenRouter offers hundreds). The model in use always stays in view. */
 
@@ -57,14 +59,9 @@ function familyKey(base: string): string {
 	return base.toLowerCase().split(/[\s-]+/).filter(Boolean).sort().join(' ');
 }
 
-/** Models whose name or id contains every word typed. */
+/** Models whose name or id matches what was typed (lib/search), newest first as listed. */
 export function filterModels(models: ModelChoice[], query: string): ModelChoice[] {
-	const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-	if (!words.length) return models;
-	return models.filter((model) => {
-		const text = `${model.name} ${model.id}`.toLowerCase();
-		return words.every((word) => text.includes(word));
-	});
+	return keep(models, query, (model) => [model.name, model.id]);
 }
 
 /** A list long enough to need a filter. */

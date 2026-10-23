@@ -28,6 +28,7 @@
 	import Search from '@lucide/svelte/icons/search';
 	import CornerDownLeft from '@lucide/svelte/icons/corner-down-left';
 	import { composing } from '$lib/primitives/composer-keys';
+	import { matches } from '$lib/search/search';
 
 	let {
 		open = $bindable(false),
@@ -101,21 +102,18 @@
 	const results = $derived.by(() => {
 		const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
 		const pool = words.length ? commands : [...recents, ...commands];
-		const matches = pool.filter((command) => {
-			if (!words.length) return true;
-			const haystack =
-				`${command.label} ${command.hint ?? ''} ${command.group} ${command.keywords ?? ''}`.toLocaleLowerCase();
-			return words.every((word) => haystack.includes(word));
-		});
+		const hits = pool.filter((command) =>
+			matches(query, [command.label, command.hint, command.group, command.keywords])
+		);
 		/* Label-prefix matches first; otherwise keep the author's order. */
 		const first = words[0];
 		const ranked = first
-			? matches.toSorted(
+			? hits.toSorted(
 					(a, b) =>
 						Number(!a.label.toLocaleLowerCase().startsWith(first)) -
 						Number(!b.label.toLocaleLowerCase().startsWith(first))
 				)
-			: matches;
+			: hits;
 		/* Found results follow the label-prefix matches and lead everything else, so a phrase from
 		 * inside a document surfaces that document near the top. */
 		const listed = new Set(ranked.map((command) => command.id));

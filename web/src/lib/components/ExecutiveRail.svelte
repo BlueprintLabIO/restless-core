@@ -57,6 +57,7 @@
 		type QuerySourceStatus
 	} from '$lib/model/queries.svelte';
 	import type { ThreadMessage } from '$lib/model/view';
+	import { markdownText } from '$lib/search/search';
 	import { execCommandsFor, runExecCommand } from '$lib/model/skills';
 	import { PIN, reactionsQuery, roomPinsQuery } from '$lib/model/reactions.svelte';
 	import { workDraftFrom, askExec } from '$lib/model/ask-exec';
@@ -422,6 +423,20 @@
 
 	function messageDomId(messageId: string): string {
 		return `rail-message-${companyId}-${messageId.replaceAll(':', '-')}`;
+	}
+
+	/* What search looks through for a message: what the rail draws for it, including the question
+	 * it asks the owner and the answers offered (O3). */
+	function shownText(message: ThreadMessage): string {
+		const open = openQuestion && visibleMessages[openQuestionIndex]?.id === message.id;
+		return [
+			message.author,
+			markdownText(message.text),
+			message.from === 'agent' ? (message.intent?.summary ?? '') : '',
+			...message.attachments.map((attachment) => attachment.name),
+			message.contextPath ?? '',
+			...(open ? [openQuestion, ...openReplies, ...openFields] : [])
+		].join('\n');
 	}
 
 	async function jumpToMessage(messageId: string) {
@@ -1298,6 +1313,14 @@
 					onjump={jumpToMessage}
 					more={hasEarlier}
 					onsearchall={directRoom && isDirectTopic ? searchAll : null}
+					textOf={shownText}
+					elementsOf={(id) => [
+						document.getElementById(messageDomId(id)),
+						openQuestion && visibleMessages[openQuestionIndex]?.id === id
+							? scrollEl?.querySelector('.open-question')
+							: null
+					]}
+					scope={() => scrollEl}
 				/>
 
 				{#if !review && !workContext && !wide}
@@ -1390,9 +1413,9 @@
 									>{initials(participantName)}</span
 								>{/if}
 							{#if !wide}<span class="topic-text"
-									><strong class="exr-name">{participantName}</strong
-									>{#if workContext?.title}<span class="topic-label" title={workContext.title}
-											>About: {workContext.title}</span
+									><strong class="exr-name">{participantName}</strong>{#if workContext?.title}<span
+											class="topic-label"
+											title={workContext.title}>About: {workContext.title}</span
 										>{/if}</span
 								>{/if}
 						</div>
@@ -1628,10 +1651,7 @@
 									Messages here stay with this card. Your whole conversation with {participantName}
 									is kept.
 								</p>
-								<button
-									type="button"
-									class="exr-retry"
-									onclick={(review ?? workContext)!.onback}
+								<button type="button" class="exr-retry" onclick={(review ?? workContext)!.onback}
 									>Show the whole conversation</button
 								>
 							</div>
