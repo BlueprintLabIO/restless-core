@@ -5,7 +5,8 @@
 
 export type AccountKind =
 	'ai_provider' | 'api' | 'website_login' | 'browser_profile' | 'github' | 'mcp_tool';
-export type AccountHealth = 'signed_in' | 'expiring' | 'expired' | 'refused' | 'unknown';
+export type AccountHealth =
+	'signed_in' | 'signed_out' | 'expiring' | 'expired' | 'refused' | 'unknown';
 export type CredentialKind =
 	'oauth' | 'api_key' | 'password' | 'totp' | 'browser_profile' | 'app_install';
 export type Mode = 'allow' | 'tell' | 'ask' | 'off';
@@ -247,6 +248,7 @@ export const EMPTY_LIMITS: GrantLimits = {
 
 export const HEALTH_LABEL: Record<AccountHealth, string> = {
 	signed_in: 'Ready',
+	signed_out: 'Signed out',
 	expiring: 'Expiring',
 	expired: 'Expired',
 	refused: 'Refused',

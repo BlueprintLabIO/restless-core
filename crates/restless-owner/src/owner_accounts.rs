@@ -459,6 +459,9 @@ pub(super) async fn sign_in_from_company(
         Err(refusal) => return refusal,
     };
     let domains = restless_engine::account_browser::account_domains(&settings);
+    // An asleep account browser is not a signed-out one: wake it before asking (23 Oct, a signed
+    // in Facebook read "signed out" after a release had stopped its browser).
+    let _ = restless_engine::account_browser::ensure_running(&id).await;
     let health = match restless_engine::account_browser::signed_in(&id, &domains).await {
         Ok(true) => "signed_in",
         _ => match restless_engine::account_browser::sign_in_from_company(

@@ -1098,6 +1098,8 @@ async fn account_session(
     label: &str,
 ) -> std::result::Result<(), String> {
     use crate::account_browser as identity;
+    // An asleep account browser is not a signed-out one: wake it before asking.
+    let _ = identity::ensure_running(account_id).await;
     if identity::signed_in(account_id, domains)
         .await
         .unwrap_or(false)
