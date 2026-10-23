@@ -92,6 +92,20 @@ Cloud; Meta's Muse comes in through a direct Meta Model API provider; the target
 - [x] T7 The Inbox intercepted every Library link (fixed with E1). Audited the other `beforeNavigate` handlers: all are unsaved-change guards.
 - [x] T8 The company memory bound is kept to three quarters of the host's memory (a 4 GB host gives 3 GB companies).
 
+### O. Owner feedback (23 Oct)
+Agreed with the owner on 23 Oct.
+- [ ] O1 Stop means stop. The composer's stop button always stops the agent's current turn and says so in plain words ("Calcifer stopped. Your message is still with them."). It no longer tries to unsend the message. Edit and delete sit on the message itself and show only while it is unread; once read they disappear instead of failing. No internal error text ("message is no longer an unread ordinary owner conversation") reaches the composer.
+- [ ] O2 Fast and parallel when possible, not always delegate (owner, 23 Oct). `docs/specs/orgintel.md` keeps the lead producing directly for tightly coupled or single-piece work, but work that splits into independent pieces runs in parallel by default, instead of only when the gain "can repay communication, integration and review cost". ADR 0005 still says the lead never produces; bring it in line with the 19 Oct decision. A per-company cap on parallel workers follows the shared provider limit. Measure one real task with and without: time to done, tokens, and time spent waiting on the provider limit.
+- [ ] O3 One search everywhere. Chat search counts messages, matches only message text (not question cards, options or answers), takes the query as one exact string, and highlights nothing ("relief gu" said "1 matches" with four on screen). One search primitive for chat, the command menu, the sidebar, the Library, sheets, comments, work views and the model picker:
+  - one matcher: case and accent folded, every typed word matched as a word prefix in any order;
+  - each item searches the text it shows, and the count is of occurrences ("3 of 7");
+  - matches are highlighted in place with the CSS Custom Highlight API (no DOM rewrites, works across bold and links), and next/previous scroll to each;
+  - loaded results first, then earlier ones from the server, the same shape for every server search (rooms, documents, sheets, comments).
+- [ ] O4 The model picker overlays. In a settings form it shows a closed field with the current model and opens the list in a popover anchored to it, so the row never grows. In menus it stays as it is.
+- [ ] O5 Website logins are signed in on the company computer (proposed 23 Oct, owner to confirm). The account request's username/password form clashes with signing in to the company browser directly and often fails (eBay); the request itself already says "You will sign in yourself in the company browser". The Inbox item becomes "Sign in on the company computer": it opens the company browser at the sign-in page, the plane notices a real sign-in (`known_session`, F5) and closes the item. Stored passwords and authenticator secrets stay in Settings › Accounts for sites that need unattended re-login, not in the request.
+- [ ] O6 Flipotron (Sydney Resale's deal gate) through the owner's PC: release 13 (machine apps, #439) is waiting for Potion Scheme's running Work to finish. Then add the app on "Yail's PC", connect Sydney Resale at `machine-app://…/flipotron/mcp`, check its tools, and replace the PC helper's temporary build with the released one.
+- [ ] O7 Chrome 156.0.8087.47 when Google publishes it, and drop the CVE-2026-113344 waiver before 27 Oct.
+
 **Incident, 22 Oct 01:00–03:00 (Sydney time): the 4 GB plane thrashed into an outage.**
 - **Causes:**
   - Each release's roll-forward woke every sleeping company to rebuild it. Fixed by #407.
