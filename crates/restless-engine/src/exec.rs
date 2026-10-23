@@ -2165,7 +2165,11 @@ mod tests {
         assert!(saved.lock().unwrap().is_empty());
         assert_eq!(report.termination, Termination::Blocked);
         assert!(!report.reply_complete);
-        assert!(report.reason.starts_with("[transport]"), "{}", report.reason);
+        assert!(
+            report.reason.starts_with("[transport]"),
+            "{}",
+            report.reason
+        );
         assert!(report.reason.contains("socket connection was closed"));
         assert!(report.said.contains(PARTIAL));
         assert!(!report.said.contains("socket"));
