@@ -175,6 +175,15 @@ impl WakeClaims {
         })
     }
 
+    /// The owner's Stop: cancel the turn and drop the wake hint queued behind it. An owner
+    /// message raises two hints (the send and its notification), so one is often still queued
+    /// for the very message being stopped, and would start a fresh turn that answers it anyway.
+    /// Anything genuinely still owed is re-derived from durable unread rows by the next scan.
+    pub fn stop(&mut self, company: &str) -> bool {
+        self.pending.remove(company);
+        self.interrupt(company)
+    }
+
     fn take_ready(&mut self) -> Vec<(String, String)> {
         let ready = self
             .pending
@@ -1605,6 +1614,28 @@ mod tests {
         assert!(claims.interrupt("probe"));
         assert!(cancellation.is_cancelled());
         assert!(!claims.interrupt("other-company"));
+    }
+
+    #[test]
+    fn a_stop_drops_the_wake_queued_behind_the_stopped_turn() {
+        let mut claims = WakeClaims::default();
+        let cancellation = claims
+            .claim_with_cancellation("probe")
+            .expect("claim the active turn");
+        // The owner message's notification arrives while its own turn runs.
+        claims.queue("probe", "message from owner");
+        claims.queue("other-company", "message from owner");
+
+        assert!(claims.stop("probe"));
+        assert!(cancellation.is_cancelled());
+        claims.release("probe");
+        assert_eq!(
+            claims.take_ready(),
+            vec![(
+                "other-company".to_string(),
+                "message from owner".to_string()
+            )]
+        );
     }
 
     #[test]

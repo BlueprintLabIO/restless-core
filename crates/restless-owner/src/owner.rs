@@ -11534,7 +11534,7 @@ async fn interrupt_actor_conversation(
             .daemon
             .in_flight
             .lock()
-            .map(|mut claims| claims.interrupt(&company))
+            .map(|mut claims| claims.stop(&company))
             .unwrap_or(false)
     } else {
         state.daemon.staff.interrupt(&company, &actor)
