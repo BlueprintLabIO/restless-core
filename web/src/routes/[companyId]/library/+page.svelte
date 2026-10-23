@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
+	import { pollEvery } from '$lib/model/connection.svelte';
 	/* The Library: everything the company has written and made, in one place (S64). Native
 	 * documents and sheets open in their editors; the sites, images, PDFs, decks and recordings Work
 	 * produced on the company computer open in place, a deck as a slideshow. Files the owner adds or
@@ -160,7 +161,7 @@
 		queryFn: () => sheetJson<SheetRow[]>(companyId),
 		enabled: Boolean(principal.view),
 		staleTime: 5_000,
-		refetchInterval: 15_000
+		refetchInterval: pollEvery(15_000)
 	}));
 	const sheets = $derived(sheetsQuery.data ?? []);
 	const sheetsFailure = $derived(

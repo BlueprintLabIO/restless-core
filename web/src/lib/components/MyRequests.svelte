@@ -4,6 +4,7 @@
 	 * link to the whole list; in For you it is the whole list, where each row unfolds to the exact
 	 * change and a pending one can be withdrawn. */
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { pollEvery } from '$lib/model/connection.svelte';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -20,7 +21,7 @@
 		queryFn: () => directionRequests(companyId, 'mine'),
 		enabled: Boolean(companyId),
 		staleTime: 15_000,
-		refetchInterval: 30_000,
+		refetchInterval: pollEvery(30_000),
 		refetchIntervalInBackground: false,
 		retry: false
 	}));
@@ -74,8 +75,7 @@
 		<section class="my-requests all" aria-label="Your requests">
 			<h3>Changes you asked for</h3>
 			<p class="explain">
-				Changes you asked Exec to make that someone else in the company decides, and what they
-				said.
+				Changes you asked Exec to make that someone else in the company decides, and what they said.
 			</p>
 			{#each shown as request (request.id)}
 				<details data-state={withdrawn(request) ? 'withdrawn' : request.state}>

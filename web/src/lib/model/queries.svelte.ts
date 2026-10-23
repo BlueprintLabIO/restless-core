@@ -348,7 +348,7 @@ export function companiesQuery(
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		// The list carries each company's card, so it refreshes as often as the portfolio did.
-		refetchInterval: 30_000,
+		refetchInterval: pollEvery(30_000),
 		refetchIntervalInBackground: background()
 	}));
 	return {
@@ -399,7 +399,7 @@ export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 		enabled: queryEnabled(enabled) && on(),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: 60_000,
+		refetchInterval: pollEvery(60_000),
 		refetchIntervalInBackground: false
 	});
 	/* The ordinary read always runs. A page that asks for a live credential
@@ -444,7 +444,7 @@ export function companySpendQuery(companyId: string, enabled: QueryEnabled = tru
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: 60_000,
+		refetchInterval: pollEvery(60_000),
 		refetchIntervalInBackground: false
 	}));
 	return {
@@ -924,7 +924,9 @@ export function conversationQuery(
 				})),
 				contextPath: contextPath ?? null
 			};
-			const localUrls = pending.attachments.flatMap((file) => (file.localUrl ? [file.localUrl] : []));
+			const localUrls = pending.attachments.flatMap((file) =>
+				file.localUrl ? [file.localUrl] : []
+			);
 			/* Long enough for the server's copy to replace them. */
 			const releaseLocal = () =>
 				window.setTimeout(() => localUrls.forEach((url) => URL.revokeObjectURL(url)), 120_000);
@@ -1047,6 +1049,7 @@ export function workActivityStream(companyId: string, actorId: string, workId: s
  * snapshot and replay; refetching its messages here as well only doubles the
  * same request and cancels one of them. */
 const ROOM_STREAM_OWNED = new Set(['room-messages', 'room-thread']);
+const HINT_GATHER_MS = 1_500;
 
 /**
  * One change stream per open company. Each hint refetches the company's
@@ -1082,21 +1085,34 @@ export function companyChangeStream(companyId: () => string, enabled: QueryEnabl
 			dropped = true;
 			void client.invalidateQueries({ queryKey: queryKeys.principal(company) });
 		};
+		/* A send and its reply, or a Work commission's several rows, arrive as a burst of hints;
+		 * each refetch of the screen is a dozen requests through the edge. So hints are gathered
+		 * for a moment and refetched once. A hidden tab only marks them stale, and catches up
+		 * once when it is shown (refetchOnWindowFocus). */
+		let pending = new Set<string>();
+		let flush: ReturnType<typeof setTimeout> | undefined;
 		source.addEventListener('change', (event) => {
 			/* A hint names what kind of thing changed, and only queries that kind can affect
 			 * refetch: a teammate's message never reloads settings, the principal or model
 			 * connections. An open Room's messages stay with the Room's own stream. A bare
 			 * `room_event` is not "only rooms": a message to the Exec is one too. */
-			const kinds = parseHint((event as MessageEvent).data);
-			void client.invalidateQueries({
-				predicate: (query) =>
-					query.queryKey.includes(company) &&
-					!ROOM_STREAM_OWNED.has(String(query.queryKey[0])) &&
-					hintTouches(kinds, query.queryKey),
-				refetchType: 'active'
-			});
+			for (const kind of parseHint((event as MessageEvent).data)) pending.add(kind);
+			if (flush) return;
+			flush = setTimeout(() => {
+				flush = undefined;
+				const kinds = [...pending];
+				pending = new Set();
+				void client.invalidateQueries({
+					predicate: (query) =>
+						query.queryKey.includes(company) &&
+						!ROOM_STREAM_OWNED.has(String(query.queryKey[0])) &&
+						hintTouches(kinds, query.queryKey),
+					refetchType: document.hidden ? 'none' : 'active'
+				});
+			}, HINT_GATHER_MS);
 		});
 		return () => {
+			clearTimeout(flush);
 			source.close();
 			changes.live = false;
 		};

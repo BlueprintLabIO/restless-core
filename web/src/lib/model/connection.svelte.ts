@@ -46,7 +46,21 @@ export function observeSuccess(): boolean {
  */
 export const changes = $state<{ live: boolean }>({ live: false });
 
-/** A refetch interval that relaxes to `whenLive` while change hints arrive. */
-export function pollEvery(ordinary: number, whenLive: number): () => number {
-	return () => (changes.live ? whenLive : ordinary);
+/* Every poll is a request through the edge router, which is billed per request (23 Oct: an idle
+ * tab made about 36 a minute and the free daily cap ran out). While change hints arrive, a poll
+ * only repairs a missed hint, so it waits at least this long. */
+const LIVE_REPAIR_MS = 180_000;
+/* While the connection is lost, the app-level notice and its Retry speak for the outage; a poll
+ * every few seconds from every pane only adds failed requests. */
+const OUTAGE_POLL_MS = 60_000;
+
+/** A refetch interval: `ordinary` while hints are down, at most every `whenLive` (never under
+ * three minutes) while they arrive, and slow while the connection is lost. */
+export function pollEvery(ordinary: number, whenLive = LIVE_REPAIR_MS): () => number {
+	return () =>
+		connection.lost
+			? Math.max(ordinary, OUTAGE_POLL_MS)
+			: changes.live
+				? Math.max(whenLive, LIVE_REPAIR_MS)
+				: ordinary;
 }

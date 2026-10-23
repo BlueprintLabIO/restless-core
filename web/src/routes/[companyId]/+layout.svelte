@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { pollEvery } from '$lib/model/connection.svelte';
 	import { readAccountCompanies, type AccountCompany } from '$lib/model/account-companies';
 	import { setupTabs } from '$lib/model/company-setup-steps';
 	import { companySetup, takeSetupHandoff } from '$lib/model/company-setup.svelte';
@@ -265,7 +266,7 @@
 		queryFn: () => getInboxMarks(companyId),
 		enabled: !!principal,
 		staleTime: 10_000,
-		refetchInterval: 30_000
+		refetchInterval: pollEvery(60_000)
 	}));
 	let markClock = $state(Date.now());
 	onMount(() => {
