@@ -48,6 +48,18 @@ publish 9, seal 3). Where the time went on 9 October, and what now keeps it shor
   "40GB", "reservedSpace": "10GB"` after the Windows host lost ~800 GB to WSL growth
   (`docs/BUILD_STORAGE.md`); GC brought the engine from 164 GB to under 50 GB within 30 s. The
   accepted risk is a cold tool base: if two consecutive prebuilds rebuild it, raise the cap.
+  On 23 October the floor became a fixed `"minFreeSpace": "60GB"`. At 15% of the 1 TB virtual
+  disk it was 151 GB, above the 115 GB actually free, so GC held the engine at 2.9 GB and every
+  release rebuilt from cold: publish compiled the Rust binaries for 13 minutes although the
+  prebuild had just built them. With 60 GB the cache keeps its 40 GB cap while the disk keeps a
+  margin. If free space falls under about 100 GB, purge the regenerable targets beyond the slot
+  pool (`scripts/restless-reap --check`, then `--purge`) rather than lowering the floor further.
+- **Two runners per repository (23 October).** Core: `restless-core-dagger-drive` takes only the
+  immutable release (label `restless-core-release`); `restless-core-dagger-drive-ci`
+  (`restless-core-ci`, user unit `restless-core-dagger-ci-runner`, CPU weight 30) takes push CI,
+  so a release never waits behind it. Cloud: `restless-cloud-dagger-drive` and `-2`, so the four
+  service builds of a Cloud release run two at a time. All share the one Dagger engine and the
+  persistent company image builder `restless-company-cache`.
 - **The cockpit still ships through a Core release.** Cloud serves it from the account-plane
   image (`COPY web/build`), so a UI change needs that image, and with the fast lane, the reused
   tool base and cached Rust its release is the short one.
