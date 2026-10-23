@@ -92,6 +92,16 @@ export async function verifyNativeDocumentsImage(image: Container): Promise<stri
     ], { useEntrypoint: false }).stdout();
 }
 
+/** The cockpit image installs its SPA into an empty folder and reports it in place. */
+export async function verifyCockpitImage(image: Container): Promise<string> {
+    return image.withEnvVariable('RESTLESS_COCKPIT_TARGET', '/tmp/cockpit').withExec(['/bin/sh', '-ec',
+      'timeout 20 /usr/local/bin/restless-cockpit-install || true; '
+      + 'test -s /tmp/cockpit/index.html; test -d /tmp/cockpit/_app/immutable; '
+      + '/usr/local/bin/restless-cockpit-install check; '
+      + 'echo "Cockpit image installs its SPA and reports it in place"',
+    ], { useEntrypoint: false }).stdout();
+}
+
 export async function verifyAccountPlaneImage(image: Container): Promise<string> {
     return image.withExec(['/bin/sh', '-ec',
       '/usr/local/bin/restlessd --help; /usr/local/bin/restless appliance --help; test -s /opt/restless/cockpit/index.html; '

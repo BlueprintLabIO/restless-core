@@ -2142,8 +2142,17 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             web.display()
         );
     }
+    // A plane deployed with the cockpit image beside it (S104) serves the copy that image keeps in
+    // a shared folder, chosen per request: a release that changes only the screens replaces those
+    // files and this process never restarts. Until that folder holds an index (an older deployment,
+    // a self-hosted appliance, the image not started yet) the cockpit built into this image serves.
+    let shared = std::env::var("RESTLESS_COCKPIT_SHARED_DIR")
+        .ok()
+        .filter(|dir| !dir.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/var/lib/restless/cockpit"));
     let static_files = Router::<()>::new()
-        .fallback_service(ServeDir::new(&web).fallback(ServeFile::new(web.join("index.html"))))
+        .fallback_service(cockpit_files(shared, web))
         .layer(middleware::from_fn(cockpit_cache_policy))
         // Scripts, styles and fonts are the cockpit's first-load cost; they
         // compress to about a third.
@@ -2263,6 +2272,41 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
 /// The shell and service worker must be fetched again after a cockpit release.
 /// Only fingerprinted assets are safe to keep across releases; old open tabs
 /// may still need their old fingerprinted files until they reload.
+/// The cockpit's files: the shared copy when it holds an index, else the built-in one. Each request
+/// decides, so the shared copy takes over the moment it is installed and a newer one the moment it
+/// replaces the index. A route that is not a file gets the index of the copy being served.
+fn cockpit_files(
+    shared: PathBuf,
+    built_in: PathBuf,
+) -> impl tower::Service<
+    Request,
+    Response = Response<Body>,
+    Error = std::convert::Infallible,
+    Future = impl Send,
+> + Clone
+       + Send
+       + Sync
+       + 'static {
+    tower::service_fn(move |request: Request| {
+        let root = if shared.join("index.html").is_file() {
+            shared.clone()
+        } else {
+            built_in.clone()
+        };
+        async move {
+            use tower::ServiceExt;
+            let response = ServeDir::new(&root)
+                .fallback(ServeFile::new(root.join("index.html")))
+                .oneshot(request)
+                .await;
+            Ok(match response {
+                Ok(response) => response.map(Body::new),
+                Err(error) => match error {},
+            })
+        }
+    })
+}
+
 async fn cockpit_cache_policy(request: Request, next: Next) -> Response<Body> {
     let fingerprinted_path = request.uri().path().starts_with("/_app/immutable/");
     // The account sections Cloud's Settings mounts (ADR 0008) keep one address across releases,
@@ -14130,5 +14174,59 @@ mod cache_policy_tests {
             cache_control("/_app/immutable/entry/app.js").await,
             "public, max-age=31536000, immutable"
         );
+    }
+}
+
+#[cfg(test)]
+mod cockpit_files_tests {
+    use super::cockpit_files;
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+
+    async fn get(
+        service: impl tower::Service<
+                Request<Body>,
+                Response = axum::response::Response,
+                Error = std::convert::Infallible,
+            > + Clone,
+        path: &str,
+    ) -> String {
+        let response = service
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_shared_cockpit_takes_over_per_request_once_it_has_an_index() {
+        let root = std::env::temp_dir().join(format!("cockpit-files-{}", uuid::Uuid::new_v4()));
+        let (shared, built_in) = (root.join("shared"), root.join("built-in"));
+        std::fs::create_dir_all(&built_in).unwrap();
+        std::fs::write(built_in.join("index.html"), "built-in").unwrap();
+        let service = cockpit_files(shared.clone(), built_in.clone());
+
+        // No shared copy yet (an older deployment): the built-in cockpit serves, routes included.
+        assert_eq!(get(service.clone(), "/").await, "built-in");
+        assert_eq!(get(service.clone(), "/company/people").await, "built-in");
+
+        // The cockpit image installs its copy: the next request serves it, without a restart.
+        std::fs::create_dir_all(shared.join("_app/immutable")).unwrap();
+        std::fs::write(shared.join("_app/immutable/app.js"), "shared asset").unwrap();
+        std::fs::write(shared.join("index.html"), "shared").unwrap();
+        assert_eq!(get(service.clone(), "/").await, "shared");
+        assert_eq!(get(service.clone(), "/company/people").await, "shared");
+        assert_eq!(
+            get(service.clone(), "/_app/immutable/app.js").await,
+            "shared asset"
+        );
+
+        // A newer release replaces the index; it serves at once.
+        std::fs::write(shared.join("index.html"), "newer").unwrap();
+        assert_eq!(get(service, "/").await, "newer");
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

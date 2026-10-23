@@ -24,8 +24,8 @@ export async function sealRelease(source: Directory, published: Directory, revis
   // Each attempt is its own Dagger operation, so a retry runs again instead of replaying a cached failure.
   // Re-signing an image that an interrupted attempt already signed only adds an equivalent signature.
   const attempt = (n: number) => cosign.withEnvVariable('RESTLESS_SEAL_ATTEMPT', String(n));
-  const components = ['runtime-tools', 'account-plane', 'company-runtime', 'native-documents-collaboration'];
-  // The four images are independent: sign, attest and verify them concurrently.
+  const components = ['runtime-tools', 'account-plane', 'company-runtime', 'native-documents-collaboration', 'cockpit'];
+  // The images are independent: sign, attest and verify them concurrently.
   await timed(timings, 'sign and attest images', () => Promise.all(components.map(async (component) => {
     const record = JSON.parse(await artifacts.file(`images/${component}.json`).contents());
     await timed(timings, `sign ${component}`, () => withRetry(`${component}: seal`, (n) => attempt(n)
