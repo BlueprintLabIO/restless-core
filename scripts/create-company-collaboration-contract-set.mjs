@@ -192,8 +192,11 @@ export async function readCoreReleaseTuple({
   accountPlaneImage,
   companyRuntimeImage,
   nativeDocumentsImage,
+  cockpitImage,
 }) {
   requireMatch(sourceRevision, SOURCE_REVISION, 'source revision');
+  // The cockpit as its own image (S104); a release before it has none.
+  if (cockpitImage !== undefined) requireMatch(cockpitImage, OCI_DIGEST, 'cockpit image');
   requireMatch(accountPlaneImage, OCI_DIGEST, 'account-plane image');
   requireMatch(companyRuntimeImage, OCI_DIGEST, 'company Runtime image');
   requireMatch(nativeDocumentsImage, OCI_DIGEST, 'native Documents image');
@@ -210,6 +213,7 @@ export async function readCoreReleaseTuple({
       account_plane: accountPlaneImage,
       company_runtime: companyRuntimeImage,
       native_documents: nativeDocumentsImage,
+      ...(cockpitImage !== undefined ? { cockpit: cockpitImage } : {}),
     }),
     contracts: Object.freeze({
       api: sourceNumber(release, /API_CONTRACT_VERSION:\s*u32\s*=\s*(\d+)/, 'API contract version'),
@@ -232,7 +236,8 @@ export async function createCompanyCollaborationContractSet({
   exactKeys(release, ['core_version', 'source_revision', 'images', 'contracts', 'deployment'], 'release');
   requireMatch(release.core_version, /^[A-Za-z0-9._+-]{1,64}$/, 'release.core_version');
   requireMatch(release.source_revision, SOURCE_REVISION, 'release.source_revision');
-  exactKeys(release.images, ['account_plane', 'company_runtime', 'native_documents'], 'release.images');
+  exactKeys(release.images, ['account_plane', 'company_runtime', 'native_documents', ...('cockpit' in release.images ? ['cockpit'] : [])], 'release.images');
+  if ('cockpit' in release.images) requireMatch(release.images.cockpit, OCI_DIGEST, 'release.images.cockpit');
   requireMatch(release.images.account_plane, OCI_DIGEST, 'release.images.account_plane');
   requireMatch(release.images.company_runtime, OCI_DIGEST, 'release.images.company_runtime');
   requireMatch(release.images.native_documents, OCI_DIGEST, 'release.images.native_documents');
@@ -249,6 +254,7 @@ export async function createCompanyCollaborationContractSet({
       account_plane: release.images.account_plane,
       company_runtime: release.images.company_runtime,
       native_documents: release.images.native_documents,
+      ...('cockpit' in release.images ? { cockpit: release.images.cockpit } : {}),
     },
     contracts: {
       api: release.contracts.api,

@@ -33,7 +33,7 @@ function digest(bytes) {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
-async function generatedFixture(t) {
+async function generatedFixture(t, extra = {}) {
   const outputRoot = await mkdtemp(join(tmpdir(), 'restless-core-contract-'));
   t.after(() => rm(outputRoot, { recursive: true, force: true }));
   const release = await readCoreReleaseTuple({
@@ -42,6 +42,7 @@ async function generatedFixture(t) {
     accountPlaneImage,
     companyRuntimeImage,
     nativeDocumentsImage,
+    ...extra,
   });
   const contractSet = await createCompanyCollaborationContractSet({
     sourceRoot: root,
@@ -50,6 +51,30 @@ async function generatedFixture(t) {
   });
   return { outputRoot, release, contractSet };
 }
+
+test('a release that ships its cockpit carries it through the contract set, manifest and bundle index', async (t) => {
+  const cockpitImage = `ghcr.io/blueprintlabio/restless-cockpit@sha256:${'e'.repeat(64)}`;
+  const fixture = await generatedFixture(t, { cockpitImage });
+  const contract = JSON.parse(await readFile(fixture.contractSet.manifestPath));
+  assert.deepEqual(Object.keys(contract.release.images), ['account_plane', 'company_runtime', 'native_documents', 'cockpit']);
+  assert.equal(contract.release.images.cockpit, cockpitImage);
+  const release = await createCoreReleaseManifest({ contractSetManifestPath: fixture.contractSet.manifestPath,
+    outputRoot: fixture.outputRoot, platforms: ['linux/amd64'] });
+  assert.equal(JSON.parse(await readFile(release.manifestPath)).images.cockpit, cockpitImage);
+  for (const name of ['release-manifest.sigstore.json', 'contract-set.sigstore.json']) {
+    await writeFile(join(fixture.outputRoot, name), '{"mediaType":"application/vnd.dev.sigstore.bundle+json;version=0.3"}\n');
+  }
+  const outputPath = join(fixture.outputRoot, 'core-release-bundle.json');
+  await createCoreReleaseBundle({ bundleRoot: fixture.outputRoot, releaseManifestPath: release.manifestPath,
+    contractSetPath: fixture.contractSet.manifestPath,
+    releaseSignaturePath: join(fixture.outputRoot, 'release-manifest.sigstore.json'),
+    contractSignaturePath: join(fixture.outputRoot, 'contract-set.sigstore.json'),
+    repository: 'BlueprintLabIO/restless-core',
+    workflowRef: 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/main', outputPath });
+  assert.deepEqual(JSON.parse(await readFile(outputPath)).images, fixture.release.images);
+  await assert.rejects(readCoreReleaseTuple({ sourceRoot: root, sourceRevision, accountPlaneImage, companyRuntimeImage,
+    nativeDocumentsImage, cockpitImage: 'ghcr.io/blueprintlabio/restless-cockpit:latest' }), /cockpit image/);
+});
 
 test('the Core contract set is canonical, immutable and release-complete', async (t) => {
   const fixture = await generatedFixture(t);
