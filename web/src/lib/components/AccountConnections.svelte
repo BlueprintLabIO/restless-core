@@ -27,7 +27,7 @@
 		type AccountConnection,
 		type CompanyUse
 	} from '$lib/model/account-connections';
-	import { accountGrantFix } from '$lib/model/company-start';
+	import { accountGrantFix, emptyAccessStep } from '$lib/model/company-start';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import Field from '$lib/ui/forms/Field.svelte';
@@ -961,7 +961,17 @@
 							{/each}
 						</div>
 					{:else if item && accountScope === 'account'}
-						<p class="no-uses">No company has access yet.</p>
+						{@const step = emptyAccessStep(item, companies, connections)}
+						{#if step}<p class="no-uses next-step">
+								{step.sentence}{#if step.action}<button
+										class="text-button"
+										disabled={busyCompany}
+										onclick={() =>
+											step.companyId ? beginGrant(item, step.companyId) : toggleManage(item)}
+										>{step.action}</button
+									>{/if}
+							</p>
+						{:else}<p class="no-uses">No company has access yet.</p>{/if}
 					{/if}
 				</article>
 			{/each}
@@ -1280,6 +1290,12 @@
 		margin: -4px 14px 14px 60px;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
+	}
+	.no-uses.next-step {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 4px 10px;
 	}
 	.access-row + .access-row {
 		border-top: 1px solid var(--border);
