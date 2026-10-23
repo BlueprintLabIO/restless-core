@@ -58,6 +58,7 @@
 	} from '$lib/model/queries.svelte';
 	import type { ThreadMessage } from '$lib/model/view';
 	import { markdownText } from '$lib/search/search';
+	import { useRefLine } from '$lib/model/owner-accounts';
 	import { execCommandsFor, runExecCommand } from '$lib/model/skills';
 	import { PIN, reactionsQuery, roomPinsQuery } from '$lib/model/reactions.svelte';
 	import { workDraftFrom, askExec } from '$lib/model/ask-exec';
@@ -434,6 +435,11 @@
 			markdownText(message.text),
 			message.from === 'agent' ? (message.intent?.summary ?? '') : '',
 			...message.attachments.map((attachment) => attachment.name),
+			// The account receipts under a message (AccountUseNote, compact): what it did, and how.
+			...(message.accountUses ?? []).flatMap((use) => [
+				[use.action, use.target ? `“${use.target}”` : ''].filter(Boolean).join(' '),
+				useRefLine(use)
+			]),
 			message.contextPath ?? '',
 			...(open ? [openQuestion, ...openReplies, ...openFields] : [])
 		].join('\n');
