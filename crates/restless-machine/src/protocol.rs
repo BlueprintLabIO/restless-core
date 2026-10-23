@@ -26,6 +26,17 @@ pub const STREAM_PLANE: &str = "plane";
 /// through its owner's computer (S99 step 2: marketplace work from a home IP). Plane → machine.
 /// Target: `<host>:<port>`, only a host the plane named in [`Control::Settings`], on 80 or 443.
 pub const STREAM_EGRESS: &str = "egress";
+/// A connection to an app the owner runs on this computer itself, such as a local MCP server that
+/// needs the computer's own files. Plane → machine. Target: the app's name, one the plane named in
+/// [`Control::Settings`]; the machine dials that app's port on its own host and nothing else.
+pub const STREAM_APP: &str = "app";
+
+/// An app the owner runs on their computer, which companies may reach through the machine's link.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MachineApp {
+    pub name: String,
+    pub port: u16,
+}
 
 /// What the machine is, sent when it pairs and on every heartbeat. The plane never trusts these for
 /// security; they are what the owner sees. Its address, region and network type are observed by
@@ -71,6 +82,9 @@ pub enum Control {
         /// The sites companies send through this machine; the machine opens nothing else.
         #[serde(default)]
         egress_hosts: Vec<String>,
+        /// The owner's own apps on this computer the plane may reach; the machine opens no others.
+        #[serde(default)]
+        apps: Vec<MachineApp>,
     },
     /// Plane → machine: the machine was removed. The helper forgets its credential and stops.
     Removed,

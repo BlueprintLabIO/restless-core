@@ -22,8 +22,8 @@ use base64::Engine as _;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use restless_machine::link::{Link, LinkStream};
 use restless_machine::protocol::{
-    AllowedImage, Control, MachineFacts, PairResponse, STREAM_CONNECT, STREAM_DOCKER,
-    STREAM_EGRESS, STREAM_IMAGE, STREAM_PLANE,
+    AllowedImage, Control, MachineApp, MachineFacts, PairResponse, STREAM_APP, STREAM_CONNECT,
+    STREAM_DOCKER, STREAM_EGRESS, STREAM_IMAGE, STREAM_PLANE,
 };
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
@@ -575,8 +575,122 @@ fn settings(
         allowed_images,
         plane_ports: plane_ports(),
         egress_hosts,
+        apps: apps_for(machine_id),
     })
     .unwrap()
+}
+
+/// Where the plane keeps the apps the owner added on each of their computers.
+fn apps_path() -> PathBuf {
+    crate::runtime::state_root()
+        .join("machines")
+        .join("apps.json")
+}
+
+fn all_apps() -> HashMap<String, Vec<MachineApp>> {
+    std::fs::read(apps_path())
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// The apps the owner added on machine `id` (S99 step 2): local services, such as an MCP server
+/// that needs that computer's own files, which companies reach through the machine's link.
+pub fn apps_for(id: &str) -> Vec<MachineApp> {
+    all_apps().remove(id).unwrap_or_default()
+}
+
+/// Replace the apps on machine `id`, and tell the machine at once.
+pub async fn set_apps(pool: &PgPool, id: &str, apps: Vec<MachineApp>) -> Result<()> {
+    for app in &apps {
+        anyhow::ensure!(
+            !app.name.is_empty()
+                && app.name.len() <= 40
+                && app
+                    .name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'),
+            "an app's name is 1-40 lowercase letters, digits or '-'"
+        );
+        anyhow::ensure!(app.port >= 1024, "an app listens on a port from 1024 up");
+    }
+    get(pool, id).await?.context("no such computer")?;
+    let mut every = all_apps();
+    if apps.is_empty() {
+        every.remove(id);
+    } else {
+        every.insert(id.to_string(), apps);
+    }
+    let path = apps_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let staged = path.with_extension("json.tmp");
+    std::fs::write(&staged, serde_json::to_vec_pretty(&every)?)?;
+    std::fs::rename(&staged, &path)?;
+    push_settings(pool, id).await;
+    Ok(())
+}
+
+/// A connection to the owner's app `name` on machine `id`.
+pub async fn connect_app(id: &str, name: &str) -> std::io::Result<LinkStream> {
+    let link = linked(id).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotConnected, "that computer is offline")
+    })?;
+    link.open(STREAM_APP, name).await
+}
+
+/// Local bridges to machine apps, by (machine, app): a port on the plane's loopback that carries
+/// each connection to the app through the machine's link.
+static APP_BRIDGES: LazyLock<Mutex<HashMap<(String, String), u16>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// `machine-app://<machine>/<app>/<path>` → `http://127.0.0.1:<bridge>/<path>`, so an ordinary
+/// remote MCP connection reaches an app on the owner's computer with no public address.
+pub async fn app_endpoint(endpoint: &str) -> Result<String> {
+    let rest = endpoint
+        .strip_prefix("machine-app://")
+        .context("not a machine app address")?;
+    let mut parts = rest.splitn(3, '/');
+    let machine = parts.next().unwrap_or_default().to_string();
+    let app = parts.next().unwrap_or_default().to_string();
+    let path = parts.next().unwrap_or_default().to_string();
+    anyhow::ensure!(
+        !machine.is_empty() && !app.is_empty(),
+        "a machine app address names a computer and an app"
+    );
+    let key = (machine.clone(), app.clone());
+    if let Some(port) = APP_BRIDGES.lock().unwrap().get(&key).copied() {
+        return Ok(format!("http://127.0.0.1:{port}/{path}"));
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
+    APP_BRIDGES.lock().unwrap().insert(key, port);
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut local, _)) = listener.accept().await else {
+                continue;
+            };
+            let (machine, app) = (machine.clone(), app.clone());
+            tokio::spawn(async move {
+                match connect_app(&machine, &app).await {
+                    Ok(mut remote) => {
+                        let _ = tokio::io::copy_bidirectional(&mut local, &mut remote).await;
+                    }
+                    Err(error) => {
+                        let body =
+                            format!("The computer holding this app is not reachable: {error}");
+                        let _ = tokio::io::AsyncWriteExt::write_all(
+                            &mut local,
+                            format!("HTTP/1.1 502 Bad Gateway\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes(),
+                        )
+                        .await;
+                    }
+                }
+            });
+        }
+    });
+    Ok(format!("http://127.0.0.1:{port}/{path}"))
 }
 
 /// The sites a machine carries: every home site of the companies it helps (S99 step 2).

@@ -263,6 +263,24 @@ pub fn validate_name(name: &str) -> Result<()> {
 }
 
 fn validate_endpoint(endpoint: &str) -> Result<()> {
+    // An app on the owner's own computer, reached through that computer's link (S99 step 2).
+    if let Some(rest) = endpoint.strip_prefix("machine-app://") {
+        let mut parts = rest.splitn(3, '/');
+        let (machine, app) = (
+            parts.next().unwrap_or_default(),
+            parts.next().unwrap_or_default(),
+        );
+        let plain = |part: &str| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        };
+        if !plain(machine) || !plain(app) {
+            bail!("a machine app address is machine-app://<computer>/<app>/<path>");
+        }
+        return Ok(());
+    }
     let url = url::Url::parse(endpoint).context("connection endpoint is not a URL")?;
     let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
     if !(url.scheme() == "https" || (url.scheme() == "http" && local))
@@ -2262,6 +2280,13 @@ async fn open_upstream_session(
                 .endpoint
                 .as_deref()
                 .context("remote connection has no endpoint")?;
+            let bridged;
+            let endpoint = if endpoint.starts_with("machine-app://") {
+                bridged = crate::machines::app_endpoint(endpoint).await?;
+                bridged.as_str()
+            } else {
+                endpoint
+            };
             let mut token_expires_at = None;
             let token = match &connection.auth {
                 ConnectionAuth::None => None,

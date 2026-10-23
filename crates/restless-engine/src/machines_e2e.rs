@@ -368,6 +368,45 @@ async fn a_paired_machine_runs_only_what_restless_may() {
         .unwrap();
     let _ = std::fs::remove_file(root.join("companies/home_sites_test.toml"));
 
+    // An app the owner runs on the computer itself is reached through the link, and only that app.
+    must(&format!(
+        "docker exec -d {DIND} sh -c 'while true; do printf \"HTTP/1.1 200 OK\\r\\nContent-Length: 7\\r\\nConnection: close\\r\\n\\r\\nfrom-pc\" | nc -l -p 18765; done'"
+    ));
+    machines::set_apps(
+        &pool,
+        &machine_id,
+        vec![restless_machine::protocol::MachineApp {
+            name: "e2e-app".into(),
+            port: 18765,
+        }],
+    )
+    .await
+    .expect("add the app");
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let bridge = machines::app_endpoint(&format!("machine-app://{machine_id}/e2e-app/mcp"))
+        .await
+        .expect("bridge");
+    assert!(
+        bridge.starts_with("http://127.0.0.1:") && bridge.ends_with("/mcp"),
+        "{bridge}"
+    );
+    let answer = reqwest::get(&bridge)
+        .await
+        .expect("reach the app")
+        .text()
+        .await
+        .unwrap();
+    assert_eq!(answer, "from-pc");
+    assert!(
+        machines::connect_app(&machine_id, "not-added")
+            .await
+            .is_err(),
+        "only added apps open"
+    );
+    machines::set_apps(&pool, &machine_id, Vec::new())
+        .await
+        .unwrap();
+
     // A company moves there and back with its files (US-347), and while it is there every Docker
     // call the plane makes for it goes to the machine.
     crate::machine_router::start(pool.clone())

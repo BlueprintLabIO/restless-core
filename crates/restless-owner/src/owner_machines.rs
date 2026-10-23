@@ -128,7 +128,13 @@ pub(super) async fn list(
         return refusal;
     }
     match machines::list(state.daemon.authority.pool()).await {
-        Ok(held) => Json(json!({ "machines": held })).into_response(),
+        Ok(held) => {
+            let apps: serde_json::Map<String, Value> = held
+                .iter()
+                .map(|machine| (machine.id.clone(), json!(machines::apps_for(&machine.id))))
+                .collect();
+            Json(json!({ "machines": held, "apps": apps })).into_response()
+        }
         Err(error) => refuse(error),
     }
 }
@@ -351,6 +357,30 @@ pub(super) async fn set_home_sites(
         }
     }
     Json(json!({ "home_sites": sites })).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AppsInput {
+    apps: Vec<restless_machine::protocol::MachineApp>,
+}
+
+/// The owner's own apps on one of their computers (S99 step 2): local services, such as an MCP
+/// server that needs that computer's files, which companies reach through the computer's link as
+/// `machine-app://<computer>/<app>/<path>`.
+pub(super) async fn set_apps(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(id): AxumPath<String>,
+    Json(input): Json<AppsInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    match machines::set_apps(state.daemon.authority.pool(), &id, input.apps).await {
+        Ok(()) => Json(json!({ "apps": machines::apps_for(&id) })).into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "machines", format!("{error:#}")),
+    }
 }
 
 /// Move the company's computer to another machine. Answers at once; the company view reports
