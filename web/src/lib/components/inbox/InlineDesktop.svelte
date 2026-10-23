@@ -96,7 +96,7 @@
 				: 'This step happens on the company computer, here in the card.'}
 >
 	{#if desktopUrl}
-		<div class="screen">
+		<div class="screen inline-computer">
 			<DesktopViewport
 				src={desktopUrl}
 				title="Company computer"
@@ -140,10 +140,14 @@
 </InlinePanel>
 
 <style>
+	/* As wide as the card and as tall as the window leaves room for, at most the computer's own
+	 * 1280 pixels: about three quarters of real size on a laptop instead of 40% (23 October). */
 	.screen {
 		position: relative;
 		aspect-ratio: 16 / 10;
+		width: min(100%, 1280px, calc((100dvh - 260px) * 1.6));
 		max-width: 100%;
+		margin-inline: auto;
 		min-height: 240px;
 		overflow: hidden;
 		border-radius: calc(var(--radius-control) - 2px);

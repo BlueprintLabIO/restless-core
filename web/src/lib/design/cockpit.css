@@ -537,6 +537,17 @@
 	gap: 0;
 }
 
+/* While a card shows the live company computer, the list folds away so the computer gets the
+ * width (23 October); it returns when the computer closes or another item opens. */
+.bridge-root .attention-screen:has(.attention-focus .inline-computer) {
+	grid-template-columns: minmax(0, 0) minmax(0, 1fr);
+	gap: 0;
+}
+.bridge-root .attention-screen:has(.attention-focus .inline-computer) .attention-index {
+	visibility: hidden;
+	pointer-events: none;
+}
+
 .bridge-root .attention-index,
 .bridge-root .attention-focus {
 	overflow: hidden;

@@ -1508,6 +1508,10 @@
 		gap: 12px;
 		max-width: 760px;
 	}
+	/* A live company computer is the step itself: it takes the card's full width. */
+	.message:has(:global(.inline-computer)) {
+		max-width: none;
+	}
 	.avatar {
 		display: grid;
 		place-items: center;
