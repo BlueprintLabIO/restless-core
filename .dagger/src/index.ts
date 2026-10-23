@@ -2,7 +2,7 @@
 import { availableParallelism } from 'node:os';
 import { dag, Container, Directory, Platform, Secret, argument, object, func } from '@dagger.io/dagger';
 
-import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage } from './verify.js';
+import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage, verifyCockpitImage } from './verify.js';
 import { assertScanPeriod, hasInputImage, publishImage, node, timed, timingsFile, verifyBuildInputs, verifyImageInspection, type Timing } from './publish.js';
 import { sealRelease } from './release.js';
 import { library, publishLibrary, reuseLibrary, sealLibrary } from './libraries.js';
@@ -413,6 +413,11 @@ export class RestlessCore {
       () => publishImage('account-plane', revision, platform, source.filter({ include: [...ACCOUNT_INPUTS, 'web/**'], exclude: EXCLUDES }),
         async () => this.accountPlane(source, revision, platform, binaries), async image => { console.log(await verifyAccountPlaneImage(image)); },
         username, password, scanPeriod),
+      // The cockpit on its own (S104): published and signed beside the plane, so a deployment can
+      // install new screens without restarting it. Not in the release bundle until Cloud admits it.
+      () => publishImage('cockpit', revision, platform, source.filter({ include: ['web/**', 'infra/cockpit/**'], exclude: EXCLUDES }),
+        async () => this.cockpitImage(source, revision, platform), async image => { console.log(await verifyCockpitImage(image)); },
+        username, password, scanPeriod),
       () => publishImage('native-documents-collaboration', revision, platform, nativeContext,
         async () => this.nativeDocuments(source, revision, platform), async image => { console.log(await verifyNativeDocumentsImage(image)); },
         username, password, scanPeriod),
@@ -504,6 +509,30 @@ export class RestlessCore {
     source: Directory, revision: string, platform: string = 'linux/amd64',
   ): Promise<string> {
     return verifyNativeDocumentsImage(this.nativeDocuments(source, revision, platform));
+  }
+
+  /** The owner cockpit alone, with the script that installs it where the plane serves it (S104). */
+  @func()
+  cockpitImage(
+    @argument({ ignore: ['**', '!web/**', '!infra/cockpit/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, platform: string = 'linux/amd64',
+  ): Container {
+    checkPlatform(platform);
+    if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('cockpit image requires exact source provenance');
+    return dag.directory().withDirectory('infra/cockpit', source.directory('infra/cockpit'))
+      .withDirectory('web/build', this.cockpit(source))
+      .dockerBuild({ dockerfile: 'infra/cockpit/Dockerfile', platform })
+      .withLabel('org.opencontainers.image.revision', revision)
+      .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
+  }
+
+  /** Install the cockpit image into an empty folder and confirm it reports itself in place. */
+  @func()
+  async verifyCockpit(
+    @argument({ ignore: ['**', '!web/**', '!infra/cockpit/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, platform: string = 'linux/amd64',
+  ): Promise<string> {
+    return verifyCockpitImage(this.cockpitImage(source, revision, platform));
   }
 
   /** Build the existing canonical account image with the shared cockpit output. */
