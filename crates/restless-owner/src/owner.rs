@@ -1413,6 +1413,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             axum::routing::patch(machines_api::change).delete(machines_api::remove),
         )
         .route(
+            "/machines/{id}/apps",
+            axum::routing::put(machines_api::set_apps),
+        )
+        .route(
             "/companies/{company}/machines",
             get(machines_api::company).post(machines_api::assign_helper),
         )

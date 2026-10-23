@@ -19,8 +19,9 @@ use crate::docker_filter::Scope;
 use crate::docker_proxy::DockerProxy;
 use crate::link::{Incoming, Link, Side};
 use crate::protocol::{
-    Control, MachineFacts, PairRequest, PairResponse, HEARTBEAT_SECONDS, LINK_PATH, MACHINE_LABEL,
-    MACHINE_NETWORK, PAIR_PATH, STREAM_CONNECT, STREAM_DOCKER, STREAM_EGRESS, STREAM_PLANE,
+    Control, MachineApp, MachineFacts, PairRequest, PairResponse, HEARTBEAT_SECONDS, LINK_PATH,
+    MACHINE_LABEL, MACHINE_NETWORK, PAIR_PATH, STREAM_APP, STREAM_CONNECT, STREAM_DOCKER,
+    STREAM_EGRESS, STREAM_PLANE,
 };
 
 /// What a paired machine keeps, readable only by root inside the helper's volume.
@@ -246,9 +247,55 @@ async fn connect_egress(target: &str, hosts: &[String]) -> Result<TcpStream> {
     Ok(TcpStream::connect(address).await?)
 }
 
-fn answer(incoming: Incoming, proxy: Arc<DockerProxy>, egress: Arc<RwLock<Vec<String>>>) {
+/// The computer itself, as seen from the helper's container: `host.docker.internal` where Docker
+/// provides it, else the container's default gateway.
+fn host_address() -> Option<std::net::IpAddr> {
+    if let Ok(mut found) = std::net::ToSocketAddrs::to_socket_addrs(&("host.docker.internal", 0)) {
+        if let Some(address) = found.next() {
+            return Some(address.ip());
+        }
+    }
+    let routes = std::fs::read_to_string("/proc/net/route").ok()?;
+    routes.lines().skip(1).find_map(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.get(1) != Some(&"00000000") {
+            return None;
+        }
+        let gateway = u32::from_str_radix(fields.get(2)?, 16).ok()?;
+        Some(std::net::IpAddr::V4(std::net::Ipv4Addr::from(
+            gateway.to_le_bytes(),
+        )))
+    })
+}
+
+/// Connect to one of the owner's apps on this computer, by the name the plane gave it.
+async fn connect_app(name: &str, apps: &[MachineApp]) -> Result<TcpStream> {
+    let app = apps
+        .iter()
+        .find(|app| app.name == name)
+        .context("not an app the owner added on this computer")?;
+    let host = host_address().context("cannot find this computer from the helper")?;
+    Ok(TcpStream::connect((host, app.port)).await?)
+}
+
+fn answer(
+    incoming: Incoming,
+    proxy: Arc<DockerProxy>,
+    egress: Arc<RwLock<Vec<String>>>,
+    apps: Arc<RwLock<Vec<MachineApp>>>,
+) {
     tokio::spawn(async move {
         match incoming.kind.as_str() {
+            STREAM_APP => {
+                let known = apps.read().unwrap().clone();
+                match connect_app(&incoming.target, &known).await {
+                    Ok(mut tcp) => {
+                        let mut stream = incoming.accept();
+                        let _ = tokio::io::copy_bidirectional(&mut stream, &mut tcp).await;
+                    }
+                    Err(error) => incoming.refuse(&format!("{error:#}")),
+                }
+            }
             STREAM_EGRESS => {
                 let hosts = egress.read().unwrap().clone();
                 match connect_egress(&incoming.target, &hosts).await {
@@ -385,13 +432,19 @@ pub async fn link_once(paired: &Paired, socket: &Path, state_path: &Path) -> Res
     };
     let mut listeners = HashMap::new();
     let egress: Arc<RwLock<Vec<String>>> = Arc::default();
+    let apps: Arc<RwLock<Vec<MachineApp>>> = Arc::default();
     let mut ended = Ended::Dropped;
     while let Some(message) = source.next().await {
         let Ok(message) = message else { break };
         match message {
             Message::Binary(frame) => {
                 if let Some(incoming) = link.receive(&frame) {
-                    answer(incoming, Arc::clone(&proxy), Arc::clone(&egress));
+                    answer(
+                        incoming,
+                        Arc::clone(&proxy),
+                        Arc::clone(&egress),
+                        Arc::clone(&apps),
+                    );
                 }
             }
             Message::Text(text) => match serde_json::from_str::<Control>(&text) {
@@ -400,8 +453,10 @@ pub async fn link_once(paired: &Paired, socket: &Path, state_path: &Path) -> Res
                     allowed_images,
                     plane_ports,
                     egress_hosts,
+                    apps: owned,
                 }) => {
                     *egress.write().unwrap() = egress_hosts;
+                    *apps.write().unwrap() = owned;
                     let helper_address = match join_machine_network(&proxy, &machine_id).await {
                         Ok(address) => Some(address),
                         Err(error) => {
