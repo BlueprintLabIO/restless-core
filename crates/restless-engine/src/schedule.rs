@@ -880,6 +880,11 @@ async fn recover_interrupted_exec_wake(
     true
 }
 
+/// A wake raised only because a message arrived, as opposed to a schedule, mention or recovery.
+fn is_message_wake(reason: &str) -> bool {
+    reason == OWNER_MESSAGE_REASON || reason.starts_with("message from ")
+}
+
 fn exec_wake_is_interrupted(latest_wake_id: Option<i64>, latest_wake_end_id: Option<i64>) -> bool {
     latest_wake_id.is_some_and(|wake| latest_wake_end_id.is_none_or(|end| wake > end))
 }
@@ -1176,6 +1181,29 @@ async fn run_exec_turn_with_lease(
     } else {
         None
     };
+    // A message wakes the Exec twice (the send and its notification), and when the turn starts on
+    // the first the second is queued behind it. By then the turn has answered the message, or the
+    // owner stopped it, so a message wake that finds nothing to read ends here, before the model.
+    if is_message_wake(&reason)
+        && message_ids.is_empty()
+        && owed_judgements.is_empty()
+        && pending_mention.is_none()
+        && claimed_opportunities.is_empty()
+    {
+        tracing::debug!(company = %config.name, %reason, "message wake found nothing unread");
+        return Ok(exec::WakeReport {
+            company: config.name.clone(),
+            model: String::new(),
+            failovers: Vec::new(),
+            termination: exec::Termination::Continue,
+            reason: "nothing unread".into(),
+            retry_after_seconds: None,
+            tool_calls: Vec::new(),
+            said: String::new(),
+            owner_reply: None,
+            reply_complete: false,
+        });
+    }
     let mention_context = pending_mention
         .as_ref()
         .map(crate::mentions::MentionClaim::context);
@@ -1542,7 +1570,10 @@ async fn fire_pending(daemon: &Arc<Daemon>, in_flight: &InFlight) {
 
 #[cfg(test)]
 mod tests {
-    use super::{actor_exclusions, exec_wake_is_interrupted, is_exec_self_message, WakeClaims};
+    use super::{
+        actor_exclusions, exec_wake_is_interrupted, is_exec_self_message, is_message_wake,
+        WakeClaims,
+    };
 
     #[test]
     fn proactive_reply_or_explicit_quiet_is_required() {
@@ -1614,6 +1645,17 @@ mod tests {
         assert!(claims.interrupt("probe"));
         assert!(cancellation.is_cancelled());
         assert!(!claims.interrupt("other-company"));
+    }
+
+    #[test]
+    fn only_a_message_hint_is_a_message_wake() {
+        assert!(is_message_wake("new owner message"));
+        assert!(is_message_wake("message from owner"));
+        assert!(is_message_wake("message from delivery-build"));
+        assert!(!is_message_wake(
+            "a focused collaboration mention is owed to the Exec"
+        ));
+        assert!(!is_message_wake("scheduled opportunity due"));
     }
 
     #[test]
