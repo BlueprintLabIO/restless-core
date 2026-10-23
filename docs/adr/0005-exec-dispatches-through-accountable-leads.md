@@ -4,6 +4,13 @@
 
 ## Decision
 
+Superseded in part (19 and 23 October 2026). The lead no longer avoids production: it produces
+tightly coupled or single-piece work itself, through Work it owns (19 October), and runs work that
+splits into independently proceeding pieces in parallel Staff by default (23 October: "fast and
+parallel when possible", not "always delegate"), at most four Work Attempts at once per company. The
+non-producing posture and "every executable outcome has at least one Staff worker" below are
+historical. Exec still dispatches every executable owner request to one accountable lead.
+
 Owner-directed refinement (22 September 2026): bounded edits to an existing shared native document
 are direct collaboration. Exec may apply and verify them in the current conversation under existing
 document access, without a new Work/delegation chain. The dispatch rule below continues to govern

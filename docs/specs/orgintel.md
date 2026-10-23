@@ -202,11 +202,10 @@ producer or integrator when no lead already exists. The lead owns decomposition,
 supervision, exact artifact promotion, native review preparation and completion judgement. It does no
 planned production or content-changing integration.
 
-The lead first understands the outcome, then chooses the smallest effective worker set, beginning with
-one end-to-end worker. Additional Staff are useful only when a stable ownership seam offers quality,
-independent evidence, specialisation or locally closing parallel value that can repay communication,
-integration and review cost. Work records the factual responsibility boundary; it does not decide the
-topology or encode the lead's thinking process.
+The lead first understands the outcome. It produces tightly coupled or single-piece work itself;
+work that splits into independently proceeding pieces runs in parallel Staff by default (owner,
+2026-10-23: "fast and parallel when possible", not "always delegate"). Work records the factual
+responsibility boundary; it does not decide the topology or encode the lead's thinking process.
 
 After dispatch the Exec quiesces rather than waiting, polling or joining production. It wakes for a
 new owner request or a material callback requiring portfolio prioritisation, cross-department
@@ -817,11 +816,12 @@ remain the default for code, datasets, designed publications and other productiv
 
 **Core contract**
 
-The accountable lead owns the complete outcome and produces it directly by default, through Work it
-owns (owner decision, 2026-10-19). It first forms a causal understanding. It adds another actor only for a stable,
-independently useful responsibility whose expected quality, evidence, specialisation or parallel value
-can repay communication, integration and review cost, or for independently valuable units in a real
-throughput queue. When workers contribute, the lead reserves attention for supervision, guidance,
+The accountable lead owns the complete outcome. It first forms a causal understanding. Tightly
+coupled or single-piece work it produces directly, through Work it owns (owner decision, 2026-10-19).
+Work that splits into independently proceeding pieces runs in parallel Staff by default (owner,
+2026-10-23): time to a good result outweighs the tokens one actor saves by doing every piece in turn,
+which in practice left Staff idle while the lead worked. Up to four Work Attempts run at once per
+company (`PARALLEL_WORK_PER_COMPANY`), since they share the company's model capacity. When workers contribute, the lead reserves attention for supervision, guidance,
 redirection, worker-mediated repair and final judgement. For one shared result, it inspects and promotes one exact worker artifact.
 For repeated units that close locally without a central model rewrite, it owns the charter,
 calibration, aggregate result, quality sampling and exceptions rather than recreating every accepted
@@ -1276,8 +1276,7 @@ V0 demonstrates that:
 - the owner gives an ambiguous goal;
 - the Exec frames the company-level intent, chooses an accountable lead and returns to availability;
 - the lead chooses one main approach and at most a bounded alternative;
-- the lead commissions at least one end-to-end Staff worker and adds further workers only when a
-  stable ownership seam can repay coordination cost;
+- the lead produces coupled work itself and runs independent pieces in parallel Staff;
 - workers perform real Linux work and produce inspectable artifacts;
 - a worker blocks or fails;
 - OrgIntel preserves work and applies a local repair;
@@ -1330,8 +1329,8 @@ For every proposed feature:
 - The Exec is the primary persistent organisational actor.
 - The Exec delegates every executable owner request to one accountable team lead and returns to
   availability; it does not own production or integration work.
-- A team lead produces its outcome directly by default; Staff are added only when quality, evidence,
-  specialisation or parallel value from a stable ownership seam can repay coordination cost.
+- A team lead produces tightly coupled or single-piece work directly; work that splits into
+  independent pieces runs in parallel Staff by default (2026-10-23).
 - Actor identity persists independently of model sessions and runtime replacement.
 - A thin runtime bridge connects OrgIntel to ACP processes; ACP over local stdio is the initial agent transport.
 - Productive work uses normal Linux files, Git, browsers, and applications.

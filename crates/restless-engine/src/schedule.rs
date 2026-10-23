@@ -727,7 +727,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         }
     }
 
-    while daemon.staff.has_capacity(company) {
+    while daemon.staff.has_capacity(company) && daemon.staff.has_work_capacity(company) {
         // Conversation turns and Work Attempts share one supervised actor.
         // Exclude the registry snapshot before the database claim so a busy
         // actor's ready node stays untouched rather than being claimed and
