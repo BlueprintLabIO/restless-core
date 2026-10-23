@@ -5,6 +5,7 @@
 	import { composing } from '$lib/primitives/composer-keys';
 	import { tick } from 'svelte';
 	import { composerTrigger } from '$lib/primitives/composer-menu';
+	import { matches } from '$lib/search/search';
 
 	interface Person {
 		actor_id: string;
@@ -51,12 +52,7 @@
 		const needle = query.query.toLowerCase();
 		return people
 			.filter((person) => person.kind !== 'system')
-			.filter(
-				(person) =>
-					!needle ||
-					person.display.toLowerCase().includes(needle) ||
-					person.actor_id.toLowerCase().includes(needle)
-			)
+			.filter((person) => matches(needle, [person.display, person.actor_id]))
 			.toSorted(
 				(left, right) =>
 					Number(!left.display.toLowerCase().startsWith(needle)) -

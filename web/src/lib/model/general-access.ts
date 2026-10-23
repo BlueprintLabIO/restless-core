@@ -1,3 +1,5 @@
+import { rank } from '../search/search.ts';
+
 /* Sharing a document or a sheet reads the same in both: one general access for the company's
  * people, then the people added by name. Exec and Staff never see anything through general
  * access; they are added like anyone else. */
@@ -15,7 +17,6 @@ export const GENERAL_ACCESS_OPTIONS: ReadonlyArray<{ value: GeneralAccess; label
 	{ value: 'edit', label: 'Company can edit' }
 ];
 
-
 export interface ShareCandidate {
 	actor_id: string;
 	display: string;
@@ -32,15 +33,6 @@ export function matchPeople<T extends ShareCandidate>(
 ): T[] {
 	const needle = query.trim().toLowerCase();
 	if (!needle) return [];
-	const open = people.filter(
-		(person) => person.kind !== 'system' && !exclude.has(person.actor_id)
-	);
-	const starts = open.filter((person) => person.display.toLowerCase().startsWith(needle));
-	const contains = open.filter(
-		(person) =>
-			!starts.includes(person) &&
-			(person.display.toLowerCase().includes(needle) ||
-				person.actor_id.toLowerCase().includes(needle))
-	);
-	return [...starts, ...contains].slice(0, limit);
+	const open = people.filter((person) => person.kind !== 'system' && !exclude.has(person.actor_id));
+	return rank(open, needle, (person) => [person.display, person.actor_id]).slice(0, limit);
 }

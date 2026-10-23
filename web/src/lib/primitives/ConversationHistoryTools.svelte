@@ -1,23 +1,41 @@
 <script lang="ts">
 	import { composing } from '$lib/primitives/composer-keys';
-	import { tick } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import { anchoredPopover } from '$lib/ui/controls/anchored-popover';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronUp from '@lucide/svelte/icons/chevron-up';
 	import Search from '@lucide/svelte/icons/search';
 	import X from '@lucide/svelte/icons/x';
 	import type { ThreadMessage } from '$lib/model/view';
+	import {
+		clearMatches,
+		findRanges,
+		markdownText,
+		occurrences,
+		paintMatches
+	} from '$lib/search/search';
 
 	let {
 		messages,
 		participantName,
 		onjump,
 		more = false,
-		onsearchall = null
+		onsearchall = null,
+		textOf = (message) =>
+			[message.author, markdownText(message.text), message.contextPath ?? ''].join('\n'),
+		elementsOf = () => [],
+		scope = () => null
 	}: {
 		messages: ThreadMessage[];
 		participantName: string;
-		onjump: (messageId: string) => void;
+		/** Brings the message into view (paging back to it if need be). */
+		onjump: (messageId: string) => void | Promise<void>;
+		/** Everything shown for a message, as plain text: its words, its question, its answers. */
+		textOf?: (message: ThreadMessage) => string;
+		/** The elements that show a message, where its matches are pointed at. */
+		elementsOf?: (messageId: string) => (Element | null | undefined)[];
+		/** The scrolling conversation, where every shown match is painted. */
+		scope?: () => Element | null | undefined;
 		/** Earlier messages exist beyond the loaded ones. */
 		more?: boolean;
 		/** Searches the whole conversation on the server; hits not loaded here are listed. */
@@ -71,16 +89,31 @@
 	let activeMatch = $state(-1);
 	let searchInput = $state<HTMLInputElement | undefined>();
 	const normalizedQuery = $derived(query.trim().toLocaleLowerCase());
+	/* One match per place the words appear, not per message (owner, 23 Oct: "relief gu" said
+	 * "1 matches" with four on screen), across everything a message shows. */
 	const matches = $derived(
 		normalizedQuery
-			? messages.filter((message) =>
-					[message.author, message.text, message.contextPath ?? '']
-						.join('\n')
-						.toLocaleLowerCase()
-						.includes(normalizedQuery)
+			? messages.flatMap((message) =>
+					occurrences(textOf(message), query).map((_, nth) => ({ id: message.id, nth }))
 				)
 			: []
 	);
+	/* The match in hand stays marked while the conversation repaints around it. */
+	let current: Range | null = null;
+	function paint() {
+		if (!open || !normalizedQuery) {
+			clearMatches();
+			return;
+		}
+		paintMatches(findRanges([scope()], query), current?.collapsed ? null : current);
+	}
+	$effect(() => {
+		void messages;
+		void matches;
+		const frame = requestAnimationFrame(paint);
+		return () => cancelAnimationFrame(frame);
+	});
+	onDestroy(clearMatches);
 
 	async function toggle() {
 		open = !open;
@@ -92,9 +125,10 @@
 	function setQuery(value: string) {
 		query = value;
 		activeMatch = -1;
+		current = null;
 	}
 
-	function jump(direction: -1 | 1) {
+	async function jump(direction: -1 | 1) {
 		if (!matches.length) return;
 		activeMatch =
 			activeMatch < 0
@@ -102,7 +136,15 @@
 					? matches.length - 1
 					: 0
 				: (activeMatch + direction + matches.length) % matches.length;
-		onjump(matches[activeMatch].id);
+		const hit = matches[activeMatch];
+		await onjump(hit.id);
+		await tick();
+		const shown = findRanges(elementsOf(hit.id), query);
+		current = shown[hit.nth] ?? shown[0] ?? null;
+		// A later match in a long message may be outside the part the jump brought into view.
+		if (current && hit.nth > 0)
+			current.startContainer.parentElement?.scrollIntoView({ block: 'center' });
+		paint();
 	}
 
 	function onSearchKeydown(event: KeyboardEvent) {
@@ -183,7 +225,7 @@
 					{#if normalizedQuery}
 						{matches.length
 							? activeMatch < 0
-								? `${matches.length} matches`
+								? `${matches.length} ${matches.length === 1 ? 'match' : 'matches'}`
 								: `${activeMatch + 1} of ${matches.length}`
 							: 'No matches'}
 					{:else}

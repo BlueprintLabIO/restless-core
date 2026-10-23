@@ -44,6 +44,7 @@
 		type DocumentSuggestion,
 		type SlashMenuState
 	} from '$lib/model/document-editor-schema';
+	import { keep, matches } from '$lib/search/search';
 
 	interface Props {
 		editor: Editor | null;
@@ -183,15 +184,7 @@
 	/* "/h" finds Heading 1-3; "/todo" or "/check" finds To-do list. */
 	const slashItems = $derived.by(() => {
 		const query = (slash?.query ?? '').trim().toLowerCase();
-		if (!query) return INSERTS;
-		return INSERTS.filter(
-			(item) =>
-				item.label.toLowerCase().includes(query) ||
-				`${item.label} ${item.words}`
-					.toLowerCase()
-					.split(/[\s-]+/u)
-					.some((word) => word.startsWith(query))
-		);
+		return keep(INSERTS, query, (item) => [item.label, item.words]);
 	});
 
 	$effect(() => {
@@ -276,7 +269,7 @@
 	const mentionItems = $derived.by(() => {
 		const query = (mention?.query ?? '').trim().toLowerCase();
 		return suggestions
-			.filter((item) => !query || item.label.toLowerCase().includes(query))
+			.filter((item) => matches(query, [item.label]))
 			.toSorted(
 				(left, right) =>
 					Number(!left.label.toLowerCase().startsWith(query)) -

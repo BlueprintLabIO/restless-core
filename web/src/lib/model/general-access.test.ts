@@ -20,8 +20,8 @@ test('adding by name finds people and agents, never the system or anyone already
 	assert.deepEqual(matchPeople(people, '', new Set()), []);
 	assert.deepEqual(
 		matchPeople(people, 'ex', new Set()).map((person) => person.actor_id),
-		['exec', 'alex', 'blair'],
-		'a name that starts with the query comes first'
+		['exec', 'blair'],
+		'names match where a word starts (lib/search), so "ex" is not inside "Alex"'
 	);
 	assert.deepEqual(
 		matchPeople(people, 'the', new Set()).map((person) => person.actor_id),

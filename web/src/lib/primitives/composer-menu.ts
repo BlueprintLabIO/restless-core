@@ -4,6 +4,7 @@
  * Goals) and `@` (people) open at any word boundary. */
 
 import type { ComposerOption } from '$lib/model/skills';
+import { matches } from '../search/search.ts';
 
 export type ComposerTriggerChar = '/' | '$' | '#' | '@';
 export type ComposerTrigger = {
@@ -46,13 +47,7 @@ export function filterComposerOptions(
 		options
 			.filter((option) => kinds[trigger].includes(option.kind))
 			.filter((option) => !(option.kind === 'skill' && selected.includes(option.name)))
-			.filter(
-				(option) =>
-					!query ||
-					option.name.includes(query) ||
-					option.label.toLowerCase().includes(query) ||
-					option.description.toLowerCase().includes(query)
-			)
+			.filter((option) => matches(query, [option.name, option.label, option.description]))
 			.sort((left, right) => {
 				const rank = (option: ComposerOption) =>
 					(option.name.startsWith(query) ? 0 : 2) + (option.kind === 'command' ? 0 : 1);

@@ -1,6 +1,8 @@
+import { matches } from '../search/search.ts';
+
 /* What an empty Work view says. "Needs you", "In progress", "Archived" and "No goal" are
  * filters, not goals, so each says what it found nothing of. A search or filter that found nothing
- * says that, never that the company has no work. Dependency-free for node's tests. */
+ * says that, never that the company has no work. Runs under node's own tests. */
 export function emptyWorkTitle(view: string, search = '', filtered = false): string {
 	const query = search.trim();
 	if (query) return `No work matches “${query}”`;
@@ -23,11 +25,10 @@ export function emptyWorkTitle(view: string, search = '', filtered = false): str
 	}
 }
 
-/* What a search finds: any of the words the owner sees on a row (title, brief, owner, goal and
- * output names), case-folded. */
+/* What a search finds: the words the owner sees on a row (title, brief, owner, goal and output
+ * names), matched as every search in the app matches (lib/search). */
 export function matchesSearch(query: string, fields: readonly (string | null | undefined)[]) {
-	const needle = query.trim().toLocaleLowerCase();
-	return !needle || fields.some((field) => field?.toLocaleLowerCase().includes(needle));
+	return matches(query, fields);
 }
 
 /** Ready for an explicit archive choice: every task is complete, with at least one task.

@@ -43,6 +43,7 @@
 	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import CompanyMark from '$lib/ui/glyph/CompanyMark.svelte';
+	import { keep } from '$lib/search/search';
 
 	let {
 		companyId,
@@ -196,10 +197,7 @@
 	});
 	let switcherQuery = $state('');
 	const switchable = $derived.by(() => {
-		const q = switcherQuery.trim().toLocaleLowerCase();
-		return q
-			? switcherEntries.filter((company) => company.name.toLocaleLowerCase().includes(q))
-			: switcherEntries;
+		return keep(switcherEntries, switcherQuery, (company) => company.name);
 	});
 	/* The bar names the company; an uploaded logo sits beside the name, a generated mark does not. */
 	const currentLogo = $derived(
