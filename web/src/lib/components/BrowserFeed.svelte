@@ -30,6 +30,36 @@
 	let claiming = false;
 	let lastMove = 0;
 
+	/* The company browser lays its page out at this viewer's size, so the feed fills it pixel for
+	 * pixel (owner, 23 Oct). Sent on connect and whenever the viewer is resized; the server bounds
+	 * it, and the browser returns to its own size when the feed closes. */
+	let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+	function sendViewport() {
+		if (!surface || socket?.readyState !== WebSocket.OPEN) return;
+		const box = surface.getBoundingClientRect();
+		socket.send(
+			JSON.stringify({
+				type: 'viewport',
+				width: Math.round(box.width),
+				height: Math.round(box.height),
+				scale: Math.min(2, window.devicePixelRatio || 1)
+			})
+		);
+	}
+	$effect(() => {
+		const element = surface;
+		if (!element) return;
+		const observer = new ResizeObserver(() => {
+			clearTimeout(resizeTimer);
+			resizeTimer = setTimeout(sendViewport, 150);
+		});
+		observer.observe(element);
+		return () => {
+			observer.disconnect();
+			clearTimeout(resizeTimer);
+		};
+	});
+
 	function connect() {
 		if (closed || !clientId) return;
 		const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -38,6 +68,7 @@
 		next.binaryType = 'blob';
 		socket = next;
 		status = 'connecting';
+		next.onopen = () => sendViewport();
 		next.onmessage = (event) => {
 			if (typeof event.data === 'string') {
 				const note = JSON.parse(event.data) as {

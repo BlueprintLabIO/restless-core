@@ -108,6 +108,17 @@ async fn browser_socket(company: &str) -> Result<String> {
     Ok(url::Url::parse(url)?.path().to_string())
 }
 
+/// The viewer's size, in CSS pixels, and its device pixel ratio.
+#[derive(Deserialize)]
+struct FeedViewport {
+    #[serde(rename = "type")]
+    kind: String,
+    width: f64,
+    height: f64,
+    #[serde(default)]
+    scale: f64,
+}
+
 /// One input event from the viewer, in the page's own CSS pixels.
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -140,6 +151,27 @@ enum FeedInput {
         #[serde(default)]
         modifiers: u32,
     },
+}
+
+/// The page laid out at the viewer's own size (owner, 23 Oct: "make the browser render at the
+/// available dimensions"), so the feed fills the viewer pixel for pixel instead of being scaled.
+/// The override belongs to this feed's DevTools session: Chrome drops it when the feed closes, and
+/// the browser returns to its own size for the agents. Bounded to sizes a page can sensibly use.
+fn viewport_command(width: f64, height: f64, scale: f64) -> Option<serde_json::Value> {
+    if !(width.is_finite() && height.is_finite()) || width < 200.0 || height < 150.0 {
+        return None;
+    }
+    let scale = if scale.is_finite() {
+        scale.clamp(1.0, 2.0)
+    } else {
+        1.0
+    };
+    Some(serde_json::json!({
+        "width": width.min(2560.0).round(),
+        "height": height.min(1600.0).round(),
+        "deviceScaleFactor": scale,
+        "mobile": false,
+    }))
 }
 
 /// The DevTools command one viewer event becomes. `None` refuses anything malformed.
@@ -222,6 +254,7 @@ async fn stream(
     let mut controls = false;
     let mut checked = std::time::Instant::now();
     let mut size = (0f64, 0f64);
+    let mut viewport: Option<serde_json::Value> = None;
     let mut follow = tokio::time::interval(FOLLOW_INTERVAL);
     let lease_ended = async {
         match &session_lease {
@@ -267,9 +300,16 @@ async fn stream(
                 if value["id"].as_u64() == Some(attach_id) {
                     let Some(attached) = value["result"]["sessionId"].as_str() else { continue };
                     session = Some(attached.to_string());
+                    // A newly followed tab takes the viewer's size too, before its first frame.
+                    if let Some(metrics) = &viewport {
+                        let resize = serde_json::json!({ "id": next_id, "sessionId": attached,
+                            "method": "Emulation.setDeviceMetricsOverride", "params": metrics });
+                        next_id += 1;
+                        to_chrome.send(CdpMessage::Text(resize.to_string().into())).await?;
+                    }
                     let start = serde_json::json!({ "id": next_id, "sessionId": attached,
                         "method": "Page.startScreencast",
-                        "params": { "format": "jpeg", "quality": 70, "maxWidth": 1920, "maxHeight": 1200 } });
+                        "params": { "format": "jpeg", "quality": 70, "maxWidth": 2560, "maxHeight": 1600 } });
                     next_id += 1;
                     to_chrome.send(CdpMessage::Text(start.to_string().into())).await?;
                     continue;
@@ -311,6 +351,20 @@ async fn stream(
                     if matches!(message, ClientMessage::Close(_)) { break }
                     continue;
                 };
+                // The viewer's size applies while it watches, control or not: it changes only how
+                // the page is laid out, never what happens on it.
+                if let Ok(FeedViewport { kind, width, height, scale }) = serde_json::from_str::<FeedViewport>(&text) {
+                    if kind == "viewport" {
+                        viewport = viewport_command(width, height, scale);
+                        if let (Some(metrics), Some(current)) = (&viewport, session.as_deref()) {
+                            let resize = serde_json::json!({ "id": next_id, "sessionId": current,
+                                "method": "Emulation.setDeviceMetricsOverride", "params": metrics });
+                            next_id += 1;
+                            to_chrome.send(CdpMessage::Text(resize.to_string().into())).await?;
+                        }
+                        continue;
+                    }
+                }
                 // Input reaches the page only while this tab holds control, as on the desktop.
                 // A lease taken a moment ago is read again rather than waiting for the next look.
                 if !controls && checked.elapsed() >= Duration::from_secs(1) {
@@ -341,6 +395,23 @@ async fn stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_viewer_size_becomes_a_bounded_layout_override() {
+        let metrics = viewport_command(1684.4, 1100.0, 1.25).unwrap();
+        assert_eq!(metrics["width"], 1684.0);
+        assert_eq!(metrics["height"], 1100.0);
+        assert_eq!(metrics["deviceScaleFactor"], 1.25);
+        assert_eq!(metrics["mobile"], false);
+        let huge = viewport_command(9000.0, 9000.0, 4.0).unwrap();
+        assert_eq!(
+            (huge["width"].clone(), huge["height"].clone()),
+            (2560.0.into(), 1600.0.into())
+        );
+        assert_eq!(huge["deviceScaleFactor"], 2.0);
+        assert!(viewport_command(100.0, 900.0, 1.0).is_none());
+        assert!(viewport_command(f64::NAN, 900.0, 1.0).is_none());
+    }
 
     #[test]
     fn viewer_events_become_bounded_devtools_input() {
