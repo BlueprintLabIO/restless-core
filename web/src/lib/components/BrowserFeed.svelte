@@ -239,9 +239,12 @@
 	.browser-feed:focus-visible {
 		box-shadow: inset 0 0 0 2px var(--focus-ring, var(--primary));
 	}
+	/* The frame fills the space it is given, scaled up as well as down (owner, 23 Oct: a 1280-wide
+	 * tab sat small in the middle of a large window, since max-width only ever shrinks). Its
+	 * proportions are kept; pagePoint maps pointer positions through the same letterbox. */
 	.browser-feed img {
-		max-width: 100%;
-		max-height: 100%;
+		width: 100%;
+		height: 100%;
 		object-fit: contain;
 		user-select: none;
 		-webkit-user-drag: none;
