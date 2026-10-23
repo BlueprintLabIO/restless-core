@@ -14,8 +14,10 @@ import {
 	type SpendPeriod
 } from './owner-accounts.ts';
 
-/** The kinds an owner adds with a form; the rest are set up with their provider. */
-export const ADDABLE_KINDS: AccountKind[] = ['website_login', 'api', 'browser_profile', 'github'];
+/** The kinds an owner adds with a form; the rest are set up with their provider. A website is a
+ * sign-in on a company computer, not a stored password (S104 O5): logins already stored keep
+ * working, but none is added. Accounts otherwise hold credentials made for programs. */
+export const ADDABLE_KINDS: AccountKind[] = ['browser_profile', 'api', 'github'];
 
 export type AccountForm = {
 	label: string;

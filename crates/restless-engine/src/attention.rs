@@ -1397,23 +1397,35 @@ async fn account_items(
     }
     for request in broker::open_requests(pool, company).await? {
         let who = name(&request.requested_by);
+        // A site login is the owner signing in on the company computer (S104 O5), so it says so.
+        let site = request
+            .reason
+            .split_once(": ")
+            .map(|(site, _)| site.trim())
+            .filter(|site| !site.is_empty() && !site.contains(' '));
         let mut item = blank(
             format!("authority:account_request:{}", request.id),
             "account_request",
             request.id.clone(),
-            format!(
-                "{who} asks for {}",
-                match (request.account_id.as_deref(), request.kind.as_deref()) {
-                    (Some(_), _) => "more on an account",
-                    (None, Some("api")) => "an API key",
-                    (None, Some("github")) => "a GitHub account",
-                    (None, Some("website_login")) => "a website login",
-                    (None, Some("browser_profile")) => "a browser profile",
-                    (None, Some("mcp_tool")) => "a tool connection",
-                    (None, Some("ai_provider")) => "an AI account",
-                    _ => "an account",
+            match (request.account_id.as_deref(), request.kind.as_deref()) {
+                (None, Some("website_login" | "browser_profile")) => {
+                    format!(
+                        "{who} asks you to sign in to {}",
+                        site.unwrap_or("a website")
+                    )
                 }
-            ),
+                (account, kind) => format!(
+                    "{who} asks for {}",
+                    match (account, kind) {
+                        (Some(_), _) => "more on an account",
+                        (None, Some("api")) => "an API key",
+                        (None, Some("github")) => "a GitHub account",
+                        (None, Some("mcp_tool")) => "a tool connection",
+                        (None, Some("ai_provider")) => "an AI account",
+                        _ => "an account",
+                    }
+                ),
+            },
             request.created_at,
         );
         item.what_happened = if request.reason.is_empty() {
