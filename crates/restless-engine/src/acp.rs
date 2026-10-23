@@ -933,6 +933,10 @@ pub struct TurnTranscript {
     /// A completed, otherwise-empty transcript treats that like zero; text or
     /// tool activity makes it an interrupted, recoverable turn instead.
     pub usage: Option<TurnUsage>,
+    /// The HTTP client's error when the model stream broke mid-turn (see [`stream_failure`]).
+    /// Kept out of `text` and `last_message_text` so it is never saved as the reply; the
+    /// classifier turns it into a transport block that names it.
+    pub stream_failure: Option<String>,
     /// Provider cumulative price at the start of this process. Kept private:
     /// consumers must use the per-wake delta in `usage`.
     session_cost_baseline_usd: Option<f64>,
@@ -961,6 +965,7 @@ impl Default for TurnTranscript {
             tool_calls: Vec::new(),
             last_message_id: None,
             usage: None,
+            stream_failure: None,
             session_cost_baseline_usd: None,
             turn_cost_baseline_usd: None,
             last_cumulative_cost_usd: None,
@@ -1002,25 +1007,10 @@ impl TurnTranscript {
         match update {
             SessionUpdate::AgentMessageChunk(chunk) => {
                 if let ContentBlock::Text(text) = &chunk.content {
-                    if is_runtime_notice(&text.text) {
-                        tracing::info!(notice = %text.text.trim(), "agent runtime notice kept out of the reply");
-                        return;
-                    }
-                    let message_id = chunk.message_id.as_ref().map(ToString::to_string);
-                    if self.last_message_id.is_some()
-                        && message_id.is_some()
-                        && self.last_message_id != message_id
-                    {
-                        self.last_message_text.clear();
-                        if !self.text.is_empty() && !self.text.ends_with("\n\n") {
-                            self.text.push_str("\n\n");
-                        }
-                    }
-                    if message_id.is_some() {
-                        self.last_message_id = message_id;
-                    }
-                    self.text.push_str(&text.text);
-                    self.last_message_text.push_str(&text.text);
+                    self.note_text(
+                        &text.text,
+                        chunk.message_id.as_ref().map(ToString::to_string),
+                    );
                 }
             }
             SessionUpdate::ToolCall(call) => {
@@ -1060,6 +1050,36 @@ impl TurnTranscript {
             _ => {}
         }
     }
+
+    /// Records one assistant text chunk. Crate-visible so verdict tests feed the exact chunk
+    /// sequence a runtime sends without building ACP envelopes.
+    pub(crate) fn note_text(&mut self, text: &str, message_id: Option<String>) {
+        if is_runtime_notice(text) {
+            tracing::info!(notice = %text.trim(), "agent runtime notice kept out of the reply");
+            return;
+        }
+        if let Some(failure) = stream_failure(text) {
+            tracing::warn!(%failure, "model stream failure kept out of the reply");
+            self.stream_failure = Some(failure.to_string());
+            return;
+        }
+        // Text after a failure means the runtime retried and the stream recovered.
+        self.stream_failure = None;
+        if self.last_message_id.is_some()
+            && message_id.is_some()
+            && self.last_message_id != message_id
+        {
+            self.last_message_text.clear();
+            if !self.text.is_empty() && !self.text.ends_with("\n\n") {
+                self.text.push_str("\n\n");
+            }
+        }
+        if message_id.is_some() {
+            self.last_message_id = message_id;
+        }
+        self.text.push_str(text);
+        self.last_message_text.push_str(text);
+    }
 }
 
 /// OMP's own status lines, sent as agent text: a stalled stream it is retrying. They are the
@@ -1069,10 +1089,32 @@ fn is_runtime_notice(text: &str) -> bool {
     text.trim_start().starts_with("Thinking loop detected")
 }
 
+/// OMP reports a stream that died mid-reply as one more assistant text chunk, carrying the
+/// HTTP client's own error string under the reply's message id (`agent_message_chunk` with
+/// `errorMessage`, stop reason `end_turn`). Appended to the reply, it reached the owner as if
+/// Exec had said it (23 October, after a model switch mid-reply: "The socket connection was
+/// closed unexpectedly. For more information, pass `verbose: true` in the second argument to
+/// fetch()."). Only Bun's complete fetch failure messages count, and only as a whole chunk, so
+/// a model writing about sockets or connections is never mistaken for one.
+#[must_use]
+pub fn stream_failure(text: &str) -> Option<&str> {
+    let trimmed = text.trim();
+    let socket_closed = trimmed.starts_with("The socket connection was closed unexpectedly.")
+        && trimmed
+            .trim_end_matches('.')
+            .ends_with("pass `verbose: true` in the second argument to fetch()");
+    let unreachable = trimmed == "Unable to connect. Is the computer able to access the url?";
+    (socket_closed || unreachable).then_some(trimmed)
+}
+
 fn live_event(update: &SessionUpdate) -> Option<LiveSessionEvent> {
     match update {
         SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
-            ContentBlock::Text(text) if is_runtime_notice(&text.text) => None,
+            ContentBlock::Text(text)
+                if is_runtime_notice(&text.text) || stream_failure(&text.text).is_some() =>
+            {
+                None
+            }
             ContentBlock::Text(text) => Some(LiveSessionEvent::ReplyDelta {
                 message_id: chunk.message_id.as_ref().map(ToString::to_string),
                 text: text.text.clone(),
