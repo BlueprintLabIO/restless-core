@@ -874,6 +874,29 @@ mod tests {
         }
     }
 
+    /// The exact chunk sequence OMP 18.8.6 sent when a local stand-in dropped the socket after
+    /// part of a reply (repro/omp-stream-break.mjs, mode `partial`): OMP retried the call three
+    /// times by itself, re-sending the partial under a fresh message id each time, then sent the
+    /// error under another id and ended with a usage report of 44 tokens.
+    #[test]
+    fn omps_observed_retry_then_failure_sequence_is_a_transport_block() {
+        const PARTIAL: &str = "Here is the launch plan so far. Monday: ";
+        let mut turn = transcript(Some(44), None);
+        for id in ["407943bf", "0680ac8e", "84bbc5df", "51551983"] {
+            turn.note_text(PARTIAL, Some(id.into()));
+        }
+        turn.note_text(
+            "The socket connection was closed unexpectedly. For more information, pass \
+             `verbose: true` in the second argument to fetch()",
+            Some("70dfab1a".into()),
+        );
+        // Not a complete reply, whatever the partial says, and never the error.
+        assert_eq!(turn.last_message_text, PARTIAL);
+        let blocked = blocked(classify(&acp::TurnEnd::Completed { transcript: turn }));
+        assert_eq!(blocked.kind, BlockKind::Transport);
+        assert!(blocked.message().contains("socket connection was closed"));
+    }
+
     /// Prose about sockets is an answer. So is a reply that recovered after a retried stream.
     #[test]
     fn socket_prose_and_a_recovered_stream_still_ran() {

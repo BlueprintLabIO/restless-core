@@ -1089,13 +1089,15 @@ fn is_runtime_notice(text: &str) -> bool {
     text.trim_start().starts_with("Thinking loop detected")
 }
 
-/// OMP reports a stream that died mid-reply as one more assistant text chunk, carrying the
-/// HTTP client's own error string under the reply's message id (`agent_message_chunk` with
-/// `errorMessage`, stop reason `end_turn`). Appended to the reply, it reached the owner as if
-/// Exec had said it (23 October, after a model switch mid-reply: "The socket connection was
-/// closed unexpectedly. For more information, pass `verbose: true` in the second argument to
-/// fetch()."). Only Bun's complete fetch failure messages count, and only as a whole chunk, so
-/// a model writing about sockets or connections is never mistaken for one.
+/// OMP reports a stream that died mid-reply as one more assistant text chunk carrying the HTTP
+/// client's own error string, and ends the turn as `end_turn` with a usage report. Observed with
+/// OMP 18.8.6 against a local stand-in that drops the socket mid-stream: OMP retries the call
+/// itself, re-sending the partial under a fresh message id each time, then sends the error under
+/// yet another id. Kept as the reply, it reached the owner as if Exec had said it (23 October,
+/// after a model switch mid-reply: "The socket connection was closed unexpectedly. For more
+/// information, pass `verbose: true` in the second argument to fetch()."). Only Bun's complete
+/// fetch failure messages count, and only as a whole chunk, so a model writing about sockets or
+/// connections is never mistaken for one.
 #[must_use]
 pub fn stream_failure(text: &str) -> Option<&str> {
     let trimmed = text.trim();
