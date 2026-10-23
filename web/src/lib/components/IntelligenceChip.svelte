@@ -38,12 +38,14 @@
 	const connection = $derived(
 		source.view?.connections.find((row) => row.id === assignment?.connection) ?? null
 	);
+	/* An empty list from the connection is no list: fall back to the catalogue (see ModelAssignmentEditor). */
 	const choices = $derived(
-		connection?.models ??
-			catalog.models(
-				connection?.account_provider ?? connection?.provider ?? '',
-				connection?.account_kind ?? 'api_key'
-			)
+		connection?.models?.length
+			? connection.models
+			: catalog.models(
+					connection?.account_provider ?? connection?.provider ?? '',
+					connection?.account_kind ?? 'api_key'
+				)
 	);
 	const current = $derived(assignment?.model ?? '');
 	let busy = $state(false);
