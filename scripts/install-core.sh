@@ -55,6 +55,34 @@ sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
 }
 
+# Download one pinned image, retrying a dropped connection, so a network blip reads as one and
+# never as a failed signature check or a broken release.
+pull_image() {
+  local image="$1" attempt
+  docker image inspect "$image" >/dev/null 2>&1 && return 0
+  for attempt in 1 2 3; do
+    docker pull --quiet "$image" >/dev/null && return 0
+    [ "$attempt" = 3 ] && break
+    printf 'the download of %s was interrupted; trying again (%s of 3)\n' "${image%%@*}" "$((attempt + 1))" >&2
+    sleep $((attempt * 5))
+  done
+  fail "could not download ${image%%@*}; check this machine's internet connection, then run the installer again"
+}
+
+# Run the pinned Sigstore verifier. Docker's own failures (125-127: it could not start the
+# container) say so; only cosign's answer says the signature did not verify.
+# usage: verify_signature <dir> <signature> <file> <signer> <what is signed>
+verify_signature() {
+  local dir="$1" signature="$2" file="$3" signer="$4" what="$5" status=0
+  pull_image "$COSIGN_IMAGE"
+  docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$dir:/work:ro" "$COSIGN_IMAGE" verify-blob \
+    --bundle "/work/$signature" --certificate-identity "$signer" --certificate-oidc-issuer "$ISSUER" \
+    "/work/$file" >&2 || status=$?
+  [ "$status" = 0 ] && return 0
+  [ "$status" -ge 125 ] && fail "Docker could not run the signature checker (see the error above); nothing was installed"
+  fail "${what} signature did not verify against ${signer}"
+}
+
 usage() {
   sed -n '2,5p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null >&2 || true
   printf 'usage: install-core.sh [<revision>] [--environment <file>] [--force]\n' >&2
@@ -203,10 +231,7 @@ verify_release() {
     || fail "the release manifest does not match the bundle index"
   # As this user: the bundle sits in a private (0700) temporary directory that
   # the image's own non-root user cannot read.
-  docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$bundle:/work:ro" "$COSIGN_IMAGE" verify-blob \
-    --bundle "/work/$signature" --certificate-identity "$SIGNER" --certificate-oidc-issuer "$ISSUER" \
-    "/work/$manifest" >&2 \
-    || fail "the release manifest signature did not verify against ${SIGNER}"
+  verify_signature "$bundle" "$signature" "$manifest" "$SIGNER" "the release manifest's"
   jq -e --arg revision "$revision" --arg platform "linux/$platform" \
     '.source_revision == $revision and ((.platforms // ["linux/amd64","linux/arm64"]) | index($platform))' \
     "$bundle/$manifest" >/dev/null \
@@ -277,10 +302,7 @@ fetch_macos_binaries() {
       || fail "could not download the macOS artifact"
     [ "sha256:$(sha256_of "$file")" = "$digest" ] || fail "the macOS artifact does not match its digest ${digest}"
   done
-  docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$work/macos:/work:ro" "$COSIGN_IMAGE" verify-blob \
-    --bundle /work/binaries.sigstore.json --certificate-identity "$MACOS_SIGNER" --certificate-oidc-issuer "$ISSUER" \
-    /work/binaries.tar.gz >&2 \
-    || fail "the macOS binaries' signature did not verify against ${MACOS_SIGNER}"
+  verify_signature "$work/macos" binaries.sigstore.json binaries.tar.gz "$MACOS_SIGNER" "the macOS binaries'"
   mkdir -p "$stage/bin" "$work/macos/out"
   tar -xzf "$work/macos/binaries.tar.gz" --no-same-owner -C "$work/macos/out" restless restlessd release.json \
     || fail "the macOS artifact does not hold restless, restlessd and release.json"
@@ -414,7 +436,7 @@ main() {
 
   step "Pulling the pinned images"
   for image in account_plane company_runtime native_documents; do
-    docker pull --quiet "$(jq -er ".images.${image}" "$manifest")" >&2
+    pull_image "$(jq -er ".images.${image}" "$manifest")"
   done
 
   step "Staging the appliance"

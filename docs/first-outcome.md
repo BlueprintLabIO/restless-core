@@ -4,9 +4,9 @@ Prepare a client proposal, review it, and ask for a revision. This example gives
 Restless all the business facts it needs, so you can judge its work without first
 connecting email, researching a market or sharing customer data.
 
-After [starting Restless](../README.md#getting-started), open **Company →
-Intelligence** and connect your chosen agent or API provider. Return to the main
-workspace and send this to Exec:
+After [starting Restless](../README.md#get-started), choose **Start a company**. Setup asks
+for a model: paste an API key, or sign in with ChatGPT or Claude. When setup is done, send
+this to Exec:
 
 > We're a small design consultancy preparing a proposal for a fictional client,
 > Northstar Books. They need a clearer homepage and a reusable newsletter template.
