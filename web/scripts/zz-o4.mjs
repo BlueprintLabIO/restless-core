@@ -1,0 +1,16 @@
+import { chromium } from "playwright";
+const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 900, height: 600 } });
+const errs = []; p.on("pageerror", e => errs.push(e.message));
+await p.goto("http://127.0.0.1:5199/gallery/zz-picker"); await p.waitForTimeout(2500);
+const y0 = await p.locator("#n").boundingBox();
+await p.screenshot({ path: "/tmp/o4-closed.png" });
+await p.locator(".model-field summary").click(); await p.waitForTimeout(400);
+const y1 = await p.locator("#n").boundingBox();
+const focused = await p.evaluate(() => document.activeElement?.getAttribute("placeholder"));
+await p.screenshot({ path: "/tmp/o4-open.png" });
+await p.keyboard.type("opus"); await p.waitForTimeout(200);
+await p.locator("[role=option]").first().click(); await p.waitForTimeout(300);
+const label = await p.locator(".model-field summary").innerText();
+const open = await p.locator(".anchored-panel").evaluate(n => n.matches(":popover-open"));
+console.log(JSON.stringify({ rowBefore: y0.y, rowAfterOpen: y1.y, focused, label, stillOpen: open, errs }));
+await b.close();
