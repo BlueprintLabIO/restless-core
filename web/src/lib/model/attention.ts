@@ -515,9 +515,13 @@ export async function sendActorMessage(
 
 /** What the composer says once Stop has answered (S104 O1): plain words, never the server's. */
 export function stopNotice(name: string, result: MessageInterruptResult | undefined): string {
+	/* A message is only marked read when the turn answering it ends, so a reply cut off
+	 * mid-stream is both interrupted and cancelled: it stopped, and won't be answered. */
+	if (result?.interrupted && result.cancelled)
+		return `${name} stopped. Your message stays in the conversation, unanswered.`;
+	if (result?.interrupted) return `${name} stopped. Your message is still with them.`;
 	if (result?.cancelled)
 		return `${name} stopped before reading your message. It stays in the conversation, unanswered.`;
-	if (result?.interrupted) return `${name} stopped. Your message is still with them.`;
 	return `${name} had already finished.`;
 }
 
