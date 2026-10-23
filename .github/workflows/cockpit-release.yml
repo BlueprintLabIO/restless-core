@@ -1,0 +1,85 @@
+name: Cockpit release
+
+# A web-only update (S104): publish and sign just the owner cockpit image, for a change that touches
+# nothing but the screens. Cloud's "Cockpit update" workflow then swaps the cockpit container on the
+# planes running that Core revision, and the plane keeps running. Anything outside the web app
+# needs a full Immutable Core release; this refuses it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_revision:
+        description: The Core revision the planes run (the last Immutable Core release's commit)
+        type: string
+        required: true
+
+concurrency:
+  group: cockpit-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+jobs:
+  cockpit:
+    name: Publish and sign the cockpit
+    runs-on: [self-hosted, linux, x64, restless-core, restless-core-release]
+    timeout-minutes: 30
+    env:
+      DAGGER_NO_NAG: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Keep the runner's checkout small
+        run: scripts/release/compact-checkout.sh
+      - name: Refuse anything but a web-only change on main
+        env:
+          BASE: ${{ inputs.base_revision }}
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo 'A cockpit release must use the trusted main workflow.' >&2; exit 1; }
+          [[ "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo 'base_revision must be a full commit id' >&2; exit 1; }
+          git fetch --quiet --depth=1 origin "$BASE"
+          changed="$(git diff --name-only "$BASE" "$GITHUB_SHA" -- . ':(exclude)web/**' ':(exclude)infra/cockpit/**' ':(exclude)docs/**' ':(exclude)*.md')"
+          if [[ -n "$changed" ]]; then
+            printf 'These changes need a full Immutable Core release:\n%s\n' "$changed" >&2
+            exit 1
+          fi
+          echo "Web-only since $BASE: $(git diff --name-only "$BASE" "$GITHUB_SHA" | wc -l) file(s)."
+      - name: Install the pinned Dagger CLI
+        run: scripts/release/install-dagger.sh
+      - uses: sigstore/cosign-installer@v3
+      - name: Build, check, scan and publish the cockpit image
+        env:
+          RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          rm -rf "$RUNNER_TEMP/cockpit"
+          "$HOME/.local/bin/dagger" --silent call publish-cockpit --source=. --revision="$GITHUB_SHA" \
+            --username="$GITHUB_ACTOR" --password=env:RESTLESS_REGISTRY_PASSWORD --scan-period="$(date -u +%F)" \
+            export --path="$RUNNER_TEMP/cockpit"
+          jq -er .reference "$RUNNER_TEMP/cockpit/images/cockpit.json" > "$RUNNER_TEMP/cockpit-reference"
+      - name: Sign it as this workflow, the identity Cloud checks
+        run: |
+          image="$(cat "$RUNNER_TEMP/cockpit-reference")"
+          echo "${{ secrets.GITHUB_TOKEN }}" | cosign login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          cosign sign --yes "$image"
+          cosign verify --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/cockpit-release.yml@refs/heads/main" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com "$image" >/dev/null
+          {
+            echo "### Cockpit image"
+            echo
+            echo "\`$image\` (web-only since \`${{ inputs.base_revision }}\`)"
+            echo
+            echo "Apply it with Cloud's **Cockpit update** workflow."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cockpit-${{ github.sha }}
+          path: ${{ runner.temp }}/cockpit
+          retention-days: 30
+      - name: Reclaim runner disk
+        if: always()
+        run: test ! -x scripts/release/reclaim-runner.sh || scripts/release/reclaim-runner.sh
