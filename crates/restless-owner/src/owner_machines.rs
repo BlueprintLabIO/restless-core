@@ -589,7 +589,7 @@ pub(crate) async fn helper_image(
 const CONNECT_SH: &str = include_str!("machine_connect.sh");
 const CONNECT_PS1: &str = include_str!("machine_connect.ps1");
 
-fn script(
+async fn script(
     state: &OwnerState,
     headers: &HeaderMap,
     template: &str,
@@ -602,7 +602,20 @@ fn script(
             "This plane's address is unknown.",
         );
     };
-    let mut response = Response::new(Body::from(template.replace("__RESTLESS_PLANE__", &origin)));
+    // The exact image a new computer pulls from Core's public registry; empty when the plane runs a
+    // local build, and the script then fetches it from the plane.
+    let image = machines::allowed_images()
+        .await
+        .into_iter()
+        .next()
+        .map(|image| image.reference)
+        .filter(|reference| reference.contains("@sha256:"))
+        .unwrap_or_default();
+    let mut response = Response::new(Body::from(
+        template
+            .replace("__RESTLESS_PLANE__", &origin)
+            .replace("__RESTLESS_IMAGE__", &image),
+    ));
     response
         .headers_mut()
         .insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
@@ -622,13 +635,14 @@ pub(crate) async fn connect_sh(
         CONNECT_SH,
         "text/x-shellscript; charset=utf-8",
     )
+    .await
 }
 
 pub(crate) async fn connect_ps1(
     State(state): State<OwnerState>,
     headers: HeaderMap,
 ) -> Response<Body> {
-    script(&state, &headers, CONNECT_PS1, "text/plain; charset=utf-8")
+    script(&state, &headers, CONNECT_PS1, "text/plain; charset=utf-8").await
 }
 
 #[cfg(test)]
