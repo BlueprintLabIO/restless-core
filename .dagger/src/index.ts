@@ -526,6 +526,22 @@ export class RestlessCore {
       .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
   }
 
+  /** A web-only update (S104): build, verify, scan and publish just the cockpit image. The caller
+   * signs it; Cloud swaps it onto the planes running the Core revision it was cut against. */
+  @func()
+  async publishCockpit(
+    @argument({ ignore: ['**', '!web/**', '!infra/cockpit/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, username: string, password: Secret, scanPeriod: string,
+    platform: string = 'linux/amd64',
+  ): Promise<Directory> {
+    checkPlatform(platform);
+    if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('cockpit publication requires exact source provenance');
+    assertScanPeriod(scanPeriod, 'pass the current UTC scan day');
+    return publishImage('cockpit', revision, platform as Platform, source.filter({ include: ['web/**', 'infra/cockpit/**'], exclude: EXCLUDES }),
+      async () => this.cockpitImage(source, revision, platform), async image => { console.log(await verifyCockpitImage(image)); },
+      username, password, scanPeriod);
+  }
+
   /** Install the cockpit image into an empty folder and confirm it reports itself in place. */
   @func()
   async verifyCockpit(
