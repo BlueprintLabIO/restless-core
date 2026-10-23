@@ -61,17 +61,21 @@
 	let error = $state('');
 	const selected = $derived(view.connections.find((c) => c.id === connection));
 	const harnesses = $derived(view.connections.filter((c) => account(c.id) === account(connection)));
+	/* The connection's own list when it offers one; otherwise the provider's catalogue. An empty
+	 * list (a harness that has not confirmed its models yet) is no list: `??` let it through, and
+	 * the picker offered only the current model, so "opus" matched nothing (owner, 23 Oct). */
 	const presets = $derived(
-		selected?.models ??
-			catalog.models(
-				selected?.account_provider ??
-					(selected?.kind === 'harness'
-						? selected.provider === 'codex'
-							? 'openai'
-							: 'anthropic'
-						: (selected?.provider ?? '')),
-				selected?.account_kind ?? 'api_key'
-			)
+		selected?.models?.length
+			? selected.models
+			: catalog.models(
+					selected?.account_provider ??
+						(selected?.kind === 'harness'
+							? selected.provider === 'codex'
+								? 'openai'
+								: 'anthropic'
+							: (selected?.provider ?? '')),
+					selected?.account_kind ?? 'api_key'
+				)
 	);
 	function choose() {
 		model =
