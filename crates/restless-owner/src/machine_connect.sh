@@ -25,9 +25,13 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Fetching the Restless computer image from your plane. This is a few GB, once."
-LOADED=$(curl -fSL --progress-bar -H "X-Restless-Pairing: $CODE" "$PLANE/machines/helper-image" | docker load -q)
-IMAGE=$(printf '%s\n' "$LOADED" | sed -n 's/^Loaded image ID: //p; s/^Loaded image: //p' | tail -n 1)
+# The exact image, by digest, from Core's public registry; the plane sends it only when that fails.
+IMAGE="__RESTLESS_IMAGE__"
+echo "Fetching the Restless computer image. This is a few GB, once."
+if [ -z "$IMAGE" ] || ! docker pull -q "$IMAGE" >/dev/null 2>&1; then
+  LOADED=$(curl -fSL --progress-bar -H "X-Restless-Pairing: $CODE" "$PLANE/machines/helper-image" | docker load -q)
+  IMAGE=$(printf '%s\n' "$LOADED" | sed -n 's/^Loaded image ID: //p; s/^Loaded image: //p' | tail -n 1)
+fi
 if [ -z "$IMAGE" ]; then
   echo "Could not fetch the image. A code lasts 10 minutes and works once; make a new one and try again." >&2
   exit 1

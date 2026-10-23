@@ -554,6 +554,45 @@ impl DockerProxy {
         }
     }
 
+    /// Pull `allowed.reference` (`registry/repo@sha256:…`) and name it `tag`.
+    async fn pull_by_digest(&self, allowed: &AllowedImage, tag: &str) -> anyhow::Result<()> {
+        let query: String = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("fromImage", &allowed.reference)
+            .finish();
+        let (status, body) = self
+            .call(Method::POST, &format!("/images/create?{query}"), None)
+            .await?;
+        let text = String::from_utf8_lossy(&body);
+        if !status.is_success() || text.contains("\"error\"") {
+            anyhow::bail!(
+                "pull {}: {}",
+                allowed.reference,
+                text.lines().last().unwrap_or_default()
+            );
+        }
+        let (repo, version) = tag.split_once(':').expect("a local tag has a version");
+        let naming: String = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("repo", repo)
+            .append_pair("tag", version)
+            .finish();
+        let source: String =
+            url::form_urlencoded::byte_serialize(allowed.reference.as_bytes()).collect();
+        let (tagged, answer) = self
+            .call(
+                Method::POST,
+                &format!("/images/{source}/tag?{naming}"),
+                None,
+            )
+            .await?;
+        if !tagged.is_success() {
+            anyhow::bail!(
+                "could not name the pulled image: {}",
+                String::from_utf8_lossy(&answer)
+            );
+        }
+        Ok(())
+    }
+
     async fn has_image(&self, reference: &str) -> bool {
         matches!(self.call(Method::GET, &format!("/images/{reference}/json"), None).await, Ok((status, _)) if status.is_success())
     }
@@ -575,6 +614,14 @@ impl DockerProxy {
             .unwrap()
             .clone()
             .ok_or_else(|| anyhow::anyhow!("not linked to the plane"))?;
+        // Core's images are public (owner decision, 23 Oct): pull the exact digest from its registry.
+        // The digest is the image's content address, so what arrives is what the plane allows. Only
+        // when that fails (a private or local build) does the plane send the image over the link.
+        if allowed.reference.contains("@sha256:")
+            && self.pull_by_digest(allowed, &tag).await.is_ok()
+        {
+            return Ok(());
+        }
         let stream = link.open(STREAM_IMAGE, &allowed.id).await?;
         let body = StreamBody::new(
             tokio_util::io::ReaderStream::with_capacity(stream, 64 * 1024)

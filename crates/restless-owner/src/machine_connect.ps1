@@ -20,7 +20,14 @@ if ($LASTEXITCODE -ne 0) {
   return
 }
 
-Write-Host 'Fetching the Restless computer image from your plane. This is a few GB, once.'
+# The exact image, by digest, from Core's public registry; the plane sends it only when that fails.
+$Image = '__RESTLESS_IMAGE__'
+Write-Host 'Fetching the Restless computer image. This is a few GB, once.'
+if ($Image) {
+  docker pull -q $Image *> $null
+  if ($LASTEXITCODE -ne 0) { $Image = '' }
+}
+if (-not $Image) {
 $Archive = Join-Path $env:TEMP ('restless-machine-' + [guid]::NewGuid().ToString() + '.tar')
 try {
   $ProgressPreference = 'SilentlyContinue'
@@ -33,6 +40,7 @@ try {
   Remove-Item -Force -ErrorAction SilentlyContinue $Archive
 }
 $Image = ($Loaded | Select-String -Pattern '^Loaded image(?: ID)?: (.+)$' | Select-Object -Last 1).Matches.Groups[1].Value
+}
 if (-not $Image) {
   Write-Host 'The image did not load. Try again with a new code.'
   return
