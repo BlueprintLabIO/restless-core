@@ -46,6 +46,12 @@ use recovery::gate_cwd;
 /// Resource guardrail, not a coordination policy. OrgIntel readiness and one
 /// live process per durable actor still determine which Staff may run.
 const STAFF_CAP_PER_COMPANY: usize = 100;
+/// Work Attempts that run at once in one company (S104 O2). Leads split independent
+/// work into parallel Staff by default, and every Attempt shares the company's model
+/// capacity (one subscription's rate limit, or the metered envelope's four Staff
+/// slots), so more at once only queue at the provider. Conversation turns are not
+/// counted: a message to an idle agent never waits behind Work.
+const PARALLEL_WORK_PER_COMPANY: usize = 4;
 const CONVERSATION_BACKOFF_FIRST: std::time::Duration = std::time::Duration::from_secs(30);
 const CONVERSATION_BACKOFF_CEILING: std::time::Duration = std::time::Duration::from_secs(300);
 pub const COGNITIVE_LEASE_DURATION: std::time::Duration = std::time::Duration::from_secs(5 * 60);
@@ -230,6 +236,22 @@ impl StaffRegistry {
             .unwrap_or(false)
     }
 
+    /// Whether another Work Attempt may start in this company now.
+    pub fn has_work_capacity(&self, company: &str) -> bool {
+        self.running
+            .lock()
+            .map(|running| {
+                running
+                    .iter()
+                    .filter(|((candidate, _), staff)| {
+                        candidate == company && staff.work_id.is_some()
+                    })
+                    .count()
+                    < PARALLEL_WORK_PER_COMPANY
+            })
+            .unwrap_or(false)
+    }
+
     fn try_claim(
         &self,
         company: &str,
@@ -249,6 +271,15 @@ impl StaffRegistry {
             .count();
         if active >= STAFF_CAP_PER_COMPANY {
             bail!("staff cap ({STAFF_CAP_PER_COMPANY}) reached for {company}");
+        }
+        if work_id.is_some()
+            && running
+                .iter()
+                .filter(|((candidate, _), staff)| candidate == company && staff.work_id.is_some())
+                .count()
+                >= PARALLEL_WORK_PER_COMPANY
+        {
+            bail!("{PARALLEL_WORK_PER_COMPANY} Work Attempts already run in {company}");
         }
         let cancellation = CancellationToken::new();
         running.insert(
@@ -1057,7 +1088,8 @@ mod tests {
         assert!(context.contains("Sera Morn · environmental readability specialist"));
         assert!(!context.contains("Mina Vale"));
         assert!(context.contains("available capacity, not a headcount target"));
-        assert!(context.contains("Produce the outcome yourself by default"));
+        assert!(context.contains("Produce tightly coupled or single-piece work yourself"));
+        assert!(context.contains("in parallel by default"));
         assert!(!context.contains("lead-owned production Work is invalid"));
         assert!(context.contains("restless work add"));
     }
@@ -1343,7 +1375,8 @@ mod tests {
     fn one_actor_keeps_one_organisational_posture_across_wake_types() {
         let rules = crate::context::COMPANY_OPERATING_RULES;
         assert!(rules.contains("causal understanding of the outcome"));
-        assert!(rules.contains("then produces it directly by"));
+        assert!(rules.contains("it then produces directly"));
+        assert!(rules.contains("runs in parallel by default"));
         assert!(rules.contains("handoff template, message cadence, shared-state form"));
         assert!(rules.contains("scheduler-created"));
         assert!(rules.contains("prove that another actor contributed"));
@@ -1358,7 +1391,7 @@ mod tests {
 
         let lead = actor_posture(true);
         assert!(lead.contains("ACCOUNTABLE LEAD"));
-        assert!(lead.contains("Produce the outcome yourself by default"));
+        assert!(lead.contains("Produce tightly coupled or single-piece work yourself"));
         assert!(!lead.contains("non-producing"));
         assert!(lead.contains("truthful attribution"));
         assert!(lead.contains("material Staff exception is a decision boundary"));
@@ -1437,6 +1470,31 @@ mod tests {
         assert!(registry.interrupt("company_test", "research-lead"));
         assert!(cancellation.is_cancelled());
         assert!(!registry.interrupt("company_test", "other-actor"));
+    }
+
+    #[test]
+    fn parallel_work_is_bounded_per_company_but_conversation_never_waits() {
+        let registry = StaffRegistry::default();
+        for worker in 0..super::PARALLEL_WORK_PER_COMPANY {
+            registry
+                .try_claim(
+                    "company_test",
+                    &format!("worker-{worker}"),
+                    Some(uuid::Uuid::new_v4()),
+                )
+                .expect("a Work Attempt within the bound");
+        }
+        assert!(!registry.has_work_capacity("company_test"));
+        assert!(registry
+            .try_claim("company_test", "one-more", Some(uuid::Uuid::new_v4()))
+            .is_err());
+        // Another company, and a conversation turn here, still start.
+        assert!(registry.has_work_capacity("company_other"));
+        registry
+            .try_claim("company_test", "answering-a-message", None)
+            .expect("a conversation turn is not counted");
+        registry.release("company_test", "worker-0");
+        assert!(registry.has_work_capacity("company_test"));
     }
 
     #[test]

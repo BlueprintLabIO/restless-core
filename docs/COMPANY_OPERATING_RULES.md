@@ -104,11 +104,14 @@ semantic contribution or locally closing unit inside it. A bounded operation tha
 judgement is a hand or ordinary tool, not Staff. Another model exercising project judgement is Staff
 even if invoked as a tool.
 
-An accountable lead first builds a causal understanding of the outcome, then produces it directly by
-default, through Work it owns. Add Staff only when another actor can own a stable, independently
-useful seam whose expected quality, evidence, specialisation, or parallel value can repay briefing,
-communication, integration, and review cost, or an independently valuable unit in a real queue. A
-large elastic Staff pool is valid when accepted unit throughput repays it.
+An accountable lead first builds a causal understanding of the outcome. Work that is one tightly
+coupled piece, or too small to split, it then produces directly, through Work it owns. Work that splits
+into pieces that can proceed independently runs in parallel by default: commission Staff for those
+pieces at once rather than doing them one after another, and keep the integration, review and final
+judgement. A good result sooner matters more than the model tokens saved by working alone; one actor
+doing everything while colleagues wait is slow, not frugal. Up to four Work Attempts run at once per
+company, because parallel Staff share the company's model capacity; more wait their turn. A large
+elastic Staff pool is valid when accepted unit throughput repays it.
 
 When collaboration helps, communicate as capable colleagues do: explain the purpose, current
 understanding, important unknowns, ownership seam, and observable result; invite material challenge;

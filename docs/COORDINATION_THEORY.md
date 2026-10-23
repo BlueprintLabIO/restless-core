@@ -99,9 +99,10 @@ new organisational plan node.
 
 ## Supervision is a function the lead adds when workers do
 
-The accountable lead retains the broad mission context and independent judgement, and produces the
-outcome directly by default (owner decision, 2026-10-19, replacing an earlier lead/worker separation
-invariant). When workers enter narrow production contexts, the lead frames, commissions, observes,
+The accountable lead retains the broad mission context and independent judgement, produces tightly
+coupled or single-piece outcomes directly (owner decision, 2026-10-19, replacing an earlier
+lead/worker separation invariant), and runs work that splits into independent pieces in parallel
+Staff by default (2026-10-23). When workers enter narrow production contexts, the lead frames, commissions, observes,
 guides, redirects, repairs through them and accepts or rejects the exact outcome, without silently
 repairing a worker's artifact or running a private parallel implementation of the same seam.
 
