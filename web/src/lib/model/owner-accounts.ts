@@ -111,7 +111,7 @@ export const ACCOUNT_KINDS: { kind: AccountKind; label: string; mark: string; hi
 		kind: 'website_login',
 		label: 'Website login',
 		mark: 'WEB',
-		hint: 'Any site you sign in to with a username and password, like eBay or a supplier portal.'
+		hint: 'A stored username and password. New website sign-ins happen on the company computer.'
 	},
 	{
 		kind: 'api',
@@ -121,9 +121,9 @@ export const ACCOUNT_KINDS: { kind: AccountKind; label: string; mark: string; hi
 	},
 	{
 		kind: 'browser_profile',
-		label: 'Browser sign-in',
-		mark: 'BRW',
-		hint: 'Sign in once in your browser; companies use that session, never the password.'
+		label: 'Website sign-in',
+		mark: 'WEB',
+		hint: 'Any site you sign in to, like eBay or a supplier portal. You sign in once on the company computer; companies use that session, never a password.'
 	},
 	{
 		kind: 'github',

@@ -424,6 +424,77 @@ pub(super) async fn sign_in_done(
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct FromCompany {
+    company: String,
+}
+
+/// The owner signed in on the company computer (S104 O5): carry that sign-in to the account's own
+/// browser, inside the plane, and say whether the account is signed in now. Website sign-ins are
+/// sessions made on the company computer, never stored passwords.
+pub(super) async fn sign_in_from_company(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(id): AxumPath<String>,
+    Json(input): Json<FromCompany>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    if input.company.is_empty()
+        || !input
+            .company
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "accounts",
+            "That is not a company.",
+        );
+    }
+    let (_, settings) = match browser_account(&state, &id).await {
+        Ok(found) => found,
+        Err(refusal) => return refusal,
+    };
+    let domains = restless_engine::account_browser::account_domains(&settings);
+    let health = match restless_engine::account_browser::signed_in(&id, &domains).await {
+        Ok(true) => "signed_in",
+        _ => match restless_engine::account_browser::sign_in_from_company(
+            &id,
+            &input.company,
+            &domains,
+        )
+        .await
+        {
+            Ok(true) => "signed_in",
+            Ok(false) => "signed_out",
+            Err(error) => {
+                tracing::warn!(
+                    company = input.company,
+                    account = id,
+                    "could not carry the company computer's sign-in over: {error:#}"
+                );
+                "signed_out"
+            }
+        },
+    };
+    let pool = state.daemon.authority.pool();
+    if let Err(error) = accounts::set_health(pool, &id, health).await {
+        return refuse(error);
+    }
+    match accounts::get(pool, &id).await {
+        Ok(Some(account)) => Json(account).into_response(),
+        Ok(None) => api_error(
+            StatusCode::NOT_FOUND,
+            "accounts",
+            "That account no longer exists.",
+        ),
+        Err(error) => refuse(error),
+    }
+}
+
 pub(super) async fn sign_in_cancel(
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath((id, session)): AxumPath<(String, String)>,

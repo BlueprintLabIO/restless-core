@@ -1387,6 +1387,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route("/accounts/{id}/sign-in", post(accounts_api::sign_in))
         .route(
+            "/accounts/{id}/sign-in/from-company",
+            post(accounts_api::sign_in_from_company),
+        )
+        .route(
             "/accounts/{id}/sign-in/{session}/done",
             post(accounts_api::sign_in_done),
         )

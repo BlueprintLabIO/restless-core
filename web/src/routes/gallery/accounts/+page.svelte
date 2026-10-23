@@ -249,6 +249,7 @@
 			throw Object.assign(new Error('Not here yet.'), { status: 404 });
 		},
 		signInDone: async (accountId) => clone(find(accountId)),
+		signInFromCompany: async (accountId) => clone(find(accountId)),
 		signInCancel: async () => {},
 		settleRequest: async () => {}
 	};

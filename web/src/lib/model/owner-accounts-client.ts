@@ -32,6 +32,8 @@ export type AccountsClient = {
 	decideNotice(id: string, notice: string, decision: 'fine' | 'freeze'): Promise<AccountUse>;
 	/** The owner signs in by hand in the account's managed browser (S98-11). */
 	signIn(id: string): Promise<{ session: string; desktop_url: string }>;
+	/** Carry the owner's sign-in on a company computer to the account's browser (S104 O5). */
+	signInFromCompany(id: string, company: string): Promise<Account>;
 	signInDone(id: string, session: string): Promise<Account>;
 	signInCancel(id: string, session: string): Promise<void>;
 	/** Settles an admin's request once the owner saved a grant for it (S98-09). */
@@ -89,6 +91,11 @@ export const ownerAccounts: AccountsClient = {
 	signIn: (id) =>
 		ownerRequest<{ session: string; desktop_url: string }>(`${one(id)}/sign-in`, {
 			method: 'POST'
+		}),
+	signInFromCompany: (id, company) =>
+		ownerRequest<Account>(`${one(id)}/sign-in/from-company`, {
+			method: 'POST',
+			json: { company }
 		}),
 	signInDone: (id, session) =>
 		ownerRequest<Account>(`${one(id)}/sign-in/${encodeURIComponent(session)}/done`, {

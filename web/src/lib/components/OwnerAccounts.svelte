@@ -6,7 +6,7 @@
 	 * the owner's choice), optional limits, and who. Secrets go in and never come back out. */
 	import { untrack } from 'svelte';
 	import AccountActivity from '$lib/components/AccountActivity.svelte';
-	import AccountSignIn from '$lib/components/AccountSignIn.svelte';
+	import AccountCompanySignIn from '$lib/components/AccountCompanySignIn.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
@@ -69,7 +69,7 @@
 	/* ---- adding an account: the same editor an Inbox card asking for one shows (S101) ---- */
 	const ADDABLE = ADDABLE_KINDS;
 	let adding = $state(false);
-	let addKind = $state<AccountKind>('website_login');
+	let addKind = $state<AccountKind>(ADDABLE_KINDS[0]);
 	let addSite = $state('');
 	function added(created: Account) {
 		accounts = [...accounts, created];
@@ -375,7 +375,7 @@
 								{/if}
 								{#if account.kind === 'browser_profile' || account.kind === 'website_login'}
 									<div class="detail-block sign-in-block">
-										<AccountSignIn {client} {account} onsigned={replace} />
+										<AccountCompanySignIn {client} {account} {companyName} onsigned={replace} />
 									</div>
 								{/if}
 								{#each account.grants as grant (grant.id)}

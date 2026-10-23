@@ -82,7 +82,7 @@
 		<input
 			id={`${id}-url`}
 			bind:value={form.url}
-			placeholder="ebay.com.au/signin"
+			placeholder={kind === 'website_login' ? 'ebay.com.au/signin' : 'ebay.com.au'}
 			autocomplete="off"
 		/>
 	</Field>
@@ -167,6 +167,7 @@
 	</Field>
 {/if}
 {#if kind === 'browser_profile'}<p class="form-intro">
-		After you add it, sign in once in the browser. Companies use that session, never the password.
+		After you add it, sign in once on the company computer. Companies use that session, never a
+		password.
 	</p>{/if}
 {#if error}<p class="form-error" role="alert">{error}</p>{/if}

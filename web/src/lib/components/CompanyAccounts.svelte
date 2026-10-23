@@ -80,7 +80,7 @@
 
 	/* An admin's request: a new account by kind, or more on one the company has. */
 	let asking = $state<{ account: CompanyAccountGrant | null } | null>(null);
-	let askKind = $state<AccountKind>('website_login');
+	let askKind = $state<AccountKind>('browser_profile');
 	let askAbilities = $state<Abilities>({ ...DEFAULT_ABILITIES });
 	const askPreset = $derived(
 		PRESETS.find(
@@ -123,7 +123,9 @@
 			sending = false;
 		}
 	}
-	const REQUESTABLE = ACCOUNT_KINDS.filter((entry) => entry.kind !== 'ai_provider');
+	const REQUESTABLE = ACCOUNT_KINDS.filter(
+		(entry) => entry.kind !== 'ai_provider' && entry.kind !== 'website_login'
+	);
 </script>
 
 <CompanyTitle title="Accounts" {companyId} />

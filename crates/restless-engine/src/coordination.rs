@@ -309,10 +309,14 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             let actor = if principal == Principal::Owner { "owner" } else {
                 match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
             };
-            let kind = request.tool.as_deref().unwrap_or_default();
-            if !matches!(kind, "website_login" | "api" | "github") {
-                return Response::err("The kind is website_login, api or github.");
-            }
+            let kind = match request.tool.as_deref().unwrap_or_default() {
+                // A site login is a sign-in the owner makes on the company computer (S104 O5),
+                // not a password they hand over.
+                "website_login" | "browser_profile" => "browser_profile",
+                "api" => "api",
+                "github" => "github",
+                _ => return Response::err("The kind is website_login, api or github."),
+            };
             let asked = request.common.body.as_deref().unwrap_or_default().trim();
             let Some((site, reason)) = asked.split_once(": ").filter(|(site, reason)| !site.trim().is_empty() && !reason.trim().is_empty()) else {
                 return Response::err("Name the site and why: restless apps ask-account --kind website_login --site facebook.com --reason '...'");
