@@ -3,7 +3,6 @@
 	 * again on the computer of a company that uses it. The owner signs in there as on their own
 	 * browser; "Check sign-in" carries that session to the account's browser inside the plane. No
 	 * password is asked for or kept. */
-	import { goto } from '$app/navigation';
 	import { failureSentence } from '$lib/model/failure';
 	import { prepareCompanyBrowser } from '$lib/model/company-browser';
 	import { HEALTH_LABEL, type Account } from '$lib/model/owner-accounts';
@@ -30,11 +29,9 @@
 	let busy = $state(false);
 	let failure = $state('');
 
-	function signIn() {
-		if (!company) return;
-		prepareCompanyBrowser(company, `https://${site}`);
-		void goto(`/${encodeURIComponent(company)}/company/computer?focus=browser`);
-	}
+	/* A plain link, not the router: Settings › Accounts also runs in the plane's own screens, which
+	 * have no SvelteKit router. The computer page opens the prepared site when it loads. */
+	const computerHref = $derived(`/${encodeURIComponent(company)}/company/computer?focus=browser`);
 
 	async function check() {
 		if (!company || busy) return;
@@ -67,8 +64,11 @@
 			{#if companies.length > 1}<select bind:value={company} aria-label="Which company’s computer">
 					{#each companies as id (id)}<option value={id}>{companyName(id)}</option>{/each}
 				</select>{/if}
-			<button type="button" class="btn small" onclick={signIn}
-				>Sign in on {companies.length > 1 ? 'its' : `${companyName(company)}’s`} computer</button
+			<a
+				class="btn small"
+				href={computerHref}
+				onclick={() => prepareCompanyBrowser(company, `https://${site}`)}
+				>Sign in on {companies.length > 1 ? 'its' : `${companyName(company)}’s`} computer</a
 			>
 			<button type="button" class="btn small ghost" disabled={busy} onclick={() => void check()}
 				>{busy ? 'Checking…' : 'Check sign-in'}</button
