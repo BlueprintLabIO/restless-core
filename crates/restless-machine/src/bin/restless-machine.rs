@@ -28,6 +28,10 @@ fn docker_socket() -> PathBuf {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Two TLS backends reach rustls through the dependency tree, so it will not pick one itself: the
+    // helper panicked before linking to any HTTPS plane (22 Oct, the owner's PC). Choose ring, as the
+    // Runtime bridge does.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
