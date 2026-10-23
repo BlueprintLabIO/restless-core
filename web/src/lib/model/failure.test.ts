@@ -43,6 +43,13 @@ test('transport and proxy failures never reach the owner as raw text', async () 
 	assert.equal(seen[3].kind, 'server');
 });
 
+test("the edge's own 429 is an outage; the daemon's 429 asks for a moment", async () => {
+	const edge = new Response('error code: 1027', { status: 429, statusText: 'Too Many Requests' });
+	assert.equal(failureKind(await responseFailure(edge)), 'unreachable');
+	const daemon = json(429, { error: 'rate', message: 'Too many sign-in attempts.' });
+	assert.equal(failureKind(await responseFailure(daemon)), 'busy');
+});
+
 test("the daemon's own message is kept for request-level failures and hidden for 5xx", async () => {
 	const rejected = describeFailure(
 		await responseFailure(json(422, { error: 'charter', message: 'The charter needs a mission.' }))
