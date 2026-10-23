@@ -64,6 +64,11 @@ jobs:
       - name: Sign it as this workflow, the identity Cloud checks
         run: |
           image="$(cat "$RUNNER_TEMP/cockpit-reference")"
+          # A login left in the runner's Docker config outlives this job's token and makes GHCR
+          # refuse the release builder's later pulls (23 Oct), so this one is the job's own.
+          umask 077
+          install -d -m 700 "$RUNNER_TEMP/cockpit-docker"
+          export DOCKER_CONFIG="$RUNNER_TEMP/cockpit-docker"
           echo "${{ secrets.GITHUB_TOKEN }}" | cosign login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           cosign sign --yes "$image"
           cosign verify --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/cockpit-release.yml@refs/heads/main" \
