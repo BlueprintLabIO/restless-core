@@ -251,7 +251,12 @@
 		signInDone: async (accountId) => clone(find(accountId)),
 		signInFromCompany: async (accountId) => clone(find(accountId)),
 		signInCancel: async () => {},
-		settleRequest: async () => {}
+		settleRequest: async () => {},
+		githubAppStart: async () => ({ install_url: '#github-app-install' }),
+		githubAppCreated: async () => ({ install_url: '#github-app-install' }),
+		githubAppInstalled: async () => {
+			throw new Error('The gallery does not install GitHub Apps.');
+		}
 	};
 </script>
 

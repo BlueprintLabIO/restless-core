@@ -231,8 +231,19 @@ account_use: {
   45-minute session pass, never the token); S98-03 tiers and limits (`account_broker::decide`);
   S98-06 use log and notices (first use, first spend, new destination, burst; Fine and Freeze);
   requests, receipts (`account_uses`); GitHub as a token account until the App.
-- **Not yet:** `directed_by` (uses record the agent only); the Inbox code relay below; the GitHub App
-  (S98-05 proper: install flow, per-task installation tokens).
+- **Landed, S98-05 GitHub App (24 Oct):** `github_app.rs`. The owner creates their own Restless
+  GitHub App in one step through GitHub's manifest flow (Settings › Accounts › Add account ›
+  GitHub, an organisation or none); GitHub hands the App's key straight to the plane's vault.
+  Installing it on an organisation and choosing repositories makes a `github` account whose
+  credential (`github_app`) names the installation; `account_broker::secret` mints a one-hour
+  installation token per use (cached until five minutes before expiry), so git, API calls,
+  scopes and the use log are unchanged. No token to make or renew, and an organisation's limit on
+  personal-token lifetime does not apply. A personal token still works as the fallback.
+  Why: BlueprintLabIO refuses fine-grained tokens that live over 366 days, which stopped the
+  Restless company reading its own repositories.
+- **Not yet:** `directed_by` (uses record the agent only); the Inbox code relay below; from S98-05,
+  one shared Cloud App (each owner makes their own App today), App webhooks, and `gh` CLI injection
+  of the installation token on the company computer.
 
 ## S98-04 and S98-11 design (browser identities, as built)
 

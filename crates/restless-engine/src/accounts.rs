@@ -560,6 +560,50 @@ pub async fn create(pool: &PgPool, input: NewAccount) -> Result<Account> {
         .context("the new account was not found")
 }
 
+/// A GitHub App installation as an account (S98-05): the credential names the installation and
+/// the App, and its only secret is where the App's key lives; tokens are minted per use.
+pub async fn create_github_app_account(
+    pool: &PgPool,
+    app: &crate::github_app::App,
+    installation_id: i64,
+    login: &str,
+) -> Result<Account> {
+    let account = new_id();
+    let credential = new_id();
+    let settings = serde_json::json!({
+        "app_id": app.app_id,
+        "app_slug": app.slug,
+        "installation_id": installation_id,
+        "login": login,
+    });
+    let secrets = serde_json::json!({ "app_key": app.key_reference });
+    let mut transaction = pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO restless_authority.owner_accounts (id, kind, label, provider, identity_display, personal, health) \
+         VALUES ($1, 'github', $2, NULL, $3, FALSE, 'signed_in')",
+    )
+    .bind(&account)
+    .bind(format!("GitHub {login}"))
+    .bind(login)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "INSERT INTO restless_authority.owner_account_credentials (id, account_id, kind, label, pinned, settings, secrets) \
+         VALUES ($1, $2, 'github_app', $3, TRUE, $4, $5)",
+    )
+    .bind(&credential)
+    .bind(&account)
+    .bind(format!("Restless GitHub App on {login}"))
+    .bind(&settings)
+    .bind(&secrets)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    get(pool, &account)
+        .await?
+        .context("the new account was not found")
+}
+
 /// The settings of an account's preferred credential (never its secrets).
 pub async fn credential_settings(
     pool: &PgPool,
@@ -659,7 +703,15 @@ pub async fn delete(pool: &PgPool, id: &str) -> Result<bool> {
         if let Ok(serde_json::Value::Object(secrets)) =
             row.try_get::<serde_json::Value, _>("secrets")
         {
-            for reference in secrets.values().filter_map(|value| value.as_str()) {
+            // A GitHub App installation points at the App's key, which the App keeps for its
+            // other installations; only the account's own secrets go.
+            for (field, reference) in secrets
+                .iter()
+                .filter_map(|(field, value)| value.as_str().map(|value| (field, value)))
+            {
+                if field == "app_key" {
+                    continue;
+                }
                 if !crate::credential::delete_reference(reference).await {
                     tracing::warn!(
                         account = id,

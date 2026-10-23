@@ -1372,6 +1372,18 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(accounts_api::list).post(accounts_api::create),
         )
         .route(
+            "/accounts/github-app/start",
+            post(accounts_api::github_app_start),
+        )
+        .route(
+            "/accounts/github-app/created",
+            post(accounts_api::github_app_created),
+        )
+        .route(
+            "/accounts/github-app/installed",
+            post(accounts_api::github_app_installed),
+        )
+        .route(
             "/accounts/{id}",
             axum::routing::patch(accounts_api::update).delete(accounts_api::remove),
         )

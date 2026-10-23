@@ -906,3 +906,123 @@ pub(super) async fn company(
         Err(error) => refuse(error),
     }
 }
+
+// ---- GitHub as an App (S98-05) ----
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct GithubAppStart {
+    /// The Accounts page the owner is on; GitHub sends them back to it.
+    page_url: String,
+    /// The organisation the repositories belong to; empty for the owner's own account.
+    #[serde(default)]
+    owner: Option<String>,
+}
+
+/// Begin connecting GitHub as an App. With no App yet for that organisation, the answer is the
+/// manifest to post to GitHub, which creates one; with an App already, it is where to install it.
+pub(super) async fn github_app_start(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    Json(input): Json<GithubAppStart>,
+) -> Response<Body> {
+    use restless_engine::github_app;
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let owner = input
+        .owner
+        .as_deref()
+        .map(str::trim)
+        .filter(|owner| !owner.is_empty());
+    if owner.is_some_and(|owner| !github_app::valid_login(owner)) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "accounts",
+            "That is not a GitHub organisation name.",
+        );
+    }
+    let page = match url::Url::parse(&input.page_url) {
+        Ok(page) if matches!(page.scheme(), "https" | "http") => page,
+        _ => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "accounts",
+                "The page address was not understood.",
+            )
+        }
+    };
+    let flow = github_app::start_flow(owner);
+    match github_app::app_for(state.daemon.authority.pool(), owner).await {
+        Ok(Some(app)) => {
+            Json(serde_json::json!({ "install_url": app.install_url(&flow) })).into_response()
+        }
+        Ok(None) => Json(serde_json::json!({
+            "action": github_app::manifest_action(owner, &flow),
+            "manifest": github_app::manifest(page.as_str(), owner).to_string(),
+        }))
+        .into_response(),
+        Err(error) => refuse(error),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct GithubAppCreated {
+    code: String,
+    state: String,
+}
+
+/// GitHub created the App: keep it, then install it.
+pub(super) async fn github_app_created(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    Json(input): Json<GithubAppCreated>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    match restless_engine::github_app::created(
+        state.daemon.authority.pool(),
+        &input.code,
+        &input.state,
+    )
+    .await
+    {
+        Ok(app) => Json(serde_json::json!({
+            "app": app,
+            "install_url": app.install_url(&input.state),
+        }))
+        .into_response(),
+        Err(error) => refuse(error),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct GithubAppInstalled {
+    installation_id: i64,
+    #[serde(default)]
+    state: Option<String>,
+}
+
+/// The App was installed on an organisation or account: it becomes a GitHub account to grant.
+pub(super) async fn github_app_installed(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    Json(input): Json<GithubAppInstalled>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    match restless_engine::github_app::installed(
+        state.daemon.authority.pool(),
+        input.installation_id,
+        input.state.as_deref(),
+    )
+    .await
+    {
+        Ok(account) => (StatusCode::CREATED, Json(account)).into_response(),
+        Err(error) => refuse(error),
+    }
+}

@@ -653,8 +653,17 @@ pub struct Answer {
     pub body: serde_json::Value,
 }
 
-/// The account's key, read from the vault here and only here, before anything is sent.
+/// The account's key, read from the vault here and only here, before anything is sent. A GitHub
+/// App installation has no stored token: one is minted from the App's key and lasts an hour.
 pub async fn secret(usable: &Usable) -> Result<String> {
+    if let Some((app_id, installation_id)) = crate::github_app::installation_of(&usable.settings) {
+        let key_reference = usable
+            .secrets
+            .get("app_key")
+            .and_then(|value| value.as_str())
+            .context("this GitHub App account has lost its App key")?;
+        return crate::github_app::installation_token(app_id, installation_id, key_reference).await;
+    }
     let reference = usable
         .secrets
         .get("secret")

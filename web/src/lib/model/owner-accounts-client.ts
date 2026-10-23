@@ -41,7 +41,17 @@ export type AccountsClient = {
 		request: string,
 		body: { decision: 'approved' | 'denied'; grant_id?: string }
 	): Promise<void>;
+	/** Connect GitHub as an App (S98-05): with no App yet, the manifest to post to GitHub, which
+	 * creates one; with an App, where to install it. */
+	githubAppStart(input: { page_url: string; owner?: string }): Promise<GithubAppStep>;
+	/** GitHub created the App and sent back a code: keep it, then install it. */
+	githubAppCreated(input: { code: string; state: string }): Promise<{ install_url: string }>;
+	/** The App was installed: the installation becomes a GitHub account. */
+	githubAppInstalled(input: { installation_id: number; state?: string }): Promise<Account>;
 };
+
+/** Either where to install the App, or the manifest that creates one. */
+export type GithubAppStep = { install_url?: string; action?: string; manifest?: string };
 
 export type UseQuery = {
 	company?: string;
@@ -111,7 +121,16 @@ export const ownerAccounts: AccountsClient = {
 			method: 'POST',
 			json: body
 		});
-	}
+	},
+	githubAppStart: (input) =>
+		ownerRequest<GithubAppStep>(`${base}/github-app/start`, { method: 'POST', json: input }),
+	githubAppCreated: (input) =>
+		ownerRequest<{ install_url: string }>(`${base}/github-app/created`, {
+			method: 'POST',
+			json: input
+		}),
+	githubAppInstalled: (input) =>
+		ownerRequest<Account>(`${base}/github-app/installed`, { method: 'POST', json: input })
 };
 
 /** A grant as the company sees it: what it may do with which account (S98-08). Any member. */

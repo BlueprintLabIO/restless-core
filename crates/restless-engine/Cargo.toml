@@ -47,6 +47,8 @@ http = "1"
 bytes = "1"
 hyper-util = { version = "0.1", features = ["tokio", "server", "service", "http1"] }
 rustls = "0.23"
+ring = "0.17"
+pem = "3"
 rcgen = "0.13"
 tower = { version = "0.5", features = ["util"] }
 ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl", "serde-json-impl"] }
@@ -73,3 +75,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Compile speed only; see the note above derive_more. Requested on the
 # proc-macro side so testing this crate alone shares the stack build graph.
 syn = { version = "3", default-features = false, features = ["extra-traits"] }
+
+[dev-dependencies]
+# Test-only: makes a throwaway RSA key in GitHub's format for the GitHub App signing test.
+rsa = { version = "0.9", features = ["pem"] }
+rand = "0.8"
