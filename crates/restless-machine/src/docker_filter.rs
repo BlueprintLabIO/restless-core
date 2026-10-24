@@ -288,6 +288,188 @@ fn non_empty(value: Option<&Value>) -> bool {
     }
 }
 
+/// Docker decodes request bodies with Go's `encoding/json`, which matches field names without
+/// regard to case (Unicode folding included), so `{"privileged": true}` sets `Privileged`. A check
+/// that reads only the exact name would pass it. Refuse every other spelling of a field Docker
+/// knows, any non-ASCII name (`ſ` folds to `s`), and two spellings of one name, so the fields
+/// checked here are exactly the fields Docker applies.
+pub(crate) fn docker_spelling(
+    object: &Map<String, Value>,
+    fields: &[&str],
+) -> Result<(), &'static str> {
+    let mut seen = std::collections::HashSet::new();
+    for key in object.keys() {
+        if !key.is_ascii() {
+            return Err("field names must be ASCII");
+        }
+        if !seen.insert(key.to_ascii_lowercase()) {
+            return Err("a field is named twice");
+        }
+        if fields
+            .iter()
+            .any(|field| field.eq_ignore_ascii_case(key) && *field != key)
+        {
+            return Err("fields must use Docker's own spelling");
+        }
+    }
+    Ok(())
+}
+
+const CREATE_FIELDS: &[&str] = &[
+    "Hostname",
+    "Domainname",
+    "User",
+    "AttachStdin",
+    "AttachStdout",
+    "AttachStderr",
+    "ExposedPorts",
+    "Tty",
+    "OpenStdin",
+    "StdinOnce",
+    "Env",
+    "Cmd",
+    "Healthcheck",
+    "ArgsEscaped",
+    "Image",
+    "Volumes",
+    "WorkingDir",
+    "Entrypoint",
+    "NetworkDisabled",
+    "MacAddress",
+    "OnBuild",
+    "Labels",
+    "StopSignal",
+    "StopTimeout",
+    "Shell",
+    "HostConfig",
+    "NetworkingConfig",
+];
+
+const HOST_CONFIG_FIELDS: &[&str] = &[
+    "CpuShares",
+    "Memory",
+    "CgroupParent",
+    "BlkioWeight",
+    "BlkioWeightDevice",
+    "BlkioDeviceReadBps",
+    "BlkioDeviceWriteBps",
+    "BlkioDeviceReadIOps",
+    "BlkioDeviceWriteIOps",
+    "CpuPeriod",
+    "CpuQuota",
+    "CpuRealtimePeriod",
+    "CpuRealtimeRuntime",
+    "CpusetCpus",
+    "CpusetMems",
+    "Devices",
+    "DeviceCgroupRules",
+    "DeviceRequests",
+    "KernelMemory",
+    "KernelMemoryTCP",
+    "MemoryReservation",
+    "MemorySwap",
+    "MemorySwappiness",
+    "NanoCpus",
+    "OomKillDisable",
+    "Init",
+    "PidsLimit",
+    "Ulimits",
+    "CpuCount",
+    "CpuPercent",
+    "IOMaximumIOps",
+    "IOMaximumBandwidth",
+    "Binds",
+    "ContainerIDFile",
+    "LogConfig",
+    "NetworkMode",
+    "PortBindings",
+    "RestartPolicy",
+    "AutoRemove",
+    "VolumeDriver",
+    "VolumesFrom",
+    "Mounts",
+    "ConsoleSize",
+    "Annotations",
+    "CapAdd",
+    "CapDrop",
+    "CgroupnsMode",
+    "Dns",
+    "DnsOptions",
+    "DnsSearch",
+    "ExtraHosts",
+    "GroupAdd",
+    "IpcMode",
+    "Cgroup",
+    "Links",
+    "OomScoreAdj",
+    "PidMode",
+    "Privileged",
+    "PublishAllPorts",
+    "ReadonlyRootfs",
+    "SecurityOpt",
+    "StorageOpt",
+    "Tmpfs",
+    "UTSMode",
+    "UsernsMode",
+    "ShmSize",
+    "Sysctls",
+    "Runtime",
+    "Isolation",
+    "MaskedPaths",
+    "ReadonlyPaths",
+];
+
+const MOUNT_FIELDS: &[&str] = &[
+    "Target",
+    "Source",
+    "Type",
+    "ReadOnly",
+    "Consistency",
+    "BindOptions",
+    "VolumeOptions",
+    "ImageOptions",
+    "TmpfsOptions",
+    "ClusterOptions",
+];
+
+const VOLUME_OPTION_FIELDS: &[&str] = &["NoCopy", "Labels", "Subpath", "DriverConfig"];
+
+const NETWORKING_FIELDS: &[&str] = &["EndpointsConfig"];
+
+const NAMED_CREATE_FIELDS: &[&str] = &[
+    "Name",
+    "Driver",
+    "DriverOpts",
+    "Options",
+    "Labels",
+    "Internal",
+    "Attachable",
+    "Ingress",
+    "IPAM",
+    "EnableIPv4",
+    "EnableIPv6",
+    "ConfigOnly",
+    "ConfigFrom",
+    "Scope",
+    "CheckDuplicate",
+    "ClusterVolumeSpec",
+];
+
+/// The fields of an exec create body (`docker exec`).
+pub(crate) const EXEC_FIELDS: &[&str] = &[
+    "AttachStdin",
+    "AttachStdout",
+    "AttachStderr",
+    "ConsoleSize",
+    "DetachKeys",
+    "Tty",
+    "Env",
+    "Cmd",
+    "Privileged",
+    "User",
+    "WorkingDir",
+];
+
 /// Check a container create body and rewrite it for this machine: label it as ours, put it on
 /// the machine network, and point `host.docker.internal` at the helper. `ours` answers whether a
 /// named container is this machine's (for `container:<name>` network modes).
@@ -299,6 +481,10 @@ pub fn rewrite_container_create(
     let body = body
         .as_object_mut()
         .ok_or("container create body must be an object")?;
+    docker_spelling(body, CREATE_FIELDS)?;
+    if let Some(networking) = body.get("NetworkingConfig").and_then(Value::as_object) {
+        docker_spelling(networking, NETWORKING_FIELDS)?;
+    }
     let image = body
         .get("Image")
         .and_then(Value::as_str)
@@ -314,8 +500,32 @@ pub fn rewrite_container_create(
         .entry("HostConfig")
         .or_insert_with(|| Value::Object(Map::new()));
     let host = host.as_object_mut().ok_or("HostConfig must be an object")?;
+    docker_spelling(host, HOST_CONFIG_FIELDS)?;
     if host.get("Privileged").and_then(Value::as_bool) == Some(true) {
         return Err("privileged containers are not allowed");
+    }
+    // Another runtime or cgroup could step outside the defaults; empty masked or read-only path
+    // lists unmask /proc and /sys.
+    // The CLI sends every field, empty ones as "" or null, so only a set value counts.
+    if non_empty(host.get("Runtime")) && host.get("Runtime").and_then(Value::as_str) != Some("runc")
+    {
+        return Err("only the default container runtime is allowed");
+    }
+    if non_empty(host.get("CgroupParent")) || non_empty(host.get("VolumeDriver")) {
+        return Err("cgroup parents and volume drivers are not allowed");
+    }
+    // Any list, even an empty one, replaces Docker's default masks.
+    if host.get("MaskedPaths").is_some_and(Value::is_array)
+        || host.get("ReadonlyPaths").is_some_and(Value::is_array)
+    {
+        return Err("masked and read-only path lists are not allowed");
+    }
+    if let Some(ipc) = host.get("IpcMode").and_then(Value::as_str) {
+        if let Some(other) = ipc.strip_prefix("container:") {
+            if !ours(other) {
+                return Err("a container may share only another Restless container's IPC");
+            }
+        }
     }
     for key in [
         "PidMode",
@@ -364,6 +574,15 @@ pub fn rewrite_container_create(
     }
     if let Some(mounts) = host.get("Mounts").and_then(Value::as_array) {
         for mount in mounts {
+            let fields = mount.as_object().ok_or("each mount must be an object")?;
+            docker_spelling(fields, MOUNT_FIELDS)?;
+            if let Some(options) = mount.get("VolumeOptions").and_then(Value::as_object) {
+                docker_spelling(options, VOLUME_OPTION_FIELDS)?;
+                // The local driver's options bind any host path (`type=none,o=bind,device=/`).
+                if non_empty(options.get("DriverConfig")) {
+                    return Err("volume driver options are not allowed");
+                }
+            }
             let kind = mount
                 .get("Type")
                 .and_then(Value::as_str)
@@ -459,6 +678,20 @@ pub fn rewrite_named_create(body: &mut Value, scope: &Scope) -> Result<(), &'sta
     let body = body
         .as_object_mut()
         .ok_or("create body must be an object")?;
+    docker_spelling(body, NAMED_CREATE_FIELDS)?;
+    if non_empty(body.get("ConfigFrom")) {
+        return Err("networks built from another network's configuration are not allowed");
+    }
+    if let Some(ipam) = body.get("IPAM").and_then(Value::as_object) {
+        docker_spelling(ipam, &["Driver", "Config", "Options"])?;
+        let driver = ipam
+            .get("Driver")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !matches!(driver, "" | "default") || non_empty(ipam.get("Options")) {
+            return Err("only the default address management is allowed");
+        }
+    }
     let name = body.get("Name").and_then(Value::as_str).unwrap_or_default();
     if !is_restless_name(name) {
         return Err("volumes and networks here must be named restless-…");
@@ -657,6 +890,83 @@ mod tests {
             assert!(
                 rewrite_container_create(&mut body, &scope(), |_| false).is_err(),
                 "{shown}"
+            );
+        }
+    }
+
+    #[test]
+    fn other_spellings_of_checked_fields_are_refused() {
+        // Docker reads `privileged` as Privileged; so must the filter.
+        for body in [
+            create(json!({ "privileged": true })),
+            create(json!({ "PRIVILEGED": true })),
+            create(json!({ "binds": ["/:/host"] })),
+            create(json!({ "capAdd": ["SYS_ADMIN"] })),
+            create(json!({ "pidMode": "host" })),
+            create(json!({ "Deviceſ": [{ "PathOnHost": "/dev/sda" }] })),
+            create(json!({ "Binds": [], "binds": ["/:/host"] })),
+            json!({ "Image": "ghcr.io/x/company@sha256:abc", "image": "alpine" }),
+            json!({ "Image": "ghcr.io/x/company@sha256:abc", "hostConfig": { "Privileged": true } }),
+            create(
+                json!({ "Mounts": [{ "type": "bind", "Source": "restless-x", "Target": "/x" }] }),
+            ),
+        ] {
+            assert!(
+                rewrite_container_create(&mut body.clone(), &scope(), |_| false).is_err(),
+                "{body}"
+            );
+        }
+        let mut exec = json!({ "Cmd": ["sh"], "privileged": true });
+        assert!(docker_spelling(exec.as_object_mut().unwrap(), EXEC_FIELDS).is_err());
+    }
+
+    #[test]
+    fn volume_mounts_cannot_carry_driver_options() {
+        let mut body = create(json!({ "Mounts": [{
+            "Type": "volume", "Source": "restless-x", "Target": "/x",
+            "VolumeOptions": { "DriverConfig": { "Name": "local", "Options": { "type": "none", "o": "bind", "device": "/" } } }
+        }] }));
+        assert!(rewrite_container_create(&mut body, &scope(), |_| false).is_err());
+        let mut plain = create(json!({ "Mounts": [{
+            "Type": "volume", "Source": "restless-x", "Target": "/x", "VolumeOptions": { "NoCopy": true }
+        }] }));
+        rewrite_container_create(&mut plain, &scope(), |_| false).unwrap();
+    }
+
+    #[test]
+    fn runtimes_cgroups_and_unmasked_paths_are_refused() {
+        for host in [
+            json!({ "Runtime": "sysbox-runc" }),
+            json!({ "CgroupParent": "/" }),
+            json!({ "MaskedPaths": [] }),
+            json!({ "ReadonlyPaths": [] }),
+            json!({ "VolumeDriver": "local" }),
+            json!({ "IpcMode": "container:someone-else" }),
+        ] {
+            assert!(
+                rewrite_container_create(&mut create(host.clone()), &scope(), |_| false).is_err(),
+                "{host}"
+            );
+        }
+        rewrite_container_create(&mut create(json!({ "Runtime": "runc" })), &scope(), |_| {
+            false
+        })
+        .unwrap();
+        // What the Docker CLI sends when none of these is set.
+        rewrite_container_create(
+            &mut create(json!({ "Runtime": "", "CgroupParent": "", "VolumeDriver": "", "MaskedPaths": null, "ReadonlyPaths": null })),
+            &scope(),
+            |_| false,
+        )
+        .unwrap();
+        for body in [
+            json!({ "Name": "restless-n", "ConfigFrom": { "Network": "lan" } }),
+            json!({ "Name": "restless-n", "IPAM": { "Driver": "custom" } }),
+            json!({ "Name": "restless-n", "driverOpts": { "device": "/home" } }),
+        ] {
+            assert!(
+                rewrite_named_create(&mut body.clone(), &scope()).is_err(),
+                "{body}"
             );
         }
     }

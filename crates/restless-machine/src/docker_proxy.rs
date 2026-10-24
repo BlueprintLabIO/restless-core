@@ -411,6 +411,12 @@ impl DockerProxy {
             Ok(value) => value,
             Err(refusal) => return refusal,
         };
+        let Some(fields) = value.as_object() else {
+            return message(StatusCode::BAD_REQUEST, "exec body must be an object");
+        };
+        if let Err(why) = docker_filter::docker_spelling(fields, docker_filter::EXEC_FIELDS) {
+            return message(StatusCode::FORBIDDEN, why);
+        }
         if value.get("Privileged").and_then(Value::as_bool) == Some(true) {
             return message(StatusCode::FORBIDDEN, "privileged exec is not allowed");
         }
