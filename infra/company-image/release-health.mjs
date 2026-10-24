@@ -65,4 +65,4 @@ createServer((request, response) => {
   }
   response.writeHead(404);
   response.end(JSON.stringify({ status: "not_found" }));
-}).listen(7789, "0.0.0.0");
+}).listen(7789, "127.0.0.1");
