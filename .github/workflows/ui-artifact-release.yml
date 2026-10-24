@@ -38,7 +38,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, restless-core, restless-core-ci]
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -61,7 +61,7 @@ jobs:
             --workflow-ref="$GITHUB_WORKFLOW_REF" --publish="$PUBLISH" --concurrency=2 export --path="$out"
           jq -r '.libraries[] | [.component, (.reference // "qualification only"), (if .reused then "reused" else "qualified" end)] | @tsv' \
             "$out/libraries-receipt.json" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: core-libraries-${{ github.sha }}
           path: ${{ runner.temp }}/core-libraries/${{ github.sha }}/

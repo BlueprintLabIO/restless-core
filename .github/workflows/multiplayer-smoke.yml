@@ -34,13 +34,13 @@ jobs:
         # The runner service does not inherit a login PATH; rustup lives here.
         run: test -x "$HOME/.cargo/bin/cargo" && echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
       - name: Keep the runner's checkout small
         run: scripts/release/compact-checkout.sh
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
 
@@ -75,7 +75,7 @@ jobs:
 
       - name: Keep the evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: multiplayer-smoke-${{ github.run_id }}
           path: ${{ runner.temp }}/multiplayer-smoke-${{ github.run_id }}
