@@ -319,9 +319,12 @@ fn fit_cpus(bound: Option<String>, host_cpus: usize) -> Option<String> {
     let Ok(wanted) = bound.parse::<f64>() else {
         return Some(bound);
     };
-    let host = host_cpus.max(1) as f64;
-    Some(if wanted > host {
-        format!("{host:.1}")
+    // One core always stays with the host: a company building on every core starved the plane
+    // until its readiness checks failed and every company showed as unavailable (24 October).
+    let host = host_cpus.max(1);
+    let ceiling = if host > 1 { host - 1 } else { host } as f64;
+    Some(if wanted > ceiling {
+        format!("{ceiling:.1}")
     } else {
         bound
     })
@@ -2403,6 +2406,9 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             if let Some(network) = internal_network.as_deref() {
                 ensure_container_on_network(company, network).await?;
             }
+            // A running company made under an older, larger bound gets this host's now; Docker
+            // applies it live.
+            refit_container_cpus(&container_name(company)).await;
         }
         ContainerStatus::Stopped => {
             if !replaced {
@@ -5504,9 +5510,14 @@ mission = "Choose intelligence"
 
     #[test]
     fn the_cpu_bound_never_exceeds_the_host() {
+        // One core stays with the host.
         assert_eq!(
             super::fit_cpus(Some("4.0".into()), 2).as_deref(),
-            Some("2.0")
+            Some("1.0")
+        );
+        assert_eq!(
+            super::fit_cpus(Some("4.0".into()), 4).as_deref(),
+            Some("3.0")
         );
         assert_eq!(
             super::fit_cpus(Some("4.0".into()), 8).as_deref(),
@@ -5514,6 +5525,10 @@ mission = "Choose intelligence"
         );
         assert_eq!(
             super::fit_cpus(Some("1.5".into()), 2).as_deref(),
+            Some("1.0")
+        );
+        assert_eq!(
+            super::fit_cpus(Some("1.5".into()), 4).as_deref(),
             Some("1.5")
         );
         assert_eq!(
