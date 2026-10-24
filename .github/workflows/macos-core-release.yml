@@ -66,7 +66,7 @@ jobs:
             echo "SKIP=true" >> "$GITHUB_ENV"
             echo "macOS ${{ matrix.arch }} for $REVISION is already published." >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: env.SKIP != 'true'
         with:
           ref: ${{ env.REVISION }}
@@ -112,7 +112,7 @@ jobs:
             '{source_revision: $revision, arch: $arch, built_by: $run}' > out/release.json
           tar -czf binaries.tar.gz -C out restless restlessd release.json
           shasum -a 256 binaries.tar.gz
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
         if: env.SKIP != 'true'
         with:
           cosign-release: v2.4.1
@@ -125,7 +125,7 @@ jobs:
           cosign verify-blob --bundle binaries.sigstore.json \
             --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/macos-core-release.yml@refs/heads/main" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com binaries.tar.gz
-      - uses: oras-project/setup-oras@v1
+      - uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
         if: env.SKIP != 'true'
       - name: Publish beside the Linux bundle
         if: env.SKIP != 'true'

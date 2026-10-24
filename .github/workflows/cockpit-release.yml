@@ -30,7 +30,7 @@ jobs:
     env:
       DAGGER_NO_NAG: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -51,7 +51,7 @@ jobs:
           echo "Web-only since $BASE: $(git diff --name-only "$BASE" "$GITHUB_SHA" | wc -l) file(s)."
       - name: Install the pinned Dagger CLI
         run: scripts/release/install-dagger.sh
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
       - name: Build, check, scan and publish the cockpit image
         env:
           RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
@@ -80,7 +80,7 @@ jobs:
             echo
             echo "Apply it with Cloud's **Cockpit update** workflow."
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: cockpit-${{ github.sha }}
           path: ${{ runner.temp }}/cockpit
