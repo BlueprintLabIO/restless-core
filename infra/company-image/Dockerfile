@@ -300,7 +300,7 @@ RUN npm install -g ws@8.22.0 && npm cache clean --force
 # explicit until npm includes them in its published bundle.
 RUN npm --prefix /tmp/npm-security-fixes install \
         --ignore-scripts --omit=dev --no-audit --no-fund --save-exact \
-        brace-expansion@5.0.11 undici@6.28.1 \
+        brace-expansion@5.0.11 undici@6.29.1 \
     && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
         /usr/local/lib/node_modules/npm/node_modules/undici \
     && cp -a /tmp/npm-security-fixes/node_modules/brace-expansion \
@@ -354,6 +354,15 @@ RUN archive="$(npm pack "@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_AC
     && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/package.json")" = "${CLAUDE_AGENT_ACP_VERSION}" \
     && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/@anthropic-ai/claude-agent-sdk/package.json")" = "${CLAUDE_AGENT_SDK_VERSION}" \
     && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/@anthropic-ai/claude-agent-sdk/manifest.json")" = "${CLAUDE_CODE_BUILD_VERSION}" \
+    # zod 4.6.5 in the adapter has GHSA-mrhx-c7xc-m3w5 (memory exhaustion on oversized constrained
+    # collections); 4.6.6 is the patch release that fixes it. Replaced in place until the adapter
+    # ships it: same major and minor, and the adapter was checked to load and start with it.
+    && npm --prefix /tmp/acp-security-fixes install --ignore-scripts --omit=dev --no-audit --no-fund \
+        --save-exact zod@4.6.6 \
+    && rm -rf "${adapter_root}/node_modules/zod" \
+    && cp -a /tmp/acp-security-fixes/node_modules/zod "${adapter_root}/node_modules/" \
+    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/zod/package.json")" = 4.6.6 \
+    && rm -rf /tmp/acp-security-fixes \
     && rm -f "/tmp/${archive}" \
     && npm cache clean --force
 ENV RESTLESS_CLAUDE_AGENT_ACP_BUILD="claude-agent-acp-${CLAUDE_AGENT_ACP_VERSION}" \
