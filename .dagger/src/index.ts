@@ -347,7 +347,9 @@ export class RestlessCore {
       .withExec(['/bin/sh', '-ec',
         'node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173 > /tmp/restless-overlay-vite.log 2>&1 & server_pid=$!; '
         + 'trap \'kill -TERM "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true\' EXIT; '
-        + 'node --input-type=module -e \'let ready=false; for(let i=0;i<60;i++){try{const r=await fetch("http://127.0.0.1:5173/gallery/shell",{signal:AbortSignal.timeout(1000)}); await r.arrayBuffer(); if(r.ok){ready=true; break}}catch{} await new Promise(r=>setTimeout(r,250))} if(!ready) throw new Error("overlay fixture did not start")\' '
+        // Up to two minutes: after a dependency bump Vite re-optimizes from cold, and the first
+        // request is what triggers its SSR bundling (release 7fd7a7f8 gave up after ~15 s).
+        + 'node --input-type=module -e \'let ready=false; const until=Date.now()+120000; while(Date.now()<until){try{const r=await fetch("http://127.0.0.1:5173/gallery/shell",{signal:AbortSignal.timeout(15000)}); await r.arrayBuffer(); if(r.ok){ready=true; break}}catch{} await new Promise(r=>setTimeout(r,500))} if(!ready) throw new Error("overlay fixture did not start")\' '
         + '|| { tail -60 /tmp/restless-overlay-vite.log; exit 1; }; '
         + 'node scripts/verify-overlays.mjs',
       ]);

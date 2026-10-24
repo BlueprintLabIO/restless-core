@@ -402,7 +402,7 @@
 		display: grid;
 		gap: 6px;
 		min-width: 0;
-		font-size: 13px;
+		font-size: var(--t-body);
 		color: var(--text-secondary);
 	}
 	.terminal-ask code {
