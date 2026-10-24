@@ -327,6 +327,9 @@ ENV BUN_INSTALL=/usr/local/bun
 RUN npm install -g bun@1.3.14 \
     && bun install -g @oh-my-pi/pi-coding-agent@18.8.6 \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
+    # bun's download cache is a second copy of every package (the image scan counts each one), and
+    # nothing reads it at runtime.
+    && rm -rf ${BUN_INSTALL}/install/cache \
     && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force
 
