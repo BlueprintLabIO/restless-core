@@ -227,7 +227,7 @@ pub(crate) async fn issue_ticket(
 async fn desktop_answers(company: &str) -> bool {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     loop {
-        if runtime::desktop_asset(company, "vnc.html").await.is_ok() {
+        if runtime::desktop_web_ready(company).await {
             return true;
         }
         if tokio::time::Instant::now() >= deadline {
@@ -433,6 +433,10 @@ pub(crate) async fn desktop_asset(
             response
                 .headers_mut()
                 .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response.headers_mut().insert(
+                HeaderName::from_static("x-content-type-options"),
+                HeaderValue::from_static("nosniff"),
+            );
             response
         }
         Err(error) => api_error(
