@@ -60,6 +60,16 @@ class SupervisionContractTests(unittest.TestCase):
         self.assertEqual(trusted["program:runtime-bridge"]["user"], "root")
         self.assertNotIn("/company/services", (HERE / "supervisord.conf").read_text())
 
+    def test_built_in_listeners_bind_loopback_only(self) -> None:
+        # Companies of one owner share a Docker network. A wildcard listener
+        # (the desktop's websockify fronts a password-less VNC server) would
+        # let one company drive another's desktop. The plane reaches these
+        # ports through `docker exec ... socat TCP:127.0.0.1:<port>`.
+        for name in ("company-supervisord.conf", "computer-supervisord.conf", "supervisord.conf"):
+            self.assertNotIn("0.0.0.0", (HERE / name).read_text(encoding="utf-8"), name)
+        for name in ("release-health.mjs", "browser-broker.mjs"):
+            self.assertNotIn('"0.0.0.0"', (HERE / name).read_text(encoding="utf-8"), name)
+
     def test_company_supervisor_and_every_built_in_child_inherit_uid_2000(self) -> None:
         company = read_config(HERE / "company-supervisord.conf")
         self.assertEqual(
