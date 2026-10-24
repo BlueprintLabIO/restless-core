@@ -143,15 +143,8 @@ const SCAN_EXCEPTIONS = [
   { id: 'CVE-2026-113344', name: 'chrome', version: '156.0.8078.47', until: '2026-10-27', locations: [
     '/usr/local/share/restless/browser.cdx.json',
   ] },
-  // Owner-approved, 2026-10-25: upgrade what can be upgraded, waive only what has no fixed release.
-  // Denial of service only (a crafted response with excessive content-encodings throws). This copy
-  // is bundled inside npm 11.21.0; the newest npm (11.21.1) still bundles 6.29.0, below the fixed
-  // 6.29.1. npm talks only to the registry, inside a company sandbox. Drop when npm ships it.
-  { id: 'GHSA-xjj6-f33q-929c', name: 'undici', version: '6.28.1', until: '2026-11-08', locations: [
-    '/usr/local/lib/node_modules/npm/node_modules/undici/package.json',
-  ] },
-  // Owner-approved, 2026-10-25. Denial of service only (memory while validating an oversized
-  // constrained collection). Zod 3 has no fixed release (3.25.76 is the last); the fix is 4.6.6.
+  // Owner-approved, 2026-10-25 (upgrade what can be, waive only what has no fix). Denial of
+  // service only (memory while validating an oversized constrained collection). Zod 3 has no fixed release (3.25.76 is the last); the fix is 4.6.6.
   // This copy is chromium-bidi's, under the bun-installed coding agent, validating messages from
   // the company's own Chrome. Drop when chromium-bidi moves to zod 4.
   { id: 'GHSA-mrhx-c7xc-m3w5', name: 'zod', version: '3.25.76', until: '2026-11-08', locations: [

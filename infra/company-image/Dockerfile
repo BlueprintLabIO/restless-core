@@ -354,15 +354,8 @@ RUN archive="$(npm pack "@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_AC
     && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/package.json")" = "${CLAUDE_AGENT_ACP_VERSION}" \
     && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/@anthropic-ai/claude-agent-sdk/package.json")" = "${CLAUDE_AGENT_SDK_VERSION}" \
     && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/@anthropic-ai/claude-agent-sdk/manifest.json")" = "${CLAUDE_CODE_BUILD_VERSION}" \
-    # zod 4.6.5 in the adapter has GHSA-mrhx-c7xc-m3w5 (memory exhaustion on oversized constrained
-    # collections); 4.6.6 is the patch release that fixes it. Replaced in place until the adapter
-    # ships it: same major and minor, and the adapter was checked to load and start with it.
-    && npm --prefix /tmp/acp-security-fixes install --ignore-scripts --omit=dev --no-audit --no-fund \
-        --save-exact zod@4.6.6 \
-    && rm -rf "${adapter_root}/node_modules/zod" \
-    && cp -a /tmp/acp-security-fixes/node_modules/zod "${adapter_root}/node_modules/" \
-    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/zod/package.json")" = 4.6.6 \
-    && rm -rf /tmp/acp-security-fixes \
+    # Adapter 0.90.0 pins zod 4.6.7, past GHSA-mrhx-c7xc-m3w5 (fixed in 4.6.6).
+    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/zod/package.json")" = 4.6.7 \
     && rm -f "/tmp/${archive}" \
     && npm cache clean --force
 ENV RESTLESS_CLAUDE_AGENT_ACP_BUILD="claude-agent-acp-${CLAUDE_AGENT_ACP_VERSION}" \
