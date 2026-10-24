@@ -2761,7 +2761,7 @@ async fn relay_anthropic_count_tokens(
                 .get("user-agent")
                 .and_then(|value| value.to_str().ok())
                 .filter(|value| value.starts_with("claude-cli/") && value.len() <= 160)
-                .unwrap_or("claude-cli/2.1.293");
+                .unwrap_or("claude-cli/2.1.296");
             upstream_request
                 .bearer_auth(token)
                 .header("anthropic-beta", beta)

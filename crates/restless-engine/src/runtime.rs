@@ -555,14 +555,14 @@ impl AgentHarness {
         match self {
             Self::RestlessManaged => "omp-18.8.6",
             Self::Codex => "codex-cli-0.155.1",
-            Self::ClaudeAgent => "claude-agent-acp-0.88.0",
+            Self::ClaudeAgent => "claude-agent-acp-0.90.0",
             Self::CustomAcp => "custom-acp-v1",
         }
     }
 
     pub const fn native_agent_build(self) -> Option<&'static str> {
         match self {
-            Self::ClaudeAgent => Some("claude-code-2.1.293"),
+            Self::ClaudeAgent => Some("claude-code-2.1.296"),
             Self::RestlessManaged | Self::Codex | Self::CustomAcp => None,
         }
     }
