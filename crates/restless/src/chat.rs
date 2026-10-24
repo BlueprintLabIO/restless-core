@@ -351,13 +351,26 @@ struct ChatClient {
 
 impl ChatClient {
     fn from_environment() -> Result<Self> {
-        let base = std::env::var("RESTLESS_OWNER_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:7788".to_string());
+        // A signed-in terminal (S106) chats with its context's plane, with its token; an explicit
+        // RESTLESS_OWNER_URL, or no context, keeps the local gateway.
+        let context = match std::env::var("RESTLESS_OWNER_URL") {
+            Ok(_) => None,
+            Err(_) => crate::remote::current()?.map(|(_, context)| context),
+        };
+        let base = match (&context, std::env::var("RESTLESS_OWNER_URL")) {
+            (Some(context), _) => context.url.clone(),
+            (None, Ok(url)) => url,
+            (None, Err(_)) => "http://127.0.0.1:7788".to_string(),
+        };
         let base = Url::parse(&base).context("parse RESTLESS_OWNER_URL")?;
         if !matches!(base.scheme(), "http" | "https") {
             bail!("RESTLESS_OWNER_URL must use http:// or https://");
         }
-        let http = HttpClient::builder()
+        let mut http = HttpClient::builder();
+        if let Some(context) = &context {
+            http = http.default_headers(crate::remote::headers(context)?);
+        }
+        let http = http
             .connect_timeout(Duration::from_secs(4))
             // A live SSE stream is expected to idle. A bounded request
             // lifetime lets the worker re-check shutdown and reconnect after
@@ -383,7 +396,10 @@ impl ChatClient {
 
     fn send_message(&self, company: &str, actor: &str, body: &str) -> Result<SendReceipt> {
         let endpoint = self.endpoint(&["companies", company, "actors", actor, "conversation"])?;
-        let form = Form::new().text("body", body.to_string());
+        // The gateway delivers each message once per client command id.
+        let form = Form::new()
+            .text("body", body.to_string())
+            .text("client_command_id", uuid::Uuid::new_v4().to_string());
         let response = self
             .http
             .post(endpoint)

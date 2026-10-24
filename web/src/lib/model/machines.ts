@@ -72,6 +72,34 @@ export function createPairing(label?: string): Promise<Pairing> {
 	});
 }
 
+/** A terminal waiting to sign in (S106): what it called itself, and how long its code lasts. */
+export interface WaitingTerminal {
+	code: string;
+	label: string;
+	expires_in: number;
+}
+
+/** Behind Cloud's one address a terminal names this plane; on its own address it needs nothing. */
+export async function terminalPlane(): Promise<string | null> {
+	return (await ownerRequest<{ plane: string | null }>('/api/cli/plane')).plane;
+}
+
+export function lookupTerminal(code: string): Promise<WaitingTerminal> {
+	return ownerRequest<WaitingTerminal>(`/api/cli/device/${encodeURIComponent(code)}`);
+}
+
+export function decideTerminal(code: string, approve: boolean) {
+	return ownerRequest<{ label: string; approved: boolean }>('/api/cli/device/approve', {
+		method: 'POST',
+		json: { code, approve }
+	});
+}
+
+/** The line that signs a terminal in to this Restless. */
+export function loginLine(host: string, plane: string | null): string {
+	return `restless login ${host}${plane ? ` --plane ${plane}` : ''}`;
+}
+
 export function changeMachine(id: string, change: { label?: string; paused?: boolean }) {
 	return ownerRequest<Machine>(`/api/machines/${encodeURIComponent(id)}`, {
 		method: 'PATCH',

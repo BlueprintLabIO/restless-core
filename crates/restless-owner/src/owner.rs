@@ -19,6 +19,8 @@ mod agent_exchanges_api;
 mod appliance_api;
 #[path = "owner_capacity_activity.rs"]
 pub mod capacity_activity;
+#[path = "owner_cli.rs"]
+mod cli_api;
 #[path = "owner_company_settings.rs"]
 mod company_settings_api;
 #[path = "owner_custom_harnesses.rs"]
@@ -1471,6 +1473,13 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(mcp_api::list_access).post(mcp_api::issue_access),
         )
         .route("/mcp-access/{id}/revoke", post(mcp_api::revoke_access))
+        .route("/cli/device", post(cli_api::start))
+        .route("/cli/device/token", post(cli_api::token))
+        .route("/cli/device/approve", post(cli_api::decide))
+        .route("/cli/device/{code}", get(cli_api::lookup))
+        .route("/cli/logout", post(cli_api::logout))
+        .route("/cli/plane", get(cli_api::plane))
+        .route("/companies/{company}/shell", get(cli_api::shell))
         .route(
             "/connections/models/{provider}",
             get(oauth_login_api::account_models),
@@ -2392,6 +2401,28 @@ async fn enforce_owner_boundary(
         // opaque origin, so its own requests carry no session; requiring one would break the
         // page's stylesheet and images, and grant nothing the ticket does not already decide.
         return next.run(request).await;
+    }
+    if cli_api::is_public_path(request.uri().path()) {
+        // A terminal signing in has no session yet. Starting a sign-in yields a code that is
+        // worthless until a signed-in person approves it; polling only ever returns that
+        // approval's token, once.
+        return next.run(request).await;
+    }
+    {
+        let method = request.method().clone();
+        let path = request.uri().path().to_string();
+        if let Some(result) =
+            cli_api::bearer_principal(&state, &method, &path, request.headers()).await
+        {
+            // A signed-in terminal (S106): served as its token's holder, never as a browser.
+            return match result {
+                Ok(principal) => {
+                    request.extensions_mut().insert(principal);
+                    next.run(request).await
+                }
+                Err(refusal) => refusal,
+            };
+        }
     }
     if request.uri().path() == mcp_api::MCP_PATH {
         // An outside MCP client presents a personal bearer, never a browser

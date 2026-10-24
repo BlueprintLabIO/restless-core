@@ -16,6 +16,7 @@ mod appliance;
 mod chat;
 mod direction;
 mod document;
+mod remote;
 mod sheet;
 mod skill;
 
@@ -84,6 +85,44 @@ enum AppsCommand {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Sign this terminal in to a Restless: Cloud (`app.restless.run`), a self-hosted address, or
+    /// this computer's. You approve the code it prints in Settings › Computers.
+    Login {
+        /// The Restless address, e.g. app.restless.run or 127.0.0.1:7788.
+        address: String,
+        /// Behind Cloud's one address: the plane to reach (Settings › Computers shows it).
+        #[arg(long)]
+        plane: Option<String>,
+        /// What to call this context (defaults to the address's host).
+        #[arg(long)]
+        name: Option<String>,
+        /// Don't try to open the approval page in a browser.
+        #[arg(long)]
+        no_browser: bool,
+    },
+    /// Sign this terminal out of a context and revoke its token.
+    Logout { name: Option<String> },
+    /// Switch which signed-in Restless this terminal uses.
+    Use { name: String },
+    /// List the Restless addresses this terminal is signed in to.
+    Contexts,
+    /// Who and where this terminal is signed in as.
+    Whoami,
+    /// The companies on the current context.
+    Companies,
+    /// What needs you, across your companies (or one).
+    Decisions { company: Option<String> },
+    /// Tell a company's Exec something, as you.
+    Ask {
+        company: String,
+        /// The message (quote it).
+        message: Vec<String>,
+    },
+    /// Open a shell on a company's computer, through its Restless (account owner only).
+    Ssh { company: String },
+    /// Lend this computer (or a server you own: ssh://user@host) to the current context's
+    /// Restless, so its companies can run work here.
+    Connect { target: Option<String> },
     /// Install and operate the dependable local Restless appliance.
     Appliance {
         #[command(subcommand)]
@@ -2431,6 +2470,25 @@ fn state_root() -> PathBuf {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    // A client of another Restless (S106): no local appliance profile is involved.
+    match &cli.command {
+        Command::Login {
+            address,
+            plane,
+            name,
+            no_browser,
+        } => return remote::login(address, plane.clone(), name.clone(), !no_browser),
+        Command::Logout { name } => return remote::logout(name.clone()),
+        Command::Use { name } => return remote::use_context(name),
+        Command::Contexts => return remote::list_contexts(),
+        Command::Whoami => return remote::whoami(),
+        Command::Companies => return remote::companies(),
+        Command::Decisions { company } => return remote::decisions(company.clone()),
+        Command::Ask { company, message } => return remote::ask(company, &message.join(" ")),
+        Command::Connect { target } => return remote::connect(target.clone()),
+        Command::Ssh { company } => return remote::ssh(company),
+        _ => {}
+    }
     // Host commands must name a coherent appliance profile before they can
     // reach a socket, Docker resource or destructive lifecycle operation.
     // Runtime clients authenticate through RESTLESS_COORDINATOR instead and
@@ -4359,6 +4417,16 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             "key": key,
         }),
         Command::Appliance { .. }
+        | Command::Login { .. }
+        | Command::Logout { .. }
+        | Command::Use { .. }
+        | Command::Contexts
+        | Command::Whoami
+        | Command::Companies
+        | Command::Decisions { .. }
+        | Command::Ask { .. }
+        | Command::Connect { .. }
+        | Command::Ssh { .. }
         | Command::Open
         | Command::Doctor { .. }
         | Command::Commission { .. }

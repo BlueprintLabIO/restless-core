@@ -2,12 +2,18 @@
 	/* Settings › Computers (S99): the machines the owner holds. The plane's own host is always
 	 * first; the owner adds their own computers with a one-time code and one line, and each row says
 	 * whether it is connected, what it is, and which companies run on it. Restless runs only its own
-	 * sealed containers on a computer you add; removing it cuts it off at once. */
+	 * sealed containers on a computer you add; removing it cuts it off at once. A terminal signs in
+	 * here too (S106): `restless login` prints a code, and this page approves it. */
 	import { onDestroy, onMount } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import {
 		changeMachine,
 		createPairing,
+		decideTerminal,
+		loginLine,
+		lookupTerminal,
+		terminalPlane,
+		type WaitingTerminal,
 		likelyWindows,
 		listMachines,
 		machineStatus,
@@ -41,7 +47,8 @@
 
 	/* Never a raw id: blank while the list loads, then a plain word for one no longer active. */
 	const companyName = (id: string) =>
-		companies.find((company) => company.id === id)?.name ?? (companies.length ? 'An archived company' : '');
+		companies.find((company) => company.id === id)?.name ??
+		(companies.length ? 'An archived company' : '');
 	const secondsLeft = $derived(
 		pairing ? Math.max(0, Math.round((Date.parse(pairing.expires_at) - now) / 1000)) : 0
 	);
@@ -51,7 +58,8 @@
 			machines = await listMachines();
 			failure = '';
 			if (pairing && !joined) {
-				joined = machines.find((machine) => machine.kind === 'own' && !before.has(machine.id)) ?? null;
+				joined =
+					machines.find((machine) => machine.kind === 'own' && !before.has(machine.id)) ?? null;
 				if (joined) pairing = null;
 			}
 		} catch (cause) {
@@ -62,8 +70,52 @@
 		}
 	}
 
+	/* Terminals (S106): the line to sign one in, and one waiting for approval (?terminal=CODE). */
+	let terminalLine = $state('');
+	let waiting = $state<WaitingTerminal | null>(null);
+	let deciding = $state(false);
+	async function readTerminals() {
+		try {
+			terminalLine = loginLine(location.host, await terminalPlane());
+		} catch {
+			terminalLine = loginLine(location.host, null);
+		}
+		const code = new URLSearchParams(location.search).get('terminal');
+		if (!code) return;
+		try {
+			waiting = await lookupTerminal(code);
+		} catch (cause) {
+			toast(failureSentence(cause, 'No terminal is waiting with that code.'), { tone: 'failure' });
+			forgetCode();
+		}
+	}
+	function forgetCode() {
+		const clean = new URL(location.href);
+		clean.searchParams.delete('terminal');
+		history.replaceState(history.state, '', clean);
+	}
+	async function decide(approve: boolean) {
+		if (!waiting) return;
+		deciding = true;
+		try {
+			const answer = await decideTerminal(waiting.code, approve);
+			toast(
+				approve
+					? `${answer.label} is signed in. Its terminal finishes on its own.`
+					: 'Declined. That terminal is not signed in.'
+			);
+			waiting = null;
+			forgetCode();
+		} catch (cause) {
+			toast(failureSentence(cause, 'That did not save.'), { tone: 'failure' });
+		} finally {
+			deciding = false;
+		}
+	}
+
 	let timer: ReturnType<typeof setInterval> | undefined;
 	onMount(() => {
+		void readTerminals();
 		platform = likelyWindows(navigator.userAgent) ? 'windows' : 'unix';
 		void refresh();
 		timer = setInterval(() => {
@@ -119,7 +171,9 @@
 		try {
 			const changed = await changeMachine(machine.id, { paused });
 			machines = machines.map((row) => (row.id === machine.id ? changed : row));
-			toast(paused ? `${machine.label} paused. Nothing new runs there.` : `${machine.label} resumed.`);
+			toast(
+				paused ? `${machine.label} paused. Nothing new runs there.` : `${machine.label} resumed.`
+			);
 		} catch (cause) {
 			toast(failureSentence(cause, 'That did not save.'), { tone: 'failure' });
 		}
@@ -151,9 +205,36 @@
 				type="button"
 				class="btn small"
 				aria-expanded={adding}
-				onclick={() => (adding ? closeAdd() : (adding = true))}>{adding ? 'Close' : 'Add a computer'}</button
+				onclick={() => (adding ? closeAdd() : (adding = true))}
+				>{adding ? 'Close' : 'Add a computer'}</button
 			>
 		</header>
+
+		{#if waiting}
+			<div class="add terminal-ask" role="alertdialog" aria-label="A terminal is signing in">
+				<p class="joined">
+					<strong>{waiting.label} wants to sign in as you</strong>
+					<span
+						>Code <code>{waiting.code}</code>. Approve only if it matches the code your terminal
+						shows.</span
+					>
+				</p>
+				<div class="add-actions">
+					<button
+						type="button"
+						class="btn small ghost"
+						disabled={deciding}
+						onclick={() => decide(false)}>Decline</button
+					>
+					<button
+						type="button"
+						class="btn small primary"
+						disabled={deciding}
+						onclick={() => decide(true)}>Approve</button
+					>
+				</div>
+			</div>
+		{/if}
 
 		{#if adding}
 			<div class="add">
@@ -195,8 +276,10 @@
 							</div>
 							<div class="command">
 								<code>{pairing.commands[platform]}</code>
-								<button type="button" class="btn small" onclick={() => copy(pairing!.commands[platform])}
-									>Copy</button
+								<button
+									type="button"
+									class="btn small"
+									onclick={() => copy(pairing!.commands[platform])}>Copy</button
 								>
 							</div>
 						</li>
@@ -204,8 +287,10 @@
 					<p class="waiting" role="status">
 						{#if secondsLeft > 0}
 							<span class="pulse" aria-hidden="true"></span>Waiting for your computer… The code
-							<strong>{pairing.code}</strong> works once, for {Math.ceil(secondsLeft / 60)} more
-							minute{secondsLeft > 60 ? 's' : ''}.
+							<strong>{pairing.code}</strong> works once, for {Math.ceil(secondsLeft / 60)} more minute{secondsLeft >
+							60
+								? 's'
+								: ''}.
 						{:else}
 							The code expired. <button type="button" class="link" onclick={() => makeCode()}
 								>Make a new one</button
@@ -231,6 +316,19 @@
 						</div>
 					</form>
 				{/if}
+			</div>
+		{/if}
+
+		{#if terminalLine}
+			<div class="terminal-line">
+				<span
+					title="Install Restless on any computer, run this, then approve the code it prints here. The terminal can then use your companies: restless decisions, restless chat, restless connect."
+					>Use Restless from a terminal</span
+				>
+				<div class="command">
+					<code>{terminalLine}</code>
+					<button type="button" class="btn small" onclick={() => copy(terminalLine)}>Copy</button>
+				</div>
 			</div>
 		{/if}
 
@@ -263,10 +361,14 @@
 							{/if}
 						</div>
 						<div class="uses">
-							{#each machine.companies as use (use.company)}<span class="chip" class:helper={use.role === 'helper'}
+							{#each machine.companies as use (use.company)}<span
+									class="chip"
+									class:helper={use.role === 'helper'}
 									>{companyName(use.company)}{use.role === 'helper' ? ' · helper' : ''}</span
 								>{:else}<span class="unused"
-									>{machine.kind === 'plane' ? 'Every company not moved elsewhere' : 'No company yet'}</span
+									>{machine.kind === 'plane'
+										? 'Every company not moved elsewhere'
+										: 'No company yet'}</span
 								>{/each}
 						</div>
 						<span class="status {status.tone}">{status.label}</span>
@@ -283,7 +385,9 @@
 									<button type="button" onclick={() => void pause(machine, !machine.paused)}
 										>{machine.paused ? 'Resume' : 'Pause'}</button
 									>
-									<button type="button" onclick={() => void remove(machine)}>Remove computer…</button>
+									<button type="button" onclick={() => void remove(machine)}
+										>Remove computer…</button
+									>
 								</ActionMenu>
 							{/if}
 						</div>
@@ -294,6 +398,18 @@
 	</section>{/if}
 
 <style>
+	.terminal-line {
+		display: grid;
+		gap: 6px;
+		min-width: 0;
+		font-size: 13px;
+		color: var(--text-secondary);
+	}
+	.terminal-ask code {
+		font-family: var(--font-mono);
+		font-weight: 600;
+		color: var(--ink);
+	}
 	.computers {
 		display: grid;
 		gap: 12px;

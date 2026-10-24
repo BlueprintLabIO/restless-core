@@ -2897,6 +2897,7 @@ dependencies = [
  "sha2",
  "tar",
  "toml",
+ "tungstenite 0.26.2",
  "unicode-segmentation",
  "unicode-width",
  "url",
@@ -4451,6 +4452,7 @@ dependencies = [
  "sha1",
  "thiserror 2.0.20",
  "utf-8",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]
