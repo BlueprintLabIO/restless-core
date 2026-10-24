@@ -3144,24 +3144,40 @@ async fn supervisor_doctor(company: &str) -> SupervisorDoctor {
     }
 }
 
-/// Fetch one noVNC asset through an ephemeral Runtime Bridge process. The
-/// desktop service remains bound inside the company computer; there is no host
-/// port that can bypass owner authentication.
+/// Where the image installs the noVNC web client: root-owned, so the company's own user cannot
+/// change it.
+const NOVNC_ROOT: &str = "/usr/share/novnc";
+
+/// Whether `asset` names a file under the noVNC root: relative, plain characters, no `..`.
+fn desktop_asset_path_ok(asset: &str) -> bool {
+    !asset.is_empty()
+        && asset.len() <= 200
+        && !asset.starts_with('/')
+        && asset
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
+        && asset
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'/'))
+}
+
+/// One noVNC web client file, read from the image's own copy. The owner's browser runs it on the
+/// cockpit's origin, so it must never come from the desktop port: that port is in the company's
+/// network namespace, where an agent could answer it while websockify is down and serve its own
+/// script to the owner.
 pub async fn desktop_asset(company: &str, asset: &str) -> Result<Vec<u8>> {
-    if asset.is_empty() || asset.contains("..") || asset.contains('\0') {
+    if !desktop_asset_path_ok(asset) {
         bail!("invalid desktop asset path");
     }
-    let url = format!("http://127.0.0.1:6080/{asset}");
+    let path = format!("{NOVNC_ROOT}/{asset}");
     let output = docker_observe(&[
         "exec",
+        "--user",
+        "root",
         &container_name(company),
-        "curl",
-        "--fail",
-        "--silent",
-        "--show-error",
-        "--max-time",
-        "5",
-        &url,
+        "cat",
+        "--",
+        &path,
     ])
     .await?;
     if !output.status.success() {
@@ -3171,6 +3187,25 @@ pub async fn desktop_asset(company: &str, asset: &str) -> Result<Vec<u8>> {
         );
     }
     Ok(output.stdout)
+}
+
+/// Whether the desktop's web transport answers inside the company computer. Only its status is
+/// read; what it serves never reaches a browser (see [`desktop_asset`]).
+pub async fn desktop_web_ready(company: &str) -> bool {
+    docker_observe(&[
+        "exec",
+        &container_name(company),
+        "curl",
+        "--fail",
+        "--silent",
+        "--output",
+        "/dev/null",
+        "--max-time",
+        "5",
+        "http://127.0.0.1:6080/vnc.html",
+    ])
+    .await
+    .is_ok_and(|output| output.status.success())
 }
 
 /// Open one exact web destination in a new tab of the persistent company
@@ -5097,6 +5132,31 @@ mod kept_files_e2e {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn desktop_assets_stay_inside_the_novnc_root() {
+        for good in [
+            "vnc.html",
+            "core/rfb.js",
+            "app/images/icons/novnc-192x192.png",
+            "vendor/pako/lib/zlib/inflate.js",
+        ] {
+            assert!(super::desktop_asset_path_ok(good), "{good}");
+        }
+        for bad in [
+            "",
+            "/etc/passwd",
+            "../x",
+            "app/../../etc/shadow",
+            "a//b",
+            "./vnc.html",
+            "vnc.html?x=1",
+            "a b",
+            "app/%2e%2e/x",
+        ] {
+            assert!(!super::desktop_asset_path_ok(bad), "{bad}");
+        }
+    }
+
     use super::{
         bound_docker_call, company_statuses, container_name, docker_observe,
         is_immutable_image_digest, is_runtime_review_download, owner_attachment_alias,
