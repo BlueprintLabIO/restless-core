@@ -3064,14 +3064,14 @@ model = "moonshot/kimi-k3"
             harnesses: [
                 ("restless-managed".into(), "omp-18.8.6".into()),
                 ("codex".into(), "codex-cli-0.155.1".into()),
-                ("claude-agent".into(), "claude-agent-acp-0.88.0".into()),
+                ("claude-agent".into(), "claude-agent-acp-0.90.0".into()),
             ]
             .into_iter()
             .collect(),
-            harness_agents: [("claude-agent".into(), "claude-code-2.1.293".into())]
+            harness_agents: [("claude-agent".into(), "claude-code-2.1.296".into())]
                 .into_iter()
                 .collect(),
-            harness_dependencies: [("claude-agent-sdk".into(), "0.3.293".into())]
+            harness_dependencies: [("claude-agent-sdk".into(), "0.3.296".into())]
                 .into_iter()
                 .collect(),
         });
