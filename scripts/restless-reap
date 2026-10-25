@@ -505,23 +505,23 @@ fi
 # A running `_test` container with no attached agent is the highest-confidence
 # "safe to stop" signal available, but it is still the operator's call
 # (invariant 3) — an owner may be reading its desktop over VNC.
-printf '\nidle test containers (running, no agent attached)\n'
+printf '\ntest containers without an observed OMP agent\n'
 if have_docker; then
-  IDLE=0
+  CANDIDATES=0
   for name in $(running_test_containers); do
     if ! agents="$(agent_count "$name")"; then
       note "$name — agent inventory unavailable"
       debt 1
     elif [ "$agents" -eq 0 ]; then
       note "$name"
-      IDLE=$((IDLE + 1))
+      CANDIDATES=$((CANDIDATES + 1))
     fi
   done
-  if [ "$IDLE" -eq 0 ]; then
+  if [ "$CANDIDATES" -eq 0 ]; then
     note 'none'
   else
-    note "$IDLE idle — 'docker stop' them if no one is attached"
-    debt "$IDLE"
+    note "$CANDIDATES candidates — verify owning tests and live connections before stopping"
+    debt "$CANDIDATES"
   fi
 else
   note 'docker unavailable — skipped'

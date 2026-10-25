@@ -54,7 +54,7 @@ resource ownership. An area is not closed merely because its unit tests pass.
 | Scheduling and recovery | Engine/OrgIntel queues, wake ownership, retries, leases, concurrency, crash/restart and durable continuation | Database suites pass; source/fault audit still open |
 | Authority and company isolation | Grants, revocation, budgets, effect unknown outcomes/idempotency, custody, shared issuer, tenant boundaries | Credential fixes merged; adversarial end-to-end audit open |
 | Owner and collaboration | Desktop/phone, large seeded data, documents/sheets, permissions, multiplayer and reconnect | Fleet account journeys verified; full Core/company journeys open |
-| Deployment and operations | Compose, VM/plane agents, release contracts, TLS/routing, secrets references, migration/rollback, backup failure recovery, monitoring | Backup round-trip and reaper fixes pass; local manifest drift reproduced; remaining deployment audit open |
+| Deployment and operations | Compose, VM/plane agents, release contracts, TLS/routing, secrets references, migration/rollback, backup failure recovery, monitoring | Backup round-trip, reaper and local manifest fixes pass; remaining deployment audit open |
 | Resource lifetime and efficiency | RAM/swap/CPU, process and socket lifetime, pools, caches/images, bounded observations and cleanup failures | Host cleanup and preventive bounds merged; continued measurements and leak audit open |
 
 Each sprint records its reproducer, changed behavior, verification limits and
@@ -63,12 +63,18 @@ inventories, exercise relevant failure paths, inspect leftover resources and CI,
 and carry unresolved findings forward. Production observations and disposable
 local evidence are recorded separately.
 
-Follow-up deployment finding: `deploy/local/.env.example` embeds an older
+Repaired deployment finding: `deploy/local/.env.example` embedded an older
 plane-deployment schema digest than the current contract and its named release
 fixture. The actual current Fleet API refused it with “Fleet Cloud release
 contract schema binding is invalid.” The temporary account-test manifest was
-bound to the compiled schemas; the tracked local deployment input still needs
-repair and a regression guard.
+bound to the compiled schemas. Cloud
+[`#149`](https://github.com/BlueprintLabIO/restless-cloud/pull/149) repaired the
+tracked input and merged as `a2cb5da4cd2ad646cd5eeeb95151476a953ac7ed` after all
+three CI jobs passed. The new regression reproduced the original refusal;
+all eight release/provider checks pass after repair. An isolated API/Web startup
+using the tracked manifest bytes unchanged reaches readiness and confirms its
+live API connection. The test services were removed. Full Compose/provider
+qualification remains open.
 
 ### Verified work
 
@@ -127,6 +133,8 @@ repair and a regression guard.
   Core's Markdown wrapper currently uses the lightweight math fallback. The
   override is necessary because upstream still requests the vulnerable 0.16
   series. The remaining cockpit framework advisories are a separate repair.
+  This repair merged in Core `c84ccdbbeeab71bb9a07f873aa70a96be93a5c9c`;
+  its product-artifact CI job passed.
 - The public site now uses SvelteKit 3 and the matching static adapter. The full
   npm audit has zero findings. Artifact/type checks, 11 waitlist tests, four
   presence tests, production build and all 2,313 internal links across 54 pages
@@ -246,10 +254,33 @@ namespace labels and current process inventories were checked before removal.
 ## Still open
 
 The cockpit's framework chain, the remaining Rust/OCI security findings,
-local deployment manifest drift, the rest of the
+the rest of the
 engine/authority/recovery audits and full seeded owner/collaboration journeys
 remain open. A repaired site or a passing library suite does not close them.
 
 This file remains active until current-source evidence proves every required
 outcome. Detailed machine-local scan/test output is kept outside Git; summaries
 and exact merged revisions belong here as each outcome is verified.
+
+## Sprint re-audit — 26 October
+
+- Rescanned all 20 tracked locks after the merged repairs. Cloud has only the
+  recorded RSA lockfile finding. Core has RSA and two SvelteKit 2 advisories;
+  the KaTeX finding is gone. No advisory was suppressed to obtain this result.
+- All of this sprint's API/Web/database/mail/browser processes, containers and
+  unique math-probe caches are gone. Private temporary environment snapshots
+  are removed at teardown rather than retained as audit artifacts.
+- A fresh host report reached its final summary. It found no orphaned company
+  configs, exited/long-running/runaway test containers, abandoned sidecars,
+  registered-service leaks, scratch company worktrees or old host test processes.
+  Seven observations remain: four containers without an OMP agent, an unavailable
+  Docker disk-usage query, a 64 GiB compiler cache pool versus its 60 GiB budget,
+  and WSL virtual-disk slack. The four containers were checked: they are recent
+  identity/multiplayer fixtures, and the multiplayer database has fresh active
+  connections. A new host Cargo build is also running. These are retained for
+  ownership verification; no-agent presence is insufficient evidence of idleness.
+  The report now describes them as candidates and explicitly asks for owning-test
+  and live-connection checks before stopping them. Dagger reports 55G of storage
+  under its configured 40GB GC policy; complete release/cache qualification is
+  still open. Linux has about 31 GiB available at this checkpoint; no live WSL
+  restart or unrelated test interruption was performed.
