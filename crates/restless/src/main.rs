@@ -53,6 +53,17 @@ enum JobCommand {
         /// Where it runs, under /company (default /company).
         #[arg(long)]
         workdir: Option<String>,
+        /// Run it on one of the owner's computers lent to this company, by name (Company ›
+        /// Computer), instead of beside your own. Heavy builds and tests belong there.
+        #[arg(long)]
+        on: Option<String>,
+        /// owner/name: a fresh clone for the job to run in (with --on). Needs a GitHub App account
+        /// that this company may read the repository with.
+        #[arg(long)]
+        repo: Option<String>,
+        /// The branch, tag or commit to check out (default: the repository's default branch).
+        #[arg(long = "ref")]
+        git_ref: Option<String>,
         #[arg(last = true, required = true)]
         command: Vec<String>,
     },
@@ -244,6 +255,9 @@ enum Command {
     /// own session: `restless job run --cpus 2 --timeout 3600 -- python sim.py` returns a job id at
     /// once, and `restless job status <id>` says whether it is running, succeeded, failed or timed
     /// out. Output goes to /company/run/jobs/<id>.log; the job sees the same /company files.
+    /// On one of the owner's computers: `restless job run --on "Yail's PC" --repo owner/name --ref
+    /// <commit> -- cargo test` clones the repository fresh there and returns its log tail in
+    /// `restless job status <id>`; toolchains and build output are cached between jobs.
     Job {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
         company: Option<String>,
@@ -2920,6 +2934,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     memory,
                     timeout,
                     workdir,
+                    on,
+                    repo,
+                    git_ref,
                     command,
                 } => serde_json::json!({
                     "cmd": "job-run",
@@ -2930,6 +2947,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                         "memory": memory,
                         "timeout_secs": timeout,
                         "workdir": workdir,
+                        "on": on,
+                        "repo": repo,
+                        "ref": git_ref,
                     },
                 }),
                 JobCommand::Status { id } => serde_json::json!({

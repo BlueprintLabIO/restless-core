@@ -480,6 +480,52 @@ pub async fn installation_token(
     Ok(token)
 }
 
+/// A token that can only read one repository, for a job that clones it on an owner's computer
+/// (S108). Minted fresh and never cached: it leaves the plane, so it is the narrowest GitHub
+/// issues, read-only contents of `repo` and nothing else, and it lapses within the hour.
+pub async fn read_token_for_repo(
+    app_id: i64,
+    installation_id: i64,
+    key_reference: &str,
+    repo: &str,
+) -> Result<String> {
+    let name = repo
+        .split_once('/')
+        .map(|(_, name)| name)
+        .filter(|name| !name.is_empty())
+        .context("a repository is owner/name")?;
+    let pem = crate::credential::resolve_reference(key_reference)
+        .await
+        .context("the vault did not give the GitHub App's key; nothing was sent")?;
+    let jwt = app_jwt(app_id, &pem, Utc::now())?;
+    let response = client()?
+        .post(format!(
+            "{API}/app/installations/{installation_id}/access_tokens"
+        ))
+        .bearer_auth(jwt)
+        .header("accept", "application/vnd.github+json")
+        .header("x-github-api-version", "2022-11-28")
+        .json(&serde_json::json!({
+            "repositories": [name],
+            "permissions": { "contents": "read", "metadata": "read" },
+        }))
+        .send()
+        .await
+        .context("GitHub did not answer; nothing was sent")?;
+    if !response.status().is_success() {
+        bail!(
+            "GitHub would not give a read token for {repo} ({}). Is the App installed on it?",
+            response.status().as_u16()
+        );
+    }
+    let body: serde_json::Value = response.json().await?;
+    Ok(body
+        .get("token")
+        .and_then(|value| value.as_str())
+        .context("GitHub gave the App no token")?
+        .to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

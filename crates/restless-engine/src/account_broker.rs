@@ -674,6 +674,70 @@ pub async fn secret(usable: &Usable) -> Result<String> {
         .context("the vault did not give the account's key; nothing was sent")
 }
 
+/// A read-only token for one repository, for a job that clones it on one of the owner's computers
+/// (S108). Only a GitHub App account can mint one: a personal token is never handed to a job,
+/// because it can do whatever its holder can. The grant must allow reading that repository.
+pub async fn job_clone_token(
+    pool: &PgPool,
+    company: &str,
+    actor: &str,
+    repo: &str,
+) -> Result<String> {
+    let target = repo.to_ascii_lowercase();
+    let mut refusal = None;
+    for usable in usable(pool, company, actor).await? {
+        if usable.account.kind != "github" {
+            continue;
+        }
+        let Some((app_id, installation_id)) = crate::github_app::installation_of(&usable.settings)
+        else {
+            refusal.get_or_insert_with(|| {
+                format!(
+                    "{} is a personal token, which jobs never receive. Ask the owner to add the Restless GitHub App for {repo}.",
+                    usable.account.label
+                )
+            });
+            continue;
+        };
+        let in_scope = in_scope("github", &usable.grant.limits.scope, Some(&target), "read");
+        match decide(
+            &usable.account,
+            &usable.grant,
+            actor,
+            "read",
+            in_scope,
+            None,
+            0,
+            0,
+            Utc::now(),
+        ) {
+            Decision::Run | Decision::RunAndTell => {}
+            Decision::Ask(reason) | Decision::Refuse(reason) => {
+                refusal = Some(reason);
+                continue;
+            }
+        }
+        let key_reference = usable
+            .secrets
+            .get("app_key")
+            .and_then(|value| value.as_str())
+            .context("this GitHub App account has lost its App key")?;
+        return crate::github_app::read_token_for_repo(
+            app_id,
+            installation_id,
+            key_reference,
+            repo,
+        )
+        .await;
+    }
+    bail!(
+        "{}",
+        refusal.unwrap_or_else(|| format!(
+            "No GitHub account granted to this company covers {repo}. Ask the owner to give it one (Settings › Accounts)."
+        ))
+    )
+}
+
 /// Send the call as the account.
 pub async fn send(usable: &Usable, call: &Call, secret: &str) -> Result<Answer> {
     let secret = secret.to_string();
