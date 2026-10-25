@@ -280,6 +280,8 @@ export class RestlessCore {
       timed(timings, 'rust check and boundary tests', () => rust(source).withExec(['cargo', 'check', '--workspace', '--locked'])
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'company_projection::tests'])
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync()),
+      timed(timings, 'paired machine isolation tests', () => rust(source)
+        .withExec(['cargo', 'test', '--locked', '-p', 'restless-machine']).sync()),
       timed(timings, 'cockpit check and build', () => cockpit(source).sync()),
       timed(timings, 'cockpit unit tests', () => project(source, 'web').withExec(['npm', 'test']).sync()),
       timed(timings, 'browser overlays', () => this.verifyOverlays(source).sync()),

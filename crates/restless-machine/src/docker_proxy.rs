@@ -359,6 +359,45 @@ impl DockerProxy {
         }) {
             return message(StatusCode::FORBIDDEN, why);
         }
+        // A name beginning with restless- is not proof of ownership: the machine may already
+        // run another appliance or retain a previous pairing's volumes. Docker accepts those
+        // names on create even though the proxy refuses their inspect/delete endpoints.
+        let host = &value["HostConfig"];
+        if let Some(binds) = host["Binds"].as_array() {
+            for bind in binds.iter().filter_map(Value::as_str) {
+                let source = bind.split(':').next().unwrap_or_default();
+                if !self.owns_volume(source).await {
+                    return absent("volume", source);
+                }
+            }
+        }
+        if let Some(mounts) = host["Mounts"].as_array() {
+            for mount in mounts {
+                if mount["Type"].as_str().unwrap_or("volume") == "volume" {
+                    let source = mount["Source"].as_str().unwrap_or_default();
+                    if !self.owns_volume(source).await {
+                        return absent("volume", source);
+                    }
+                }
+            }
+        }
+        let network = host["NetworkMode"].as_str().unwrap_or_default();
+        if network != "none"
+            && !network.starts_with("container:")
+            && !self.owns_network(network).await
+        {
+            return absent("network", network);
+        }
+        if let Some(endpoints) = value
+            .pointer("/NetworkingConfig/EndpointsConfig")
+            .and_then(Value::as_object)
+        {
+            for network in endpoints.keys() {
+                if !self.owns_network(network).await {
+                    return absent("network", network);
+                }
+            }
+        }
         // Docker does not pull on create; the plane's runtime pulls on its own host, so here the
         // helper fetches an allowed image the machine does not yet have.
         let image = value
@@ -385,6 +424,50 @@ impl DockerProxy {
         };
         if let Err(why) = docker_filter::rewrite_named_create(&mut value, scope) {
             return message(StatusCode::FORBIDDEN, why);
+        }
+        // Volume create is idempotent: Docker returns an existing foreign volume unchanged.
+        // Do not acknowledge that as an owned create or reuse a foreign network's name.
+        let name = value["Name"].as_str().unwrap_or_default();
+        let kind = if matches!(
+            docker_filter::classify(
+                &parts.method,
+                parts.uri.path(),
+                parts.uri.query().unwrap_or_default()
+            ),
+            Route::CreateVolume
+        ) {
+            "volumes"
+        } else {
+            "networks"
+        };
+        match self
+            .call(Method::GET, &format!("/{kind}/{name}"), None)
+            .await
+        {
+            Ok((StatusCode::NOT_FOUND, _)) => {}
+            Ok((status, bytes)) if status.is_success() => {
+                let existing: Value = match serde_json::from_slice(&bytes) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return message(
+                            StatusCode::BAD_GATEWAY,
+                            "invalid Docker ownership response",
+                        )
+                    }
+                };
+                if !docker_filter::labelled_ours(existing.get("Labels"), scope) {
+                    return message(
+                        StatusCode::FORBIDDEN,
+                        "that name belongs to another Docker resource",
+                    );
+                }
+            }
+            _ => {
+                return message(
+                    StatusCode::BAD_GATEWAY,
+                    "could not check Docker resource ownership",
+                )
+            }
         }
         self.send_json(&parts, &value).await
     }
@@ -684,3 +767,7 @@ impl DockerProxy {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "docker_proxy_tests.rs"]
+mod tests;

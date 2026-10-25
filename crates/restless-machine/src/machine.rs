@@ -447,37 +447,45 @@ pub async fn link_once(paired: &Paired, socket: &Path, state_path: &Path) -> Res
                     );
                 }
             }
-            Message::Text(text) => match serde_json::from_str::<Control>(&text) {
-                Ok(Control::Settings {
-                    machine_id,
-                    allowed_images,
-                    plane_ports,
-                    egress_hosts,
-                    apps: owned,
-                }) => {
-                    *egress.write().unwrap() = egress_hosts;
-                    *apps.write().unwrap() = owned;
-                    let helper_address = match join_machine_network(&proxy, &machine_id).await {
-                        Ok(address) => Some(address),
-                        Err(error) => {
-                            tracing::warn!(%error, "could not join the machine network");
-                            None
-                        }
-                    };
-                    *scope.write().unwrap() = Scope {
+            Message::Text(text) => {
+                match serde_json::from_str::<Control>(&text) {
+                    Ok(Control::Settings {
                         machine_id,
                         allowed_images,
-                        helper_address,
-                    };
-                    plane_listeners(&link, &plane_ports, &mut listeners);
+                        plane_ports,
+                        egress_hosts,
+                        apps: owned,
+                    }) => {
+                        // The pairing, stored on this computer, owns its label scope. The plane
+                        // cannot select another pairing's labels to adopt its containers or data.
+                        if machine_id != paired.machine_id {
+                            tracing::warn!("the plane changed this computer's pairing identity; refusing settings");
+                            break;
+                        }
+                        *egress.write().unwrap() = egress_hosts;
+                        *apps.write().unwrap() = owned;
+                        let helper_address = match join_machine_network(&proxy, &machine_id).await {
+                            Ok(address) => Some(address),
+                            Err(error) => {
+                                tracing::warn!(%error, "could not join the machine network");
+                                None
+                            }
+                        };
+                        *scope.write().unwrap() = Scope {
+                            machine_id,
+                            allowed_images,
+                            helper_address,
+                        };
+                        plane_listeners(&link, &plane_ports, &mut listeners);
+                    }
+                    Ok(Control::Removed) => {
+                        let _ = std::fs::remove_file(state_path);
+                        ended = Ended::Removed;
+                        break;
+                    }
+                    Ok(Control::Heartbeat { .. }) | Err(_) => {}
                 }
-                Ok(Control::Removed) => {
-                    let _ = std::fs::remove_file(state_path);
-                    ended = Ended::Removed;
-                    break;
-                }
-                Ok(Control::Heartbeat { .. }) | Err(_) => {}
-            },
+            }
             Message::Close(_) => break,
             _ => {}
         }
@@ -540,5 +548,60 @@ mod egress_tests {
             None,
             "no hosts named, nothing opens"
         );
+    }
+}
+
+#[cfg(test)]
+mod pairing_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn settings_cannot_replace_the_locally_paired_identity() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            for control in [
+                Control::Settings {
+                    machine_id: "another-pairing".into(),
+                    allowed_images: vec![],
+                    plane_ports: vec![],
+                    egress_hosts: vec![],
+                    apps: vec![],
+                },
+                Control::Removed,
+            ] {
+                let _ = socket
+                    .send(Message::Text(
+                        serde_json::to_string(&control).unwrap().into(),
+                    ))
+                    .await;
+            }
+            let _ = socket.next().await;
+        });
+        let paired = Paired {
+            plane: format!("http://{address}"),
+            machine_id: "local-pairing".into(),
+            label: "audit fixture".into(),
+            credential: "fixture-credential".into(),
+        };
+        // Neither path exists, and no Docker service or real pairing is involved.
+        let ended = tokio::time::timeout(
+            Duration::from_secs(5),
+            link_once(
+                &paired,
+                Path::new("/nonexistent/restless-audit/docker.sock"),
+                Path::new("/nonexistent/restless-audit/pairing.json"),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(
+            matches!(ended, Ended::Dropped),
+            "foreign settings must end the link before further control messages"
+        );
+        server.abort();
     }
 }
