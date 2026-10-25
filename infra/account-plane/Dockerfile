@@ -115,6 +115,9 @@ ENV BUN_INSTALL=/usr/local/bun \
 RUN npm install -g bun@1.3.14 \
     && bun install -g "@oh-my-pi/pi-coding-agent@${OMP_VERSION}" \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
+    # bun's download cache is a second copy of every package (the image scan counts each one), and
+    # nothing reads it at runtime.
+    && rm -rf ${BUN_INSTALL}/install/cache \
     && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force \
     && omp --version
@@ -137,7 +140,7 @@ COPY services/identity/scripts /opt/restless/identity/scripts
 # Apply compatible security fixes that npm 11.21.0 has not bundled yet.
 RUN npm --prefix /tmp/npm-security-fixes install \
         --ignore-scripts --omit=dev --no-audit --no-fund --save-exact \
-        brace-expansion@5.0.11 undici@6.28.1 \
+        brace-expansion@5.0.11 undici@6.29.1 \
     && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
         /usr/local/lib/node_modules/npm/node_modules/undici \
     && cp -a /tmp/npm-security-fixes/node_modules/brace-expansion \
