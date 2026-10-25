@@ -47,6 +47,11 @@ REAP_DISK_MIN_GIB="${RESTLESS_REAP_DISK_MIN_GIB:-30}"
 REAP_SLOT_POOL="${RESTLESS_WORKTREE_POOL_SIZE:-4}"
 REAP_SLOT_BUDGET_GB="${RESTLESS_REAP_SLOT_BUDGET_GB:-60}"
 REAP_WSL_SLACK_GB="${RESTLESS_REAP_WSL_SLACK_GB:-100}"
+REAP_QUERY_TIMEOUT_SECONDS="${RESTLESS_REAP_QUERY_TIMEOUT_SECONDS:-10}"
+if ! [[ "$REAP_QUERY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'RESTLESS_REAP_QUERY_TIMEOUT_SECONDS must be a positive integer\n' >&2
+  exit 2
+fi
 REPO_ROOT="${STACK_REPO_ROOT:-$(cd -- "$(dirname -- "$0")/.." && pwd)}"
 # A company doing real work is bursty; sustained load is the signal. This is a
 # single instantaneous sample, so it flags a suspect for the process check
@@ -78,7 +83,34 @@ DEBT=0
 note() { printf '  %s\n' "$1"; }
 debt() { DEBT=$((DEBT + $1)); }
 
-have_docker() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
+# Bound expensive observations, including the daemon health probe. A host
+# without a timeout implementation reports the observation as unavailable.
+bounded_observation() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout --kill-after=2 "${REAP_QUERY_TIMEOUT_SECONDS}" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout --kill-after=2 "${REAP_QUERY_TIMEOUT_SECONDS}" "$@"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import subprocess, sys
+try:
+    sys.exit(subprocess.run(sys.argv[2:], timeout=int(sys.argv[1])).returncode)
+except subprocess.TimeoutExpired:
+    sys.exit(124)' "$REAP_QUERY_TIMEOUT_SECONDS" "$@"
+  else
+    return 125
+  fi
+}
+
+DOCKER_AVAILABLE=unknown
+have_docker() {
+  if [ "$DOCKER_AVAILABLE" = unknown ]; then
+    DOCKER_AVAILABLE=no
+    if command -v docker >/dev/null 2>&1 && bounded_observation docker info >/dev/null 2>&1; then
+      DOCKER_AVAILABLE=yes
+    fi
+  fi
+  [ "$DOCKER_AVAILABLE" = yes ]
+}
 
 # RFC3339 (docker's `.State.StartedAt`) to epoch seconds, on BSD date (macOS,
 # the dev host) or GNU date (CI). Prints nothing if neither parses, and every
@@ -99,14 +131,15 @@ running_test_containers() {
   docker ps --format '{{.Names}}' 2>/dev/null | grep '_test$' || true
 }
 
-# Count attached agents in a container. Any failure prints 0 and the caller
-# treats 0 as "no evidence of an agent", never as proof of absence.
+# An unavailable process inventory must never authorize service removal.
 agent_count() {
-  docker exec "$1" ps -eo args 2>/dev/null | grep -cE "$REAP_AGENT_PATTERN" || true
+  local processes
+  processes="$(bounded_observation docker exec "$1" ps -eo args 2>/dev/null)" || return 1
+  printf '%s\n' "$processes" | grep -cE "$REAP_AGENT_PATTERN" || true
 }
 
 running_companies() {
-  docker ps --format '{{.Names}}' 2>/dev/null | sed -n 's/^restless-co-//p'
+  bounded_observation docker ps --format '{{.Names}}' 2>/dev/null | sed -n 's/^restless-co-//p'
 }
 
 printf 'restless-reap (%s)\n\n' "$MODE"
@@ -121,19 +154,25 @@ printf 'test-company configs\n'
 CONFIGS_KNOWN=1
 if ! have_docker; then
   note 'docker unavailable — cannot tell orphaned from running; skipped'
+  debt 1
   CONFIGS_KNOWN=0
   ORPHANED=()
 elif [ ! -d "$COMPANY_DIR" ]; then
   ORPHANED=()
 else
-  LIVE="$(running_companies || true)"
   ORPHANED=()
-  for f in "$COMPANY_DIR"/*_test.toml; do
-    [ -e "$f" ] || continue
-    name="$(basename "$f" .toml)"
-    if printf '%s\n' "$LIVE" | grep -qx "$name"; then continue; fi
-    ORPHANED+=("$name")
-  done
+  if LIVE="$(running_companies)"; then
+    for f in "$COMPANY_DIR"/*_test.toml; do
+      [ -e "$f" ] || continue
+      name="$(basename "$f" .toml)"
+      if printf '%s\n' "$LIVE" | grep -qx "$name"; then continue; fi
+      ORPHANED+=("$name")
+    done
+  else
+    note 'container inventory unavailable — cannot tell orphaned from running; skipped'
+    CONFIGS_KNOWN=0
+    debt 1
+  fi
 fi
 if [ "$CONFIGS_KNOWN" -eq 0 ]; then
   :
@@ -343,7 +382,11 @@ if have_docker; then
     # An attached agent may legitimately be driving any of these, and nothing
     # in the conf says which. Only a container with no agent at all is
     # unambiguous, so that is the sole condition under which one is removed.
-    agents="$(agent_count "$name")"
+    if ! agents="$(agent_count "$name")"; then
+      note "$name — agent inventory unavailable; services left in place"
+      debt 1
+      continue
+    fi
     note "$name — $count registered, $agents agent(s) attached"
     SVC_TOTAL=$((SVC_TOTAL + count))
     STALE_CONFS=""
@@ -466,7 +509,10 @@ printf '\nidle test containers (running, no agent attached)\n'
 if have_docker; then
   IDLE=0
   for name in $(running_test_containers); do
-    if [ "$(agent_count "$name")" -eq 0 ]; then
+    if ! agents="$(agent_count "$name")"; then
+      note "$name — agent inventory unavailable"
+      debt 1
+    elif [ "$agents" -eq 0 ]; then
       note "$name"
       IDLE=$((IDLE + 1))
     fi
@@ -484,9 +530,17 @@ fi
 # --- 9. Docker build cache -------------------------------------------------
 printf '\ndocker build cache (budget %sGB)\n' "$REAP_CACHE_BUDGET_GB"
 if have_docker; then
-  CACHE_LINE="$(docker system df --format '{{.Type}}\t{{.Size}}\t{{.Reclaimable}}' 2>/dev/null \
-    | grep -i 'build cache' || true)"
-  note "${CACHE_LINE:-unknown}"
+  if CACHE_REPORT="$(bounded_observation docker system df --format '{{.Type}}\t{{.Size}}\t{{.Reclaimable}}' 2>/dev/null)"; then
+    CACHE_LINE="$(printf '%s\n' "$CACHE_REPORT" | grep -i 'build cache' || true)"
+  else
+    CACHE_LINE=""
+  fi
+  if [ -n "$CACHE_LINE" ]; then
+    note "$CACHE_LINE"
+  else
+    note "unavailable (query failed or exceeded ${REAP_QUERY_TIMEOUT_SECONDS}s)"
+    debt 1
+  fi
   if [ "$MODE" = purge ]; then
     docker builder prune --force --max-used-space "${REAP_CACHE_BUDGET_GB}GB" >/dev/null 2>&1 \
       && note "  pruned to ${REAP_CACHE_BUDGET_GB}GB budget"
@@ -604,7 +658,12 @@ if have_docker; then
   else
     CAP="$(docker exec "$ENGINE" cat /etc/dagger/engine.json 2>/dev/null \
       | sed -n 's/.*"maxUsedSpace"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)"
-    USED="$(docker exec "$ENGINE" du -sh /var/lib/dagger 2>/dev/null | cut -f1 || true)"
+    if USAGE_REPORT="$(bounded_observation docker exec "$ENGINE" du -sh /var/lib/dagger 2>/dev/null)"; then
+      USED="$(printf '%s\n' "$USAGE_REPORT" | cut -f1)"
+    else
+      USED="unavailable (query failed or exceeded ${REAP_QUERY_TIMEOUT_SECONDS}s)"
+      debt 1
+    fi
     if [ -n "$CAP" ]; then
       note "$ENGINE  ${USED:-?} used, GC cap ${CAP}"
     else

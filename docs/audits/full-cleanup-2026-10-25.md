@@ -52,6 +52,46 @@ The earlier seven repairs are recorded in `maintenance-2026-10-25.md`.
   validates the exact committed binding, and its bundled Worker executed in
   workerd with start 200, repeat 429 and poll 200. This is local verification;
   no production Worker deployment has been performed by this task.
+- That terminal edge repair merged in Cloud
+  [`#142`](https://github.com/BlueprintLabIO/restless-cloud/pull/142),
+  `13de28a002e78d964cb5b888b02536d0a82d9584`, after all three CI jobs passed.
+- The public site now uses SvelteKit 3 and the matching static adapter. The full
+  npm audit has zero findings. Artifact/type checks, 11 waitlist tests, four
+  presence tests, production build and all 2,313 internal links across 54 pages
+  pass. Desktop/phone browser inspection covers landing assets, category/article
+  navigation and the Cloud form view without browser errors. Its existing
+  verification now runs in CI. Cloud
+  [`#143`](https://github.com/BlueprintLabIO/restless-cloud/pull/143) merged as
+  `e3a92b2db08add1baf35d92a01113cd42004bbf4` with all three CI jobs passing.
+- The ignored appliance backup scenario was explicitly executed against an
+  isolated PostgreSQL 17 container: backup, wipe and restore passed in 45.53s,
+  including persisted data, credentials and file permissions. Its disposable
+  container was removed. Broader recovery fault scenarios remain to be audited.
+- Reaper regressions reproduced two destructive responses to unavailable
+  observations: failed container inventory deleted an isolated test company's
+  configuration, and failed agent inventory deregistered its service. Both now
+  preserve the affected resources. A stalled build-cache query also reproduced a
+  blocked report. Docker health, inventory and expensive cache queries are now
+  bounded; unavailable observations are reported as debt. All three isolated
+  regressions pass with `python3 scripts/restless-reap.test.py`; shell syntax
+  passes. A complete read-only host report reached the final summary and
+  reported 23 items, including unavailable cache observations, existing test
+  containers and build/storage debt. No purge or unrelated resource teardown ran.
+- Current unmerged Rust work replaces ZIP 2 with ZIP 9, removes rustls-pemfile,
+  replaces the direct test-only RSA generator and updates both experiment Tokio
+  locks. The core library checks have passed with a real database (contracts
+  17, engine 541, owner 145); the broader OrgIntel checks remain in progress.
+  The scan still reports RSA through SQLx's optional MySQL lockfile entries in
+  both repositories. Cargo's active all-feature/all-target dependency trees do
+  not include RSA after the direct test dependency is removed, but the advisory
+  remains recorded; no exception has been added to hide it.
+
+## Still open
+
+Core host-tools' Zod chain and the cockpit's framework/KaTeX chain, Fleet Web's
+framework migration, the remaining Rust/OCI security findings, the rest of the
+engine/authority/recovery audits and full seeded owner/collaboration journeys
+remain open. A repaired site or a passing library suite does not close them.
 
 This file remains active until current-source evidence proves every required
 outcome. Detailed machine-local scan/test output is kept outside Git; summaries
