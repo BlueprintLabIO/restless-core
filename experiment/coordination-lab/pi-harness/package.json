@@ -17,8 +17,8 @@
     "@agentclientprotocol/sdk": "1.4.0",
     "@earendil-works/pi-agent-core": "0.84.2",
     "@earendil-works/pi-ai": "0.84.2",
-    "@modelcontextprotocol/sdk": "1.30.0",
-    "zod": "4.1.5"
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/node": "24.5.2",
