@@ -6,6 +6,7 @@
 	 * the owner's choice), optional limits, and who. Secrets go in and never come back out. */
 	import { untrack } from 'svelte';
 	import AccountActivity from '$lib/components/AccountActivity.svelte';
+	import { activityView } from '$lib/model/account-activity-view.svelte';
 	import AccountCompanySignIn from '$lib/components/AccountCompanySignIn.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
@@ -86,6 +87,11 @@
 			);
 		} else toast(`${created.label} added. Give a company access below.`);
 	}
+
+	/* An account's activity opens as its own view (activityView); the list waits behind it. */
+	const activityAccount = $derived(
+		activityView.id ? (accounts.find((account) => account.id === activityView.id) ?? null) : null
+	);
 
 	/* ---- managing one account ---- */
 	let managing = $state('');
@@ -296,7 +302,27 @@
 	{/if}
 {/snippet}
 
-{#if available}<section class="owner-accounts" aria-label="Other accounts">
+{#if available && activityAccount}<section
+		class="owner-accounts"
+		aria-label={`${activityAccount.label} activity`}
+	>
+		<header class="head">
+			<button type="button" class="link back" onclick={() => activityView.close()}
+				>‹ Accounts</button
+			>
+		</header>
+		<header class="head">
+			<h3>{activityAccount.label} activity</h3>
+			<small class="who">{activityAccount.identity.display ?? activityAccount.provider ?? ''}</small
+			>
+		</header>
+		<AccountActivity
+			{client}
+			account={activityAccount}
+			{companyName}
+			onchanged={() => void refresh()}
+		/>
+	</section>{:else if available}<section class="owner-accounts" aria-label="Other accounts">
 		<header class="head">
 			<h3>Other accounts</h3>
 			<InfoTip
@@ -370,10 +396,8 @@
 										type="button"
 										class="notices"
 										title="Uses you were told about and have not answered"
-										onclick={() => {
-											managing = account.id;
-											editingGrant = null;
-										}}>{account.open_notices} to look at</button
+										onclick={() => activityView.open(account.id)}
+										>{account.open_notices} to look at</button
 									>
 								{/if}
 								<span class="status" class:ok={account.health === 'signed_in'}
@@ -455,13 +479,12 @@
 										onclick={() => editGrant(account, null)}>Give a company access</button
 									>
 								{/if}
-								<div class="detail-block">
-									<AccountActivity
-										{client}
-										{account}
-										{companyName}
-										onchanged={() => void refresh()}
-									/>
+								<div class="detail-block activity-row">
+									<span>Activity</span>
+									{#if account.open_notices}<small>{account.open_notices} to look at</small>{/if}
+									<button type="button" class="link" onclick={() => activityView.open(account.id)}
+										>See all activity</button
+									>
 								</div>
 							</div>
 						{:else if account.grants.length}
@@ -671,6 +694,25 @@
 	}
 	.detail-block {
 		padding: 8px 12px 10px;
+	}
+	.activity-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-height: 36px;
+	}
+	.activity-row span {
+		font-weight: 600;
+	}
+	.activity-row small,
+	.who {
+		color: var(--text-tertiary);
+	}
+	.activity-row .link {
+		margin-left: auto;
+	}
+	.back {
+		padding: 0;
 	}
 	.sign-in-block {
 		border-bottom: 1px solid var(--border);
