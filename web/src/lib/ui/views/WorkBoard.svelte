@@ -32,12 +32,15 @@
 	let {
 		columns,
 		footer,
-		label = 'Work board'
+		label = 'Work board',
+		onopen
 	}: {
 		columns: BoardColumn[];
 		/** Per-column footer, for controls that belong to the container (for example history). */
 		footer?: Snippet<[BoardColumn]>;
 		label?: string;
+		/** Opens a card in place instead of following its link. */
+		onopen?: (item: BoardItem) => void;
 	} = $props();
 </script>
 
@@ -57,6 +60,13 @@
 					in:listIn
 					out:listOut
 					href={item.href}
+					onclick={onopen
+						? (event) => {
+								if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+								event.preventDefault();
+								onopen(item);
+							}
+						: undefined}
 				>
 					{#if item.needsYou}<span class="needs-you-badge">Needs you</span>{/if}
 					<strong style:view-transition-name={`work-title-${item.id}`}>{item.title}</strong>

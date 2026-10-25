@@ -20,11 +20,28 @@
 	import ActorTag from '../glyph/ActorTag.svelte';
 
 	/* People: teams with their accountable lead, and one person's current work. People and agents
-	 * sit in the same teams; the tag says which is which. */
-	let { teams, person }: { teams: PeopleTeam[]; person?: PersonDetail } = $props();
+	 * sit in the same teams; the tag says which is which. With `onselect` the members are buttons that
+	 * open their detail, and `onclose` lets a narrow pane step back to the list. */
+	let {
+		teams,
+		person,
+		onselect,
+		onclose
+	}: {
+		teams: PeopleTeam[];
+		person?: PersonDetail;
+		onselect?: (id: string) => void;
+		onclose?: () => void;
+	} = $props();
 
 	const STATUS = { proposed: 'Proposed', active: 'In motion', blocked: 'Waiting', completed: 'Completed' } as const;
 </script>
+
+{#snippet memberBody(member: PeopleMember)}
+	<span class="pv-initial {member.kind}">{member.name.slice(0, 1)}</span>
+	<span class="pv-name">{member.name}<small>{member.role}</small></span>
+	<ActorTag kind={member.kind} />
+{/snippet}
 
 <div class="view-shell">
 	<div class="people-view" class:with-detail={!!person}>
@@ -36,16 +53,24 @@
 					<p class="pv-team-meta">{team.members.length} members · {team.inMotion} in motion{team.blocked ? ` · ${team.blocked} waiting` : ''}</p>
 				</div>
 				{#each team.members as member (member.id)}
-					<span class="pv-member" class:lead={member.lead} class:active={member.id === person?.id}>
-						<span class="pv-initial {member.kind}">{member.name.slice(0, 1)}</span>
-						<span class="pv-name">{member.name}<small>{member.role}</small></span>
-						<ActorTag kind={member.kind} />
-					</span>
+					{#if onselect}
+						<button
+							type="button"
+							class="pv-member"
+							class:lead={member.lead}
+							class:active={member.id === person?.id}
+							aria-current={member.id === person?.id ? 'true' : undefined}
+							onclick={() => onselect(member.id)}>{@render memberBody(member)}</button
+						>
+					{:else}
+						<span class="pv-member" class:lead={member.lead} class:active={member.id === person?.id}>{@render memberBody(member)}</span>
+					{/if}
 				{/each}
 			{/each}
 		</nav>
 		{#if person}
 			<section class="pv-detail" aria-label={person.name}>
+				{#if onclose}<button type="button" class="pv-back" onclick={onclose}>← People</button>{/if}
 				<header>
 					<span class="pv-initial big {person.kind}">{person.name.slice(0, 1)}</span>
 					<div>
@@ -129,6 +154,36 @@
 		gap: 8px;
 		padding: 7px 12px 7px 26px;
 		border-bottom: 1px solid var(--border);
+	}
+	button.pv-member {
+		width: 100%;
+		border-width: 0 0 1px;
+		border-style: solid;
+		border-color: var(--border);
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	button.pv-member:not(.active):hover {
+		background: color-mix(in srgb, var(--highlight) 60%, transparent);
+	}
+	button.pv-member:focus-visible,
+	.pv-back:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--intent-conversation) 45%, transparent);
+		outline-offset: -2px;
+	}
+	.pv-back {
+		display: none;
+		justify-self: start;
+		padding: 4px 8px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface);
+		color: var(--text-secondary);
+		font: 500 var(--t-label) var(--font-ui);
+		cursor: pointer;
 	}
 	.pv-member.lead {
 		padding-left: 14px;
@@ -255,8 +310,11 @@
 		.people-view.with-detail {
 			grid-template-columns: minmax(0, 1fr);
 		}
-		.pv-list {
+		.with-detail .pv-list {
 			display: none;
+		}
+		.pv-back {
+			display: inline-flex;
 		}
 	}
 </style>

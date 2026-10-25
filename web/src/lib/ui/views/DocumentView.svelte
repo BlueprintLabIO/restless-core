@@ -52,7 +52,8 @@
 		synced = true,
 		panel = 'comments',
 		showList = true,
-		showPanel = true
+		showPanel = true,
+		onselect
 	}: {
 		title: string;
 		kind?: string;
@@ -66,6 +67,8 @@
 		panel?: 'comments' | 'review' | 'versions';
 		showList?: boolean;
 		showPanel?: boolean;
+		/** Makes the list's documents buttons that open them. */
+		onselect?: (id: string) => void;
 	} = $props();
 
 	const byId = $derived(new Map(collaborators.map((person) => [person.id, person])));
@@ -89,10 +92,17 @@
 			<nav class="doc-list" aria-label="Documents">
 				<p class="doc-list-head">Documents</p>
 				{#each documents as doc (doc.id)}
-					<span class="doc-entry" class:active={doc.id === activeDocument}>
-						<strong>{doc.title}</strong>
-						<span>{doc.meta}</span>
-					</span>
+					{#if onselect}
+						<button
+							type="button"
+							class="doc-entry"
+							class:active={doc.id === activeDocument}
+							aria-current={doc.id === activeDocument ? 'true' : undefined}
+							onclick={() => onselect(doc.id)}><strong>{doc.title}</strong><span>{doc.meta}</span></button
+						>
+					{:else}
+						<span class="doc-entry" class:active={doc.id === activeDocument}><strong>{doc.title}</strong><span>{doc.meta}</span></span>
+					{/if}
 				{/each}
 			</nav>
 		{/if}
@@ -193,6 +203,24 @@
 		gap: 2px;
 		padding: 10px 14px;
 		border-bottom: 1px solid var(--border);
+	}
+	button.doc-entry {
+		width: 100%;
+		border-width: 0 0 1px;
+		border-style: solid;
+		border-color: var(--border);
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	button.doc-entry:not(.active):hover {
+		background: color-mix(in srgb, var(--highlight) 60%, transparent);
+	}
+	button.doc-entry:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--intent-conversation) 45%, transparent);
+		outline-offset: -2px;
 	}
 	.doc-entry.active {
 		box-shadow: inset 3px 0 0 var(--intent-conversation);
