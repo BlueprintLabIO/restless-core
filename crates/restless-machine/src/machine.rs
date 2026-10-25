@@ -235,7 +235,9 @@ async fn connect_egress(target: &str, hosts: &[String]) -> Result<TcpStream> {
     Ok(TcpStream::connect(address).await?)
 }
 
-fn egress_address_allowed(address: std::net::IpAddr) -> bool {
+/// Whether a resolved address is on the public internet: never this computer, its networks, a
+/// shared or link-local range, or a multicast group. The plane's own egress proxy uses it too.
+pub fn egress_address_allowed(address: std::net::IpAddr) -> bool {
     // DNS can return ::ffff:127.0.0.1. Linux connects it to IPv4 loopback, so checking it only
     // against IPv6's ::1/ULA/link-local ranges would let an allowed site reach this computer.
     match address.to_canonical() {
