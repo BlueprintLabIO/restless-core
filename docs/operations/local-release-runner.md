@@ -199,11 +199,16 @@ The pilot runner is installed at `~/.local/share/restless-runners/core` and runs
 
 Dispatch the immutable release from `main` so its identity matches Cloud's trusted Core workflow reference. Record the exact GHCR bundle digest for Cloud's `core_release` input. Actions artifacts now expire after one day; GHCR holds the immutable published bundle. Monitor local Docker and disk usage before starting a build, and review images before cleanup. Never prune company volumes. The runner can use the local Docker daemon, so restrict repository write access and review workflow changes before manual dispatch.
 
-The release builder has a fixed name and persistent cache volume. It is limited
-to 40 GB RAM without swap, gets a lower CPU share than normal desktop work,
-and runs at most three BuildKit steps together. Its cache keeps compiled Cargo
-dependencies across source revisions and targets 45 GB maximum use with 25 GB
-free disk space. Do not prune its volume as routine cleanup. A build can still
+The native smoke builder has a fixed name and persistent cache volume. The
+`with-company-builder.sh` wrapper applies a 20 GiB RAM limit with no additional
+swap, including to an already-running builder without replacing it. CPU shares
+are 256, so desktop work wins contention while otherwise idle CPUs remain
+available. It runs at most two BuildKit steps together. Its cache keeps compiled
+Cargo dependencies across source revisions and targets 8 GiB maximum use with
+30 GiB free disk space. The wrapper uses one temporary configuration file per
+caller before taking its initialization lock, so concurrent jobs cannot delete
+each other's staged configuration and recreate the shared builder. Do not prune
+its volume as routine cleanup. A build can still
 take hours on emulated ARM64; these bounds aim to keep the workstation usable
 and make the next release faster.
 

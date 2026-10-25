@@ -40,3 +40,17 @@ restless credential set -c aris resend.production \
 
 The value file is migration input. It is not copied into company config,
 OrgIntel, Authority receipts, the company volume or browser JSON.
+
+## Host resource budget
+
+The backend is bounded to 1.5 GiB, two CPUs and 256 processes; PostgreSQL to
+512 MiB, one CPU and 256 processes; Redis to 128 MiB, half a CPU and 128
+processes. Each container's total memory-plus-swap allowance equals its RAM
+limit, so a runaway cannot swap out the shared workstation.
+
+The backend's V8 heap defaults to 768 MiB. A 512 MiB heap fails during this
+release's initialization; the 768 MiB budget passes fresh provisioning,
+authenticated secret writes and a restart/read-back scenario. Operators can
+set `RESTLESS_INFISICAL_NODE_OPTIONS` when a measured workload needs a different
+heap. Existing services pick up this configuration on their next provision;
+the maintenance pass does not restart the active owner vault.

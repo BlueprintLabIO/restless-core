@@ -29,6 +29,9 @@ The earlier seven repairs are recorded in `maintenance-2026-10-25.md`.
 - [ ] Owner and collaboration journeys: exercise desktop and mobile, multiplayer,
   documents/sheets permissions, concurrent edits and reconnects against isolated
   seeded companies; repair observed problems and rerun the affected journeys.
+- [ ] Resource efficiency (owner follow-up): inspect memory, process lifetime,
+  service budgets and build concurrency; reduce measured host pressure while
+  preserving active work and company data, and retain verified preventive bounds.
 - [ ] Integration: rebase and verify coherent slices, merge them into both mains,
   check CI, remove this task's disposable resources, and audit completion against
   every outcome above. No unrelated live company or appliance state is disposable.
@@ -107,6 +110,7 @@ The earlier seven repairs are recorded in `maintenance-2026-10-25.md`.
   graph. This verifies dependency selection, not execution on a macOS host.
   The Zod 3 scan exception was removed. The probe extends an existing company
   image; full current-source release-image qualification remains a separate gate.
+  This repair merged in Core `85ef06b6`.
 - GitHub's 17 open Core Dependabot alerts were compared to the actual lockfiles
   and advisory ranges. All refer to already-replaced versions: the current
   graph has Vite 8.3.5, devalue 5.9.4, source-map-js 1.2.2, MCP SDK 1.32.2 and
@@ -138,6 +142,37 @@ namespace labels and current process inventories were checked before removal.
   an unavailable Docker disk-usage query and WSL virtual-disk slack. Physical
   Windows-drive reclamation requires a separate WSL compaction; no active
   release or production process was interrupted to compact the disk.
+
+## RAM and efficiency follow-up
+
+- Initial Windows free physical memory was approximately 8.5 GiB, with WSL
+  resident at roughly 35 GiB. Linux had about 24 GiB available, much of it file
+  cache. Memory pressure and anonymous usage were measured separately from
+  cache; no `swapoff`, blanket process kill or live-WSL restart ran.
+- Stopped 49 dormant development containers: two old vault/database stacks and
+  their test sidecars, then a 39-container development profile whose host daemon
+  was gone and whose company containers had no active agent. The stable owner's
+  daemon was verified to use its separate `~/.restless` home. All stopped
+  development containers, databases and volumes remain recoverable.
+- Requested 2 GiB of kernel file-cache reclamation with `swappiness=0`, limited
+  by the observed inactive file cache. The request completed; swap use did not
+  increase and cgroup OOM counters did not change. Subsequent Windows free RAM
+  was approximately 17 GiB, and Linux memory-pressure averages reached zero.
+- Backed up the existing `.wslconfig` and staged a 32 GiB ceiling for the next
+  normal WSL start, retaining its existing CPU, swap and gradual reclaim settings.
+  The live VM was not restarted; its current ceiling therefore remains 40 GiB.
+- The shared native builder now has a verified live 20 GiB RAM/total-swap limit
+  and CPU shares of 256. Its cache was preserved and the existing DNS/TLS/token
+  preflight passes. The wrapper applies those bounds on subsequent invocations.
+  A regression reproduced two concurrent initializers deleting each other's
+  shared `.next` file; unique temporary files now allow both callers to finish
+  with exactly one builder creation.
+- Infisical's Compose services now have RAM, CPU, process and swap bounds. Its
+  first 512 MiB V8 heap failed in the isolated startup test and was discarded.
+  The final 768 MiB heap under a 1.5 GiB backend limit passes real provisioning,
+  authenticated secret writes, stop/restart, credential continuity and read-back.
+  The test removed its containers, volumes and network. The live owner vault
+  was not restarted to apply the new deployment settings.
 
 ## Still open
 
