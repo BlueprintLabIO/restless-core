@@ -2469,6 +2469,9 @@ fn state_root() -> PathBuf {
 }
 
 fn main() -> Result<()> {
+    // Two TLS backends reach rustls through the dependency tree, so it will not pick one itself:
+    // `restless ssh` to an https plane panicked (25 Oct). Choose ring, as the machine helper does.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     // A client of another Restless (S106): no local appliance profile is involved.
     match &cli.command {

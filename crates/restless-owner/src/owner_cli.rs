@@ -502,12 +502,19 @@ struct ShellControl {
 /// `restless ssh <company>`: a shell on the company's computer, through the plane, for the account
 /// owner only. Wherever the computer runs (this plane or a paired machine), the plane's Docker
 /// client reaches it; nothing listens on the owner's network.
+///
+/// A plain GET is the terminal's preflight: it wakes a sleeping computer and answers 204, or says
+/// why not. Cloud's tunnel turns any refused upgrade into a bare 502, so the reason has to arrive
+/// before the terminal asks for the websocket.
 pub(super) async fn shell(
     State(state): State<OwnerState>,
     principal: Option<Extension<RequestPrincipal>>,
     AxumPath(company): AxumPath<String>,
     Query(size): Query<ShellSize>,
-    upgrade: WebSocketUpgrade,
+    upgrade: std::result::Result<
+        WebSocketUpgrade,
+        axum::extract::ws::rejection::WebSocketUpgradeRejection,
+    >,
 ) -> Response<Body> {
     if !principal.is_some_and(|Extension(principal)| principal.is_account_owner()) {
         return api_error(
@@ -524,6 +531,12 @@ pub(super) async fn shell(
     {
         return api_error(StatusCode::NOT_FOUND, "shell", "no such company");
     }
+    // Opening a shell is real demand, like opening a file: a computer asleep while idle wakes for it.
+    if let Err(refusal) =
+        super::review_api::wake_for_owner_read(&state, &company, "the owner opened a shell").await
+    {
+        return refusal;
+    }
     let container = restless_engine::runtime::container_name(&company);
     let running = tokio::process::Command::new("docker")
         .args(["inspect", "-f", "{{.State.Running}}", &container])
@@ -537,13 +550,15 @@ pub(super) async fn shell(
         return api_error(
             StatusCode::CONFLICT,
             "shell",
-            "that company's computer is not running; open the company to wake it, then try again",
+            "that company's computer did not start; open the company to see why, then try again",
         );
     }
-    let _ = &state;
-    upgrade
-        .on_upgrade(move |socket| bridge_shell(socket, container, size.rows, size.cols))
-        .into_response()
+    match upgrade {
+        Ok(upgrade) => upgrade
+            .on_upgrade(move |socket| bridge_shell(socket, container, size.rows, size.cols))
+            .into_response(),
+        Err(_) => StatusCode::NO_CONTENT.into_response(),
+    }
 }
 
 async fn bridge_shell(socket: WebSocket, container: String, rows: u16, cols: u16) {

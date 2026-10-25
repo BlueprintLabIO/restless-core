@@ -597,6 +597,16 @@ pub fn ssh(company: &str) -> Result<()> {
     let id = resolve_company(&context, company)?;
     let (cols, rows) = terminal::size().unwrap_or((120, 40));
     let mut url = api(&context.url, &format!("/api/companies/{id}/shell"))?;
+    // The preflight wakes a sleeping computer and carries any refusal in words: through Cloud's
+    // tunnel a refused websocket arrives only as a bare 502.
+    eprintln!("Waking {company}'s computer if it is asleep…");
+    let ready = client(Some(&context), Duration::from_secs(180))?
+        .get(url.clone())
+        .send()
+        .with_context(|| format!("could not reach {}", context.url))?;
+    if !ready.status().is_success() {
+        return Err(failure(ready, "opening the shell"));
+    }
     url.query_pairs_mut()
         .append_pair("rows", &rows.to_string())
         .append_pair("cols", &cols.to_string());

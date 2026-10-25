@@ -28,4 +28,5 @@ tar = "0.4"
 url = "2"
 # `restless ssh` (S106): the shell's websocket, with the same rustls the machine helper uses.
 tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+rustls = "0.23"
 uuid = { version = "1", features = ["v4"] }
