@@ -219,7 +219,15 @@ pub async fn created(pool: &PgPool, code: &str, state: &str) -> Result<App> {
         .await
         .context("GitHub did not answer; try again in a moment.")?;
     if !response.status().is_success() {
-        bail!("GitHub would not finish creating the App. Start again from Accounts.");
+        let status = response.status().as_u16();
+        let said = response
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|body| body.get("message")?.as_str().map(str::to_string))
+            .unwrap_or_default();
+        tracing::warn!(status, said, "GitHub refused the App manifest conversion");
+        bail!("GitHub would not finish creating the App (it answered {status}). Start again from Accounts.");
     }
     let body: serde_json::Value = response
         .json()
@@ -252,7 +260,7 @@ pub async fn created(pool: &PgPool, code: &str, state: &str) -> Result<App> {
         .to_string();
     let id = Uuid::new_v4().simple().to_string();
     let key_reference = format!("infisical:/owner/github-apps/{id}/PRIVATE_KEY");
-    crate::credential::store_reference(&key_reference, pem)
+    crate::credential::store_reference(&key_reference, &key_for_vault(pem))
         .await
         .context("The vault did not accept the App's key; nothing was saved.")?;
     sqlx::query(
@@ -342,7 +350,22 @@ async fn installation(app: &App, installation_id: i64) -> Result<serde_json::Val
 
 // ---- Tokens ----
 
-fn signing_key(pem_text: &str) -> Result<ring::rsa::KeyPair> {
+/// The vault keeps one-line values, and a PEM key is many lines: it is kept as base64 of the PEM.
+fn key_for_vault(pem_text: &str) -> String {
+    base64::engine::general_purpose::STANDARD.encode(pem_text.trim())
+}
+
+/// The App's key as the vault holds it (base64 of the PEM), or as PEM itself.
+fn signing_key(stored: &str) -> Result<ring::rsa::KeyPair> {
+    let stored = stored.trim();
+    let pem_text = if stored.starts_with("-----BEGIN") {
+        stored.to_string()
+    } else {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(stored)
+            .context("not a PEM key")?;
+        String::from_utf8(bytes).context("not a PEM key")?
+    };
     let block = pem::parse(pem_text.trim()).context("not a PEM key")?;
     match block.tag() {
         "RSA PRIVATE KEY" => ring::rsa::KeyPair::from_der(block.contents())
@@ -468,6 +491,20 @@ mod tests {
             .to_pkcs1_pem(rsa::pkcs1::LineEnding::LF)
             .unwrap()
             .to_string()
+    }
+
+    #[test]
+    fn the_apps_key_is_kept_as_one_line_the_vault_accepts() {
+        let pem = test_key();
+        let kept = key_for_vault(&pem);
+        assert!(
+            !kept.chars().any(char::is_control),
+            "one line, no line endings"
+        );
+        let from_vault = signing_key(&kept).unwrap();
+        let from_pem = signing_key(&pem).unwrap();
+        assert_eq!(from_vault.public().as_ref(), from_pem.public().as_ref());
+        assert!(signing_key("not a key").is_err());
     }
 
     #[test]
