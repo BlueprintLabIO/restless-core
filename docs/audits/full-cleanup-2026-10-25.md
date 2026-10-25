@@ -50,7 +50,7 @@ resource ownership. An area is not closed merely because its unit tests pass.
 | Sprint area | Audit and verification boundary | Current state |
 | --- | --- | --- |
 | Dependencies and distribution | Every lockfile, browser/model compatibility, OCI/SBOM scans, installers and published library graph | Repairs merged; cockpit framework/KaTeX and complete OCI qualification open |
-| Identity and public entry | Edge/device throttling, verification/recovery, passkeys, session lifetime, invitations, billing return origins | Device fixes merged; Fleet framework PR under CI; remaining authority cases open |
+| Identity and public entry | Edge/device throttling, verification/recovery, passkeys, session lifetime, invitations, billing return origins | Device and Fleet framework fixes merged; remaining authority cases open |
 | Scheduling and recovery | Engine/OrgIntel queues, wake ownership, retries, leases, concurrency, crash/restart and durable continuation | Database suites pass; source/fault audit still open |
 | Authority and company isolation | Grants, revocation, budgets, effect unknown outcomes/idempotency, custody, shared issuer, tenant boundaries | Credential fixes merged; adversarial end-to-end audit open |
 | Owner and collaboration | Desktop/phone, large seeded data, documents/sheets, permissions, multiplayer and reconnect | Fleet account journeys verified; full Core/company journeys open |
@@ -92,6 +92,26 @@ repair and a regression guard.
 - That terminal edge repair merged in Cloud
   [`#142`](https://github.com/BlueprintLabIO/restless-cloud/pull/142),
   `13de28a002e78d964cb5b888b02536d0a82d9584`, after all three CI jobs passed.
+- Fleet Web's framework repair merged as Cloud
+  [`#148`](https://github.com/BlueprintLabIO/restless-cloud/pull/148),
+  `f92afb70a6127c13953947fc228db894b11cedf7`, with all three CI jobs passing.
+  Clean app/generator installs report zero npm advisories. Artifact/type checks
+  have zero errors/warnings; 32 unit checks, production build, three independent
+  built-server origin/CSRF checks and seven real Chromium account journeys pass.
+  These cover passkeys, two-factor recovery, password reset/session revocation,
+  email replay/expiry/wrong-purpose rejection and protected deletion. Desktop and
+  phone browser review includes registration, verification, home and settings.
+  The new Node adapter no longer handles runtime `ORIGIN`; the entry point
+  preserves it and overwrites forged canonical headers before CSRF handling.
+  Stripe redirects explicitly permit only the applicable Stripe origin.
+  The isolated TypeScript 5 generator keeps the TypeScript 6 app compatible;
+  a regression also reproduced and repaired its scratch-directory leak on a
+  failed client read. All disposable services and browser tabs were removed.
+  This does not qualify actual payments, company provisioning, multiplayer or
+  a production deployment.
+- The follow-up OSV scan covers 20 tracked locks (11 Core, nine Cloud after
+  isolating the generator). Cloud's only lockfile finding is the recorded RSA
+  advisory; Core still reports its cockpit SvelteKit/KaTeX graph and RSA.
 - The public site now uses SvelteKit 3 and the matching static adapter. The full
   npm audit has zero findings. Artifact/type checks, 11 waitlist tests, four
   presence tests, production build and all 2,313 internal links across 54 pages
@@ -210,8 +230,8 @@ namespace labels and current process inventories were checked before removal.
 
 ## Still open
 
-The cockpit's framework/KaTeX chain, Fleet Web's framework migration, the
-remaining Rust/OCI security findings, the rest of the
+The cockpit's framework/KaTeX chain, the remaining Rust/OCI security findings,
+local deployment manifest drift, the rest of the
 engine/authority/recovery audits and full seeded owner/collaboration journeys
 remain open. A repaired site or a passing library suite does not close them.
 
