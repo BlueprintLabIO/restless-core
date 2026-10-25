@@ -38,6 +38,40 @@ The earlier seven repairs are recorded in `maintenance-2026-10-25.md`.
 
 ## Evidence and discoveries
 
+### Owner-expanded sprint programme — 26 October
+
+The owner explicitly expanded this to every Restless codebase and deployment
+surface, including bugs, debt, inefficiency, leaks and operational jank. Work
+continues in coherent sprints followed by a fresh audit. The inventory includes
+source, tracked configuration, generated contracts, vendored first-party
+libraries, images, deployment agents, CI/release scripts, local services and
+resource ownership. An area is not closed merely because its unit tests pass.
+
+| Sprint area | Audit and verification boundary | Current state |
+| --- | --- | --- |
+| Dependencies and distribution | Every lockfile, browser/model compatibility, OCI/SBOM scans, installers and published library graph | Repairs merged; cockpit framework/KaTeX and complete OCI qualification open |
+| Identity and public entry | Edge/device throttling, verification/recovery, passkeys, session lifetime, invitations, billing return origins | Device fixes merged; Fleet framework PR under CI; remaining authority cases open |
+| Scheduling and recovery | Engine/OrgIntel queues, wake ownership, retries, leases, concurrency, crash/restart and durable continuation | Database suites pass; source/fault audit still open |
+| Authority and company isolation | Grants, revocation, budgets, effect unknown outcomes/idempotency, custody, shared issuer, tenant boundaries | Credential fixes merged; adversarial end-to-end audit open |
+| Owner and collaboration | Desktop/phone, large seeded data, documents/sheets, permissions, multiplayer and reconnect | Fleet account journeys verified; full Core/company journeys open |
+| Deployment and operations | Compose, VM/plane agents, release contracts, TLS/routing, secrets references, migration/rollback, backup failure recovery, monitoring | Backup round-trip and reaper fixes pass; local manifest drift reproduced; remaining deployment audit open |
+| Resource lifetime and efficiency | RAM/swap/CPU, process and socket lifetime, pools, caches/images, bounded observations and cleanup failures | Host cleanup and preventive bounds merged; continued measurements and leak audit open |
+
+Each sprint records its reproducer, changed behavior, verification limits and
+merged revision. Re-audits compare exact current source/dependency/deployment
+inventories, exercise relevant failure paths, inspect leftover resources and CI,
+and carry unresolved findings forward. Production observations and disposable
+local evidence are recorded separately.
+
+Follow-up deployment finding: `deploy/local/.env.example` embeds an older
+plane-deployment schema digest than the current contract and its named release
+fixture. The actual current Fleet API refused it with “Fleet Cloud release
+contract schema binding is invalid.” The temporary account-test manifest was
+bound to the compiled schemas; the tracked local deployment input still needs
+repair and a regression guard.
+
+### Verified work
+
 - An OSV Scanner 2.7.0 binary was downloaded from Google's official release and
   verified against its release SHA-256 file. Its initial scan covered all 19
   committed npm/Cargo lockfiles (11 Core, eight Cloud).
