@@ -15,7 +15,7 @@ const ACCOUNT_INPUTS = ['infra/account-plane/Dockerfile', 'Cargo.toml', 'Cargo.l
   'docs/COMPANY_OPERATING_RULES.md', 'services/native-sheets/package.json', 'services/native-sheets/package-lock.json',
   'services/native-sheets/src/**', 'services/native-sheets/NOTICE', 'services/identity/package.json',
   'services/identity/package-lock.json', 'services/identity/src/**', 'services/identity/public/**', 'services/identity/scripts/**'];
-const RUNTIME_INPUTS = ['infra/company-image/**', 'Cargo.toml', 'Cargo.lock', 'crates/**',
+const RUNTIME_INPUTS = ['infra/company-image/**', 'infra/host-tools/package.json', 'Cargo.toml', 'Cargo.lock', 'crates/**',
   'tools/scenario/restless-scenario.mjs', 'tools/web-review/restless-web-review.mjs', 'tools/codex-runner/**'];
 const RUST_INPUTS = ['infra/rust-binaries/Dockerfile', 'Cargo.toml', 'Cargo.lock', 'crates/**',
   'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py',
@@ -67,7 +67,7 @@ export async function runtimeToolsContext(source: Directory): Promise<Directory>
   const end = dockerfile.search(/^FROM .* AS runtime-layer-build$/m);
   if (start < 0 || end <= start) throw new Error('company Dockerfile no longer has the expected runtime-tools stages');
   return dag.directory().withDirectory('/', source, {
-    include: ['infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs'],
+    include: ['infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs', 'infra/host-tools/package.json'],
   }).withNewFile('infra/company-image/Dockerfile', dockerfile.slice(start, end));
 }
 
@@ -163,7 +163,7 @@ export class RestlessCore {
   /** Build the reusable desktop/agent tool base without importing Rust or UI. */
   @func()
   runtimeTools(
-    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/browser-sbom.mjs'] })
+    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/browser-sbom.mjs', '!infra/host-tools/package.json'] })
     source: Directory, platform: string = 'linux/amd64',
   ): Promise<Container> {
     checkPlatform(platform);
@@ -175,7 +175,7 @@ export class RestlessCore {
   /** Exercise installed tools in the isolated builder; no appliance is mounted. */
   @func()
   async verifyRuntimeTools(
-    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/browser-sbom.mjs', '!infra/company-image/verify-desktop.mjs'] })
+    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/browser-sbom.mjs', '!infra/company-image/verify-desktop.mjs', '!infra/host-tools/package.json'] })
     source: Directory, platform: string = 'linux/amd64',
   ): Promise<string> {
     return verifyRuntimeToolsImage(await this.runtimeTools(source, platform), source.file('infra/company-image/verify-desktop.mjs'));
@@ -200,7 +200,7 @@ export class RestlessCore {
   /** Construct the canonical Runtime, optionally reusing an admitted tool base. */
   @func()
   async companyRuntime(
-    @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!infra/company-image/**',
+    @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!infra/company-image/**', '!infra/host-tools/package.json',
       '!tools/scenario/restless-scenario.mjs', '!tools/web-review/restless-web-review.mjs', '!tools/codex-runner/**',
       'infra/company-image/test_supervision_contract.py', '**/node_modules/**', '**/target/**', '**/__pycache__/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, platform: string = 'linux/amd64', toolsImage: string = '', binaries?: Directory,
@@ -259,7 +259,7 @@ export class RestlessCore {
   /** Check the Runtime artifact's binary linkage and exact release metadata. */
   @func()
   async verifyCompanyRuntime(
-    @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!infra/company-image/**',
+    @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!infra/company-image/**', '!infra/host-tools/package.json',
       '!tools/scenario/restless-scenario.mjs', '!tools/web-review/restless-web-review.mjs', '!tools/codex-runner/**',
       'infra/company-image/test_supervision_contract.py', '**/node_modules/**', '**/target/**', '**/__pycache__/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, platform: string = 'linux/amd64', toolsImage: string = '', binaries?: Directory,
