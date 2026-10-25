@@ -19,7 +19,7 @@ const TOKEN_ROUTES: &str = "/api/mcp-access";
 const APPROVE_PAGE: &str = "/account/settings/computers";
 const CODE_TTL: Duration = Duration::from_secs(10 * 60);
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
-/// A plane never holds more terminal sign-ins waiting than this; the oldest go first.
+/// A plane never holds more terminal sign-ins than this; unexpired requests are never evicted.
 const MAX_PENDING: usize = 16;
 /// Codes avoid vowels (no words) and look-alike letters.
 const CODE_ALPHABET: &[u8] = b"BCDFGHJKLMNPQRSTVWXZ";
@@ -226,15 +226,9 @@ pub(super) async fn start(Json(input): Json<StartInput>) -> Response<Body> {
         .unwrap_or_else(|| "a terminal".into());
     let device_code = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
     let code = user_code();
-    pending(|map| {
+    let admitted = pending(|map| {
         if map.len() >= MAX_PENDING {
-            if let Some(oldest) = map
-                .iter()
-                .min_by_key(|(_, entry)| entry.started)
-                .map(|(key, _)| key.clone())
-            {
-                map.remove(&oldest);
-            }
+            return false;
         }
         map.insert(
             device_key(&device_code),
@@ -247,15 +241,30 @@ pub(super) async fn start(Json(input): Json<StartInput>) -> Response<Body> {
                 denied: false,
             },
         );
+        true
     });
-    Json(json!({
-        "device_code": device_code,
-        "user_code": code,
-        "verification_path": format!("{APPROVE_PAGE}?terminal={code}"),
-        "expires_in": CODE_TTL.as_secs(),
-        "interval": POLL_INTERVAL.as_secs(),
-    }))
-    .into_response()
+    if !admitted {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [("cache-control", "no-store"), ("retry-after", "60")],
+            Json(json!({
+                "error": "slow_down",
+                "message": "Too many terminals are waiting to sign in. Finish a waiting sign-in or try again in a minute."
+            })),
+        )
+            .into_response();
+    }
+    (
+        [("cache-control", "no-store")],
+        Json(json!({
+            "device_code": device_code,
+            "user_code": code,
+            "verification_path": format!("{APPROVE_PAGE}?terminal={code}"),
+            "expires_in": CODE_TTL.as_secs(),
+            "interval": POLL_INTERVAL.as_secs(),
+        })),
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]
@@ -659,6 +668,45 @@ async fn bridge_shell(socket: WebSocket, container: String, rows: u16, cols: u16
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_full_sign_in_queue_preserves_waiting_and_approved_terminals() {
+        let mut first = None;
+        for _ in 0..MAX_PENDING {
+            let response = start(Json(StartInput {
+                label: Some("terminal".into()),
+            }))
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = axum::body::to_bytes(response.into_body(), 8192)
+                .await
+                .unwrap();
+            let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            first.get_or_insert_with(|| device_key(value["device_code"].as_str().unwrap()));
+        }
+        let first = first.unwrap();
+        pending(|map| map.get_mut(&first).unwrap().approved = Some(None));
+        let response = start(Json(StartInput { label: None })).await;
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()["retry-after"], "60");
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        pending(|map| {
+            assert_eq!(map.len(), MAX_PENDING);
+            assert!(map.get(&first).unwrap().approved.is_some());
+            map.get_mut(&first).unwrap().started = std::time::Instant::now() - CODE_TTL;
+        });
+        let response = start(Json(StartInput { label: None })).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        pending(|map| {
+            assert_eq!(map.len(), MAX_PENDING);
+            assert!(
+                !map.contains_key(&first),
+                "expired entries release capacity"
+            );
+            map.clear();
+        });
+    }
 
     #[test]
     fn codes_are_two_groups_of_four_without_vowels() {
