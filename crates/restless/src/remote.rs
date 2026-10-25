@@ -59,24 +59,9 @@ fn load() -> Result<Contexts> {
 }
 
 fn save(contexts: &Contexts) -> Result<()> {
-    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
     let path = contexts_path()?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    let temporary = path.with_extension("json.tmp");
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&temporary)
-        .with_context(|| format!("write {}", temporary.display()))?;
-    file.write_all(serde_json::to_string_pretty(contexts)?.as_bytes())?;
-    file.sync_all()?;
-    std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o600))?;
-    std::fs::rename(&temporary, &path).with_context(|| format!("write {}", path.display()))?;
-    Ok(())
+    crate::appliance::atomic_write(&path, &serde_json::to_vec_pretty(contexts)?, 0o600)
+        .with_context(|| format!("write {}", path.display()))
 }
 
 /// The context commands act on: `RESTLESS_CONTEXT` if set, else the one `restless use` chose.
@@ -129,15 +114,23 @@ fn client(context: Option<&Context>, timeout: Duration) -> Result<Client> {
 /// A plane address as typed: `app.restless.run`, `https://host:8443`, `http://127.0.0.1:7788`.
 pub fn normal_address(address: &str) -> Result<Url> {
     let address = address.trim();
-    let with_scheme = if address.contains("://") {
+    let explicit_scheme = address.contains("://");
+    let with_scheme = if explicit_scheme {
         address.to_string()
-    } else if address.starts_with("127.") || address.starts_with("localhost") {
-        format!("http://{address}")
     } else {
         format!("https://{address}")
     };
     let mut url =
         Url::parse(&with_scheme).with_context(|| format!("`{address}` is not an address"))?;
+    if !explicit_scheme
+        && url.host().is_some_and(|host| match host {
+            url::Host::Domain(name) => name == "localhost",
+            url::Host::Ipv4(ip) => ip.is_loopback(),
+            url::Host::Ipv6(ip) => ip.is_loopback(),
+        })
+    {
+        let _ = url.set_scheme("http");
+    }
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
         bail!("`{address}` is not an http or https address");
     }
@@ -720,6 +713,12 @@ mod tests {
                 .as_str(),
             "https://box.tail1.ts.net:8443/"
         );
+        assert_eq!(
+            normal_address("localhost.evil.test").unwrap().scheme(),
+            "https"
+        );
+        assert_eq!(normal_address("127.evil.test").unwrap().scheme(), "https");
+        assert_eq!(normal_address("[::1]:7788").unwrap().scheme(), "http");
         assert!(normal_address("ftp://x").is_err());
     }
 
@@ -758,7 +757,13 @@ mod tests {
             },
         );
         contexts.current = Some("home".into());
+        // A stale or attacker-created path must never receive a saved bearer.
+        std::fs::create_dir_all(&dir).unwrap();
+        let victim = dir.join("unrelated.txt");
+        std::fs::write(&victim, b"leave this alone").unwrap();
+        std::os::unix::fs::symlink(&victim, path.with_extension("json.tmp")).unwrap();
         save(&contexts).unwrap();
+        assert_eq!(std::fs::read(&victim).unwrap(), b"leave this alone");
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
         assert_eq!(current().unwrap().unwrap().0, "home");

@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{symlink, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -1794,23 +1794,30 @@ fn atomic_symlink(target: &Path, link: &Path) -> Result<()> {
     Ok(())
 }
 
-fn atomic_write(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {
     let parent = path.parent().context("file has no parent")?;
     std::fs::create_dir_all(parent)?;
     let temporary = parent.join(format!(
         ".{}.next-{}",
         path.file_name().unwrap_or_default().to_string_lossy(),
-        std::process::id()
+        uuid::Uuid::new_v4()
     ));
     let mut file = OpenOptions::new()
         .create_new(true)
         .write(true)
+        .mode(mode)
         .open(&temporary)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(mode))?;
-    std::fs::rename(&temporary, path)?;
-    Ok(())
+    let result = (|| -> Result<()> {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(mode))?;
+        std::fs::rename(&temporary, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn copy_executable(source: &Path, destination: &Path) -> Result<()> {
@@ -1956,6 +1963,34 @@ fn ensure_stable_profile() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concurrent_atomic_writes_leave_one_complete_private_file() {
+        let directory =
+            std::env::temp_dir().join(format!("restless-atomic-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("contexts.json");
+        std::thread::scope(|scope| {
+            for writer in 0..8 {
+                let path = &path;
+                scope.spawn(move || {
+                    let bytes = vec![b'a' + writer; 16 * 1024];
+                    for _ in 0..8 {
+                        atomic_write(path, &bytes, 0o600).unwrap();
+                    }
+                });
+            }
+        });
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(bytes.len(), 16 * 1024);
+        assert!(bytes.iter().all(|byte| *byte == bytes[0]));
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn sharing_import_refuses_public_files_untrusted_keys_and_mutable_images() {
