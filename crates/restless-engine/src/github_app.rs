@@ -176,7 +176,8 @@ pub fn manifest(page_url: &str, owner: Option<&str>) -> serde_json::Value {
             "workflows": "write",
             "checks": "read",
             "statuses": "read",
-            "actions": "read",
+            // Write, so a company the owner lets act can start its own release workflows.
+            "actions": "write",
             "metadata": "read"
         },
         "default_events": []
@@ -556,6 +557,7 @@ mod tests {
         );
         assert_eq!(manifest["hook_attributes"]["active"], false);
         assert_eq!(manifest["default_permissions"]["contents"], "write");
+        assert_eq!(manifest["default_permissions"]["actions"], "write");
         assert!(manifest["default_permissions"]
             .get("administration")
             .is_none());
