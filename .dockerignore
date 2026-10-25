@@ -10,6 +10,9 @@
 infra/*
 !infra/company-image/
 !infra/company-image/**
+!infra/host-tools/
+infra/host-tools/*
+!infra/host-tools/package.json
 !infra/account-plane/
 !infra/account-plane/**
 # `restlessd` include_str!s this at compile time (crates/restless-engine/src/context.rs:21),

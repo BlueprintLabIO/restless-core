@@ -95,6 +95,23 @@ The earlier seven repairs are recorded in `maintenance-2026-10-25.md`.
   both repositories. Cargo's active all-feature/all-target dependency trees do
   not include RSA after the direct test dependency is removed, but the advisory
   remains recorded; no exception has been added to hide it.
+- The browser-tool repair keeps OMP 18.8.6 and overrides Puppeteer to 25.16.0,
+  which resolves chromium-bidi 157.0.8090-0 and Zod 4.6.7. Development tools
+  audit clean. The company-image install reads the same flat override; a real
+  installation probe built from that exact Dockerfile block has those versions.
+  Its isolated Chrome 156 run passed CDP typing/clicking, a phone screenshot,
+  cookie isolation, reconnect, BiDi mapping and OMP's actual browser launcher.
+  The existing namespace protocol smoke passes. Fresh Bun installs from the image's
+  frozen graph pass for Linux and for macOS arm64 dependency selection without
+  changing the lock. The macOS installer now copies and freezes that release
+  graph. This verifies dependency selection, not execution on a macOS host.
+  The Zod 3 scan exception was removed. The probe extends an existing company
+  image; full current-source release-image qualification remains a separate gate.
+- GitHub's 17 open Core Dependabot alerts were compared to the actual lockfiles
+  and advisory ranges. All refer to already-replaced versions: the current
+  graph has Vite 8.3.5, devalue 5.9.4, source-map-js 1.2.2, MCP SDK 1.32.2 and
+  Hono 4.13.13. No alerts were dismissed. Cloud's Dependabot-alert API reports
+  that alerts are disabled; npm/OSV and release-image scans remain necessary.
 
 ## Owner-authorized resource purge
 
@@ -124,8 +141,8 @@ namespace labels and current process inventories were checked before removal.
 
 ## Still open
 
-Core host-tools' Zod chain and the cockpit's framework/KaTeX chain, Fleet Web's
-framework migration, the remaining Rust/OCI security findings, the rest of the
+The cockpit's framework/KaTeX chain, Fleet Web's framework migration, the
+remaining Rust/OCI security findings, the rest of the
 engine/authority/recovery audits and full seeded owner/collaboration journeys
 remain open. A repaired site or a passing library suite does not close them.
 

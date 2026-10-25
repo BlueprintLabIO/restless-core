@@ -17,7 +17,6 @@ imports the patched gateway through the package exports. The script requires
 the pinned package version and a clean patch context, and is safe to rerun.
 It uses the system `patch` command.
 
-
 The gateway currently does not forward Codex's `tool_search` tool. Namespaced
 children therefore become directly visible: their incoming `defer_loading`
 flag is omitted from the provider request. This keeps native calls usable when
@@ -45,3 +44,31 @@ the gateway and providers preserve the namespace pair natively, and rerun the
 smoke against the new pinned version.
 Stock 18.8.6 still fails the smoke (namespace dropped from calls), so the patch
 was ported forward rather than removed.
+
+## Patched browser dependencies
+
+OMP stays at 18.8.6 because the development broker applies the checked Responses
+namespace patch in this directory. Its Puppeteer dependency is overridden to
+25.16.0: that version uses chromium-bidi 157.0.8090-0 and Zod 4, removing the
+vulnerable Zod 3 collection validator without replacing the agent.
+
+Keep the override flat. Bun ignores npm's nested override form. The company
+Dockerfile reads this manifest's overrides before installing the global agent.
+The macOS installer copies that image's package manifest and Bun lock, then
+installs with the lock frozen so it retains the repaired graph.
+
+After a clean `npm ci`, run `npm test` here to verify namespaced tools still
+reach the intended provider tool. The two browser probes exercise a disposable
+Chrome installation:
+
+```sh
+BROWSER_TEST_EXECUTABLE=/path/to/chrome npm run test:browser
+PUPPETEER_EXECUTABLE_PATH=/path/to/chrome npm run test:omp-browser
+```
+
+For a company-image probe, set `BROKER_PACKAGE_ROOT` to
+`/usr/local/bun/install/global` and run the scripts in a disposable container
+with no company mounts and networking disabled. `BROWSER_TEST_NO_SANDBOX=1`
+is available for that isolated test container when its kernel cannot support
+Chrome's sandbox. The probes use generated pages and their own temporary
+browser profiles; they never attach to an owner's browser.

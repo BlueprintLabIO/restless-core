@@ -324,8 +324,13 @@ FROM runtime-authoring AS runtime-harnesses
 COPY --from=uv-runtime /uv /uvx /usr/local/bin/
 RUN uv --version && uvx --version
 ENV BUN_INSTALL=/usr/local/bun
+COPY infra/host-tools/package.json /tmp/restless-host-tools.json
 RUN npm install -g bun@1.3.14 \
+    # Keep the browser dependency repair aligned with the development broker.
+    && mkdir -p ${BUN_INSTALL}/install/global \
+    && node -e 'const fs=require("node:fs"); const source=require("/tmp/restless-host-tools.json"); fs.writeFileSync(process.env.BUN_INSTALL+"/install/global/package.json", JSON.stringify({overrides:source.overrides}));' \
     && bun install -g @oh-my-pi/pi-coding-agent@18.8.6 \
+    && rm /tmp/restless-host-tools.json \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
     # bun's download cache is a second copy of every package (the image scan counts each one), and
     # nothing reads it at runtime.

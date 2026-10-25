@@ -347,6 +347,11 @@ stage_macos_host_tools() {
     docker cp "$container:/opt/restless/native-sheets/$part" "$tools.partial/native-sheets/$part"
   done
   stage_account_installer "$container" "$tools.partial"
+  # Carry the release's exact broker graph, including security overrides, to
+  # macOS instead of resolving the agent's original dependencies again.
+  mkdir -p "$tools.partial/bun/install/global"
+  docker cp "$container:/usr/local/bun/install/global/package.json" "$tools.partial/bun/install/global/package.json"
+  docker cp "$container:/usr/local/bun/install/global/bun.lock" "$tools.partial/bun/install/global/bun.lock" 2>/dev/null || true
   docker rm -f "$container" >/dev/null
   STAGING_CONTAINER=""
 
@@ -369,8 +374,14 @@ stage_macos_host_tools() {
   unzip -q -o "$work/$bun_zip" -d "$work"
   cp "$work/bun-darwin-${bun_arch}/bun" "$tools.partial/bin/bun"
   chmod 0755 "$tools.partial/bin/node" "$tools.partial/bin/bun"
-  BUN_INSTALL="$tools.partial/bun" "$tools.partial/bin/bun" install --global "@oh-my-pi/pi-coding-agent@${omp_version}" >&2 \
-    || fail "could not install the model broker ${omp_version}"
+  if [ -f "$tools.partial/bun/install/global/bun.lock" ]; then
+    BUN_INSTALL="$tools.partial/bun" "$tools.partial/bin/bun" install --global --frozen-lockfile "@oh-my-pi/pi-coding-agent@${omp_version}" >&2 \
+      || fail "could not install the release's locked model broker ${omp_version}"
+  else
+    # Releases from before the lock was shipped retain their existing path.
+    BUN_INSTALL="$tools.partial/bun" "$tools.partial/bin/bun" install --global "@oh-my-pi/pi-coding-agent@${omp_version}" >&2 \
+      || fail "could not install the model broker ${omp_version}"
+  fi
   local package="$tools.partial/bun/install/global/node_modules/@oh-my-pi/pi-coding-agent" entry
   entry="$(jq -er 'if (.bin | type) == "string" then .bin else (.bin.omp // first(.bin[])) end' "$package/package.json")" \
     || fail "the model broker package names no executable"

@@ -143,13 +143,6 @@ const SCAN_EXCEPTIONS = [
   { id: 'CVE-2026-113344', name: 'chrome', version: '156.0.8078.47', until: '2026-10-27', locations: [
     '/usr/local/share/restless/browser.cdx.json',
   ] },
-  // Owner-approved, 2026-10-25 (upgrade what can be, waive only what has no fix). Denial of
-  // service only (memory while validating an oversized constrained collection). Zod 3 has no fixed release (3.25.76 is the last); the fix is 4.6.6.
-  // This copy is chromium-bidi's, under the bun-installed coding agent, validating messages from
-  // the company's own Chrome. Drop when chromium-bidi moves to zod 4.
-  { id: 'GHSA-mrhx-c7xc-m3w5', name: 'zod', version: '3.25.76', until: '2026-11-08', locations: [
-    '/usr/local/bun/install/global/node_modules/zod/package.json',
-  ] },
 ];
 
 /** Grype config that ignores the exceptions still in force on the scan day, at their exact paths. */
