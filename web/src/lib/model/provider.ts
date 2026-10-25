@@ -139,6 +139,31 @@ export async function grantCompanyConnection(
 	}
 }
 
+/** Make one of the account's connections this company's default model. A company key of the same
+ * provider is replaced only when `replace` says the company has nothing working to keep; otherwise
+ * the owner is sent to Intelligence, where the replacement is theirs to confirm. */
+export async function useAccountConnection(
+	id: string,
+	connection: string,
+	model: string,
+	replace: boolean
+): Promise<ProviderStatus> {
+	const { revision } = await readProvider(id);
+	const result = await grantCompanyConnection(id, connection, { model, make_default: true, revision });
+	if (!result.replaceRequired) return result.provider;
+	if (!replace)
+		throw new Error('This company already has its own key for that provider. Use Intelligence instead.');
+	const fresh = await readProvider(id);
+	const replaced = await grantCompanyConnection(id, connection, {
+		model,
+		make_default: true,
+		revision: fresh.revision,
+		replace_existing: true
+	});
+	if (replaced.replaceRequired) throw new Error('That connection could not replace the company key.');
+	return replaced.provider;
+}
+
 export async function revokeCompanyConnection(id: string, connection: string, revision: string) {
 	const result = await ownerRequest<{ provider: ProviderStatus }>(
 		`${company(id)}/connections/${encodeURIComponent(connection)}`,

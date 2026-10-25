@@ -319,3 +319,18 @@ export function useRefLine(ref: AccountUseRef): string {
 		...(ref.cost_micros ? [money(ref.cost_micros)] : [])
 	].join(' · ');
 }
+
+/** The next step for a signed-in account no company may use yet (M1). Signing in and giving a
+ * company access are separate, so the row offers the grant rather than another sign-in, with the
+ * company preselected when only one could receive it. Nothing is granted until the owner saves. */
+export function emptyAccessGrant(
+	account: Pick<Account, 'health' | 'frozen' | 'grants'>,
+	companies: { id: string; name: string }[]
+): { label: string; company: string } | null {
+	if (account.health !== 'signed_in' || account.frozen || account.grants.length) return null;
+	const open = companies.filter((company) => !account.grants.some((g) => g.company === company.id));
+	if (!open.length) return null;
+	return open.length === 1
+		? { label: `Give ${open[0].name} access`, company: open[0].id }
+		: { label: 'Give a company access', company: '' };
+}

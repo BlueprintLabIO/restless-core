@@ -98,6 +98,34 @@ export function accountGrantFix(
 	};
 }
 
+/** What the owner does next with an account connection that works but no company may use yet.
+ * Signing in and giving a company access are separate steps, so a working sign-in with no
+ * company says so and offers the grant, never another sign-in. The intended company is the one
+ * waiting on exactly this connection, else the only company; with several, the owner chooses.
+ * The step only opens the grant form: nothing is granted until the owner confirms it there. */
+export function emptyAccessStep(
+	connection: AccountConnectionSummary,
+	companies: { id: string; name: string; unstartable_reason?: string | null }[],
+	connections: AccountConnectionSummary[]
+): { sentence: string; action: string | null; companyId: string | null } | null {
+	if (connection.status !== 'present' || connection.companies.length) return null;
+	const works = connection.kind === 'api_key' ? 'Key works.' : 'Signed in.';
+	if (!companies.length)
+		return { sentence: `${works} No company to give it to yet.`, action: null, companyId: null };
+	const waiting = companies.find(
+		(company) =>
+			!!company.unstartable_reason &&
+			accountGrantFix(company.unstartable_reason, company.id, connections)?.connection.id ===
+				connection.id
+	);
+	const intended = waiting ?? (companies.length === 1 ? companies[0] : null);
+	return {
+		sentence: `${works} No company uses it yet.`,
+		action: intended ? `Give ${intended.name} access` : 'Choose a company',
+		companyId: intended?.id ?? null
+	};
+}
+
 export async function getAccountConnections(
 	signal?: AbortSignal
 ): Promise<AccountConnectionSummary[]> {

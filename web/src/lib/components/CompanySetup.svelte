@@ -33,6 +33,7 @@
 	import ConnectModel from '$lib/components/ConnectModel.svelte';
 	import { MAX_UPLOAD_BYTES, MAX_UPLOAD_FILES } from '$lib/model/attachments';
 	import IntelligenceChip from '$lib/components/IntelligenceChip.svelte';
+	import SetupAccountOffer from '$lib/components/SetupAccountOffer.svelte';
 
 	let { companyId, viewerActorId }: { companyId: string; viewerActorId: string } = $props();
 	/* Built once, here: a conversation query built inside a $derived stopped reporting on this
@@ -498,6 +499,8 @@
 							onready={() => void catalog.refresh()}
 						/>
 					</div>
+				{:else if step === 'idea'}
+					<SetupAccountOffer {companyId} interviewStarted={lastOwner >= 0} />
 				{:else if step === 'readback'}
 					<div
 						class="setup-card readback"

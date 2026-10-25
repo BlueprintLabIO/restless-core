@@ -1,12 +1,22 @@
 <script lang="ts">
 	/* The owner's ordered fallback models: when the main model is out of quota or unreachable, the
-	 * company tries each in turn instead of stopping. Exact per-agent choices never fall back. */
+	 * company tries each in turn instead of stopping. Exact per-agent choices never fall back.
+	 * A fallback is picked as an account and one of its models, the way the default model is, and
+	 * says which account pays for it before and after it is saved (M5). */
 	import Field from '$lib/ui/forms/Field.svelte';
 	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import { Section, Item, Notice, Empty } from '$lib/ui/page';
+	import ModelPicker from '$lib/primitives/ModelPicker.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { modelLabel } from '$lib/model/intelligence-labels';
-	import { MODEL_PRESETS } from '$lib/model/model-presets';
+	import { connectionLabel, modelLabel } from '$lib/model/intelligence-labels';
+	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { modelCatalog } from '$lib/model/model-catalog.svelte';
+	import {
+		billingSentence,
+		fallbackAccounts,
+		fallbackRoute,
+		routeSentence
+	} from '$lib/model/model-failover';
 	import { saveModelFailover, type ProviderStatus } from '$lib/model/provider';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 
@@ -17,19 +27,27 @@
 	}: { companyId: string; status: ProviderStatus; onsaved: (status: ProviderStatus) => void } =
 		$props();
 
+	const intelligence = $derived(intelligenceQuery(companyId));
+	const catalog = modelCatalog();
+	const connections = $derived(intelligence.view?.connections ?? []);
+	const accounts = $derived(fallbackAccounts(connections));
 	const models = $derived(status.model_failover ?? []);
-	/* Suggest models of providers this company can already reach; any full ID is accepted. */
-	const suggestions = $derived(
-		MODEL_PRESETS.filter((preset) =>
-			status.connections.some(
-				(row) => row.provider === preset.id && row.credential_status === 'present'
-			)
-		).flatMap((preset) => preset.models.map((model) => `${preset.id}/${model.id}`))
-	);
 	let adding = $state(false),
+		accountId = $state(''),
 		draft = $state(''),
 		saving = $state(false),
 		failure = $state('');
+	const account = $derived(accounts.find((item) => item.id === accountId));
+	const route = (provider: string, model: string) =>
+		model.startsWith(`${provider}/`) ? model : `${provider}/${model}`;
+	const choices = $derived(
+		account
+			? catalog
+					.models(account.provider, account.account_kind ?? 'api_key')
+					.map((item) => ({ id: route(account.provider, item.id), name: item.name ?? item.id }))
+					.filter((item) => !models.includes(item.id) && item.id !== status.primary_model)
+			: []
+	);
 
 	async function save(next: string[], message: string) {
 		if (saving) return;
@@ -46,9 +64,21 @@
 			saving = false;
 		}
 	}
+	function open() {
+		failure = '';
+		draft = '';
+		accountId = accounts[0]?.id ?? '';
+		adding = true;
+	}
 	async function add() {
+		if (!account) return void (failure = 'Choose the account that pays for this fallback.');
 		const model = draft.trim();
-		if (!model) return;
+		if (!model) return void (failure = 'Choose a model.');
+		/* Re-read the route at the moment of saving: the model must land on the account shown. */
+		const target = fallbackRoute(model, connections);
+		if (target.state !== 'billed' || target.connection.id !== account.id)
+			return void (failure = `${modelLabel(model)} is not served by ${connectionLabel(account.id, connections)}.`);
+		if (models.includes(model)) return void (failure = `${modelLabel(model)} is already a fallback.`);
 		if (await save([...models, model], `${modelLabel(model)} added as a fallback`)) {
 			draft = '';
 			adding = false;
@@ -64,7 +94,7 @@
 
 <Section
 	title="Fallback models"
-	info={`Tried in this order when ${status.primary_model ? modelLabel(status.primary_model) : 'the main model'} is out of quota or unreachable, so the company keeps working. Each needs a connection this company can use. An agent you gave its own model never falls back.`}
+	info={`Tried in this order when ${status.primary_model ? modelLabel(status.primary_model) : 'the main model'} is out of quota or unreachable, so the company keeps working. Each is paid for by this company's connection for its provider. An agent you gave its own model never falls back.`}
 	count={models.length || null}
 >
 	{#snippet actions()}
@@ -72,14 +102,14 @@
 				class="btn small"
 				type="button"
 				disabled={saving}
-				onclick={() => {
-					failure = '';
-					adding = true;
-				}}>Add fallback</button
+				onclick={open}>Add fallback</button
 			>{/if}
 	{/snippet}
 	{#each models as model, index (model)}
-		<Item title={`${index + 1}. ${modelLabel(model)}`} meta={model}>
+		<Item
+			title={`${index + 1}. ${modelLabel(model)}`}
+			meta={intelligence.view ? routeSentence(fallbackRoute(model, connections), connections) : model}
+		>
 			{#snippet actions()}
 				<button
 					class="btn small ghost"
@@ -114,43 +144,60 @@
 			/>{/if}
 	{/each}
 	{#if adding}
-		<form
-			class="form plain"
-			onsubmit={(event) => {
-				event.preventDefault();
-				void add();
-			}}
-		>
-			<Field
-				label="Fallback model"
-				hint="A full provider/model ID, such as anthropic/claude-sonnet-4-6."
-				for="fallback-model"
-			>
-				<input
-					id="fallback-model"
-					type="text"
-					list="fallback-model-options"
-					required
-					placeholder="provider/model"
-					bind:value={draft}
-					disabled={saving}
-				/>
-				<datalist id="fallback-model-options">
-					{#each suggestions.filter((item) => !models.includes(item) && item !== status.primary_model) as item (item)}<option
-							value={item}>{modelLabel(item)}</option
-						>{/each}
-				</datalist>
-			</Field>
-			<FormFoot
-				submit="Add"
-				busy={saving}
-				busyLabel="Saving…"
-				oncancel={() => {
-					adding = false;
-					draft = '';
+		{#if !accounts.length}
+			<Notice title="No account this company can use yet">
+				Give this company access to an account first, then choose a fallback from it.
+				<a class="text-button" href="/account/settings/accounts">Open Accounts</a>
+				<button class="text-button" type="button" onclick={() => (adding = false)}>Close</button>
+			</Notice>
+		{:else}
+			<form
+				class="form plain"
+				onsubmit={(event) => {
+					event.preventDefault();
+					void add();
 				}}
-			/>
-		</form>
+			>
+				<Field label="Account" for="fallback-account">
+					<select
+						id="fallback-account"
+						value={accountId}
+						disabled={saving}
+						onchange={(event) => {
+							failure = '';
+							draft = '';
+							accountId = event.currentTarget.value;
+						}}
+						>{#each accounts as item (item.id)}<option value={item.id}
+								>{connectionLabel(item.id, connections)}</option
+							>{/each}</select
+					>
+					{#snippet help()}{account ? billingSentence(account, connections) : ''}{/snippet}
+				</Field>
+				<Field label="Model" for="fallback-model">
+					<ModelPicker
+						id="fallback-model"
+						framed
+						models={choices}
+						current={draft}
+						disabled={saving || !account}
+						onchoose={(next) => {
+							failure = '';
+							draft = account ? route(account.provider, next) : next;
+						}}
+					/>
+				</Field>
+				<FormFoot
+					submit="Add"
+					busy={saving}
+					busyLabel="Saving…"
+					oncancel={() => {
+						adding = false;
+						draft = '';
+					}}
+				/>
+			</form>
+		{/if}
 	{/if}
 	{#if failure}<Notice tone="danger" title="Nothing changed">{failure}</Notice>{/if}
 </Section>
