@@ -398,7 +398,8 @@ if have_docker; then
     SUPERVISED="$(docker exec "$name" sh -c \
       'cat /company/services/supervisor/*.conf 2>/dev/null | sed -n "s/^command=//p"' 2>/dev/null || true)"
     HITS="$(docker exec "$name" ps -eo etimes,pid,args 2>/dev/null \
-      | awk -v floor="$PROC_FLOOR" -v pat="$REAP_LEAK_PATTERN" '
+      | RESTLESS_REAP_AWK_PATTERN="$REAP_LEAK_PATTERN" awk -v floor="$PROC_FLOOR" '
+          BEGIN { pat = ENVIRON["RESTLESS_REAP_AWK_PATTERN"] }
           NR > 1 && $1 + 0 >= floor + 0 {
             argv = $0; sub(/^[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]+/, "", argv)
             if (argv ~ pat) printf "%s\t%s\t%s\n", $2, $1, argv
