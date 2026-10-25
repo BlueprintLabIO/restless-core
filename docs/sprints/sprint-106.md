@@ -137,11 +137,13 @@ binary, a throwaway contexts file and the built-in browser.
 
 ## Next
 
-- On Cloud after the release with 77f2cf89: `restless ssh` into a company that was asleep. The
-  first live run found three things, all fixed in 77f2cf89: the CLI panicked choosing a TLS
-  backend; Cloud's tunnel turns a refused websocket into a bare 502 (Cloudflare 1101 through the
-  router), so the shell route now answers a plain GET preflight with 204 or the reason; and every
-  computer was asleep, so the route now wakes it as opening a file does.
+- [x] On Cloud with Core 04d0b18a (25 Oct): `restless ssh Restless` woke the sleeping computer,
+  ran `whoami` as root on it, and `stty size` went from `33 111` to `50 200` after the window was
+  resized; `exit` returned 0, and logout revoked the token (401 after). The first live run had
+  found three things, fixed in 77f2cf89: the CLI panicked choosing a TLS backend; Cloud's tunnel
+  turns a refused websocket into a bare 502 (Cloudflare 1101 through the router), so the shell
+  route now answers a plain GET preflight with 204 or the reason; and the route now wakes a
+  sleeping computer as opening a file does.
 - Anyone who knows a plane id can fill its 16 pending sign-ins (10 minute expiry, approval still
   needed). A per-address limit at the edge router would close that.
 - `GET /api/cli/plane` refuses a terminal bearer (it sits under the token-route prefix). Nothing
