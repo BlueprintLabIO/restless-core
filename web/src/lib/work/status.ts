@@ -30,3 +30,19 @@ const RUN_STATE_LABEL: Record<WorkAttemptState, string> = {
 export function runStateLabel(state: string | null | undefined): string {
 	return state ? (RUN_STATE_LABEL[state as WorkAttemptState] ?? state.replaceAll('_', ' ')) : '';
 }
+
+/* Which run came last. A run's number restarts at 1 when its Work moves to a new
+ * revision, so ordering by number alone put an old revision's third failed run
+ * after the new revision's first finished one, and finished Work kept saying
+ * "Failed". Revision first, then number, then start time. */
+type AttemptOrder = { revision: number; attempt_no: number; started_at: string };
+export function compareAttempts(a: AttemptOrder, b: AttemptOrder): number {
+	return (
+		a.revision - b.revision ||
+		a.attempt_no - b.attempt_no ||
+		Date.parse(a.started_at) - Date.parse(b.started_at)
+	);
+}
+export function newestAttempt<A extends AttemptOrder>(attempts: readonly A[]): A | null {
+	return attempts.toSorted(compareAttempts).at(-1) ?? null;
+}

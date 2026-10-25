@@ -15,7 +15,7 @@
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import { Item, Empty, Segmented, Dot, Fold } from '$lib/ui/page';
-	import { WORK_STATUS_LABEL, runStateLabel } from '$lib/work/status';
+	import { WORK_STATUS_LABEL, newestAttempt, runStateLabel } from '$lib/work/status';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
@@ -375,17 +375,7 @@
 		return owner ? `${team.name} team, owned by ${owner}` : `${team.name} team`;
 	}
 	function attemptOf(work: WorkItem) {
-		return (
-			graph?.attempts
-				.filter((attempt) => attempt.work_id === work.id)
-				.toSorted(
-					(a, b) =>
-						a.revision - b.revision ||
-						a.attempt_no - b.attempt_no ||
-						Date.parse(a.started_at) - Date.parse(b.started_at)
-				)
-				.at(-1) ?? null
-		);
+		return newestAttempt(graph?.attempts.filter((attempt) => attempt.work_id === work.id) ?? []);
 	}
 	function outputs(work: WorkItem): number {
 		return graph?.artifacts.filter((artifact) => artifact.work_id === work.id).length ?? 0;

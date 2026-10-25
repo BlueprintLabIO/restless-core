@@ -4,7 +4,7 @@
 	import { formatMoment } from '$lib/ui/time';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
-	import { runStateLabel, workStatusLabel } from '$lib/work/status';
+	import { compareAttempts, runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
 	import Markdown from '$lib/primitives/Markdown.svelte';
@@ -361,7 +361,7 @@
 	const attempts = $derived(
 		(graph?.attempts ?? [])
 			.filter((attempt) => attempt.work_id === workId)
-			.toSorted((a, b) => a.attempt_no - b.attempt_no)
+			.toSorted(compareAttempts)
 	);
 	const latestAttempt = $derived(attempts.at(-1) ?? null);
 	const blocker = $derived(
