@@ -76,15 +76,51 @@ The earlier seven repairs are recorded in `maintenance-2026-10-25.md`.
   regressions pass with `python3 scripts/restless-reap.test.py`; shell syntax
   passes. A complete read-only host report reached the final summary and
   reported 23 items, including unavailable cache observations, existing test
-  containers and build/storage debt. No purge or unrelated resource teardown ran.
-- Current unmerged Rust work replaces ZIP 2 with ZIP 9, removes rustls-pemfile,
-  replaces the direct test-only RSA generator and updates both experiment Tokio
-  locks. The core library checks have passed with a real database (contracts
-  17, engine 541, owner 145); the broader OrgIntel checks remain in progress.
+  containers and build/storage debt. That observation preceded the owner's
+  explicit authorization to purge aggressively, recorded below.
+- Verified Rust repairs replace ZIP 2 with ZIP 9, remove rustls-pemfile,
+  replace the direct test-only RSA generator and update both experiment Tokio
+  locks. Core library checks passed with a real database (contracts 17, engine
+  541, owner 145), as did all six runtime-bridge checks and both experiment
+  checks. The existing CA validation was retained and exercised against valid
+  certificates, malformed PEM, private keys and excessive certificates; the
+  bridge now chooses its existing Ring provider explicitly instead of panicking
+  when multiple providers are enabled. ZIP traversal and GitHub signing checks
+  pass. The OrgIntel database run covers all 57 integration files plus library
+  checks: 247 passed, one existing ignored test remains. Its old lead-only reply
+  assertion contradicted the documented producer/lead/Exec rule; the replacement
+  checks those three roles and rejects unrelated Staff. No conversation authority
+  was broadened to satisfy the test.
   The scan still reports RSA through SQLx's optional MySQL lockfile entries in
   both repositories. Cargo's active all-feature/all-target dependency trees do
   not include RSA after the direct test dependency is removed, but the advisory
   remains recorded; no exception has been added to hide it.
+
+## Owner-authorized resource purge
+
+After the owner explicitly requested an aggressive purge, exact Docker identities,
+namespace labels and current process inventories were checked before removal.
+
+- Removed 15 idle disposable test containers and their 15 exact, unreferenced
+  test volumes. No blanket Docker volume prune ran.
+- Stopped two abandoned development Documents sidecars that were crash-looping
+  against a missing issuer. Their backing databases and company files remain.
+- Removed three abandoned job-specific BuildKit builders and their caches after
+  checking age and build history. The shared release builder and Dagger engine
+  remain because releases are actively building.
+- Removed the six reported cold compiler caches after checking resolved paths,
+  process use and running-container bind mounts: 36,622,110,720 bytes. The four
+  warm caches and every source checkout remain.
+- Completed the reaper's Docker cache prune with a 20 GB target. Pruning unused
+  images older than 24 hours additionally reported 3.607 GB reclaimed.
+- Measured free space inside WSL rose by approximately 64 GiB, to 287 GiB. The
+  complete post-purge report has no orphaned configs, exited/idle/long-running
+  test containers, abandoned sidecar restarts, leaked services/processes or
+  scratch worktrees. Warm compiler caches total 58 GiB, under the 60 GiB budget.
+- Three observations remain in that report: current release-engine CPU use,
+  an unavailable Docker disk-usage query and WSL virtual-disk slack. Physical
+  Windows-drive reclamation requires a separate WSL compaction; no active
+  release or production process was interrupted to compact the disk.
 
 ## Still open
 
