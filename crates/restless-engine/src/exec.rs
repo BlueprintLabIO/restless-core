@@ -2066,6 +2066,145 @@ mod tests {
             Some(CONTINUE_WAKE_DELAY_SECONDS)
         );
     }
+
+    /// Replays what OMP sent when a model switch restarted the gateway mid-reply
+    /// (`repro/omp-stream-break.mjs partial`): the partial under several ids, Bun's
+    /// fetch error under another, then `end_turn` with usage.
+    struct BrokenStreamSession {
+        recovered: Option<&'static str>,
+    }
+
+    const PARTIAL: &str = "Here is the launch plan so far. Monday: ";
+    const SOCKET: &str = "The socket connection was closed unexpectedly. For more information, \
+                          pass `verbose: true` in the second argument to fetch()";
+
+    impl ExecutiveSession for BrokenStreamSession {
+        fn readiness_observation(&self) -> serde_json::Value {
+            serde_json::Value::Null
+        }
+
+        fn set_live_observer_enabled(&self, _enabled: bool) {}
+
+        fn prompt_exec<'a>(
+            &'a self,
+            _text: &'a str,
+            _enforce_spend_budget: bool,
+            _remaining_budget_usd: f64,
+            _cancellation: &'a CancellationToken,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>>
+        {
+            Box::pin(async move {
+                let mut transcript = acp::TurnTranscript::default();
+                transcript.usage = Some(acp::TurnUsage {
+                    used: 44,
+                    size: 256_000,
+                    ..Default::default()
+                });
+                for id in ["407943bf", "0680ac8e", "84bbc5df", "51551983"] {
+                    transcript.note_text(PARTIAL, Some(id.into()));
+                }
+                transcript.note_text(SOCKET, Some("70dfab1a".into()));
+                if let Some(reply) = self.recovered {
+                    transcript.note_text(reply, Some("9a1c0e77".into()));
+                }
+                acp::TurnEnd::Completed { transcript }
+            })
+        }
+
+        fn prompt_once<'a>(
+            &'a self,
+            _text: &'a str,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<acp::TurnTranscript>> + Send + 'a>,
+        > {
+            Box::pin(async {
+                let mut transcript = acp::TurnTranscript::default();
+                transcript.text =
+                    r#"{"decision":"waiting","reason":"the owner has the plan"}"#.to_string();
+                Ok(transcript)
+            })
+        }
+
+        fn cancel<'a>(
+            &'a self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    fn recording_hook() -> (CompleteReplyHook, Arc<std::sync::Mutex<Vec<String>>>) {
+        let saved = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = saved.clone();
+        let hook: CompleteReplyHook = Arc::new(move |reply: String| {
+            sink.lock().unwrap().push(reply);
+            Box::pin(async { Ok(1) })
+        });
+        (hook, saved)
+    }
+
+    /// M3, 23 October: the socket sentence was saved as Exec's reply and the
+    /// owner's message was consumed. Nothing may be saved, the turn must block on
+    /// transport with the raw sentence for diagnosis, and the partial stays in
+    /// the report rather than being passed off as a finished answer.
+    #[tokio::test]
+    async fn a_broken_stream_saves_no_reply_and_leaves_the_owner_owed() {
+        let (hook, saved) = recording_hook();
+        let (report, usage) = run_turn(
+            &BrokenStreamSession { recovered: None },
+            "work",
+            "company_test",
+            "model",
+            1.0,
+            false,
+            false,
+            Some(hook),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert!(saved.lock().unwrap().is_empty());
+        assert_eq!(report.termination, Termination::Blocked);
+        assert!(!report.reply_complete);
+        assert!(
+            report.reason.starts_with("[transport]"),
+            "{}",
+            report.reason
+        );
+        assert!(report.reason.contains("socket connection was closed"));
+        assert!(report.said.contains(PARTIAL));
+        assert!(!report.said.contains("socket"));
+        assert_eq!(report.owner_reply.as_deref(), Some(PARTIAL.trim()));
+        assert_eq!(usage.map(|usage| usage.used), Some(44));
+    }
+
+    /// When OMP's own retry gets through, the real answer is saved once and the
+    /// error never is.
+    #[tokio::test]
+    async fn a_stream_that_recovers_saves_only_the_real_reply() {
+        let (hook, saved) = recording_hook();
+        let (report, _) = run_turn(
+            &BrokenStreamSession {
+                recovered: Some("Done: the plan is in Library."),
+            },
+            "work",
+            "company_test",
+            "model",
+            1.0,
+            false,
+            false,
+            Some(hook),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            *saved.lock().unwrap(),
+            vec!["Done: the plan is in Library.".to_string()]
+        );
+        assert!(report.reply_complete);
+        assert_eq!(report.termination, Termination::Continue);
+        assert!(!report.said.contains("socket"));
+    }
 }
 
 /// "just now", "40m ago", "5h ago", "2d ago": how long since a change, for Exec's context.

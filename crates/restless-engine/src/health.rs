@@ -238,6 +238,14 @@ pub fn classify(end: &acp::TurnEnd) -> Verdict {
         // text or tool activity but before the final UsageUpdate. Observable
         // activity makes that an interrupted, recoverable turn: unknown
         // consumption is not zero, and the durable Runtime may contain work.
+        acp::TurnEnd::Completed { transcript } if transcript.stream_failure.is_some() => {
+            // The model stream broke and the runtime ended the turn as if the agent had
+            // finished. Whatever text preceded the break is a partial reply, not an answer:
+            // the owner's message stays owed and the next model continues from durable state.
+            Verdict::Blocked(Blocked::transport(
+                transcript.stream_failure.as_deref().unwrap_or_default(),
+            ))
+        }
         acp::TurnEnd::Completed { transcript } => match transcript.usage.map(|usage| usage.used) {
             Some(0) | None if transcript.has_observable_activity() => Verdict::Resume(
                 "the agent process ended without a final usage report after observable activity; \
@@ -834,6 +842,99 @@ mod tests {
             transcript: transcript(Some(16_042), None),
         };
         assert!(matches!(classify(&end), Verdict::Ran));
+    }
+
+    /// 23 October: the model stream broke mid-reply after a model switch. OMP sent Bun's fetch
+    /// error as one more chunk of the reply and ended the turn normally, so the error was saved
+    /// as Exec's answer and the owner's message counted as answered.
+    #[test]
+    fn a_stream_failure_sent_as_reply_text_is_a_transport_block() {
+        const SOCKET: &str = "The socket connection was closed unexpectedly. For more \
+            information, pass `verbose: true` in the second argument to fetch()";
+        let message = Some("msg-1".to_string());
+        // A real partial reply, then the error under the same message id; the exact sentence
+        // alone; and Bun's other fetch failure.
+        for (partial, error) in [
+            (Some("Here is the launch plan so far. Monday: "), SOCKET),
+            (None, SOCKET),
+            (
+                None,
+                "Unable to connect. Is the computer able to access the url?",
+            ),
+        ] {
+            let mut turn = transcript(Some(9_000), None);
+            if let Some(partial) = partial {
+                turn.note_text(partial, message.clone());
+            }
+            turn.note_text(error, message.clone());
+            assert!(!turn.last_message_text.contains("socket"), "{partial:?}");
+            assert!(!turn.text.contains("fetch()"), "{partial:?}");
+            assert_eq!(turn.last_message_text, partial.unwrap_or_default());
+            let blocked = blocked(classify(&acp::TurnEnd::Completed { transcript: turn }));
+            assert_eq!(blocked.kind, BlockKind::Transport, "{partial:?}");
+            // The raw error stays in the diagnosis.
+            assert!(blocked.message().contains(error.trim_end_matches('.')));
+        }
+    }
+
+    /// The exact chunk sequence OMP 18.8.6 sent when a local stand-in dropped the socket after
+    /// part of a reply (repro/omp-stream-break.mjs, mode `partial`): OMP retried the call three
+    /// times by itself, re-sending the partial under a fresh message id each time, then sent the
+    /// error under another id and ended with a usage report of 44 tokens.
+    #[test]
+    fn omps_observed_retry_then_failure_sequence_is_a_transport_block() {
+        const PARTIAL: &str = "Here is the launch plan so far. Monday: ";
+        let mut turn = transcript(Some(44), None);
+        for id in ["407943bf", "0680ac8e", "84bbc5df", "51551983"] {
+            turn.note_text(PARTIAL, Some(id.into()));
+        }
+        turn.note_text(
+            "The socket connection was closed unexpectedly. For more information, pass \
+             `verbose: true` in the second argument to fetch()",
+            Some("70dfab1a".into()),
+        );
+        // Not a complete reply, whatever the partial says, and never the error.
+        assert_eq!(turn.last_message_text, PARTIAL);
+        let blocked = blocked(classify(&acp::TurnEnd::Completed { transcript: turn }));
+        assert_eq!(blocked.kind, BlockKind::Transport);
+        assert!(blocked.message().contains("socket connection was closed"));
+    }
+
+    /// Prose about sockets is an answer. So is a reply that recovered after a retried stream.
+    #[test]
+    fn socket_prose_and_a_recovered_stream_still_ran() {
+        let message = Some("msg-1".to_string());
+        for reply in [
+            "The socket connection was closed unexpectedly when nginx restarted, so I raised \
+             the keepalive timeout.",
+            "The socket connection was closed unexpectedly.",
+            "Bun says: The socket connection was closed unexpectedly. For more information, \
+             pass `verbose: true` in the second argument to fetch()",
+            "Unable to connect. Is the computer able to access the url? I checked: it can.",
+        ] {
+            let mut turn = transcript(Some(9_000), None);
+            turn.note_text(reply, message.clone());
+            assert_eq!(turn.last_message_text, reply);
+            assert!(
+                matches!(
+                    classify(&acp::TurnEnd::Completed { transcript: turn }),
+                    Verdict::Ran
+                ),
+                "{reply}"
+            );
+        }
+        let mut turn = transcript(Some(9_000), None);
+        turn.note_text(
+            "The socket connection was closed unexpectedly. For more information, pass \
+             `verbose: true` in the second argument to fetch()",
+            Some("attempt-1".into()),
+        );
+        turn.note_text("Done: the plan is in Library.", Some("attempt-2".into()));
+        assert_eq!(turn.last_message_text, "Done: the plan is in Library.");
+        assert!(matches!(
+            classify(&acp::TurnEnd::Completed { transcript: turn }),
+            Verdict::Ran
+        ));
     }
 
     /// EXP-10 killed a live ACP worker after it had edited the game and made
