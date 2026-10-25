@@ -634,16 +634,21 @@ async fn script(
     };
     // The exact image a new computer pulls from Core's public registry; empty when the plane runs a
     // local build, and the script then fetches it from the plane.
-    let image = machines::allowed_images()
-        .await
-        .into_iter()
-        .next()
-        .map(|image| image.reference)
+    let allowed = machines::allowed_images().await.into_iter().next();
+    let image = allowed
+        .as_ref()
+        .map(|image| image.reference.clone())
         .filter(|reference| reference.contains("@sha256:"))
+        .unwrap_or_default();
+    // The image id the plane allows: a fallback download from the plane must load exactly this.
+    let image_id = allowed
+        .map(|image| image.id)
+        .filter(|id| id.starts_with("sha256:") && id[7..].bytes().all(|b| b.is_ascii_hexdigit()))
         .unwrap_or_default();
     let mut response = Response::new(Body::from(
         template
             .replace("__RESTLESS_PLANE__", &origin)
+            .replace("__RESTLESS_IMAGE_ID__", &image_id)
             .replace("__RESTLESS_IMAGE__", &image),
     ));
     response

@@ -27,10 +27,16 @@ fi
 
 # The exact image, by digest, from Core's public registry; the plane sends it only when that fails.
 IMAGE="__RESTLESS_IMAGE__"
+IMAGE_ID="__RESTLESS_IMAGE_ID__"
 echo "Fetching the Restless computer image. This is a few GB, once."
 if [ -z "$IMAGE" ] || ! docker pull -q "$IMAGE" >/dev/null 2>&1; then
   LOADED=$(curl -fSL --progress-bar -H "X-Restless-Pairing: $CODE" "$PLANE/machines/helper-image" | docker load -q)
   IMAGE=$(printf '%s\n' "$LOADED" | sed -n 's/^Loaded image ID: //p; s/^Loaded image: //p' | tail -n 1)
+  # A download must be exactly the image the plane allows, not whatever arrived.
+  if [ -n "$IMAGE" ] && [ -n "$IMAGE_ID" ] && [ "$(docker image inspect -f '{{.Id}}' "$IMAGE" 2>/dev/null)" != "$IMAGE_ID" ]; then
+    echo "The downloaded image is not the one your plane allows. Nothing was started." >&2
+    exit 1
+  fi
 fi
 if [ -z "$IMAGE" ]; then
   echo "Could not fetch the image. A code lasts 10 minutes and works once; make a new one and try again." >&2
