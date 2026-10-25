@@ -559,7 +559,18 @@ fn parse_infisical_locator(locator: &str) -> Result<InfisicalLocator<'_>> {
     })
 }
 
+/// Prefixes of the daemon's own configuration. An `env:` reference names a key someone put in the
+/// daemon's environment for a company to use; it never reads the plane's own bearers, database URL
+/// or vault identity, which an owner could otherwise send to an address of their choosing.
+const DAEMON_ENV_PREFIXES: [&str; 2] = ["RESTLESS_", "INFISICAL_"];
+
 fn read_env(locator: &str) -> Result<String> {
+    if DAEMON_ENV_PREFIXES
+        .iter()
+        .any(|prefix| locator.to_ascii_uppercase().starts_with(prefix))
+    {
+        bail!("{locator} is the daemon's own configuration, not a credential; use another variable name or an infisical: reference");
+    }
     let value = std::env::var(locator)
         .with_context(|| format!("{locator} is not set in the daemon environment"))?;
     if value.trim().is_empty() {
@@ -955,6 +966,21 @@ mod tests {
         assert!(!error.contains("WEBHOOK_SECRET_STAYS_HOST"), "{error}");
     }
 
+    #[tokio::test]
+    async fn env_references_never_read_the_daemons_own_configuration() {
+        for reference in [
+            "env:RESTLESS_PLANE_READINESS_TOKEN",
+            "env:restless_plane_database_url",
+            "env:INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET",
+        ] {
+            let error = format!("{:#}", resolve_reference(reference).await.unwrap_err());
+            assert!(
+                error.contains("daemon's own configuration"),
+                "{reference}: {error}"
+            );
+        }
+    }
+
     /// Each company's inbound events are verified with its own secret. A
     /// broken company binding must refuse, never fall back to the secret
     /// other companies share.
@@ -965,18 +991,18 @@ mod tests {
         unsafe {
             std::env::set_var(
                 "RESTLESS_RESEND_WEBHOOK_CREDENTIAL",
-                "env:RESTLESS_TEST_RESEND_WEBHOOK_SHARED",
+                "env:TEST_RESTLESS_RESEND_WEBHOOK_SHARED",
             );
-            std::env::set_var("RESTLESS_TEST_RESEND_WEBHOOK_SHARED", "whsec-shared");
-            std::env::set_var("RESTLESS_TEST_RESEND_WEBHOOK_OWN", "whsec-own");
+            std::env::set_var("TEST_RESTLESS_RESEND_WEBHOOK_SHARED", "whsec-shared");
+            std::env::set_var("TEST_RESTLESS_RESEND_WEBHOOK_OWN", "whsec-own");
         }
         let own = config_with(&[(
             RESEND_WEBHOOK_BINDING,
-            "env:RESTLESS_TEST_RESEND_WEBHOOK_OWN",
+            "env:TEST_RESTLESS_RESEND_WEBHOOK_OWN",
         )]);
         assert_eq!(resolve_resend_webhook(&own).await.unwrap(), "whsec-own");
 
-        unsafe { std::env::remove_var("RESTLESS_TEST_RESEND_WEBHOOK_OWN") };
+        unsafe { std::env::remove_var("TEST_RESTLESS_RESEND_WEBHOOK_OWN") };
         let broken = resolve_resend_webhook(&own).await;
         assert!(broken.is_err(), "a broken binding resolved: {broken:?}");
 
@@ -986,7 +1012,7 @@ mod tests {
         );
         unsafe {
             std::env::remove_var("RESTLESS_RESEND_WEBHOOK_CREDENTIAL");
-            std::env::remove_var("RESTLESS_TEST_RESEND_WEBHOOK_SHARED");
+            std::env::remove_var("TEST_RESTLESS_RESEND_WEBHOOK_SHARED");
         }
     }
 
@@ -1024,12 +1050,12 @@ mod tests {
     #[tokio::test]
     async fn env_scheme_reads_the_daemon_environment() {
         // SAFETY: this variable is test-local and no other test names it.
-        unsafe { std::env::set_var("RESTLESS_TEST_CRED", "sk-test-value") };
+        unsafe { std::env::set_var("TEST_RESTLESS_CRED", "sk-test-value") };
         assert_eq!(
-            resolve_reference("env:RESTLESS_TEST_CRED").await.unwrap(),
+            resolve_reference("env:TEST_RESTLESS_CRED").await.unwrap(),
             "sk-test-value"
         );
-        unsafe { std::env::remove_var("RESTLESS_TEST_CRED") };
+        unsafe { std::env::remove_var("TEST_RESTLESS_CRED") };
     }
 
     #[tokio::test]
@@ -1047,7 +1073,7 @@ mod tests {
 
         let destination_error = format!(
             "{:#}",
-            promote_env_to_infisical("env:RESTLESS_TEST_CRED", "env:ZAI_API_KEY")
+            promote_env_to_infisical("env:TEST_RESTLESS_CRED", "env:ZAI_API_KEY")
                 .await
                 .unwrap_err()
         );
