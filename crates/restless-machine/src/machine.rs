@@ -228,23 +228,38 @@ async fn connect_egress(target: &str, hosts: &[String]) -> Result<TcpStream> {
     let addresses: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
         .await?
         .collect();
-    let public = addresses.into_iter().find(|address| match address.ip() {
+    let public = addresses
+        .into_iter()
+        .find(|address| egress_address_allowed(address.ip()));
+    let address = public.context("that site resolves only to a private address")?;
+    Ok(TcpStream::connect(address).await?)
+}
+
+fn egress_address_allowed(address: std::net::IpAddr) -> bool {
+    // DNS can return ::ffff:127.0.0.1. Linux connects it to IPv4 loopback, so checking it only
+    // against IPv6's ::1/ULA/link-local ranges would let an allowed site reach this computer.
+    match address.to_canonical() {
         std::net::IpAddr::V4(ip) => {
+            let octets = ip.octets();
+            let shared = octets[0] == 100 && (64..=127).contains(&octets[1]);
             !(ip.is_loopback()
                 || ip.is_private()
                 || ip.is_link_local()
                 || ip.is_unspecified()
-                || ip.is_broadcast())
+                || ip.is_broadcast()
+                || ip.is_multicast()
+                || octets[0] == 0
+                || shared)
         }
         std::net::IpAddr::V6(ip) => {
             !(ip.is_loopback()
                 || ip.is_unspecified()
+                || ip.is_multicast()
                 || (ip.segments()[0] & 0xfe00) == 0xfc00
-                || (ip.segments()[0] & 0xffc0) == 0xfe80)
+                || (ip.segments()[0] & 0xffc0) == 0xfe80
+                || (ip.segments()[0] & 0xffc0) == 0xfec0)
         }
-    });
-    let address = public.context("that site resolves only to a private address")?;
-    Ok(TcpStream::connect(address).await?)
+    }
 }
 
 /// The computer itself, as seen from the helper's container: `host.docker.internal` where Docker
@@ -519,7 +534,45 @@ pub async fn run(paired: Paired, socket: PathBuf, state_path: PathBuf) -> Result
 
 #[cfg(test)]
 mod egress_tests {
-    use super::egress_target;
+    use super::{egress_address_allowed, egress_target};
+
+    #[test]
+    fn resolved_sites_cannot_reach_local_networks_through_ipv4_mapped_ipv6() {
+        for address in [
+            "127.0.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.100.100.100",
+            "0.1.2.3",
+            "224.0.0.1",
+            "::ffff:127.0.0.1",
+            "::ffff:192.168.1.1",
+            "::ffff:169.254.169.254",
+            "::ffff:100.100.100.100",
+            "::1",
+            "::",
+            "fe80::1",
+            "fc00::1",
+            "fec0::1",
+            "ff02::1",
+        ] {
+            assert!(
+                !egress_address_allowed(address.parse().unwrap()),
+                "local destination accepted: {address}"
+            );
+        }
+        for address in [
+            "1.1.1.1",
+            "8.8.8.8",
+            "::ffff:1.1.1.1",
+            "2606:4700:4700::1111",
+        ] {
+            assert!(
+                egress_address_allowed(address.parse().unwrap()),
+                "public destination refused: {address}"
+            );
+        }
+    }
 
     #[test]
     fn only_named_sites_on_web_ports_go_out_through_the_machine() {
