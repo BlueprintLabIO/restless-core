@@ -1,6 +1,6 @@
 /** The shared local/CI implementation of Core qualification and construction. */
 import { availableParallelism } from 'node:os';
-import { dag, Container, Directory, Platform, Secret, argument, object, func } from '@dagger.io/dagger';
+import { dag, CacheSharingMode, Container, Directory, Platform, Secret, argument, object, func } from '@dagger.io/dagger';
 
 import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage, verifyCockpitImage } from './verify.js';
 import { assertScanPeriod, hasInputImage, publishImage, node, timed, timingsFile, verifyBuildInputs, verifyImageInspection, type Timing } from './publish.js';
@@ -41,8 +41,10 @@ function cockpit(source: Directory): Container {
 function rust(source: Directory): Container {
   return dag.container().from(RUST_IMAGE)
     .withEnvVariable('CARGO_BUILD_JOBS', cargoJobs()).withEnvVariable('CARGO_INCREMENTAL', '0')
-    .withMountedCache('/usr/local/cargo/registry', dag.cacheVolume('restless-core-cargo-registry-v1'))
-    .withMountedCache('/usr/local/cargo/git', dag.cacheVolume('restless-core-cargo-git-v1'))
+    // Cargo's download lock is $CARGO_HOME/.package-cache, outside these volumes, so concurrent
+    // pipelines unpacked the same crate at once (release run 40199351038). Dagger serialises them.
+    .withMountedCache('/usr/local/cargo/registry', dag.cacheVolume('restless-core-cargo-registry-v1'), { sharing: CacheSharingMode.Locked })
+    .withMountedCache('/usr/local/cargo/git', dag.cacheVolume('restless-core-cargo-git-v1'), { sharing: CacheSharingMode.Locked })
     .withMountedCache('/src/target', dag.cacheVolume('restless-core-cargo-check-v1'))
     .withDirectory('/src', source, { include: ['Cargo.toml', 'Cargo.lock', 'crates/**', 'contracts/**', 'docs/COMPANY_OPERATING_RULES.md',
       'docs/sprints/sprint-36/contract/v1/*.json',
