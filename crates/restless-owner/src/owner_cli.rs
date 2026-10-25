@@ -465,16 +465,38 @@ fn default_cols() -> u16 {
     120
 }
 
+/// Where a shell session notes its terminal inside the container, so a resize can find it.
+fn shell_tty_file(session: &str) -> String {
+    format!("/tmp/.restless-shell-{session}")
+}
+
 /// What runs at the far end: a login shell on a real terminal (`script` gives `docker exec -i` a
 /// PTY inside the container), sized to the caller's window, with plain `sh` if bash is missing.
-fn shell_command(rows: u16, cols: u16) -> String {
+/// The shell first notes its terminal in `shell_tty_file`, which `resize_command` reads.
+fn shell_command(rows: u16, cols: u16, session: &str) -> String {
     let rows = rows.clamp(5, 500);
     let cols = cols.clamp(20, 1000);
-    let inner =
-        format!("stty rows {rows} cols {cols} 2>/dev/null; exec bash -l 2>/dev/null || exec sh");
+    let file = shell_tty_file(session);
+    let inner = format!(
+        "tty > {file} 2>/dev/null; stty rows {rows} cols {cols} 2>/dev/null; exec bash -l 2>/dev/null || exec sh"
+    );
     format!(
         "if command -v script >/dev/null 2>&1; then exec script -qfc '{inner}' /dev/null; else {inner}; fi"
     )
+}
+
+/// Resizes a session's terminal; the kernel then tells the program in front that its window changed.
+fn resize_command(rows: u16, cols: u16, session: &str) -> String {
+    let rows = rows.clamp(5, 500);
+    let cols = cols.clamp(20, 1000);
+    let file = shell_tty_file(session);
+    format!("tty=$(cat {file} 2>/dev/null) && [ -c \"$tty\" ] && stty -F \"$tty\" rows {rows} cols {cols}")
+}
+
+/// A text frame from the terminal is a control message; keys arrive as binary frames.
+#[derive(Deserialize)]
+struct ShellControl {
+    resize: Option<ShellSize>,
 }
 
 /// `restless ssh <company>`: a shell on the company's computer, through the plane, for the account
@@ -526,6 +548,7 @@ pub(super) async fn shell(
 
 async fn bridge_shell(socket: WebSocket, container: String, rows: u16, cols: u16) {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let session = Uuid::new_v4().simple().to_string();
     let child = tokio::process::Command::new("docker")
         .args([
             "exec",
@@ -535,7 +558,7 @@ async fn bridge_shell(socket: WebSocket, container: String, rows: u16, cols: u16
             &container,
             "sh",
             "-c",
-            &shell_command(rows, cols),
+            &shell_command(rows, cols, &session),
         ])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -588,7 +611,17 @@ async fn bridge_shell(socket: WebSocket, container: String, rows: u16, cols: u16
         while let Some(Ok(message)) = stream.next().await {
             let bytes = match message {
                 AxumMessage::Binary(bytes) => bytes.to_vec(),
-                AxumMessage::Text(text) => text.as_bytes().to_vec(),
+                AxumMessage::Text(text) => {
+                    if let Ok(ShellControl { resize: Some(size) }) = serde_json::from_str(&text) {
+                        let _ = tokio::process::Command::new("docker")
+                            .args(["exec", &container, "sh", "-c"])
+                            .arg(resize_command(size.rows, size.cols, &session))
+                            .output()
+                            .await;
+                        continue;
+                    }
+                    text.as_bytes().to_vec()
+                }
                 AxumMessage::Close(_) => break,
                 _ => continue,
             };
@@ -602,6 +635,10 @@ async fn bridge_shell(socket: WebSocket, container: String, rows: u16, cols: u16
         _ = from_terminal => {}
     }
     let _ = child.kill().await;
+    let _ = tokio::process::Command::new("docker")
+        .args(["exec", &container, "rm", "-f", &shell_tty_file(&session)])
+        .output()
+        .await;
 }
 
 #[cfg(test)]
@@ -625,10 +662,23 @@ mod tests {
 
     #[test]
     fn the_shell_is_sized_and_bounded() {
-        let command = shell_command(30, 100);
+        let command = shell_command(30, 100, "abc");
         assert!(command.contains("stty rows 30 cols 100"));
-        assert!(shell_command(1, 5).contains("stty rows 5 cols 20"));
-        assert!(shell_command(9999, 9999).contains("stty rows 500 cols 1000"));
+        assert!(command.contains("tty > /tmp/.restless-shell-abc"));
+        assert!(shell_command(1, 5, "abc").contains("stty rows 5 cols 20"));
+        assert!(shell_command(9999, 9999, "abc").contains("stty rows 500 cols 1000"));
+    }
+
+    #[test]
+    fn a_resize_reaches_the_same_terminal_bounded() {
+        let command = resize_command(9999, 1, "abc");
+        assert!(command.contains("cat /tmp/.restless-shell-abc"));
+        assert!(command.contains("rows 500 cols 20"));
+        let control: ShellControl =
+            serde_json::from_str(r#"{"resize":{"rows":50,"cols":200}}"#).unwrap();
+        let size = control.resize.unwrap();
+        assert_eq!((size.rows, size.cols), (50, 200));
+        assert!(serde_json::from_str::<ShellControl>("ls -la").is_err());
     }
 
     #[test]

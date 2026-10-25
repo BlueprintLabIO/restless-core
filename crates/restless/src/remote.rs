@@ -649,7 +649,16 @@ pub fn ssh(company: &str) -> Result<()> {
     terminal::enable_raw_mode().context("put the terminal in raw mode")?;
     let outcome = (|| -> Result<()> {
         let mut stdout = std::io::stdout();
+        let mut size = (cols, rows);
         loop {
+            // A resized window reaches the far terminal as a text frame; keys go as binary.
+            if let Ok(now) = terminal::size() {
+                if now != size {
+                    size = now;
+                    let resize = serde_json::json!({ "resize": { "rows": now.1, "cols": now.0 } });
+                    socket.send(Message::Text(resize.to_string().into()))?;
+                }
+            }
             while let Ok(keys) = keys_rx.try_recv() {
                 socket.send(Message::Binary(keys.into()))?;
             }

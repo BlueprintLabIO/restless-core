@@ -95,8 +95,11 @@ binary, a throwaway contexts file and the built-in browser.
   bridges `docker exec -i` (a PTY from `script` inside the container, sized to the caller's
   window) for the account owner only; the plane's Docker client reaches the computer wherever it
   runs. Checked: `echo SHELL_OK $(whoami)@$(hostname)` returned `SHELL_OK root@cli_test`, and
-  `exit` closed the session with the terminal restored. Window resizes after the start are not
-  forwarded yet.
+  `exit` closed the session with the terminal restored. Window resizes are forwarded: the CLI sends
+  `{"resize":{"rows","cols"}}` as a text frame when its window changes (keys stay binary), and the
+  plane runs `stty -F` on the session's terminal, which the shell noted at start; the kernel then
+  signals the program in front. Checked in a throwaway container with the exact commands: `stty
+  size` read `30 100`, then `50 200` after the resize, and a `WINCH` trap fired.
 
 ### E. Cloud
 - [x] E1 Edge router (restless-cloud): on account-scoped routes with no home-plane cookie, a
@@ -104,6 +107,9 @@ binary, a throwaway contexts file and the built-in browser.
   only (`terminalPlaneHint`, dashes or not). Checked by `edge-router:test` (33 pass, including a
   worker test that the header without a terminal bearer is refused). Live on Cloud after that
   repository's next release.
+- [x] E2 The first live `restless login` answered `no_account_plane`: its first two calls come
+  before it holds a bearer. The router now honours the header alone on `POST /api/cli/device` and
+  `/api/cli/device/token` only (restless-cloud #137, 34 pass).
 
 ## Acceptance
 
@@ -119,7 +125,6 @@ binary, a throwaway contexts file and the built-in browser.
 ## Next
 
 - Run `restless connect` and `restless connect ssh://` against a real second machine.
-- Forward window resizes in `restless ssh` (a resize message and `docker exec` resize).
 - On Cloud after release: `restless login app.restless.run --plane <id>` end to end through the
   edge.
 - The CLI-only install (`restless.run/install --cli`) so a laptop that only drives Cloud doesn't
