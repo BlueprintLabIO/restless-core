@@ -123,14 +123,28 @@ binary, a throwaway contexts file and the built-in browser.
 - [x] On a local stack: `restless login` prints a code; approving it in Settings › Computers
   finishes the login; `whoami`, `companies`, `decisions` and `ask` answer as the owner; a browser
   request carrying the token is refused; logout revokes the token.
-- [ ] `restless connect` on a second Docker host pairs it and it shows connected in Settings ›
-  Computers. (Pairing call checked; the script on another host not yet.)
+- [x] `restless connect` on a second Docker host pairs it and it shows connected in Settings ›
+  Computers. Checked on Cloud (25 Oct): `restless connect ssh://s106-box` against a throwaway
+  Docker-in-Docker host over SSH fetched the company image, the plane confirmed, and Settings ›
+  Computers listed `s106-box` (Alpine, containerized) as Connected. Removed afterwards.
+- [x] On Cloud (25 Oct): `restless login app.restless.run --plane <id>` printed a code, approving
+  it in Settings › Computers signed the terminal in (contexts file 0600), and `whoami`, `contexts`,
+  `companies` and `decisions` answered as the owner; a request with a browser `Origin` was refused
+  (403); `restless ask` reached the Restless company's Exec.
 - [x] `restless ssh <company>` runs `whoami` on the company computer.
 - [x] Unit tests: device codes and public routes (`owner_cli`), addresses, plane header and context
   file mode (`remote`), the shell command's bounds, and the edge router's terminal hint.
 
 ## Next
 
-- Run `restless connect` and `restless connect ssh://` against a real second machine.
-- On Cloud after release: `restless login app.restless.run --plane <id>` end to end through the
-  edge.
+- On Cloud after the release with 77f2cf89: `restless ssh` into a company that was asleep. The
+  first live run found three things, all fixed in 77f2cf89: the CLI panicked choosing a TLS
+  backend; Cloud's tunnel turns a refused websocket into a bare 502 (Cloudflare 1101 through the
+  router), so the shell route now answers a plain GET preflight with 204 or the reason; and every
+  computer was asleep, so the route now wakes it as opening a file does.
+- Anyone who knows a plane id can fill its 16 pending sign-ins (10 minute expiry, approval still
+  needed). A per-address limit at the edge router would close that.
+- `GET /api/cli/plane` refuses a terminal bearer (it sits under the token-route prefix). Nothing
+  needs it from a terminal today.
+- `install --cli` on Linux copies the binary out of the signed image, so it still needs Docker. A
+  signed standalone binary would drop that.
