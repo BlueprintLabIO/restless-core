@@ -27,6 +27,8 @@ pub const WINDOW: u32 = 256 * 1024;
 const MAX_CHUNK: usize = 32 * 1024;
 const MAX_OPEN_PAYLOAD: usize = 1024;
 const OPEN_TIMEOUT: Duration = Duration::from_secs(30);
+/// Streams the other end may hold open on one link at once.
+const MAX_STREAMS: usize = 512;
 
 const OPEN: u8 = 1;
 const ACCEPT: u8 = 2;
@@ -57,6 +59,10 @@ enum Chunk {
 #[derive(Default)]
 struct Credit {
     available: u64,
+    /// Bytes received on this stream and not yet read. The other end may send only what this end
+    /// granted, so more than a window means it ignored the credit; the stream is reset rather
+    /// than queued without bound.
+    buffered: u64,
     waker: Option<Waker>,
     closed: bool,
 }
@@ -223,6 +229,12 @@ impl Link {
                 self.shared.send(REFUSE, id, b"malformed open");
                 return None;
             };
+            // The other end opens only ids of its own parity, and only so many at once.
+            let own_parity = self.shared.next_id.load(Ordering::SeqCst) % 2;
+            if id % 2 == own_parity || self.shared.slots.lock().unwrap().len() >= MAX_STREAMS {
+                self.shared.send(REFUSE, id, b"too many streams");
+                return None;
+            }
             let Some((rx, credit)) = self.shared.new_slot(id, None) else {
                 self.shared.send(RESET, id, &[]);
                 return None;
@@ -249,7 +261,17 @@ impl Link {
                 }
             }
             DATA => {
-                if let Some(slot) = slots.get(&id) {
+                let overrun = slots.get(&id).is_some_and(|slot| {
+                    let mut credit = slot.credit.lock().unwrap();
+                    credit.buffered += payload.len() as u64;
+                    credit.buffered > u64::from(WINDOW)
+                });
+                if overrun {
+                    if let Some(slot) = slots.remove(&id) {
+                        reset_slot(slot, "the other end sent past its window");
+                    }
+                    self.shared.send(RESET, id, &[]);
+                } else if let Some(slot) = slots.get(&id) {
                     let _ = slot.data.send(Chunk::Data(Bytes::copy_from_slice(payload)));
                 }
             }
@@ -380,6 +402,10 @@ impl AsyncRead for LinkStream {
         }
         let n = this.pending.len().min(buf.remaining());
         buf.put_slice(&this.pending.split_to(n));
+        {
+            let mut credit = this.credit.lock().unwrap();
+            credit.buffered = credit.buffered.saturating_sub(n as u64);
+        }
         this.unacknowledged += n as u32;
         if this.unacknowledged >= WINDOW / 2 {
             this.shared
@@ -491,6 +517,43 @@ mod tests {
             plane_end.close();
         });
         (plane, machine, plane_rx, machine_rx)
+    }
+
+    #[tokio::test]
+    async fn a_sender_past_its_window_is_reset_not_buffered() {
+        let (plane, _frames) = Link::new(Side::Plane);
+        // The machine opens stream 1, which the plane accepts and never reads.
+        let open = serde_json::to_vec(&OpenPayload {
+            kind: "x".into(),
+            target: "y".into(),
+        })
+        .unwrap();
+        let mut frame = vec![OPEN];
+        frame.extend_from_slice(&1u32.to_be_bytes());
+        frame.extend_from_slice(&open);
+        let mut stream = plane.receive(&frame).unwrap().accept();
+        let chunk = vec![0u8; MAX_CHUNK];
+        for _ in 0..(WINDOW as usize / MAX_CHUNK) + 1 {
+            let mut data = vec![DATA];
+            data.extend_from_slice(&1u32.to_be_bytes());
+            data.extend_from_slice(&chunk);
+            plane.receive(&data);
+        }
+        assert!(
+            plane.shared.slots.lock().unwrap().is_empty(),
+            "the overrun stream was kept"
+        );
+        let mut sink = Vec::new();
+        assert!(
+            stream.read_to_end(&mut sink).await.is_err(),
+            "the reader sees the reset"
+        );
+
+        // A machine may not open plane-parity ids.
+        let mut even = vec![OPEN];
+        even.extend_from_slice(&2u32.to_be_bytes());
+        even.extend_from_slice(&open);
+        assert!(plane.receive(&even).is_none());
     }
 
     #[tokio::test]
