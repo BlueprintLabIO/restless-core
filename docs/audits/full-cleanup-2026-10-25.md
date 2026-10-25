@@ -49,7 +49,7 @@ resource ownership. An area is not closed merely because its unit tests pass.
 
 | Sprint area | Audit and verification boundary | Current state |
 | --- | --- | --- |
-| Dependencies and distribution | Every lockfile, browser/model compatibility, OCI/SBOM scans, installers and published library graph | Repairs merged; cockpit framework/KaTeX and complete OCI qualification open |
+| Dependencies and distribution | Every lockfile, browser/model compatibility, OCI/SBOM scans, installers and published library graph | Repairs merged; cockpit framework and complete OCI qualification open |
 | Identity and public entry | Edge/device throttling, verification/recovery, passkeys, session lifetime, invitations, billing return origins | Device and Fleet framework fixes merged; remaining authority cases open |
 | Scheduling and recovery | Engine/OrgIntel queues, wake ownership, retries, leases, concurrency, crash/restart and durable continuation | Database suites pass; source/fault audit still open |
 | Authority and company isolation | Grants, revocation, budgets, effect unknown outcomes/idempotency, custody, shared issuer, tenant boundaries | Credential fixes merged; adversarial end-to-end audit open |
@@ -112,6 +112,21 @@ repair and a regression guard.
 - The follow-up OSV scan covers 20 tracked locks (11 Core, nine Cloud after
   isolating the generator). Cloud's only lockfile finding is the recorded RSA
   advisory; Core still reports its cockpit SvelteKit/KaTeX graph and RSA.
+- Core's KaTeX repair pins the Markdown/Mermaid graph to 0.18.2, the
+  [maintainer's patched version](https://github.com/KaTeX/KaTeX/security/advisories/GHSA-238p-pmpm-9mq7).
+  The installed 0.16.47 renderer reproduced an active JavaScript link when
+  `Object.prototype.trust` was already polluted. The patched graph rejects both
+  that inherited trust and an external image. This does not demonstrate a
+  first-party prototype-pollution entry point. All 264 cockpit unit checks,
+  zero-error/zero-warning type checks and cockpit/plane-UI builds pass. The
+  actual Streamdown math component renders inline, display, matrix and completed
+  streaming math at 1440px and 390px with its own CSS/fonts, no page errors and no
+  overflow; screenshots were inspected. `npm --prefix web run verify:math`
+  retains that isolated compatibility probe and removes its browser/server/cache.
+  It exercises the opt-in upstream math component, not a seeded company journey;
+  Core's Markdown wrapper currently uses the lightweight math fallback. The
+  override is necessary because upstream still requests the vulnerable 0.16
+  series. The remaining cockpit framework advisories are a separate repair.
 - The public site now uses SvelteKit 3 and the matching static adapter. The full
   npm audit has zero findings. Artifact/type checks, 11 waitlist tests, four
   presence tests, production build and all 2,313 internal links across 54 pages
@@ -230,7 +245,7 @@ namespace labels and current process inventories were checked before removal.
 
 ## Still open
 
-The cockpit's framework/KaTeX chain, the remaining Rust/OCI security findings,
+The cockpit's framework chain, the remaining Rust/OCI security findings,
 local deployment manifest drift, the rest of the
 engine/authority/recovery audits and full seeded owner/collaboration journeys
 remain open. A repaired site or a passing library suite does not close them.

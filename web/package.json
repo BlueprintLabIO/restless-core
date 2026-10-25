@@ -25,6 +25,7 @@
 		"format": "prettier --write .",
 		"lint": "prettier --check .",
 		"verify:markdown": "node scripts/verify-streaming-markdown.mjs",
+		"verify:math": "node scripts/verify-math.mjs",
 		"pack:office": "node scripts/pack-office.mjs",
 		"verify:quality": "node scripts/verify-product-quality.mjs"
 	},
@@ -71,6 +72,7 @@
 		"yjs": "^13.6.32"
 	},
 	"overrides": {
+		"katex": "0.18.2",
 		"@sveltejs/kit": {
 			"cookie": "0.7.2"
 		}
