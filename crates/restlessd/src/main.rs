@@ -661,7 +661,13 @@ async fn run() -> Result<()> {
             tokio::spawn(async move {
                 loop {
                     match tcp.accept().await {
-                        Ok((stream, _)) => {
+                        Ok((stream, peer)) => {
+                            // Containers only: the listener is on every interface so each Docker
+                            // network's gateway reaches it, but never answers the internet.
+                            if !restless_engine::coordination::local_peer(peer.ip()) {
+                                tracing::warn!(%peer, "coordination TCP refused a public peer");
+                                continue;
+                            }
                             let daemon = std::sync::Arc::clone(&tcp_daemon);
                             tokio::spawn(async move {
                                 if let Err(error) = coordination::serve_tcp(
