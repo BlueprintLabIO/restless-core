@@ -856,9 +856,8 @@ pub fn load_marker(path: &Path) -> Result<LocalFixtureMarker> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::BufReader;
-
     use futures_util::SinkExt as _;
+    use rustls::pki_types::pem::PemObject as _;
     use rustls::pki_types::ServerName;
     use serde_json::Value;
     use tokio::time::{Duration, Instant};
@@ -1015,7 +1014,9 @@ mod tests {
         assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
 
         let mut roots = rustls::RootCertStore::empty();
-        for certificate in rustls_pemfile::certs(&mut BufReader::new(certificate_pem.as_bytes())) {
+        for certificate in
+            rustls::pki_types::CertificateDer::pem_slice_iter(certificate_pem.as_bytes())
+        {
             roots.add(certificate.unwrap()).unwrap();
         }
         let tls = rustls::ClientConfig::builder()

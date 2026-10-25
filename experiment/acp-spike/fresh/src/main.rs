@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use agent_client_protocol::{
-    self as acp, Agent, ByteStreams, Client, ConnectionTo, Error,
+    self as acp, Agent, ByteStreams, Client, ConnectionTo,
     schema::{
         ProtocolVersion,
         v1::{

@@ -1491,7 +1491,6 @@ mod tests {
         original.operation_id = Uuid::new_v4();
         original.company_id = Uuid::new_v4();
         original.cell_id = Uuid::new_v4();
-        let handle = company_handle(original.company_id);
         let root = std::env::temp_dir().join(format!(
             "restless-company-bootstrap-baseline-{}",
             original.operation_id

@@ -6,7 +6,7 @@
 //! protocol on loopback. It is not a remote shell.
 
 use std::collections::HashMap;
-use std::io::{Cursor, Read as _};
+use std::io::Read as _;
 use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -2858,25 +2858,29 @@ fn tls_connector(ca_pem: Option<&[u8]>) -> Result<Connector> {
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     if let Some(ca_pem) = ca_pem {
-        let mut reader = Cursor::new(ca_pem);
-        let items = rustls_pemfile::read_all(&mut reader)
+        use rustls::pki_types::pem::{PemObject, SectionKind};
+        let items = <(SectionKind, Vec<u8>)>::pem_slice_iter(ca_pem)
             .collect::<std::result::Result<Vec<_>, _>>()
             .context("parse Runtime bridge CA PEM")?;
         if items.is_empty() || items.len() > 16 {
             bail!("Runtime bridge CA must contain between one and sixteen certificates");
         }
-        for item in items {
-            let rustls_pemfile::Item::X509Certificate(certificate) = item else {
+        for (kind, certificate) in items {
+            if kind != SectionKind::Certificate {
                 bail!("Runtime bridge CA file may contain certificates only");
-            };
+            }
             roots
-                .add(certificate)
+                .add(rustls::pki_types::CertificateDer::from(certificate))
                 .context("Runtime bridge CA contains an invalid certificate")?;
         }
     }
-    let config = rustls::ClientConfig::builder()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .context("select Runtime bridge TLS protocols")?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
     Ok(Connector::Rustls(std::sync::Arc::new(config)))
 }
 
@@ -3015,6 +3019,21 @@ fn now_ms() -> Result<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bridge_ca_accepts_valid_certificates_and_refuses_keys_malformed_or_excess_entries() {
+        let generated = rcgen::generate_simple_self_signed(vec!["bridge.test".into()]).unwrap();
+        let certificate = generated.cert.pem();
+        assert!(tls_connector(Some(certificate.as_bytes())).is_ok());
+        for refused in [
+            String::new(),
+            "-----BEGIN CERTIFICATE-----\n!invalid!\n-----END CERTIFICATE-----".into(),
+            format!("{certificate}{}", generated.key_pair.serialize_pem()),
+            certificate.repeat(17),
+        ] {
+            assert!(tls_connector(Some(refused.as_bytes())).is_err());
+        }
+    }
 
     fn runtime_identity(generation: i64) -> RuntimeIdentity {
         RuntimeIdentity {

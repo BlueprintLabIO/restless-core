@@ -34,7 +34,7 @@ toml = "0.8"
 tracing = "0.1"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 hmac = "0.12"
 sha1 = "0.10"
 tokio-tungstenite = "0.26"
@@ -77,6 +77,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 syn = { version = "3", default-features = false, features = ["extra-traits"] }
 
 [dev-dependencies]
-# Test-only: makes a throwaway RSA key in GitHub's format for the GitHub App signing test.
-rsa = { version = "0.9", features = ["pem"] }
-rand = "0.8"
+# Test-only RSA key generation, using the same maintained crypto provider as rustls.
+aws-lc-rs = "1"

@@ -483,14 +483,12 @@ pub async fn installation_token(
 mod tests {
     use super::*;
 
-    /// A fresh 2048-bit key in GitHub's format (PKCS#1 PEM), made for the test and thrown away.
+    /// A fresh 2048-bit PKCS#8 key, made for the test and thrown away.
     fn test_key() -> String {
-        use rsa::pkcs1::EncodeRsaPrivateKey as _;
-        rsa::RsaPrivateKey::new(&mut rand::thread_rng(), 2048)
-            .unwrap()
-            .to_pkcs1_pem(rsa::pkcs1::LineEnding::LF)
-            .unwrap()
-            .to_string()
+        use aws_lc_rs::encoding::AsDer as _;
+        let key = aws_lc_rs::rsa::KeyPair::generate(aws_lc_rs::rsa::KeySize::Rsa2048).unwrap();
+        let der = key.as_der().unwrap();
+        pem::encode(&pem::Pem::new("PRIVATE KEY", der.as_ref()))
     }
 
     #[test]
