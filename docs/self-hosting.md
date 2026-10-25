@@ -17,6 +17,11 @@ forward instead). `restless.run/install` redirects to `scripts/install-core.sh` 
 revision, the 40-character commit of a successful **Immutable Core release** run
 on `main`: `... | bash -s -- <revision>`.
 
+A laptop that only drives Restless Cloud or another machine needs just the CLI:
+`... | bash -s -- --cli` verifies the same release the same way, puts `restless` in
+`~/.local/bin`, and starts nothing. Then `restless login app.restless.run` (Settings › Computers
+shows the full command).
+
 The installer:
 
 1. checks the release bundle's SHA-256 digests;

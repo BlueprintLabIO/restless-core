@@ -101,6 +101,13 @@ binary, a throwaway contexts file and the built-in browser.
   signals the program in front. Checked in a throwaway container with the exact commands: `stty
   size` read `30 100`, then `50 200` after the resize, and a `WINCH` trap fired.
 
+- [x] D3 CLI-only install: `curl -fsSL https://restless.run/install | bash -s -- --cli` fetches
+  and verifies the newest release exactly as the full install does, copies only `restless` out of
+  the signed account-plane image (the signed macOS build on a Mac), installs it in
+  `~/.local/bin`, removes the image, and starts nothing. A machine with the appliance keeps the
+  appliance's CLI. Checked in an empty `HOME`: release 09e57a3ce2a5 verified, and the installed
+  `restless --help` lists `login`, `ssh` and `connect`.
+
 ### E. Cloud
 - [x] E1 Edge router (restless-cloud): on account-scoped routes with no home-plane cookie, a
   well-formed `Restless-Plane` header beside an `rsl_` bearer names the plane, as a routing hint
@@ -127,5 +134,3 @@ binary, a throwaway contexts file and the built-in browser.
 - Run `restless connect` and `restless connect ssh://` against a real second machine.
 - On Cloud after release: `restless login app.restless.run --plane <id>` end to end through the
   edge.
-- The CLI-only install (`restless.run/install --cli`) so a laptop that only drives Cloud doesn't
-  install the appliance.

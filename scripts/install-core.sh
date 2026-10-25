@@ -7,6 +7,10 @@
 #
 # Or, for one exact release: ... | bash -s -- [<revision>] [--environment <file>] [--force]
 #
+# Only the CLI, for a laptop that drives Restless Cloud or another machine (`restless login`,
+# `restless ssh`) and runs no companies itself: ... | bash -s -- --cli
+# It verifies the same release the same way, installs `restless` in ~/.local/bin, and starts nothing.
+#
 # <revision> is the 40-character source commit of a release published by the
 # "Immutable Core release" workflow; without one, the newest such release on
 # main. A fresh install on a host with no PostgreSQL and no
@@ -85,14 +89,14 @@ verify_signature() {
 
 usage() {
   sed -n '2,5p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null >&2 || true
-  printf 'usage: install-core.sh [<revision>] [--environment <file>] [--force]\n' >&2
+  printf 'usage: install-core.sh [<revision>] [--environment <file>] [--force] [--cli]\n' >&2
   exit 2
 }
 
 require_tools() {
   local tool tools
   case "$(uname -s)" in
-    Linux) tools="curl docker jq tar sha256sum systemctl" ;;
+    Linux) tools="curl docker jq tar sha256sum"; [ -n "$CLI_ONLY" ] || tools="$tools systemctl" ;;
     Darwin) tools="curl docker jq tar shasum unzip launchctl" ;;
     *) fail "Restless installs on Linux and macOS; on Windows, run this in an Ubuntu (WSL2) terminal" ;;
   esac
@@ -378,6 +382,40 @@ stage_macos_host_tools() {
   mv "$tools.partial" "$tools"
 }
 
+# --cli: put this release's verified `restless` in ~/.local/bin and nothing else. An appliance
+# already installed keeps its own CLI, which has every command.
+install_cli_only() {
+  local revision="$1" manifest="$2" work="$3" image container target
+  if [ -e "${HOME}/.local/lib/restless/current" ]; then
+    printf 'The Restless appliance is installed here, and its restless already has every command.\n' >&2
+    return 0
+  fi
+  target="${HOME}/.local/lib/restless/cli/${revision:0:12}"
+  mkdir -p "$work/stage/bin" "${HOME}/.local/bin"
+  if is_macos; then
+    fetch_macos_binaries "$revision" "$(uname -m)" "$work" "$work/stage"
+  else
+    image="$(jq -er '.images.account_plane' "$manifest")"
+    pull_image "$image"
+    container="restless-install-$$"
+    docker create --name "$container" "$image" >/dev/null
+    STAGING_CONTAINER="$container"
+    docker cp "$container:/usr/local/bin/restless" "$work/stage/bin/restless" 2>/dev/null \
+      || fail "this release's account-plane image has no restless CLI; install a newer release"
+    docker rm -f "$container" >/dev/null
+    STAGING_CONTAINER=""
+    # A CLI-only machine runs no companies, so it keeps none of the image.
+    docker image rm "$image" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$target" && mkdir -p "$target"
+  install -m 0755 "$work/stage/bin/restless" "$target/restless"
+  ln -sfn "$target/restless" "${HOME}/.local/bin/restless"
+  printf '\nInstalled restless %s in %s\n' "${revision:0:12}" "${HOME}/.local/bin" >&2
+  case ":$PATH:" in *":${HOME}/.local/bin:"*) ;; *) printf 'Add %s to your PATH to run it.\n' "${HOME}/.local/bin" >&2 ;; esac
+  printf 'Next: restless login app.restless.run (the full command is in Settings › Computers)\n' >&2
+}
+
+CLI_ONLY=""
 STAGING_CONTAINER=""
 cleanup() {
   [ -z "$STAGING_CONTAINER" ] || docker rm -f "$STAGING_CONTAINER" >/dev/null 2>&1 || true
@@ -404,6 +442,7 @@ main() {
     case "$1" in
       --environment) [ "$#" -ge 2 ] || usage; appliance_args+=(--environment "$(realpath "$2")"); shift ;;
       --force) appliance_args+=(--force) ;;
+      --cli) CLI_ONLY=1 ;;
       -h | --help) usage ;;
       -*) usage ;;
       *) [ -z "$revision" ] || usage; revision="$1" ;;
@@ -433,6 +472,12 @@ main() {
   step "Verifying the release signature"
   manifest="$(verify_release "$revision" "$platform" "$work/bundle")"
   printf 'signed by %s\n' "$SIGNER" >&2
+
+  if [ -n "$CLI_ONLY" ]; then
+    step "Installing the restless CLI"
+    install_cli_only "$revision" "$manifest" "$work"
+    return 0
+  fi
 
   step "Pulling the pinned images"
   for image in account_plane company_runtime native_documents; do
