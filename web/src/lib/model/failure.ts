@@ -71,10 +71,13 @@ export async function responseFailure(response: Response): Promise<OwnerFailure>
 	return Object.assign(new Error(message), { status: response.status, code, serverMessage });
 }
 
-/** Throw the classified error for a non-OK response, otherwise parse its JSON. */
+/** Throw the classified error for a non-OK response, otherwise parse its JSON. A success with
+ * no body (204, as removing a computer answers) is undefined: reading it as JSON threw, and the
+ * page reported a removal that had happened as one that had not (25 October). */
 export async function ownerJson<T>(response: Response): Promise<T> {
 	if (!response.ok) throw await responseFailure(response);
-	return (await response.json()) as T;
+	const body = await response.text();
+	return (body ? JSON.parse(body) : undefined) as T;
 }
 
 function isTransportFailure(error: unknown): boolean {
