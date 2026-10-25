@@ -147,15 +147,21 @@ fn api(base: &str, path: &str) -> Result<Url> {
 
 fn failure(response: Response, what: &str) -> anyhow::Error {
     let status = response.status();
+    let status_error = response.error_for_status_ref().err();
     let body = response.text().unwrap_or_default();
     let message = serde_json::from_str::<serde_json::Value>(&body)
         .ok()
         .and_then(|value| value["message"].as_str().map(str::to_string))
         .unwrap_or_else(|| body.chars().take(200).collect());
-    if status == reqwest::StatusCode::UNAUTHORIZED {
-        return anyhow!("{what}: {message}");
+    let description = if status == reqwest::StatusCode::UNAUTHORIZED {
+        format!("{what}: {message}")
+    } else {
+        format!("{what} failed ({status}): {message}")
+    };
+    match status_error {
+        Some(error) => anyhow::Error::new(error).context(description),
+        None => anyhow!(description),
     }
-    anyhow!("{what} failed ({status}): {message}")
 }
 
 fn host_label() -> String {
@@ -396,18 +402,18 @@ fn companies_of(context: &Context) -> Result<Vec<(String, String)>> {
     let list = catalog["companies"]
         .as_array()
         .or_else(|| catalog.as_array())
-        .cloned()
-        .unwrap_or_default();
-    Ok(list
-        .iter()
-        .filter_map(|company| {
+        .context("the plane returned no company list")?;
+    list.iter()
+        .map(|company| {
             let id = company["id"]
                 .as_str()
-                .or_else(|| company["company"].as_str())?;
+                .or_else(|| company["company"].as_str())
+                .filter(|id| !id.is_empty())
+                .context("the plane returned a company without an id")?;
             let name = company["name"].as_str().unwrap_or(id);
-            Some((id.to_string(), name.to_string()))
+            Ok((id.to_string(), name.to_string()))
         })
-        .collect())
+        .collect()
 }
 
 pub fn companies() -> Result<()> {
@@ -424,7 +430,10 @@ pub fn companies() -> Result<()> {
 
 /// A company named the way a person would: its id, or its name in any case.
 fn resolve_company(context: &Context, wanted: &str) -> Result<String> {
-    let companies = companies_of(context)?;
+    company_id(&companies_of(context)?, wanted)
+}
+
+fn company_id(companies: &[(String, String)], wanted: &str) -> Result<String> {
     companies
         .iter()
         .find(|(id, name)| id == wanted || name.eq_ignore_ascii_case(wanted))
@@ -444,15 +453,14 @@ fn resolve_company(context: &Context, wanted: &str) -> Result<String> {
 /// What is waiting on the person: each company's Attention items that need them.
 pub fn decisions(company: Option<String>) -> Result<()> {
     let (_, context) = require_current()?;
+    let companies = companies_of(&context)?;
     let targets = match company {
-        Some(company) => vec![resolve_company(&context, &company)?],
-        None => companies_of(&context)?
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect(),
+        Some(company) => vec![company_id(&companies, &company)?],
+        None => companies.iter().map(|(id, _)| id.clone()).collect(),
     };
-    let names: BTreeMap<String, String> = companies_of(&context)?.into_iter().collect();
+    let names: BTreeMap<String, String> = companies.into_iter().collect();
     let mut shown = 0;
+    let mut unavailable = 0;
     for id in targets {
         let attention = match get_json(
             &context,
@@ -460,17 +468,24 @@ pub fn decisions(company: Option<String>) -> Result<()> {
         ) {
             Ok(attention) => attention,
             // A company the catalog still lists but the plane no longer holds has nothing to say.
-            Err(error) if format!("{error:#}").contains("404") => continue,
+            Err(error)
+                if error
+                    .downcast_ref::<reqwest::Error>()
+                    .and_then(reqwest::Error::status)
+                    == Some(reqwest::StatusCode::NOT_FOUND) =>
+            {
+                continue;
+            }
             Err(error) => {
-                println!("{}: {error:#}", names.get(&id).unwrap_or(&id));
+                eprintln!("{}: {error:#}", names.get(&id).unwrap_or(&id));
+                unavailable += 1;
                 continue;
             }
         };
         let items = attention["items"]
             .as_array()
             .or_else(|| attention["attention"].as_array())
-            .cloned()
-            .unwrap_or_default();
+            .with_context(|| format!("the plane returned no decision list for {id}"))?;
         for item in items {
             let title = item["title"]
                 .as_str()
@@ -491,6 +506,9 @@ pub fn decisions(company: Option<String>) -> Result<()> {
             );
             shown += 1;
         }
+    }
+    if unavailable > 0 {
+        bail!("could not check decisions for {unavailable} company or companies");
     }
     if shown == 0 {
         println!("Nothing needs you.");
