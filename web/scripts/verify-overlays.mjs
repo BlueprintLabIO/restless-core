@@ -84,8 +84,11 @@ try {
 
 	/* The command menu */
 	await page.goto(url);
-	await page.waitForTimeout(1200);
-	await page.keyboard.press('Control+k');
+	// A cold dev server can hydrate after any fixed wait; press until the shortcut is listening.
+	for (let tries = 0; tries < 40 && !(await page.$('dialog.command-menu[open]')); tries += 1) {
+		await page.keyboard.press('Control+k');
+		await page.waitForTimeout(500);
+	}
 	await page.waitForSelector('dialog.command-menu[open]');
 	await page.keyboard.type('person');
 	const menu = await page.evaluate(() => ({
