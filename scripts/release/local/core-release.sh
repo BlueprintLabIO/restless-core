@@ -76,6 +76,10 @@ for image in $(jq -r '.images[]' "$out/release/assembly.json" 2>/dev/null); do
   cosign verify --key "$root/release/signing.pub" "$image" >/dev/null 2>&1 \
     || { echo "core-release: $image does not verify from the public registry" >&2; exit 1; }
 done
+# Only now, with every signature verified from the public registry, is it the latest the
+# installer offers.
+"$cloud/scripts/registry/with-r2.sh" node "$cloud/scripts/registry/tag.mjs" \
+  --repo blueprintlabio/restless-core-release --tag "latest-${platform#linux/}" --digest "${bundle##*@}"
 log "released Core $revision"
 echo "bundle: $bundle"
 echo "artifacts: $out"

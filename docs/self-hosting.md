@@ -26,7 +26,7 @@ The installer:
 
 1. checks the release bundle's SHA-256 digests;
 2. verifies the signature on its release manifest, accepting only the
-   repository's release workflow on `main` as the signer;
+   Restless release key (`release/signing.pub`) as the signer;
 3. pulls each image by the digest in that signed manifest;
 4. on a first install, prepares the database (below) and keeps the service
    running after you log out (`loginctl enable-linger`; if your system does not

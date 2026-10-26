@@ -3,7 +3,7 @@
 #
 #   curl -fsSL https://restless.run/install | bash
 #
-# (restless.run/install redirects to this file on main.)
+# (restless.run/install serves this file.)
 #
 # Or, for one exact release: ... | bash -s -- [<revision>] [--environment <file>] [--force]
 #
@@ -11,14 +11,13 @@
 # `restless ssh`) and runs no companies itself: ... | bash -s -- --cli
 # It verifies the same release the same way, installs `restless` in ~/.local/bin, and starts nothing.
 #
-# <revision> is the 40-character source commit of a release published by the
-# "Immutable Core release" workflow; without one, the newest such release on
-# main. A fresh install on a host with no PostgreSQL and no
+# <revision> is the 40-character source commit of a published Core release;
+# without one, the newest (the release that last moved `latest-<arch>`). A fresh install on a host with no PostgreSQL and no
 # ~/.restless/orgintel.toml runs its own PostgreSQL in a container. The script:
 #   1. fetches that release's bundle from the registry and checks every byte
 #      against its sha256 digest;
 #   2. verifies the bundle's signed release manifest with Sigstore, accepting
-#      only the trusted main release workflow as signer;
+#      only the Restless release key as signer;
 #   3. pulls the three images the manifest pins by digest;
 #   4. copies the account-plane image's binaries, Cockpit and host tools out
 #      of the image (on macOS: verifies the release's signed macOS binaries and
@@ -29,25 +28,26 @@
 #      not become ready;
 #   6. opens the Cockpit, or on a server prints the port forward that reaches it.
 #
-# Registry access: packages that are not public need `docker login ghcr.io`
-# and GHCR_TOKEN (a token with read:packages) in the environment.
+# Releases are public at registry.restless.run; nothing needs a login.
 set -euo pipefail
 
-GITHUB_REPOSITORY="BlueprintLabIO/restless-core"
 # The bundled database: the official image's multi-arch index, pinned.
 POSTGRES_IMAGE='postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24'
 POSTGRES_CONTAINER='restless-stable-postgres'
 POSTGRES_PORT=7797
-REGISTRY="ghcr.io"
+REGISTRY="registry.restless.run"
 REPOSITORY="blueprintlabio/restless-core-release"
-# The same pinned verifier the release workflow signs and verifies with.
+# The pinned Sigstore verifier.
 COSIGN_IMAGE='ghcr.io/sigstore/cosign/cosign:v2.4.1@sha256:b03690aa52bfe94054187142fba24dc54137650682810633901767d8a3e15b31'
-SIGNER='https://github.com/BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/main'
-ISSUER='https://token.actions.githubusercontent.com'
+# The release key's public half (release/signing.pub): every release is signed with it.
+RELEASE_KEY='-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+VS8xilXHBfGbOVfHkV/Xi7NsIQA
+gPrJ6vzwaEKEQBQ0FUlgDMui+kfHToI7fYeX4Wf/Ii+VOouZAmF4qcw6Mg==
+-----END PUBLIC KEY-----'
+SIGNER='the Restless release key'
 BUNDLE_MEDIA_TYPE='application/vnd.restless.core.release-bundle.v1+tar+gzip'
-# macOS: the same release's restless and restlessd, built and signed by the macOS release workflow
-# and published beside the Linux bundle as <revision>-darwin-<arm64|x86_64>.
-MACOS_SIGNER='https://github.com/BlueprintLabIO/restless-core/.github/workflows/macos-core-release.yml@refs/heads/main'
+# macOS: the same release's restless and restlessd, signed with the same key and published beside
+# the Linux bundle as <revision>-darwin-<arm64|x86_64>.
 MACOS_MEDIA_TYPE='application/vnd.restless.core.macos-binaries.v1+tar+gzip'
 SIGSTORE_MEDIA_TYPE='application/vnd.dev.sigstore.bundle.v0.3+json'
 
@@ -75,16 +75,17 @@ pull_image() {
 
 # Run the pinned Sigstore verifier. Docker's own failures (125-127: it could not start the
 # container) say so; only cosign's answer says the signature did not verify.
-# usage: verify_signature <dir> <signature> <file> <signer> <what is signed>
+# usage: verify_signature <dir> <signature> <file> <what is signed>
 verify_signature() {
-  local dir="$1" signature="$2" file="$3" signer="$4" what="$5" status=0
+  local dir="$1" signature="$2" file="$3" what="$4" key status=0
   pull_image "$COSIGN_IMAGE"
-  docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$dir:/work:ro" "$COSIGN_IMAGE" verify-blob \
-    --bundle "/work/$signature" --certificate-identity "$signer" --certificate-oidc-issuer "$ISSUER" \
-    "/work/$file" >&2 || status=$?
+  key="${WORK:?}/release.pub"
+  printf '%s\n' "$RELEASE_KEY" >"$key"
+  docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$dir:/work:ro" -v "$key:/release.pub:ro" \
+    "$COSIGN_IMAGE" verify-blob --key /release.pub --bundle "/work/$signature" "/work/$file" >&2 || status=$?
   [ "$status" = 0 ] && return 0
   [ "$status" -ge 125 ] && fail "Docker could not run the signature checker (see the error above); nothing was installed"
-  fail "${what} signature did not verify against ${signer}"
+  fail "${what} signature did not verify against ${SIGNER}"
 }
 
 usage() {
@@ -119,27 +120,24 @@ host_platform() {
 
 # Whether the registry holds <revision>-<suffix> (a Linux bundle or a macOS build).
 published() {
-  curl -fsS -o /dev/null -H "Authorization: Bearer $1" -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-    "https://${REGISTRY}/v2/${REPOSITORY}/manifests/$2-$3"
+  curl -fsS -o /dev/null -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+    "https://${REGISTRY}/v2/${REPOSITORY}/manifests/$1-$2"
 }
 
-# The newest successful release on main that this machine can install. Each platform is published
-# by its own run (linux/amd64, then linux/arm64, then macOS a few minutes later), so take the newest
-# release that already has this machine's build.
+# The newest release this machine can install: the release last tagged `latest-<arch>`, which the
+# release script moves only once every signature verifies from the public registry. Only the
+# revision is read here; main() then fetches and verifies that release like any other.
 latest_revision() {
-  local revisions revision token wanted
-  revisions="$(curl -fsS "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/immutable-core-release.yml/runs?branch=main&status=success&per_page=10" \
-    | jq -er 'reduce .workflow_runs[].head_sha as $s ([]; if any(.[]; . == $s) then . else . + [$s] end) | .[]')" \
-    || fail "could not find the latest release; pass a revision"
-  if is_macos; then wanted="darwin-$(uname -m)"; else wanted="$(host_platform)"; fi
-  token="$(registry_token)" || fail "could not get registry access for ${REPOSITORY}"
-  for revision in $revisions; do
-    if published "$token" "$revision" "$wanted"; then
-      printf '%s\n' "$revision"
-      return 0
-    fi
-  done
-  fail "no recent release is built for ${wanted} yet; try again in a few minutes"
+  local platform work revision
+  platform="$(host_platform)"
+  work="$(mktemp -d)"
+  fetch_bundle latest "$platform" "$work" >/dev/null
+  revision="$(jq -er '.release_manifest.path' "$work/bundle/core-release-bundle.json")" \
+    || fail "the latest release has no release manifest"
+  case "$revision" in *..* | /*) fail "the latest release names an unsafe path" ;; esac
+  revision="$(jq -er '.source_revision' "$work/bundle/$revision")" || fail "the latest release names no revision"
+  rm -rf "$work"
+  printf '%s\n' "$revision"
 }
 
 # A fresh install on a host with no database of its own gets one: PostgreSQL in a
@@ -189,23 +187,11 @@ ensure_linger() {
   printf 'note: Restless stops when you log out until you run: sudo loginctl enable-linger %s\n' "$USER" >&2
 }
 
-# A bearer token for pulling from the registry: anonymous for public packages,
-# GHCR_TOKEN otherwise.
-registry_token() {
-  local auth=()
-  if [ -n "${GHCR_TOKEN:-}" ]; then auth=(-u "${GHCR_USER:-token}:${GHCR_TOKEN}"); fi
-  # ${a[@]+...}: macOS's bash 3.2 treats an empty array as unset under set -u.
-  curl -fsS ${auth[@]+"${auth[@]}"} "https://${REGISTRY}/token?service=${REGISTRY}&scope=repository:${REPOSITORY}:pull" \
-    | jq -er '.token'
-}
-
 # Fetch the bundle for <revision>-<platform>, verifying the manifest and the
 # layer against their content digests. Prints the bundle digest.
 fetch_bundle() {
-  local revision="$1" platform="$2" work="$3" token manifest_digest layer
-  token="$(registry_token)" || fail "could not get registry access for ${REPOSITORY}; set GHCR_TOKEN if the package is private"
-  curl -fsS -H "Authorization: Bearer ${token}" \
-    -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+  local revision="$1" platform="$2" work="$3" manifest_digest layer
+  curl -fsS -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
     -o "$work/bundle-manifest.json" \
     "https://${REGISTRY}/v2/${REPOSITORY}/manifests/${revision}-${platform}" \
     || fail "no published Core release for ${revision} on linux/${platform}"
@@ -213,7 +199,7 @@ fetch_bundle() {
   layer="$(jq -er --arg type "$BUNDLE_MEDIA_TYPE" '[.layers[] | select(.mediaType == $type)] | if length == 1 then .[0].digest else error("expected one bundle layer") end' "$work/bundle-manifest.json")" \
     || fail "the release bundle manifest is not a Core release bundle"
   [[ "$layer" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "the bundle layer digest is malformed"
-  curl -fsSL -H "Authorization: Bearer ${token}" -o "$work/bundle.tar.gz" \
+  curl -fsSL -o "$work/bundle.tar.gz" \
     "https://${REGISTRY}/v2/${REPOSITORY}/blobs/${layer}" || fail "could not download the release bundle"
   [ "sha256:$(sha256_of "$work/bundle.tar.gz")" = "$layer" ] \
     || fail "the downloaded bundle does not match its digest ${layer}"
@@ -235,7 +221,7 @@ verify_release() {
     || fail "the release manifest does not match the bundle index"
   # As this user: the bundle sits in a private (0700) temporary directory that
   # the image's own non-root user cannot read.
-  verify_signature "$bundle" "$signature" "$manifest" "$SIGNER" "the release manifest's"
+  verify_signature "$bundle" "$signature" "$manifest" "the release manifest's"
   jq -e --arg revision "$revision" --arg platform "linux/$platform" \
     '.source_revision == $revision and ((.platforms // ["linux/amd64","linux/arm64"]) | index($platform))' \
     "$bundle/$manifest" >/dev/null \
@@ -287,12 +273,11 @@ stage_account_plane() {
 
 # macOS: fetch this release's signed restless and restlessd into <stage>/bin. The artifact holds the
 # binaries' tarball and its Sigstore bundle; both are checked against their digests, then the
-# signature must come from the trusted macOS release workflow on main.
+# signature must verify against the release key.
 fetch_macos_binaries() {
-  local revision="$1" arch="$2" work="$3" stage="$4" token manifest binaries signature
-  token="$(registry_token)" || fail "could not get registry access for ${REPOSITORY}"
+  local revision="$1" arch="$2" work="$3" stage="$4" manifest binaries signature
   manifest="$work/macos-manifest.json"
-  curl -fsS -H "Authorization: Bearer ${token}" -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+  curl -fsS -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
     -o "$manifest" "https://${REGISTRY}/v2/${REPOSITORY}/manifests/${revision}-darwin-${arch}" \
     || fail "no macOS build of ${revision:0:12} for ${arch} yet; it is published a few minutes after each release"
   mkdir -p "$work/macos"
@@ -302,11 +287,11 @@ fetch_macos_binaries() {
       || fail "the macOS artifact is missing its ${type} layer"
     [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "a macOS artifact digest is malformed"
     if [ "$type" = "$MACOS_MEDIA_TYPE" ]; then file="$work/macos/binaries.tar.gz"; else file="$work/macos/binaries.sigstore.json"; fi
-    curl -fsSL -H "Authorization: Bearer ${token}" -o "$file" "https://${REGISTRY}/v2/${REPOSITORY}/blobs/${digest}" \
+    curl -fsSL -o "$file" "https://${REGISTRY}/v2/${REPOSITORY}/blobs/${digest}" \
       || fail "could not download the macOS artifact"
     [ "sha256:$(sha256_of "$file")" = "$digest" ] || fail "the macOS artifact does not match its digest ${digest}"
   done
-  verify_signature "$work/macos" binaries.sigstore.json binaries.tar.gz "$MACOS_SIGNER" "the macOS binaries'"
+  verify_signature "$work/macos" binaries.sigstore.json binaries.tar.gz "the macOS binaries'"
   mkdir -p "$stage/bin" "$work/macos/out"
   tar -xzf "$work/macos/binaries.tar.gz" --no-same-owner -C "$work/macos/out" restless restlessd release.json \
     || fail "the macOS artifact does not hold restless, restlessd and release.json"
@@ -471,7 +456,7 @@ main() {
   platform="$(host_platform)"
   # On a Mac the company computers are Linux containers in Docker's VM. Apple silicon uses this
   # release's linux/arm64 images when they are published, and otherwise linux/amd64 through Rosetta.
-  if is_macos && [ "$platform" = arm64 ] && ! published "$(registry_token)" "$revision" arm64; then platform=amd64; fi
+  if is_macos && [ "$platform" = arm64 ] && ! published "$revision" arm64; then platform=amd64; fi
   work="$(mktemp -d)"
   WORK="$work"
   trap cleanup EXIT
