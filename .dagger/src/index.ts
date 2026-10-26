@@ -80,10 +80,10 @@ export class RestlessCore {
   async deliverLibraries(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
       '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
-      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml', '!release/signing.pub',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, epoch: string, scanPeriod: string, username: string, password: Secret,
-    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string, publish: boolean = true, concurrency: number = 2,
+    signingKey: Secret, signingPassword: Secret, publish: boolean = true, concurrency: number = 2,
   ): Promise<Directory> {
     if (!/^[0-9a-f]{40}$/.test(revision) || !/^\d+$/.test(epoch)) throw new Error('delivery requires exact checkout revision/epoch');
     if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 3) throw new Error('library concurrency must be between 1 and 3');
@@ -103,7 +103,7 @@ export class RestlessCore {
         const receipt = JSON.parse(await payload.file('library-receipt.json').contents());
         // Reuse already admitted the signed OCI payload and exact input/day.
         // It performs no mutation or duplicate signing of the existing artifact.
-        if (!receipt.reused) payload = await this.sealLibrary(source, payload, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
+        if (!receipt.reused) payload = await this.sealLibrary(source, payload, username, password, signingKey, signingPassword);
         results.push({kind, payload, receipt});
       }
     }));
@@ -142,7 +142,7 @@ export class RestlessCore {
   async publishLibrary(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
       '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
-      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml', '!release/signing.pub',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, kind: string, revision: string, epoch: string, scanPeriod: string,
     username: string, password: Secret): Promise<Directory> {
@@ -153,13 +153,13 @@ export class RestlessCore {
     return publishLibrary(payload, kind, revision, scanPeriod, username, password, source);
   }
 
-  /** Sign a product package with the UI workflow's exact main identity. */
+  /** Sign a product package with the release key. */
   @func()
   sealLibrary(
-    @argument({ ignore: ['**', '!scripts/release/verify-library.mjs'] })
+    @argument({ ignore: ['**', '!scripts/release/verify-library.mjs', '!release/signing.pub'] })
     source: Directory, artifacts: Directory, username: string, password: Secret,
-    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string): Promise<Directory> {
-    return sealLibrary(source, artifacts, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
+    signingKey: Secret, signingPassword: Secret): Promise<Directory> {
+    return sealLibrary(source, artifacts, username, password, signingKey, signingPassword);
   }
 
   /** Build the reusable desktop/agent tool base without importing Rust or UI. */

@@ -1,13 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { dag, Container, Directory, Secret, ReturnType } from '@dagger.io/dagger';
-import { assertScanPeriod, NODE_IMAGE, SYFT_IMAGE, GRYPE_IMAGE, ORAS_IMAGE, COSIGN_IMAGE, registryConfig, tool, EXCLUDES } from './publish.js';
+import { assertScanPeriod, NODE_IMAGE, SYFT_IMAGE, GRYPE_IMAGE, ORAS_IMAGE, COSIGN_IMAGE, COSIGN_HTTP, ORAS_HTTP,
+  RELEASE_KEY, STAGING_REGISTRY, publicReference, registryConfig, tool, EXCLUDES } from './publish.js';
 
-export const LIBRARY_WORKFLOW = 'BlueprintLabIO/restless-core/.github/workflows/ui-artifact-release.yml@refs/heads/main';
-/* Packages published before main became the release line were signed from dev (now locked);
- * reuse still trusts them. New packages are sealed only from main. */
-const REUSABLE_LIBRARY_IDENTITY =
-  '^https://github\\.com/BlueprintLabIO/restless-core/\\.github/workflows/ui-artifact-release\\.yml@refs/heads/(main|dev)$';
-const REPOSITORY = 'ghcr.io/blueprintlabio/restless-core-release';
+/* Libraries are published into the local release staging registry, sealed with the release key and
+ * mirrored to registry.restless.run by scripts/release/local/library-release.sh (ADR 0010). */
+const REPOSITORY = `${STAGING_REGISTRY}/blueprintlabio/restless-core-release`;
+const KEY = ['--key', '/keys/signing.pub'];
 const checkKind = (kind: string) => {
   if (!['ui', 'office', 'issuer'].includes(kind)) throw new Error('choose ui, office or issuer');
 };
@@ -16,7 +15,7 @@ function descriptor(oras: Container, reference: string): Container {
   // Mutable discovery tags must be observed now. In particular, an earlier
   // expected 404 must not remain cached after successful publication.
   return oras.withEnvVariable('RESTLESS_REGISTRY_OBSERVATION', randomUUID())
-    .withExec(['manifest', 'fetch', '--descriptor', reference], {useEntrypoint: true, expect: ReturnType.Any});
+    .withExec(['manifest', 'fetch', ...ORAS_HTTP, '--descriptor', reference], {useEntrypoint: true, expect: ReturnType.Any});
 }
 
 async function libraryInput(source: Directory, kind: string): Promise<{input_sha256: string}> {
@@ -52,9 +51,9 @@ export async function reuseLibrary(source: Directory, kind: string, scanPeriod: 
   }
   const reference = `${REPOSITORY}@${JSON.parse(await lookup.stdout()).digest}`;
   if (!/^sha256:[0-9a-f]{64}$/.test(reference.split('@')[1])) throw new Error('library reuse requires an OCI digest');
-  await tool(COSIGN_IMAGE, config).withExec(['verify', '--certificate-identity-regexp', REUSABLE_LIBRARY_IDENTITY,
-    '--certificate-oidc-issuer', 'https://token.actions.githubusercontent.com', reference], {useEntrypoint: true}).sync();
-  const payload = oras.withExec(['pull', reference, '--output', '/payload'], {useEntrypoint: true}).directory('/payload');
+  await tool(COSIGN_IMAGE, config).withFile('/keys/signing.pub', source.file(RELEASE_KEY))
+    .withExec(['verify', ...KEY, ...COSIGN_HTTP, reference], {useEntrypoint: true}).sync();
+  const payload = oras.withExec(['pull', ...ORAS_HTTP, reference, '--output', '/payload'], {useEntrypoint: true}).directory('/payload');
   const release = JSON.parse(await payload.file('library-release.json').contents());
   if (!/^[0-9a-f]{40}$/.test(release.source?.revision ?? '')) throw new Error('reused library has no exact Core source revision');
   await dag.container().from(NODE_IMAGE).withDirectory('/payload', payload)
@@ -126,7 +125,7 @@ export async function publishLibrary(payload: Directory, kind: string, revision:
   let actual: Directory;
   if (await lookup.exitCode() === 0) {
     reference = `${REPOSITORY}@${JSON.parse(await lookup.stdout()).digest}`;
-    actual = oras.withExec(['pull', reference, '--output', '/payload'], { useEntrypoint: true }).directory('/payload');
+    actual = oras.withExec(['pull', ...ORAS_HTTP, reference, '--output', '/payload'], { useEntrypoint: true }).directory('/payload');
     const old = JSON.parse(await actual.file('library-release.json').contents());
     if (old.component !== kind || old.source?.revision !== revision || old.archive?.sha256 !== qualified.archive.sha256
       || old.evidence?.['dependencies/package-lock.json'] !== qualified.evidence['dependencies/package-lock.json']
@@ -136,10 +135,10 @@ export async function publishLibrary(payload: Directory, kind: string, revision:
     if (!/(?:manifest[ _]unknown|name[ _]unknown|: not found|: 404)/i.test(error)) throw new Error(`library registry lookup failed: ${error}`);
     const files = [qualified.archive.file, ...Object.keys(qualified.evidence), 'library-release.json'];
     const upload = oras.withDirectory('/upload', payload).withWorkdir('/upload');
-    await upload.withExec(['push', tag, '--artifact-type', `application/vnd.restless.core.${kind}.v1`,
+    await upload.withExec(['push', ...ORAS_HTTP, tag, '--artifact-type', `application/vnd.restless.core.${kind}.v1`,
       ...files.map(file => `${file}:application/octet-stream`)], { useEntrypoint: true }).sync();
     reference = `${REPOSITORY}@${JSON.parse(await descriptor(oras, tag).stdout()).digest}`;
-    actual = oras.withExec(['pull', reference, '--output', '/payload'], { useEntrypoint: true }).directory('/payload');
+    actual = oras.withExec(['pull', ...ORAS_HTTP, reference, '--output', '/payload'], { useEntrypoint: true }).directory('/payload');
     const roundTrip = JSON.parse(await actual.file('library-release.json').contents());
     if (JSON.stringify(roundTrip) !== JSON.stringify(qualified)) throw new Error('library registry round-trip changed the release');
   }
@@ -151,12 +150,10 @@ export async function publishLibrary(payload: Directory, kind: string, revision:
     source_revision: revision, scan_period: scanPeriod, input_sha256: qualified.input_sha256, reused: false }, null, 2) + '\n');
 }
 
-/** Seal the exact library with the established UI workflow's main OIDC identity. */
+/** Seal the exact library with the release key. The signed receipt names the public reference,
+ * which is where the library is pulled from once staging is mirrored. */
 export async function sealLibrary(source: Directory, artifacts: Directory, username: string, password: Secret,
-  oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string): Promise<Directory> {
-  if (workflowRef !== LIBRARY_WORKFLOW || !/^https:\/\/[^/]+\.actions\.githubusercontent\.com\//.test(oidcRequestUrl)) {
-    throw new Error('library sealing requires the main library workflow and its GitHub OIDC endpoint');
-  }
+  signingKey: Secret, signingPassword: Secret): Promise<Directory> {
   const receipt = JSON.parse(await artifacts.file('library-receipt.json').contents());
   const release = JSON.parse(await artifacts.file('library-release.json').contents());
   if (!/^[0-9a-f]{64}$/.test(release.input_sha256 ?? '') || receipt.input_sha256 !== release.input_sha256) {
@@ -170,17 +167,16 @@ export async function sealLibrary(source: Directory, artifacts: Directory, usern
     .withFile('/verify-library.mjs', source.file('scripts/release/verify-library.mjs'))
     .withExec(['node', '/verify-library.mjs', '/payload', receipt.component, receipt.source_revision, receipt.scan_period]).sync();
   const config = await registryConfig(username, password);
-  const identity = ['--certificate-identity', `https://github.com/${LIBRARY_WORKFLOW}`,
-    '--certificate-oidc-issuer', 'https://token.actions.githubusercontent.com'];
+  const published = {...receipt, reference: publicReference(receipt.reference)};
   const sealed = tool(COSIGN_IMAGE, config).withDirectory('/work', artifacts)
-    .withEnvVariable('GITHUB_ACTIONS', 'true').withEnvVariable('CI', 'true')
-    .withEnvVariable('ACTIONS_ID_TOKEN_REQUEST_URL', oidcRequestUrl)
-    .withSecretVariable('ACTIONS_ID_TOKEN_REQUEST_TOKEN', oidcRequestToken)
-    .withExec(['sign', '--yes', receipt.reference], { useEntrypoint: true })
-    .withExec(['verify', ...identity, receipt.reference], { useEntrypoint: true })
-    .withExec(['sign-blob', '--yes', '--bundle', '/work/library-receipt.sigstore.json', '/work/library-receipt.json'],
-      { useEntrypoint: true, redirectStdout: '/tmp/library-receipt-signature' })
-    .withExec(['verify-blob', '--bundle', '/work/library-receipt.sigstore.json', ...identity, '/work/library-receipt.json'], { useEntrypoint: true });
+    .withNewFile('/work/library-receipt.json', JSON.stringify(published, null, 2) + '\n')
+    .withFile('/keys/signing.pub', source.file(RELEASE_KEY))
+    .withSecretVariable('COSIGN_PRIVATE_KEY', signingKey).withSecretVariable('COSIGN_PASSWORD', signingPassword)
+    .withExec(['sign', '--yes', '--key', 'env://COSIGN_PRIVATE_KEY', ...COSIGN_HTTP, receipt.reference], { useEntrypoint: true })
+    .withExec(['verify', ...KEY, ...COSIGN_HTTP, receipt.reference], { useEntrypoint: true })
+    .withExec(['sign-blob', '--yes', '--key', 'env://COSIGN_PRIVATE_KEY', '--bundle', '/work/library-receipt.sigstore.json',
+      '/work/library-receipt.json'], { useEntrypoint: true, redirectStdout: '/tmp/library-receipt-signature' })
+    .withExec(['verify-blob', ...KEY, '--bundle', '/work/library-receipt.sigstore.json', '/work/library-receipt.json'], { useEntrypoint: true });
   await sealed.sync();
   // Publish the reusable input alias only after all qualification and signing
   // finished. Existing aliases are immutable and must identify these same bytes.
@@ -192,7 +188,7 @@ export async function sealLibrary(source: Directory, artifacts: Directory, usern
   } else {
     const error = await lookup.stderr();
     if (!/(?:manifest[ _]unknown|name[ _]unknown|: not found|: 404)/i.test(error)) throw new Error(`library alias lookup failed: ${error}`);
-    await oras.withExec(['tag', receipt.reference, tag.slice(`${REPOSITORY}:`.length)], {useEntrypoint: true}).sync();
+    await oras.withExec(['tag', ...ORAS_HTTP, receipt.reference, tag.slice(`${REPOSITORY}:`.length)], {useEntrypoint: true}).sync();
     if (`${REPOSITORY}@${JSON.parse(await descriptor(oras, tag).stdout()).digest}`
       !== receipt.reference) throw new Error('library input alias changed its digest');
   }
