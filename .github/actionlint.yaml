@@ -1,6 +1,0 @@
-self-hosted-runner:
-  labels:
-    - restless-core
-    - restless-core-dagger
-    - restless-core-ci
-    - restless-core-release

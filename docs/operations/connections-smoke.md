@@ -22,8 +22,8 @@ assertion 20 fails the run if anything is left.
 
 | When | How | Blocks |
 |---|---|---|
-| Every push to `main` touching connections, and nightly | `.github/workflows/connections-smoke.yml` (with the skills smoke) | nothing; the failure is visible on the commit |
-| Release qualification | a step in `immutable-core-release.yml` | the release |
+| Nightly at 03:00 Sydney | `scripts/release/local/nightly.sh` (with the skills smoke), from `restless-core-nightly.timer` | nothing; the result is in `~/.local/state/restless-release/nightly/` |
+| Release qualification | `scripts/release/local/connections-smoke.sh`, from `core-release.sh` | the release |
 | `restless-dev promote` | after the image build, on the exact release binaries and image | activation; `--skip-smoke` overrides loudly |
 
 ## Run it

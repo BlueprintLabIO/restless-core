@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { describeFailure, failureKind, isRetryable, responseFailure } from './failure.ts';
+import {
+	describeFailure,
+	failureKind,
+	isRetryable,
+	ownerJson,
+	responseFailure
+} from './failure.ts';
 
 const json = (status: number, body: unknown) =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -95,4 +101,11 @@ test('a route this server does not have yet says to restart, not "not found"', a
 		'Work'
 	);
 	assert.equal(gone.title, 'Work not found');
+});
+
+test('a change the plane confirms with no body counts as saved', async () => {
+	assert.equal(await ownerJson(new Response(null, { status: 204 })), undefined);
+	assert.equal(await ownerJson(new Response('', { status: 200 })), undefined);
+	assert.deepEqual(await ownerJson(json(200, { ok: true })), { ok: true });
+	await assert.rejects(ownerJson(json(409, { message: 'Busy.' })));
 });

@@ -126,6 +126,11 @@ export function assignHelper(id: string, machine: string) {
 	return ownerSend(company(id), { method: 'POST', json: { machine_id: machine } });
 }
 
+/** Stop lending a computer to the company. Its jobs there end; its own computer is untouched. */
+export function unassignHelper(id: string, machine: string) {
+	return ownerSend(`${company(id)}/${encodeURIComponent(machine)}`, { method: 'DELETE' });
+}
+
 /** The sites the company reaches through its helper computers. */
 export function setHomeSites(id: string, sites: string[]) {
 	return ownerRequest<{ home_sites: string[] }>(`${company(id)}/home-sites`, {

@@ -2,19 +2,25 @@
 	/* Company › Computer: where this company's computer runs (S99). One row per machine the company
 	 * uses, its main computer first. The owner can move the computer to another of their machines;
 	 * the move copies the workspace and kept files, starts it there, and keeps the old copy. The
-	 * rows and the move are the same as in the Inbox card about an offline computer (S101). */
+	 * rows and the move are the same as in the Inbox card about an offline computer (S101).
+	 * A computer lent as a helper also runs the company's heavy jobs (S108): `restless job run
+	 * --on <computer>` builds there from a fresh checkout, so nothing heavy runs here. */
 	import EditorForm from './editors/EditorForm.svelte';
 	import MachineRows from './editors/MachineRows.svelte';
 	import MoveCompanyEditor from './editors/MoveCompanyEditor.svelte';
 	import HomeSitesEditor from './editors/HomeSitesEditor.svelte';
+	import Toggle from '$lib/ui/page/Toggle.svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import {
+		assignHelper,
 		companyMachines,
 		listMachines,
 		machineSummary,
+		unassignHelper,
 		type CompanyMachines,
 		type Machine
 	} from '$lib/model/machines';
+	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 
 	let { companyId, companyName }: { companyId: string; companyName: string } = $props();
@@ -33,6 +39,26 @@
 	const helperChoices = $derived(
 		owned.filter((machine) => machine.kind === 'own' && machine.id !== main?.id && !machine.paused)
 	);
+
+	/* Lending a computer for jobs is a switch per computer; it applies at once. */
+	let lending = $state('');
+	async function setLent(machine: Machine, lent: boolean) {
+		lending = machine.id;
+		try {
+			if (lent) await assignHelper(companyId, machine.id);
+			else await unassignHelper(companyId, machine.id);
+			toast(
+				lent
+					? `${companyName} can run heavy jobs on ${machine.label}.`
+					: `${companyName} no longer runs jobs on ${machine.label}.`
+			);
+			await refresh();
+		} catch (cause) {
+			toast(failureSentence(cause, 'That did not save. Try again.'), { tone: 'failure' });
+		} finally {
+			lending = '';
+		}
+	}
 
 	async function refresh() {
 		try {
@@ -135,6 +161,28 @@
 						}}
 					/>
 				</EditorForm>
+			{/if}
+			{#if helperChoices.length}
+				<h3>Heavy jobs on your computer</h3>
+				<p class="hint">
+					Builds and tests run on a computer you lend, from a fresh copy of the code, so nothing
+					heavy runs here and no files move. Agents start one with
+					<code>restless job run --on "{helperChoices[0].label}"</code>.
+				</p>
+				<div class="lend" aria-label="Computers lent for jobs">
+					{#each helperChoices as machine (machine.id)}
+						<div class="lend-row">
+							<span>{machine.label}</span>
+							<small>{machine.online ? 'Online' : 'Offline'}</small>
+							<Toggle
+								checked={helpers.some((helper) => helper.id === machine.id)}
+								label={`Lend ${machine.label} for jobs`}
+								disabled={lending === machine.id}
+								onchange={(next) => void setLent(machine, next)}
+							/>
+						</div>
+					{/each}
+				</div>
 			{:else if !owned.some((machine) => machine.kind === 'own')}
 				<p class="hint">
 					Want it to run at home or in your office? <a href="/account/settings/computers"
@@ -165,6 +213,27 @@
 
 	.hint {
 		margin: 0;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.lend {
+		display: grid;
+		gap: 4px;
+	}
+	.lend-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto auto;
+		align-items: center;
+		gap: 12px;
+		min-height: 40px;
+	}
+	.lend-row span {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.lend-row small {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}

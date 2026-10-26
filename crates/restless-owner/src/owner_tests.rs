@@ -3127,6 +3127,12 @@ fn non_owner_members_may_collaborate_but_not_call_owner_mutations() {
     )
     .is_none());
     assert!(membership_boundary_violation(
+        &Method::GET,
+        "/api/companies/aris/library/modified",
+        &principal
+    )
+    .is_none());
+    assert!(membership_boundary_violation(
         &Method::POST,
         "/api/companies/aris/library/archive",
         &principal

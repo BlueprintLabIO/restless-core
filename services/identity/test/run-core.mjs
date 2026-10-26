@@ -205,6 +205,8 @@ async function cleanup() {
     for (const id of ids) await shell("docker", ["rm", "-f", id]);
   });
   await attempt(() => removeNamedContainer(`restless-${namespace}-co-${company}`));
+  // The company's desktop runs beside it (restless-<ns>-pc-<company>) and holds the same volume.
+  await attempt(() => removeNamedContainer(`restless-${namespace}-pc-${company}`));
   await attempt(() => removeNamedVolume(`restless-${namespace}-vol-${company}`));
   await attempt(() => removeNamedVolume(`restless-${namespace}-att-${company}`));
   // An account's browser (S98) the journey started, should it stop before removing the account:

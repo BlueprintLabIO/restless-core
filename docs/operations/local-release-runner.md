@@ -1,5 +1,9 @@
 # Local Core release runner
 
+> **Superseded (26 Oct 2026).** Releases no longer run through GitHub Actions or this runner:
+> `scripts/release/local/core-release.sh` cuts them on the owner's computer (ADR 0010 in
+> restless-cloud, and `docs/releasing.md` there). Kept for the history of the pipeline's timings.
+
 ## Releasing fast (9 October 2026)
 
 A release with nothing to rebuild takes about 20 minutes on the single runner (qualify 7.5,

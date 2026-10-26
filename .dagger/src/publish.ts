@@ -6,7 +6,20 @@ export const GRYPE_IMAGE = 'anchore/grype:v0.119.0@sha256:8c2c9234a345577a6d321a
 export const SYFT_IMAGE = 'anchore/syft:v1.54.0@sha256:0356562f495d432056237fbea5cbc2d4839c9c75cd500784a66de2e7cc95ca7c';
 export const ORAS_IMAGE = 'ghcr.io/oras-project/oras:v1.2.2@sha256:cd549d80c4aa89638aea5964a3cd8193a6dd8abf939a43b5d562c24dbab08ff1';
 export const COSIGN_IMAGE = 'ghcr.io/sigstore/cosign/cosign:v2.4.1@sha256:b03690aa52bfe94054187142fba24dc54137650682810633901767d8a3e15b31';
-export const CORE_WORKFLOW = 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/main';
+/** Who builds a release (ADR 0010 in restless-cloud): the owner's computer, signing with the
+ * release key in Infisical whose public half is release/signing.pub. */
+export const RELEASE_BUILDER = 'https://restless.run/release/local-core-release';
+/** The local staging registry the pipeline pushes to and pulls from: plain HTTP on the private
+ * release network (scripts/release/local/staging.sh). A release names the public copy, which is
+ * mirrored into R2 after the seal; a digest is the same in both. */
+export const STAGING_REGISTRY = '172.30.255.2:5000';
+export const PUBLIC_REGISTRY = 'registry.restless.run';
+export const RELEASE_KEY = 'release/signing.pub';
+/** A staged reference as the world pulls it. */
+export const publicReference = (reference: string) => reference.replace(`${STAGING_REGISTRY}/`, `${PUBLIC_REGISTRY}/`);
+/** Staging speaks plain HTTP: the flags ORAS and cosign need for it. */
+export const ORAS_HTTP = ['--plain-http'];
+export const COSIGN_HTTP = ['--allow-insecure-registry', '--allow-http-registry'];
 export const EXCLUDES = ['**/.git/**', '**/node_modules/**', '**/target/**', '**/build/**', '**/.svelte-kit/**', '**/dist/**', '**/.env', '**/.env.*', '**/__pycache__/**'];
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -106,9 +119,9 @@ export async function verifyBuildInputs(): Promise<void> {
   }
 }
 
-export async function registryConfig(username: string, password: Secret): Promise<Secret> {
-  const auth = Buffer.from(`${username}:${await password.plaintext()}`).toString('base64');
-  return dag.setSecret('restless-core-registry-config', JSON.stringify({ auths: { 'ghcr.io': { auth } } }));
+/** Registry credentials for tools: staging needs none (ADR 0010). The arguments stay for callers. */
+export async function registryConfig(_username?: string, _password?: Secret): Promise<Secret> {
+  return dag.setSecret('restless-core-registry-config', JSON.stringify({ auths: {} }));
 }
 
 export function tool(image: string, config: Secret): Container {
@@ -154,9 +167,9 @@ export function scanConfig(scanPeriod: string): string {
     + `      version: ${exception.version}\n      location: ${JSON.stringify(location)}\n`)).join('')}`;
 }
 
-function scanner(image: string, prefix: string, username: string, password: Secret): Container {
-  return dag.container().from(image).withEnvVariable(`${prefix}_REGISTRY_AUTH_AUTHORITY`, 'ghcr.io')
-    .withEnvVariable(`${prefix}_REGISTRY_AUTH_USERNAME`, username).withSecretVariable(`${prefix}_REGISTRY_AUTH_PASSWORD`, password);
+/** Syft and Grype read the exact image as a tarball or inventory, never from a registry. */
+function scanner(image: string, _prefix: string, _username: string, _password: Secret): Container {
+  return dag.container().from(image);
 }
 
 const SBOM_CACHE = 'restless-core-sbom-v1';
@@ -191,10 +204,10 @@ async function inventoryFor(reference: string, image: Container, username: strin
 /** Whether the registry already holds `component` built from exactly these inputs on this platform. */
 export async function hasInputImage(component: string, platform: Platform, context: Directory, username: string,
   password: Secret): Promise<boolean> {
-  const tag = `ghcr.io/blueprintlabio/restless-${component}:inputs-${await inputIdentity(context, platform)}-${platform.split('/')[1]}`;
+  const tag = `${STAGING_REGISTRY}/blueprintlabio/restless-${component}:inputs-${await inputIdentity(context, platform)}-${platform.split('/')[1]}`;
   try {
     await withRetry(`${component}: reuse lookup`, () =>
-      dag.container({ platform }).withRegistryAuth('ghcr.io', username, password).from(tag).imageRef());
+      dag.container({ platform }).from(tag).imageRef());
     return true;
   } catch (error) {
     if (/(?:manifest unknown|manifest_unknown|name_unknown|: not found|: 404)/i.test(String(error))) return false;
@@ -203,7 +216,7 @@ export async function hasInputImage(component: string, platform: Platform, conte
 }
 
 /**
- * Push to GHCR, retrying a dropped connection. Already uploaded blobs are
+ * Push to the staging registry, retrying a dropped connection. Already uploaded blobs are
  * skipped on the next attempt, so a retry only resends what was interrupted.
  */
 const publishWithRetry = (image: Container, tag: string) => withRetry(`${tag}: push`, () => image.publish(tag));
@@ -214,7 +227,7 @@ export async function publishImage(component: string, revision: string, platform
   scanPeriod: string): Promise<Directory> {
   assertScanPeriod(scanPeriod, 'Core scans must use the current UTC vulnerability refresh day');
   const timings: Timing[] = [];
-  const repository = `ghcr.io/blueprintlabio/restless-${component}`;
+  const repository = `${STAGING_REGISTRY}/blueprintlabio/restless-${component}`;
   const input = await inputIdentity(context, platform);
   const tag = `${repository}:${component === 'runtime-tools' ? `inputs-${input}` : revision}-${platform.split('/')[1]}`;
   let image: Container;
@@ -223,7 +236,7 @@ export async function publishImage(component: string, revision: string, platform
   try {
     // A registry or DNS hiccup is retried; "not found" is not transient and falls through to a build.
     const found = await timed(timings, 'reuse lookup', () => withRetry(`${component}: reuse lookup`, async () => {
-      const candidate = dag.container({ platform }).withRegistryAuth('ghcr.io', username, password).from(tag);
+      const candidate = dag.container({ platform }).from(tag);
       return { candidate, ref: await candidate.imageRef() };
     }));
     image = found.candidate;
@@ -232,12 +245,12 @@ export async function publishImage(component: string, revision: string, platform
   } catch (error) {
     if (!/(?:manifest unknown|manifest_unknown|name_unknown|: not found|: 404)/i.test(String(error))) throw error;
     image = (await factory()).withLabel('io.restless.build-input-sha256', input).withLabel('io.restless.component', component)
-      .withLabel('org.opencontainers.image.revision', revision).withRegistryAuth('ghcr.io', username, password);
+      .withLabel('org.opencontainers.image.revision', revision);
     reference = `${repository}@${(await timed(timings, 'build and push', () => publishWithRetry(image, tag))).split('@')[1]}`;
     // Resolving the pushed digest needs a fresh registry token; a DNS timeout here failed a publish.
     const pushed = reference;
     image = await withRetry(`${component}: resolve pushed image`, async () => {
-      const candidate = dag.container({ platform }).withRegistryAuth('ghcr.io', username, password).from(pushed);
+      const candidate = dag.container({ platform }).from(pushed);
       await candidate.sync();
       return candidate;
     });
@@ -254,7 +267,7 @@ export async function publishImage(component: string, revision: string, platform
   await timed(timings, 'verify image', () => verify(image));
   const config = await registryConfig(username, password);
   // Inspect actual registry config, not a requested SDK platform hint.
-  await timed(timings, 'inspect platform', () => inspectPlatform(reference, platform, tool(ORAS_IMAGE, config)));
+  await timed(timings, 'inspect platform', () => inspectPlatform(reference, platform, tool(ORAS_IMAGE, config), ORAS_HTTP));
   // Catalogue the exact image once. Include producer CycloneDX records: newer
   // Chrome binaries no longer match Syft's binary-string version classifier.
   // Grype consumes this same inventory rather than recataloguing the image.
@@ -295,7 +308,7 @@ export async function publishImage(component: string, revision: string, platform
   const provenance = { buildDefinition: { buildType: 'https://github.com/BlueprintLabIO/restless-core/tree/main/.dagger',
     externalParameters: { component, platform, source: { repository: 'BlueprintLabIO/restless-core', revision: actualRevision }, input_sha256: input },
     resolvedDependencies: [{ uri: `git+https://github.com/BlueprintLabIO/restless-core@${actualRevision}`, digest: { gitCommit: actualRevision } }] },
-    runDetails: { builder: { id: `https://github.com/${CORE_WORKFLOW}` } } };
+    runDetails: { builder: { id: RELEASE_BUILDER } } };
   console.log(`${component}: ${reused ? 'reused' : 'built'} ${reference}; ${platform}; scan passed`);
   return dag.directory().withNewFile(`images/${component}.json`, `${JSON.stringify({ component, reference, platform,
     source_revision: actualRevision, input_sha256: input, scan_sha256: hash(scanBytes), sbom_sha256: hash(sbomBytes) }, null, 2)}\n`)

@@ -501,10 +501,11 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Ok(job) => job,
                 Err(error) => return Response::err(format!("{error:#}")),
             };
+            let pool = daemon.authority.pool();
             let outcome = if request.cmd == "job-run" {
-                crate::burst_jobs::run(company, actor, &job).await
+                crate::burst_jobs::run(pool, company, actor, &job).await
             } else {
-                crate::burst_jobs::status(company, job.id.as_deref().unwrap_or_default()).await
+                crate::burst_jobs::status(pool, company, job.id.as_deref().unwrap_or_default()).await
             };
             match outcome {
                 Ok(value) => Response::ok(value),

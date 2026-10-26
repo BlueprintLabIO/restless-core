@@ -527,17 +527,47 @@ try {
     body: { kind: "group", title: "Launch room", command_id: randomUUID(), participant_actor_ids: [alice.principal.actor_id, bob.principal.actor_id] },
   });
   const roomUrl = `${core}/${company}/people?room=${room.id}`;
+  /* Every Room read and stream each person's browser makes, so a message that never shows says
+   * whose browser missed it and what that browser asked for. */
+  const started = Date.now();
+  const roomTraffic = new Map(editors.map((who) => [who.key, []]));
+  const tracers = editors.map((who) => [who, (response) => {
+    const url = response.url();
+    if (url.includes(`/rooms/${room.id}`)) {
+      roomTraffic.get(who.key).push({ at: Date.now() - started, status: response.status(), url: url.slice(url.indexOf("/rooms/")) });
+    }
+  }]);
+  for (const [who, trace] of tracers) who.page.on("response", trace);
   for (const who of editors) {
     await who.page.goto(roomUrl);
     await who.page.getByRole("textbox", { name: "Conversation message" }).waitFor({ timeout: 30000 });
   }
   const chat = ["Owner: kickoff at nine.", "Alice: I will bring the draft."];
+  const sentAt = {};
   for (const [who, text] of [[owner, chat[0]], [alice, chat[1]]]) {
     const composer = who.page.getByRole("textbox", { name: "Conversation message" });
     await composer.fill(text);
     await composer.press("Enter");
+    sentAt[text] = Date.now() - started;
   }
-  for (const who of editors) for (const text of chat) await who.page.getByText(text).first().waitFor({ timeout: 20000 });
+  try {
+    for (const who of editors) for (const text of chat) await who.page.getByText(text).first().waitFor({ timeout: 20000 });
+  } catch (error) {
+    const report = { sentAt, people: {} };
+    for (const who of editors) {
+      report.people[who.key] = {
+        shown: await who.page.locator("article.room-message").allInnerTexts().catch(() => []),
+        stored: await coreApi(who, `${base}/rooms/${room.id}/messages`)
+          .then((page) => page.messages?.map((message) => message.body))
+          .catch((failure) => String(failure)),
+        traffic: roomTraffic.get(who.key),
+      };
+      await shot(who, "room-missing");
+    }
+    await writeFile(join(evidence, "room-missing.json"), JSON.stringify(report, null, 2));
+    throw error;
+  }
+  for (const [who, trace] of tracers) who.page.off("response", trace);
   for (const who of editors) await shot(who, "room");
   pass("room chat typed by owner and a member appears live for all three people");
 
@@ -893,6 +923,9 @@ try {
   // 9h. An admin runs the day to day: the owner makes Bob an admin from Members. His screens,
   //     Company settings included, make no request he is refused; a member who tries what an
   //     admin may do is told who may.
+  // Bob's last page is still open on the Room. When his session ends it sends itself through the
+  // account, racing the visit below; park it so only this step moves him.
+  await bob.page.goto("about:blank");
   await owner.page.goto(`${core}/${company}/company/members`);
   const bobAccess = owner.page.locator(`select[aria-label="Access for ${people.bob.name}"]`);
   await bobAccess.waitFor({ timeout: 30000 });
@@ -1077,13 +1110,13 @@ try {
   //     company, read by its people without its secret; its own browser starts for the owner's
   //     sign-in and goes when the account is removed. Members cannot add or read accounts.
   // A company session cannot manage the owner's accounts and is told why; the owner opens
-  // "Logins and keys" on the account site, which enters account-wide and lands on Accounts.
+  // "Logins and keys" on the account site, which enters account-wide and lands on Settings › Accounts.
   const scoped = await owner.context.request.fetch(`${core}/api/accounts`, { failOnStatusCode: false });
   assert.equal(scoped.status(), 403, "a company session does not manage the owner's accounts");
   assert.match(await scoped.text(), /account owner/);
   await enterAccounts(owner);
   await owner.page.locator("#enter-account").click();
-  await owner.page.waitForURL((url) => url.origin === core && url.pathname === "/account/connections", { timeout: 30000 });
+  await owner.page.waitForURL((url) => url.origin === core && url.pathname === "/account/settings/accounts", { timeout: 30000 });
   await owner.page.getByRole("heading", { name: "Accounts" }).first().waitFor({ timeout: 30000 });
   await shot(owner, "accounts");
   {
@@ -1189,8 +1222,12 @@ try {
   // to the account site is not Bob's access.
   const openAtRemoval = bob.sockets.filter((item) => item.url.includes("/collaboration") && !item.closed);
   await owner.page.goto(`${core}/${company}/company/members`);
-  await owner.page.locator(`summary[aria-label="Access for ${people.bob.name}"]`).click();
+  // A row's actions show on hover (Item), as a person reaches them.
+  const bobMenu = owner.page.locator(`summary[aria-label="Access for ${people.bob.name}"]`);
+  await owner.page.locator(".item", { has: bobMenu }).hover();
+  await bobMenu.click();
   await owner.page.getByRole("button", { name: "Remove…" }).click();
+  await owner.page.locator(".item", { has: owner.page.getByRole("button", { name: "Remove access" }) }).hover();
   await owner.page.getByRole("button", { name: "Remove access" }).click();
   await owner.page.getByText(`${people.bob.name} no longer has access.`).waitFor();
   // Closed by Core, or gone with the page when it left for the account site (the browser reports no
