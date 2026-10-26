@@ -527,17 +527,47 @@ try {
     body: { kind: "group", title: "Launch room", command_id: randomUUID(), participant_actor_ids: [alice.principal.actor_id, bob.principal.actor_id] },
   });
   const roomUrl = `${core}/${company}/people?room=${room.id}`;
+  /* Every Room read and stream each person's browser makes, so a message that never shows says
+   * whose browser missed it and what that browser asked for. */
+  const started = Date.now();
+  const roomTraffic = new Map(editors.map((who) => [who.key, []]));
+  const tracers = editors.map((who) => [who, (response) => {
+    const url = response.url();
+    if (url.includes(`/rooms/${room.id}`)) {
+      roomTraffic.get(who.key).push({ at: Date.now() - started, status: response.status(), url: url.slice(url.indexOf("/rooms/")) });
+    }
+  }]);
+  for (const [who, trace] of tracers) who.page.on("response", trace);
   for (const who of editors) {
     await who.page.goto(roomUrl);
     await who.page.getByRole("textbox", { name: "Conversation message" }).waitFor({ timeout: 30000 });
   }
   const chat = ["Owner: kickoff at nine.", "Alice: I will bring the draft."];
+  const sentAt = {};
   for (const [who, text] of [[owner, chat[0]], [alice, chat[1]]]) {
     const composer = who.page.getByRole("textbox", { name: "Conversation message" });
     await composer.fill(text);
     await composer.press("Enter");
+    sentAt[text] = Date.now() - started;
   }
-  for (const who of editors) for (const text of chat) await who.page.getByText(text).first().waitFor({ timeout: 20000 });
+  try {
+    for (const who of editors) for (const text of chat) await who.page.getByText(text).first().waitFor({ timeout: 20000 });
+  } catch (error) {
+    const report = { sentAt, people: {} };
+    for (const who of editors) {
+      report.people[who.key] = {
+        shown: await who.page.locator("article.room-message").allInnerTexts().catch(() => []),
+        stored: await coreApi(who, `${base}/rooms/${room.id}/messages`)
+          .then((page) => page.messages?.map((message) => message.body))
+          .catch((failure) => String(failure)),
+        traffic: roomTraffic.get(who.key),
+      };
+      await shot(who, "room-missing");
+    }
+    await writeFile(join(evidence, "room-missing.json"), JSON.stringify(report, null, 2));
+    throw error;
+  }
+  for (const [who, trace] of tracers) who.page.off("response", trace);
   for (const who of editors) await shot(who, "room");
   pass("room chat typed by owner and a member appears live for all three people");
 
