@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Core's nightly smokes on this computer, with no GitHub (ADR 0010 in restless-cloud): what
-# connections-smoke.yml and multiplayer-smoke.yml ran on the self-hosted runner.
+# the retired connections-smoke.yml and multiplayer-smoke.yml ran on the self-hosted runner.
 #   1. the connections smoke with the skills smoke, on a fresh build of the commit;
 #   2. the multiplayer smoke (owner and two members), against a disposable `_test` PostgreSQL.
 # The commit is this checkout's HEAD (or $RESTLESS_NIGHTLY_REF), tested in a detached worktree so

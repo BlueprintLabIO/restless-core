@@ -293,29 +293,11 @@ export class RestlessCore {
       timed(timings, 'native documents check and build', () => project(source, 'services/native-documents-collaboration')
         .withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']).sync()),
       timed(timings, 'native sheets tests', () => project(source, 'services/native-sheets').withExec(['npm', 'test']).sync()),
-      timed(timings, 'workflow lint', () => this.verifyWorkflow(source).sync()),
       timed(timings, 'issuer artifact', () => this.issuer(source).sync()),
       timed(timings, 'release contracts', () => this.verifyRelease(source)),
     ]);
-    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build and browser overlays, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports, workflow lint and versioned release contracts\n'
+    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build and browser overlays, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports and versioned release contracts\n'
       + `timings ${JSON.stringify(timings)}`;
-  }
-
-  /** Check workflow wiring with the same pinned tool used by Cloud. */
-  @func()
-  verifyWorkflow(
-    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
-    source: Directory,
-  ): Container {
-    return dag.container().from('rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667')
-      .withDirectory('/src/.github', source.directory('.github')).withWorkdir('/src')
-      .withExec(['/bin/sh', '-ec',
-        `if grep -RInE '(^|[[:space:]])("[^"]*/)?dagger"?[[:space:]]' .github/workflows | grep -v -- '--silent'; then
-          printf '%s\\n' 'GitHub Actions Dagger calls must use --silent to keep runner inventory out of logs.' >&2
-          exit 1
-        fi`])
-      .withExec(['actionlint', '-oneline', '-config-file', '.github/actionlint.yaml',
-        '.github/workflows/connections-smoke.yml', '.github/workflows/multiplayer-smoke.yml']);
   }
 
   /** Build the architecture-independent cockpit once per actual UI inputs. */
