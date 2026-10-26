@@ -80,6 +80,7 @@ done
 # installer offers.
 "$cloud/scripts/registry/with-r2.sh" node "$cloud/scripts/registry/tag.mjs" \
   --repo blueprintlabio/restless-core-release --tag "latest-${platform#linux/}" --digest "${bundle##*@}"
+"$cloud/scripts/registry/with-r2.sh" node "$cloud/scripts/registry/installer.mjs" --file "$root/scripts/install-core.sh"
 log "released Core $revision"
 echo "bundle: $bundle"
 echo "artifacts: $out"
