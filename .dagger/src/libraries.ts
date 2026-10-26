@@ -29,7 +29,6 @@ async function libraryInput(source: Directory, kind: string): Promise<{input_sha
     .withDirectory('/src/.dagger', source.directory('.dagger'), {
       include: ['package.json', 'tsconfig.json', 'src/index.ts', 'src/libraries.ts', 'src/publish.ts'],
     })
-    .withFile('/src/.github/workflows/ui-artifact-release.yml', source.file('.github/workflows/ui-artifact-release.yml'))
     .withWorkdir('/src');
   return JSON.parse(await context.withExec(['node', 'scripts/release/library-inputs.mjs', '.', kind]).stdout());
 }

@@ -80,7 +80,7 @@ export class RestlessCore {
   async deliverLibraries(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
       '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
-      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml', '!release/signing.pub',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!release/signing.pub',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, epoch: string, scanPeriod: string, username: string, password: Secret,
     signingKey: Secret, signingPassword: Secret, publish: boolean = true, concurrency: number = 2,
@@ -117,7 +117,7 @@ export class RestlessCore {
   @func()
   verifyLibraryInputs(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
-      '!.dagger/**', '!dagger.json', '!.github/workflows/ui-artifact-release.yml',
+      '!.dagger/**', '!dagger.json',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory,
   ): Container {
@@ -130,7 +130,7 @@ export class RestlessCore {
   library(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
       '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
-      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, kind: string, revision: string, epoch: string, scanPeriod: string,
   ): Promise<Directory> {
@@ -142,7 +142,7 @@ export class RestlessCore {
   async publishLibrary(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
       '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
-      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml', '!release/signing.pub',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!release/signing.pub',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, kind: string, revision: string, epoch: string, scanPeriod: string,
     username: string, password: Secret): Promise<Directory> {
@@ -315,8 +315,7 @@ export class RestlessCore {
           exit 1
         fi`])
       .withExec(['actionlint', '-oneline', '-config-file', '.github/actionlint.yaml',
-        '.github/workflows/immutable-core-release.yml', '.github/workflows/identity-image.yml',
-        '.github/workflows/ui-artifact-release.yml']);
+        '.github/workflows/connections-smoke.yml', '.github/workflows/multiplayer-smoke.yml']);
   }
 
   /** Build the architecture-independent cockpit once per actual UI inputs. */

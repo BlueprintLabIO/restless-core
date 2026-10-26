@@ -39,6 +39,10 @@ export LOCAL_REGISTRY_PASSWORD=unused   # staging needs no login; the pipeline s
 if [ "$qualify" = yes ]; then
   log "qualify $revision"
   "$dagger" --silent call qualify --source=. | tail -5
+  log "connections smoke"
+  # Without the release secrets, like every test.
+  env -i HOME="$HOME" USER="${USER:-}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" TERM="${TERM:-dumb}" \
+    "$root/scripts/release/local/connections-smoke.sh"
 fi
 
 log "publish into staging ($platform)"
