@@ -10,7 +10,7 @@ import { library, publishLibrary, reuseLibrary, sealLibrary } from './libraries.
 const NODE_IMAGE = 'node:24.18.1-alpine3.23@sha256:c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110';
 const RUST_IMAGE = 'rust:1-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0';
 const EXCLUDES = ['**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/__pycache__/**', '**/.git/**', '**/.env', '**/.env.*'];
-const ACCOUNT_INPUTS = ['infra/account-plane/Dockerfile', 'Cargo.toml', 'Cargo.lock', 'crates/**',
+const ACCOUNT_INPUTS = ['infra/account-plane/Dockerfile', 'infra/host-tools/package.json', 'Cargo.toml', 'Cargo.lock', 'crates/**',
   'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py',
   'docs/COMPANY_OPERATING_RULES.md', 'services/native-sheets/package.json', 'services/native-sheets/package-lock.json',
   'services/native-sheets/src/**', 'services/native-sheets/NOTICE', 'services/identity/package.json',
@@ -564,7 +564,7 @@ export class RestlessCore {
   accountPlane(
     @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!tools/codex-runner/**',
       '!tools/custom-harness/**', '!tools/harness-auth/**', '!tools/schedule-test-proxy.py',
-      '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
+      '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!infra/host-tools/package.json', '!services/native-sheets/package.json',
       '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
       '!services/identity/package.json', '!services/identity/package-lock.json', '!services/identity/src/**',
       '!services/identity/public/**', '!services/identity/scripts/**',
