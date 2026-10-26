@@ -4,6 +4,7 @@ use restless_orgintel::{
     HumanAccessContext, MembershipControlOutcome, OrgIntel, OrgIntelError,
     MEMBERSHIP_CONTROL_CONTRACT_VERSION,
 };
+use sqlx::{Connection as _, PgConnection};
 use uuid::Uuid;
 
 async fn company() -> Option<OrgIntel> {
@@ -1143,4 +1144,112 @@ async fn an_owner_with_prior_network_history_never_claims_the_local_owner() {
         .unwrap();
     assert!(later.actor_id.starts_with("human-"));
     assert!(!later.owner_claimed);
+}
+
+#[tokio::test]
+async fn a_person_keeps_their_actor_when_the_issuer_moves() {
+    let Some(org) = company().await else {
+        return;
+    };
+    let company_id = Uuid::new_v4();
+    let cell_id = Uuid::new_v4();
+    bind_company(&org, company_id, cell_id).await;
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    let old = "https://app.accounts.example.test";
+    let new = "https://accounts.example.test";
+    let start = Utc::now() - Duration::seconds(30);
+    let entry = |issuer, subject, membership, role, at| {
+        context(
+            issuer,
+            subject,
+            company_id,
+            cell_id,
+            membership,
+            role,
+            1,
+            Uuid::new_v4(),
+            at,
+        )
+    };
+    let owner = org
+        .consume_human_access_context(entry(old, "founder", "m-owner", "owner", start))
+        .await
+        .unwrap();
+    assert_eq!(owner.actor_id, "owner");
+    let member = org
+        .consume_human_access_context(entry(old, "colleague", "m-colleague", "member", start))
+        .await
+        .unwrap();
+
+    // The owner arrives under the new issuer: same Actor, still the owner.
+    let moved = org
+        .consume_human_access_context(entry(
+            new,
+            "founder",
+            "m-owner",
+            "owner",
+            start + Duration::seconds(1),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(moved.actor_id, "owner");
+    assert!(!moved.owner_claimed);
+
+    // A colleague already given a fresh Actor under the new issuer (before this rule) gets
+    // their own back, and the stray one is retired.
+    let mut connection =
+        PgConnection::connect(&std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap())
+            .await
+            .unwrap();
+    sqlx::query(&format!(
+        "SET search_path TO {}, pg_catalog, pg_temp",
+        org.schema()
+    ))
+    .execute(&mut connection)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO actors (id,kind,actor_class,role,display)          VALUES ('human-stray','human','human','company-member','Company member')",
+    )
+    .execute(&mut connection)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO human_principal_actor_bindings          (issuer,subject,company_id,actor_id,membership_id,membership_role,membership_version,           last_asserted_at) VALUES ($1,'colleague',$2,'human-stray','m-colleague','member',1,$3)",
+    )
+    .bind(new)
+    .bind(company_id)
+    .bind(start + Duration::seconds(1))
+    .execute(&mut connection)
+    .await
+    .unwrap();
+    let back = org
+        .consume_human_access_context(entry(
+            new,
+            "colleague",
+            "m-colleague",
+            "member",
+            start + Duration::seconds(2),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(back.actor_id, member.actor_id);
+    assert!(org.active_actor("human-stray").await.unwrap().is_none());
+
+    // Nothing is left under the old issuer, and later entries keep resolving.
+    let members = org.human_members().await.unwrap();
+    assert_eq!(members.len(), 2);
+    let again = org
+        .consume_human_access_context(entry(
+            new,
+            "founder",
+            "m-owner",
+            "owner",
+            start + Duration::seconds(3),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(again.actor_id, "owner");
 }
