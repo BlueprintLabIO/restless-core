@@ -1448,27 +1448,11 @@ async fn prepare_review_copy_operation(
     let reviews_root = Path::new("/company/reviews");
     let git_root = reviews_root.join("git");
     let alias_root = reviews_root.join("by-attempt");
-    match std::fs::symlink_metadata(reviews_root) {
-        Ok(_) => ensure_plain_directory(reviews_root)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            std::fs::create_dir(reviews_root)?;
-            std::os::unix::fs::chown(reviews_root, Some(0), Some(2000))?;
-        }
-        Err(error) => return Err(error).context("inspect review custody root"),
+    // Root keeps custody: company-init makes these root:company on every boot, and /company is
+    // sticky, so the company can neither replace them nor rename what root seals inside them.
+    for path in [reviews_root, git_root.as_path(), alias_root.as_path()] {
+        ensure_root_custody(path)?;
     }
-    std::fs::set_permissions(reviews_root, std::fs::Permissions::from_mode(0o770))?;
-    for path in [git_root.as_path(), alias_root.as_path()] {
-        match std::fs::symlink_metadata(path) {
-            Ok(_) => ensure_plain_directory(path)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::create_dir(path)?;
-                std::os::unix::fs::chown(path, Some(0), Some(2000))?;
-            }
-            Err(error) => return Err(error).context("inspect review custody child root"),
-        }
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o550))?;
-    }
-    std::fs::set_permissions(reviews_root, std::fs::Permissions::from_mode(0o550))?;
     let reused = match std::fs::symlink_metadata(&review_workdir) {
         Ok(metadata) => {
             if metadata.file_type().is_symlink() || !metadata.is_dir() {
@@ -1479,9 +1463,10 @@ async fn prepare_review_copy_operation(
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             // Temporarily open only the exact parent while the uid-2000 Git
-            // process creates its detached worktree. The finished copy is
-            // root-owned and sealed before any receipt is returned.
-            std::fs::set_permissions(&git_root, std::fs::Permissions::from_mode(0o770))?;
+            // process creates its detached worktree. Sticky: the company may add
+            // its own entry but never rename another candidate's sealed copy. The
+            // finished copy is root-owned and sealed before any receipt is returned.
+            std::fs::set_permissions(&git_root, std::fs::Permissions::from_mode(0o1770))?;
             let created = run_company_command(
                 "git",
                 &[
@@ -1518,7 +1503,8 @@ async fn prepare_review_copy_operation(
         }
         Ok(_) => bail!("Attempt review alias is not a symbolic link"),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            std::fs::set_permissions(&alias_root, std::fs::Permissions::from_mode(0o770))?;
+            // Root makes the alias itself; the company never gets write access here.
+            std::fs::set_permissions(&alias_root, std::fs::Permissions::from_mode(0o750))?;
             let linked = std::os::unix::fs::symlink(&review_workdir, &alias);
             std::fs::set_permissions(&alias_root, std::fs::Permissions::from_mode(0o550))?;
             linked?;
@@ -1591,6 +1577,19 @@ fn runtime_slug(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+/// A custody folder: a plain directory that root owns, never a link or the company's.
+fn ensure_root_custody(path: &Path) -> Result<()> {
+    ensure_plain_directory(path)?;
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.uid() != 0 || metadata.gid() != 2000 {
+        bail!(
+            "custody folder {} is not root:company; restart the company computer so company-init repairs it",
+            path.display()
+        );
+    }
+    Ok(())
 }
 
 fn ensure_plain_directory(path: &Path) -> Result<()> {
@@ -2547,15 +2546,30 @@ async fn launch_tool(
     else {
         bail!("launch_tool requires LaunchTool");
     };
-    // The bridge may chown but not chmod what it no longer owns, so a new folder
-    // gets its mode first and its owner last; an existing one is the tool's.
+    // Root keeps custody of the tools' data folder (company-init makes it root:company 0711), so
+    // agents can neither list it nor put a folder of their own where a tool will write. The
+    // bridge may chown but not chmod what it no longer owns, so a new folder gets its mode first
+    // and its owner last; an existing one must already be the tool's.
     let parent = Path::new("/company/tool-data");
-    if !parent.exists() {
-        std::fs::create_dir(parent).context("create the tools' data folder")?;
-        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o711))?;
+    ensure_root_custody(parent)?;
+    if connection.is_empty()
+        || connection.len() > 128
+        || connection.starts_with('.')
+        || !connection
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        bail!("tool connection name {connection:?} is not a plain name");
     }
     let data = parent.join(&connection);
-    if !data.exists() {
+    if let Ok(metadata) = std::fs::symlink_metadata(&data) {
+        if metadata.file_type().is_symlink() || !metadata.is_dir() || metadata.uid() != 2001 {
+            bail!(
+                "the tool's data folder {} is not the tool's own",
+                data.display()
+            );
+        }
+    } else {
         std::fs::create_dir(&data).context("create the tool's data folder")?;
         std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o700))?;
         std::os::unix::fs::chown(&data, Some(2001), Some(2000))

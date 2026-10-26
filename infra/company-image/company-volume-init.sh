@@ -14,8 +14,6 @@ mkdir -p \
 	/company/outputs \
 	/company/repos \
 	/company/worktrees \
-	/company/reviews/git \
-	/company/reviews/by-attempt \
 	/company/home \
 	/company/browser-profile \
 	/company/downloads \
