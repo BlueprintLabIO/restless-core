@@ -96,10 +96,10 @@ enum AppsCommand {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Sign this terminal in to a Restless: Cloud (`app.restless.run`), a self-hosted address, or
+    /// Sign this terminal in to a Restless: Cloud (`restless.run`), a self-hosted address, or
     /// this computer's. You approve the code it prints in Settings › Computers.
     Login {
-        /// The Restless address, e.g. app.restless.run or 127.0.0.1:7788.
+        /// The Restless address, e.g. restless.run or 127.0.0.1:7788.
         address: String,
         /// Behind Cloud's one address: the plane to reach (Settings › Computers shows it).
         #[arg(long)]

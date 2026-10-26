@@ -923,6 +923,9 @@ try {
   // 9h. An admin runs the day to day: the owner makes Bob an admin from Members. His screens,
   //     Company settings included, make no request he is refused; a member who tries what an
   //     admin may do is told who may.
+  // Bob's last page is still open on the Room. When his session ends it sends itself through the
+  // account, racing the visit below; park it so only this step moves him.
+  await bob.page.goto("about:blank");
   await owner.page.goto(`${core}/${company}/company/members`);
   const bobAccess = owner.page.locator(`select[aria-label="Access for ${people.bob.name}"]`);
   await bobAccess.waitFor({ timeout: 30000 });

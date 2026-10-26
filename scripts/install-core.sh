@@ -408,7 +408,7 @@ install_cli_only() {
   ln -sfn "$target/restless" "${HOME}/.local/bin/restless"
   printf '\nInstalled restless %s in %s\n' "${revision:0:12}" "${HOME}/.local/bin" >&2
   case ":$PATH:" in *":${HOME}/.local/bin:"*) ;; *) printf 'Add %s to your PATH to run it.\n' "${HOME}/.local/bin" >&2 ;; esac
-  printf 'Next: restless login app.restless.run (the full command is in Settings › Computers)\n' >&2
+  printf 'Next: restless login restless.run (the full command is in Settings › Computers)\n' >&2
 }
 
 CLI_ONLY=""
