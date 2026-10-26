@@ -112,8 +112,14 @@ RUN npm install -g npm@11.21.0 \
 ARG OMP_VERSION=18.8.6
 ENV BUN_INSTALL=/usr/local/bun \
     HOME=/state/authority-home
+COPY infra/host-tools/package.json /tmp/restless-host-tools.json
 RUN npm install -g bun@1.3.14 \
+    # The same browser dependency repair as the company image and the development broker: the
+    # host tools' overrides keep chromium-bidi's zod 3 (GHSA-mrhx-c7xc-m3w5) out of the install.
+    && mkdir -p ${BUN_INSTALL}/install/global \
+    && node -e 'const fs=require("node:fs"); const source=require("/tmp/restless-host-tools.json"); fs.writeFileSync(process.env.BUN_INSTALL+"/install/global/package.json", JSON.stringify({overrides:source.overrides}));' \
     && bun install -g "@oh-my-pi/pi-coding-agent@${OMP_VERSION}" \
+    && rm /tmp/restless-host-tools.json \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
     # bun's download cache is a second copy of every package (the image scan counts each one), and
     # nothing reads it at runtime.

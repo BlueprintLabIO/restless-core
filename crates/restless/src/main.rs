@@ -53,6 +53,17 @@ enum JobCommand {
         /// Where it runs, under /company (default /company).
         #[arg(long)]
         workdir: Option<String>,
+        /// Run it on one of the owner's computers lent to this company, by name (Company ›
+        /// Computer), instead of beside your own. Heavy builds and tests belong there.
+        #[arg(long)]
+        on: Option<String>,
+        /// owner/name: a fresh clone for the job to run in (with --on). Needs a GitHub App account
+        /// that this company may read the repository with.
+        #[arg(long)]
+        repo: Option<String>,
+        /// The branch, tag or commit to check out (default: the repository's default branch).
+        #[arg(long = "ref")]
+        git_ref: Option<String>,
         #[arg(last = true, required = true)]
         command: Vec<String>,
     },
@@ -85,10 +96,10 @@ enum AppsCommand {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Sign this terminal in to a Restless: Cloud (`app.restless.run`), a self-hosted address, or
+    /// Sign this terminal in to a Restless: Cloud (`restless.run`), a self-hosted address, or
     /// this computer's. You approve the code it prints in Settings › Computers.
     Login {
-        /// The Restless address, e.g. app.restless.run or 127.0.0.1:7788.
+        /// The Restless address, e.g. restless.run or 127.0.0.1:7788.
         address: String,
         /// Behind Cloud's one address: the plane to reach (Settings › Computers shows it).
         #[arg(long)]
@@ -244,6 +255,9 @@ enum Command {
     /// own session: `restless job run --cpus 2 --timeout 3600 -- python sim.py` returns a job id at
     /// once, and `restless job status <id>` says whether it is running, succeeded, failed or timed
     /// out. Output goes to /company/run/jobs/<id>.log; the job sees the same /company files.
+    /// On one of the owner's computers: `restless job run --on "Yail's PC" --repo owner/name --ref
+    /// <commit> -- cargo test` clones the repository fresh there and returns its log tail in
+    /// `restless job status <id>`; toolchains and build output are cached between jobs.
     Job {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
         company: Option<String>,
@@ -2752,8 +2766,37 @@ fn main() -> Result<()> {
         other => {
             let request = stamp(request_json(other)?);
             let response = request_once(&request.to_string())?;
+            if request["cmd"] == "job-status" {
+                keep_job_log(&response);
+            }
             print_response(&response)
         }
+    }
+}
+
+/// A job that ran on one of the owner's computers (S108) reports its log tail once, as it
+/// finishes; keep it where a local job's log goes, so `/company/run/jobs/<id>.log` holds it after.
+fn keep_job_log(response: &str) {
+    let Ok(data) = response_data(response) else {
+        return;
+    };
+    let (Some(id), Some(log), Some(status)) = (
+        data["job"].as_str(),
+        data["log_tail"].as_str(),
+        data["status"].as_str(),
+    ) else {
+        return;
+    };
+    if status == "running"
+        || id.len() != 12
+        || !id.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || !std::path::Path::new("/company").is_dir()
+    {
+        return;
+    }
+    let directory = std::path::Path::new("/company/run/jobs");
+    if std::fs::create_dir_all(directory).is_ok() {
+        let _ = std::fs::write(directory.join(format!("{id}.log")), log);
     }
 }
 
@@ -2920,6 +2963,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     memory,
                     timeout,
                     workdir,
+                    on,
+                    repo,
+                    git_ref,
                     command,
                 } => serde_json::json!({
                     "cmd": "job-run",
@@ -2930,6 +2976,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                         "memory": memory,
                         "timeout_secs": timeout,
                         "workdir": workdir,
+                        "on": on,
+                        "repo": repo,
+                        "ref": git_ref,
                     },
                 }),
                 JobCommand::Status { id } => serde_json::json!({

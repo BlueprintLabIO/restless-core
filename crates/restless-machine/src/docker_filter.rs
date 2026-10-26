@@ -847,6 +847,52 @@ mod tests {
     }
 
     #[test]
+    fn a_burst_job_runs_as_the_plane_creates_it_and_never_with_host_access() {
+        // The container `restless job run --on` creates (S108): the company image as the company
+        // user, its cache volume as /company, bounded CPU, memory and processes, local logs.
+        let job = || {
+            let mut body = create(json!({
+                "Binds": ["restless-jobcache-company_01a1:/company"],
+                "NanoCpus": 19_000_000_000_i64,
+                "Memory": 21_474_836_480_i64,
+                "MemorySwap": 21_474_836_480_i64,
+                "PidsLimit": 4096,
+                "LogConfig": { "Type": "local", "Config": {} },
+            }));
+            body["User"] = json!("company");
+            body["Entrypoint"] = json!(["sh"]);
+            body["Cmd"] = json!(["-c", "set -eu"]);
+            body["Env"] = json!([
+                "RESTLESS_JOB_ID=0123456789ab",
+                "RESTLESS_JOB_COMMAND=cargo test"
+            ]);
+            body["Labels"] = json!({ "restless.job": "1", "restless.company": "company_01a1" });
+            body
+        };
+        let mut body = job();
+        rewrite_container_create(&mut body, &scope(), |_| false).unwrap();
+        assert_eq!(body["Labels"][MACHINE_LABEL], "m1");
+        assert_eq!(body["Labels"]["restless.company"], "company_01a1");
+        assert_eq!(body["HostConfig"]["NetworkMode"], MACHINE_NETWORK);
+        assert_eq!(body["Image"], "restless-company:c0f");
+        for unsafe_change in [
+            json!({ "Privileged": true }),
+            json!({ "Binds": ["/home/yail:/company"] }),
+            json!({ "NetworkMode": "host" }),
+            json!({ "CapAdd": ["SYS_ADMIN"] }),
+        ] {
+            let mut body = job();
+            for (key, value) in unsafe_change.as_object().unwrap() {
+                body["HostConfig"][key] = value.clone();
+            }
+            assert!(
+                rewrite_container_create(&mut body, &scope(), |_| false).is_err(),
+                "{unsafe_change}"
+            );
+        }
+    }
+
+    #[test]
     fn a_company_container_is_labelled_and_joined_to_the_machine() {
         let mut body = create(
             json!({ "Binds": ["restless-acme:/company"], "ExtraHosts": ["host.docker.internal:host-gateway"] }),

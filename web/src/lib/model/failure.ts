@@ -71,10 +71,14 @@ export async function responseFailure(response: Response): Promise<OwnerFailure>
 	return Object.assign(new Error(message), { status: response.status, code, serverMessage });
 }
 
-/** Throw the classified error for a non-OK response, otherwise parse its JSON. */
+/** Throw the classified error for a non-OK response, otherwise parse its JSON. A change the owner
+ * plane confirms with no body (204) succeeded: reading JSON from it would turn a saved change into
+ * "That did not save" (Settings › Computers said a removed computer was not removed). */
 export async function ownerJson<T>(response: Response): Promise<T> {
 	if (!response.ok) throw await responseFailure(response);
-	return (await response.json()) as T;
+	if (response.status === 204) return undefined as T;
+	const text = await response.text();
+	return (text ? JSON.parse(text) : undefined) as T;
 }
 
 function isTransportFailure(error: unknown): boolean {

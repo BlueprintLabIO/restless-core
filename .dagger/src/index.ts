@@ -10,7 +10,7 @@ import { library, publishLibrary, reuseLibrary, sealLibrary } from './libraries.
 const NODE_IMAGE = 'node:24.18.1-alpine3.23@sha256:c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110';
 const RUST_IMAGE = 'rust:1-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0';
 const EXCLUDES = ['**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/__pycache__/**', '**/.git/**', '**/.env', '**/.env.*'];
-const ACCOUNT_INPUTS = ['infra/account-plane/Dockerfile', 'Cargo.toml', 'Cargo.lock', 'crates/**',
+const ACCOUNT_INPUTS = ['infra/account-plane/Dockerfile', 'infra/host-tools/package.json', 'Cargo.toml', 'Cargo.lock', 'crates/**',
   'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py',
   'docs/COMPANY_OPERATING_RULES.md', 'services/native-sheets/package.json', 'services/native-sheets/package-lock.json',
   'services/native-sheets/src/**', 'services/native-sheets/NOTICE', 'services/identity/package.json',
@@ -67,7 +67,9 @@ export async function runtimeToolsContext(source: Directory): Promise<Directory>
   const end = dockerfile.search(/^FROM .* AS runtime-layer-build$/m);
   if (start < 0 || end <= start) throw new Error('company Dockerfile no longer has the expected runtime-tools stages');
   return dag.directory().withDirectory('/', source, {
-    include: ['infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs', 'infra/host-tools/package.json'],
+    include: ['infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs',
+      // The runtime-tools stage pins the broker install to the same overrides as the host tools.
+      'infra/host-tools/package.json'],
   }).withNewFile('infra/company-image/Dockerfile', dockerfile.slice(start, end));
 }
 
@@ -78,10 +80,10 @@ export class RestlessCore {
   async deliverLibraries(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
       '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
-      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!release/signing.pub',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, epoch: string, scanPeriod: string, username: string, password: Secret,
-    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string, publish: boolean = true, concurrency: number = 2,
+    signingKey: Secret, signingPassword: Secret, publish: boolean = true, concurrency: number = 2,
   ): Promise<Directory> {
     if (!/^[0-9a-f]{40}$/.test(revision) || !/^\d+$/.test(epoch)) throw new Error('delivery requires exact checkout revision/epoch');
     if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 3) throw new Error('library concurrency must be between 1 and 3');
@@ -101,7 +103,7 @@ export class RestlessCore {
         const receipt = JSON.parse(await payload.file('library-receipt.json').contents());
         // Reuse already admitted the signed OCI payload and exact input/day.
         // It performs no mutation or duplicate signing of the existing artifact.
-        if (!receipt.reused) payload = await this.sealLibrary(source, payload, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
+        if (!receipt.reused) payload = await this.sealLibrary(source, payload, username, password, signingKey, signingPassword);
         results.push({kind, payload, receipt});
       }
     }));
@@ -115,7 +117,7 @@ export class RestlessCore {
   @func()
   verifyLibraryInputs(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
-      '!.dagger/**', '!dagger.json', '!.github/workflows/ui-artifact-release.yml',
+      '!.dagger/**', '!dagger.json',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory,
   ): Container {
@@ -128,7 +130,7 @@ export class RestlessCore {
   library(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
       '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
-      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, kind: string, revision: string, epoch: string, scanPeriod: string,
   ): Promise<Directory> {
@@ -140,7 +142,7 @@ export class RestlessCore {
   async publishLibrary(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
       '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
-      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!release/signing.pub',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, kind: string, revision: string, epoch: string, scanPeriod: string,
     username: string, password: Secret): Promise<Directory> {
@@ -151,13 +153,13 @@ export class RestlessCore {
     return publishLibrary(payload, kind, revision, scanPeriod, username, password, source);
   }
 
-  /** Sign a product package with the UI workflow's exact main identity. */
+  /** Sign a product package with the release key. */
   @func()
   sealLibrary(
-    @argument({ ignore: ['**', '!scripts/release/verify-library.mjs'] })
+    @argument({ ignore: ['**', '!scripts/release/verify-library.mjs', '!release/signing.pub'] })
     source: Directory, artifacts: Directory, username: string, password: Secret,
-    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string): Promise<Directory> {
-    return sealLibrary(source, artifacts, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
+    signingKey: Secret, signingPassword: Secret): Promise<Directory> {
+    return sealLibrary(source, artifacts, username, password, signingKey, signingPassword);
   }
 
   /** Build the reusable desktop/agent tool base without importing Rust or UI. */
@@ -175,7 +177,7 @@ export class RestlessCore {
   /** Exercise installed tools in the isolated builder; no appliance is mounted. */
   @func()
   async verifyRuntimeTools(
-    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/browser-sbom.mjs', '!infra/company-image/verify-desktop.mjs', '!infra/host-tools/package.json'] })
+    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/browser-sbom.mjs', '!infra/company-image/verify-desktop.mjs'] })
     source: Directory, platform: string = 'linux/amd64',
   ): Promise<string> {
     return verifyRuntimeToolsImage(await this.runtimeTools(source, platform), source.file('infra/company-image/verify-desktop.mjs'));
@@ -207,7 +209,7 @@ export class RestlessCore {
   ): Promise<Container> {
     checkPlatform(platform);
     if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('company Runtime requires exact source provenance');
-    if (toolsImage && !/^ghcr\.io\/blueprintlabio\/restless-runtime-tools@sha256:[0-9a-f]{64}$/.test(toolsImage)) {
+    if (toolsImage && !/^172\.30\.255\.2:5000\/blueprintlabio\/restless-runtime-tools@sha256:[0-9a-f]{64}$/.test(toolsImage)) {
       throw new Error('Runtime tool base must be an exact Core OCI digest');
     }
     const [cargo, release, entry] = await Promise.all([
@@ -291,30 +293,11 @@ export class RestlessCore {
       timed(timings, 'native documents check and build', () => project(source, 'services/native-documents-collaboration')
         .withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']).sync()),
       timed(timings, 'native sheets tests', () => project(source, 'services/native-sheets').withExec(['npm', 'test']).sync()),
-      timed(timings, 'workflow lint', () => this.verifyWorkflow(source).sync()),
       timed(timings, 'issuer artifact', () => this.issuer(source).sync()),
       timed(timings, 'release contracts', () => this.verifyRelease(source)),
     ]);
-    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build and browser overlays, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports, workflow lint and versioned release contracts\n'
+    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build and browser overlays, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports and versioned release contracts\n'
       + `timings ${JSON.stringify(timings)}`;
-  }
-
-  /** Check workflow wiring with the same pinned tool used by Cloud. */
-  @func()
-  verifyWorkflow(
-    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
-    source: Directory,
-  ): Container {
-    return dag.container().from('rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667')
-      .withDirectory('/src/.github', source.directory('.github')).withWorkdir('/src')
-      .withExec(['/bin/sh', '-ec',
-        `if grep -RInE '(^|[[:space:]])("[^"]*/)?dagger"?[[:space:]]' .github/workflows | grep -v -- '--silent'; then
-          printf '%s\\n' 'GitHub Actions Dagger calls must use --silent to keep runner inventory out of logs.' >&2
-          exit 1
-        fi`])
-      .withExec(['actionlint', '-oneline', '-config-file', '.github/actionlint.yaml',
-        '.github/workflows/immutable-core-release.yml', '.github/workflows/identity-image.yml',
-        '.github/workflows/ui-artifact-release.yml']);
   }
 
   /** Build the architecture-independent cockpit once per actual UI inputs. */
@@ -440,16 +423,16 @@ export class RestlessCore {
     return artifacts.withNewFile('timings/publish.json', timingsFile(timings));
   }
 
-  /** Seal publication through the trusted Core main workflow. */
+  /** Seal publication with the release key (ADR 0010 in restless-cloud). */
   @func()
   seal(
     @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
     source: Directory, artifacts: Directory, revision: string, username: string, password: Secret,
-    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string,
+    signingKey: Secret, signingPassword: Secret,
     platform: string = 'linux/amd64',
   ): Promise<Directory> {
     checkPlatform(platform);
-    return sealRelease(source, artifacts, revision, platform, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
+    return sealRelease(source, artifacts, revision, platform, username, password, signingKey, signingPassword);
   }
 
   /** Exercise and export the bounded workbook engine independently of Rust. */
@@ -562,7 +545,7 @@ export class RestlessCore {
   accountPlane(
     @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!tools/codex-runner/**',
       '!tools/custom-harness/**', '!tools/harness-auth/**', '!tools/schedule-test-proxy.py',
-      '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
+      '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!infra/host-tools/package.json', '!services/native-sheets/package.json',
       '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
       '!services/identity/package.json', '!services/identity/package-lock.json', '!services/identity/src/**',
       '!services/identity/public/**', '!services/identity/scripts/**',

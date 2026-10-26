@@ -25,9 +25,9 @@ import { releasePlatforms } from './release/platforms.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sourceRevision = '1'.repeat(40);
-const accountPlaneImage = `ghcr.io/blueprintlabio/restless-account-plane@sha256:${'a'.repeat(64)}`;
-const companyRuntimeImage = `ghcr.io/blueprintlabio/restless-company-runtime@sha256:${'b'.repeat(64)}`;
-const nativeDocumentsImage = `ghcr.io/blueprintlabio/restless-native-documents-collaboration@sha256:${'c'.repeat(64)}`;
+const accountPlaneImage = `registry.restless.run/blueprintlabio/restless-account-plane@sha256:${'a'.repeat(64)}`;
+const companyRuntimeImage = `registry.restless.run/blueprintlabio/restless-company-runtime@sha256:${'b'.repeat(64)}`;
+const nativeDocumentsImage = `registry.restless.run/blueprintlabio/restless-native-documents-collaboration@sha256:${'c'.repeat(64)}`;
 
 function digest(bytes) {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
@@ -53,7 +53,7 @@ async function generatedFixture(t, extra = {}) {
 }
 
 test('a release that ships its cockpit carries it through the contract set, manifest and bundle index', async (t) => {
-  const cockpitImage = `ghcr.io/blueprintlabio/restless-cockpit@sha256:${'e'.repeat(64)}`;
+  const cockpitImage = `registry.restless.run/blueprintlabio/restless-cockpit@sha256:${'e'.repeat(64)}`;
   const fixture = await generatedFixture(t, { cockpitImage });
   const contract = JSON.parse(await readFile(fixture.contractSet.manifestPath));
   assert.deepEqual(Object.keys(contract.release.images), ['account_plane', 'company_runtime', 'native_documents', 'cockpit']);
@@ -70,10 +70,10 @@ test('a release that ships its cockpit carries it through the contract set, mani
     releaseSignaturePath: join(fixture.outputRoot, 'release-manifest.sigstore.json'),
     contractSignaturePath: join(fixture.outputRoot, 'contract-set.sigstore.json'),
     repository: 'BlueprintLabIO/restless-core',
-    workflowRef: 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/main', outputPath });
+    workflowRef: 'https://restless.run/release/local-core-release', outputPath });
   assert.deepEqual(JSON.parse(await readFile(outputPath)).images, fixture.release.images);
   await assert.rejects(readCoreReleaseTuple({ sourceRoot: root, sourceRevision, accountPlaneImage, companyRuntimeImage,
-    nativeDocumentsImage, cockpitImage: 'ghcr.io/blueprintlabio/restless-cockpit:latest' }), /cockpit image/);
+    nativeDocumentsImage, cockpitImage: 'registry.restless.run/blueprintlabio/restless-cockpit:latest' }), /cockpit image/);
 });
 
 test('the Core contract set is canonical, immutable and release-complete', async (t) => {
@@ -211,7 +211,7 @@ for (const platforms of [undefined, ['linux/amd64']]) test(`the signed v${platfo
     releaseSignaturePath: releaseSignature,
     contractSignaturePath: contractSignature,
     repository: 'BlueprintLabIO/restless-core',
-    workflowRef: 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/main',
+    workflowRef: 'https://restless.run/release/local-core-release',
     outputPath,
   });
   const bytes = await readFile(outputPath);
@@ -224,7 +224,7 @@ for (const platforms of [undefined, ['linux/amd64']]) test(`the signed v${platfo
 
   const changedRelease = JSON.parse(await readFile(release.manifestPath));
   changedRelease.images.native_documents =
-    `ghcr.io/blueprintlabio/restless-native-documents@sha256:${'9'.repeat(64)}`;
+    `registry.restless.run/blueprintlabio/restless-native-documents@sha256:${'9'.repeat(64)}`;
   await writeFile(release.manifestPath, `${JSON.stringify(changedRelease, null, 2)}\n`);
   await assert.rejects(
     createCoreReleaseBundle({
@@ -234,7 +234,7 @@ for (const platforms of [undefined, ['linux/amd64']]) test(`the signed v${platfo
       releaseSignaturePath: releaseSignature,
       contractSignaturePath: contractSignature,
       repository: 'BlueprintLabIO/restless-core',
-      workflowRef: 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/main',
+      workflowRef: 'https://restless.run/release/local-core-release',
       outputPath,
     }),
     /not from its canonical repository|release tuple differs|descriptor image differs/,
@@ -272,7 +272,7 @@ test('native Documents hosting requires one immutable image and refuses bundle t
   );
   const mutableNativeDocuments = structuredClone(fixture.release);
   mutableNativeDocuments.images.native_documents =
-    'ghcr.io/blueprintlabio/restless-native-documents:latest';
+    'registry.restless.run/blueprintlabio/restless-native-documents:latest';
   await assert.rejects(
     createCompanyCollaborationContractSet({
       sourceRoot: root,
@@ -373,7 +373,7 @@ test('mutable image references are not accepted as release inputs', async () => 
     readCoreReleaseTuple({
       sourceRoot: root,
       sourceRevision,
-      accountPlaneImage: 'ghcr.io/blueprintlabio/restless-account-plane:latest',
+      accountPlaneImage: 'registry.restless.run/blueprintlabio/restless-account-plane:latest',
       companyRuntimeImage,
     }),
     /account-plane image is invalid/,

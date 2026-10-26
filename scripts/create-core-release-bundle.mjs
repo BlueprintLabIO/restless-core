@@ -6,6 +6,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { releasePlatforms } from './release/platforms.mjs';
 
+const RELEASE_BUILDER = 'https://restless.run/release/local-core-release';
 const FORMAT = 'restless.core.release-bundle.v1';
 const SOURCE_REVISION = /^[0-9a-f]{40}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -113,10 +114,10 @@ export async function createCoreReleaseBundle({
 }) {
   const root = resolve(bundleRoot);
   match(repository, REPOSITORY, 'repository');
-  const workflowIdentity = `${repository}/.github/workflows/immutable-core-release.yml@`;
-  if (typeof workflowRef !== 'string' || !workflowRef.startsWith(workflowIdentity)
-      || !workflowRef.slice(workflowIdentity.length).startsWith('refs/')) {
-    fail('workflow ref must be the immutable Core release workflow identity at a Git ref');
+  // Releases are built and signed on the owner's computer with the release key (ADR 0010 in
+  // restless-cloud); the builder is named, not a hosted CI workflow.
+  if (workflowRef !== RELEASE_BUILDER) {
+    fail(`workflow ref must be the release builder ${RELEASE_BUILDER}`);
   }
   const releaseRelative = safeRelative(root, releaseManifestPath, 'release manifest');
   const contractRelative = safeRelative(root, contractSetPath, 'contract-set manifest');
@@ -139,10 +140,10 @@ export async function createCoreReleaseBundle({
   exactKeys(release.images, ['account_plane', 'company_runtime', 'native_documents', ...('cockpit' in release.images ? ['cockpit'] : [])], 'release images');
   for (const [name, image] of Object.entries(release.images)) match(image, OCI_DIGEST, `release image ${name}`);
   const expectedImages = {
-    account_plane: 'ghcr.io/blueprintlabio/restless-account-plane@',
-    company_runtime: 'ghcr.io/blueprintlabio/restless-company-runtime@',
-    native_documents: 'ghcr.io/blueprintlabio/restless-native-documents-collaboration@',
-    cockpit: 'ghcr.io/blueprintlabio/restless-cockpit@',
+    account_plane: 'registry.restless.run/blueprintlabio/restless-account-plane@',
+    company_runtime: 'registry.restless.run/blueprintlabio/restless-company-runtime@',
+    native_documents: 'registry.restless.run/blueprintlabio/restless-native-documents-collaboration@',
+    cockpit: 'registry.restless.run/blueprintlabio/restless-cockpit@',
   };
   for (const [name, prefix] of Object.entries(expectedImages)) {
     if (name in release.images && !release.images[name].startsWith(prefix)) fail(`release image ${name} is not from its canonical repository`);
