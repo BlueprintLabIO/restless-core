@@ -1077,13 +1077,13 @@ try {
   //     company, read by its people without its secret; its own browser starts for the owner's
   //     sign-in and goes when the account is removed. Members cannot add or read accounts.
   // A company session cannot manage the owner's accounts and is told why; the owner opens
-  // "Logins and keys" on the account site, which enters account-wide and lands on Accounts.
+  // "Logins and keys" on the account site, which enters account-wide and lands on Settings › Accounts.
   const scoped = await owner.context.request.fetch(`${core}/api/accounts`, { failOnStatusCode: false });
   assert.equal(scoped.status(), 403, "a company session does not manage the owner's accounts");
   assert.match(await scoped.text(), /account owner/);
   await enterAccounts(owner);
   await owner.page.locator("#enter-account").click();
-  await owner.page.waitForURL((url) => url.origin === core && url.pathname === "/account/connections", { timeout: 30000 });
+  await owner.page.waitForURL((url) => url.origin === core && url.pathname === "/account/settings/accounts", { timeout: 30000 });
   await owner.page.getByRole("heading", { name: "Accounts" }).first().waitFor({ timeout: 30000 });
   await shot(owner, "accounts");
   {
