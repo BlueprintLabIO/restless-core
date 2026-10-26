@@ -4753,12 +4753,16 @@ async fn seed_mission(config: &CompanyConfig) -> Result<()> {
     let name = container_name(&config.name);
     let mut child = tokio::process::Command::new("docker")
         .args([
+            // As the company, which owns the file: /company is sticky and group-writable, so the
+            // kernel's protected_regular refuses even root opening a file it does not own there.
             "exec",
             "-i",
+            "-u",
+            "2000:2000",
             &name,
             "sh",
             "-c",
-            "cat > /company/mission.md && chown company:company /company/mission.md",
+            "cat > /company/mission.md",
         ])
         .stdin(Stdio::piped())
         .spawn()
