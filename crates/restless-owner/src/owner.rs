@@ -3030,7 +3030,10 @@ fn is_company_library_read(method: &Method, path: &str) -> bool {
     let tail: Vec<&str> = segments.collect();
     matches!(
         (method.clone(), tail.as_slice()),
-        (Method::POST, ["library", "open"]) | (Method::GET | Method::HEAD, ["library", "content"])
+        (Method::POST, ["library", "open"])
+            | (Method::GET | Method::HEAD, ["library", "content"])
+            // The Library screen asks every viewer; a member gets an empty map from the handler.
+            | (Method::GET, ["library", "modified"])
     )
 }
 
