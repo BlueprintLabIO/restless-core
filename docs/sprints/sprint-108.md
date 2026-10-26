@@ -55,12 +55,35 @@ not to move everything onto it. The code is already on GitHub.
 - [x] Checked in the gallery at 1280 px and 375 px: lend and stop both save with the right
   message, rows stay 44 px, the long name truncates, no console errors.
 
-## Still to check live
+## Checked end to end on a local stack (26 Oct)
 
-- [ ] On Cloud after release: lend Yail's PC to the Restless company, run
-  `restless job run --on "Yail's PC" --repo BlueprintLabIO/restless-core --ref main -- <build>` from
-  its computer, read the status, and confirm the token and checkout are gone from the PC.
-- [ ] A refused case: a repository outside the grant, a computer not lent, the computer offline.
+Work stays local while the owner's GitHub account is flagged, so this ran on `restless-dev
+s108_test` built from this branch, with a separate test computer: Docker-in-Docker running its own
+`restless-machine` helper, paired to the local plane with a code (a second helper on the PC's own
+Docker cannot be used: the machine network belongs to the PC's real helper, and the filter
+correctly refuses another machine's network).
+
+- [x] The company's own `restless job --help` (from the image built here) shows `--on`, `--repo`,
+  `--ref` and when to use them.
+- [x] Lend: `POST /api/companies/s108_test/machines` answered 204 and the test computer showed as a
+  helper.
+- [x] An agent in the company ran `restless job run --on "s108 box" --repo octocat/Hello-World --ref
+  master -- ...`: it started with 19 CPUs and 19g (all but one core, half the memory), the clone
+  was at 7fd1a60, it ran as `company`, the token was unset, the remote held no credential, and
+  `restless job status` returned succeeded, exit 0 and the log tail; the job container was gone from
+  the test computer afterwards.
+- [x] With no GitHub account covering the repository, the job says so in `note` and clones
+  anonymously (public repositories only); a private one fails in the log (git 128), nothing else.
+- [x] A failing job (exit 7) reported failed with its log, and the CLI kept the tail at
+  /company/run/jobs/<id>.log.
+- [x] Refused with a plain reason: a computer that is not the company's, the plane by name, a
+  repository with shell in it, a ref like an option, --ref without --repo, --workdir on another
+  computer, the computer offline, and a computer no longer lent.
+
+## Still to check on Cloud
+
+- [ ] After a release: lend Yail's PC to the Restless company and build restless-core there with a
+  read token from the GitHub App account.
 
 ## Next
 

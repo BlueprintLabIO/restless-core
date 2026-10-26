@@ -2766,8 +2766,37 @@ fn main() -> Result<()> {
         other => {
             let request = stamp(request_json(other)?);
             let response = request_once(&request.to_string())?;
+            if request["cmd"] == "job-status" {
+                keep_job_log(&response);
+            }
             print_response(&response)
         }
+    }
+}
+
+/// A job that ran on one of the owner's computers (S108) reports its log tail once, as it
+/// finishes; keep it where a local job's log goes, so `/company/run/jobs/<id>.log` holds it after.
+fn keep_job_log(response: &str) {
+    let Ok(data) = response_data(response) else {
+        return;
+    };
+    let (Some(id), Some(log), Some(status)) = (
+        data["job"].as_str(),
+        data["log_tail"].as_str(),
+        data["status"].as_str(),
+    ) else {
+        return;
+    };
+    if status == "running"
+        || id.len() != 12
+        || !id.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || !std::path::Path::new("/company").is_dir()
+    {
+        return;
+    }
+    let directory = std::path::Path::new("/company/run/jobs");
+    if std::fs::create_dir_all(directory).is_ok() {
+        let _ = std::fs::write(directory.join(format!("{id}.log")), log);
     }
 }
 

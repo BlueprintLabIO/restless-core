@@ -175,7 +175,7 @@ async fn job_machine(
         .find(|machine| machine.id == wanted || machine.label.to_lowercase() == wanted_lower)
     else {
         bail!(
-            "\"{wanted}\" is not one of this company's computers. The owner lends a computer in Company › Computer (as a helper); `restless job run` without --on runs beside your own computer."
+            "\"{wanted}\" is not one of this company's computers. The owner lends one in Company › Computer › Heavy jobs; `restless job run` without --on runs beside your own computer."
         );
     };
     if machine.paused {
@@ -235,11 +235,21 @@ async fn run_on_machine(
         }
     }
     let machine = job_machine(pool, company, wanted).await?;
-    let token = match repo {
+    // No token, no refusal: a public repository needs none, and an anonymous clone of a private
+    // one simply fails in the job's log. The job says why it went without one.
+    let (token, note) = match repo {
         Some(repo) => {
-            Some(crate::account_broker::job_clone_token(pool, company, actor, repo).await?)
+            match crate::account_broker::job_clone_token(pool, company, actor, repo).await {
+                Ok(token) => (Some(token), None),
+                Err(reason) => (
+                    None,
+                    Some(format!(
+                        "{reason:#} Cloning without a token, which works only for a public repository."
+                    )),
+                ),
+            }
         }
-        None => None,
+        None => (None, None),
     };
     let image = crate::machines::allowed_images()
         .await
@@ -360,6 +370,7 @@ async fn run_on_machine(
         "cpus": cpus_text,
         "memory": memory,
         "timeout_secs": timeout,
+        "note": note,
         "check": format!("restless job status {id}"),
     }))
 }
