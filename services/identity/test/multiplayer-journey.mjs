@@ -1189,7 +1189,10 @@ try {
   // to the account site is not Bob's access.
   const openAtRemoval = bob.sockets.filter((item) => item.url.includes("/collaboration") && !item.closed);
   await owner.page.goto(`${core}/${company}/company/members`);
-  await owner.page.locator(`summary[aria-label="Access for ${people.bob.name}"]`).click();
+  // A row's actions show on hover (Item), as a person reaches them.
+  const bobMenu = owner.page.locator(`summary[aria-label="Access for ${people.bob.name}"]`);
+  await owner.page.locator(".item", { has: bobMenu }).hover();
+  await bobMenu.click();
   await owner.page.getByRole("button", { name: "Remove…" }).click();
   await owner.page.getByRole("button", { name: "Remove access" }).click();
   await owner.page.getByText(`${people.bob.name} no longer has access.`).waitFor();
