@@ -7,6 +7,7 @@ Description=Restless Core nightly smokes (connections and multiplayer)
 [Service]
 Type=oneshot
 WorkingDirectory=%h/code/work/ghapp-fix
-ExecStart=%h/code/work/ghapp-fix/scripts/release/local/nightly.sh
+# A login shell, so node, npm and cargo are on PATH as they are for the owner.
+ExecStart=/bin/bash -lc %h/code/work/ghapp-fix/scripts/release/local/nightly.sh
 Nice=10
 TimeoutStartSec=3h
