@@ -1194,6 +1194,7 @@ try {
   await owner.page.locator(".item", { has: bobMenu }).hover();
   await bobMenu.click();
   await owner.page.getByRole("button", { name: "Remove…" }).click();
+  await owner.page.locator(".item", { has: owner.page.getByRole("button", { name: "Remove access" }) }).hover();
   await owner.page.getByRole("button", { name: "Remove access" }).click();
   await owner.page.getByText(`${people.bob.name} no longer has access.`).waitFor();
   // Closed by Core, or gone with the page when it left for the account site (the browser reports no
