@@ -1333,24 +1333,107 @@ fn review_tree_is_hardened(root: &Path) -> Result<()> {
 }
 
 fn harden_review_tree(root: &Path) -> Result<()> {
-    let mut paths = walkdir(root)?;
-    // Reject links before changing any ownership. A committed link could
-    // otherwise turn a supposedly bounded review snapshot into host-volume
-    // traversal for the reviewer process.
-    for path in &paths {
-        let metadata = std::fs::symlink_metadata(path)?;
-        if metadata.file_type().is_symlink() || (!metadata.is_dir() && !metadata.is_file()) {
-            bail!("review copy contains a non-regular path");
+    use nix::fcntl::{open, OFlag};
+    use nix::sys::stat::Mode;
+    // The uid-2000 Git process created this tree, so a process the company left running could
+    // still rename or replace anything in it. Seal it from the top down through open
+    // descriptors: each directory is taken from the company before its entries are read, so
+    // they can no longer change, and nothing is ever followed through a symbolic link. Checking
+    // paths first and chowning them by name later let a swapped-in link point root's chown and
+    // chmod at a root-only file (the bridge credential) and make it company-readable.
+    let directory = open(
+        root,
+        OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+        Mode::empty(),
+    )
+    .with_context(|| {
+        format!(
+            "open review copy {} without following links",
+            root.display()
+        )
+    })?;
+    seal_review_directory(directory)?;
+    review_tree_is_hardened(root)
+}
+
+/// Seal one directory, then each entry below it, all relative to descriptors. Takes ownership
+/// of `directory` and closes it.
+fn seal_review_directory(directory: std::os::fd::RawFd) -> Result<()> {
+    use nix::fcntl::{openat, AtFlags, OFlag};
+    use nix::sys::stat::{fchmod, fstat, fstatat, Mode, SFlag};
+    use nix::unistd::{close, fchown, Gid, Uid};
+    use std::os::fd::{FromRawFd as _, OwnedFd};
+
+    let owned = unsafe { OwnedFd::from_raw_fd(directory) };
+    let seal = |fd: std::os::fd::RawFd, mode: u32| -> Result<()> {
+        fchown(fd, Some(Uid::from_raw(0)), Some(Gid::from_raw(2000)))?;
+        fchmod(fd, Mode::from_bits_truncate(mode))?;
+        Ok(())
+    };
+    let kind = |mode: u32| SFlag::from_bits_truncate(mode & SFlag::S_IFMT.bits());
+    if kind(fstat(directory)?.st_mode) != SFlag::S_IFDIR {
+        bail!("review copy directory is not a directory");
+    }
+    // From here the company cannot add, remove or replace entries of this directory.
+    seal(directory, 0o550)?;
+    let names = {
+        let listing = nix::dir::Dir::openat(
+            Some(directory),
+            ".",
+            OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )?;
+        let mut names = Vec::new();
+        for entry in listing.into_iter() {
+            let name = entry?.file_name().to_owned();
+            if name.to_bytes() != b"." && name.to_bytes() != b".." {
+                names.push(name);
+            }
+        }
+        names
+    };
+    for name in names {
+        let stat = fstatat(
+            Some(directory),
+            name.as_c_str(),
+            AtFlags::AT_SYMLINK_NOFOLLOW,
+        )?;
+        match kind(stat.st_mode) {
+            SFlag::S_IFDIR => {
+                let child = openat(
+                    Some(directory),
+                    name.as_c_str(),
+                    OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                    Mode::empty(),
+                )?;
+                seal_review_directory(child)?;
+            }
+            SFlag::S_IFREG => {
+                let file = openat(
+                    Some(directory),
+                    name.as_c_str(),
+                    OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC,
+                    Mode::empty(),
+                )?;
+                let sealed = (|| -> Result<()> {
+                    let opened = fstat(file)?;
+                    if kind(opened.st_mode) != SFlag::S_IFREG || opened.st_ino != stat.st_ino {
+                        bail!("review copy file changed while it was sealed");
+                    }
+                    // A hard link could name a file outside the copy.
+                    if opened.st_nlink != 1 {
+                        bail!("review copy contains a hard-linked file");
+                    }
+                    seal(file, 0o440)
+                })();
+                let _ = close(file);
+                sealed?;
+            }
+            _ => bail!("review copy contains a non-regular path"),
         }
     }
-    paths.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
-    for path in &paths {
-        let metadata = std::fs::symlink_metadata(path)?;
-        std::os::unix::fs::chown(path, Some(0), Some(2000))?;
-        let mode = if metadata.is_dir() { 0o550 } else { 0o440 };
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
-    }
-    review_tree_is_hardened(root)
+    drop(owned);
+    Ok(())
 }
 
 async fn prepare_review_copy_operation(
@@ -3018,6 +3101,83 @@ fn now_ms() -> Result<i64> {
 
 #[cfg(test)]
 mod tests {
+    /// Sealing needs root (it chowns to root:2000); elsewhere these tests say so and pass.
+    fn sealing_root() -> Option<std::path::PathBuf> {
+        if !nix::unistd::geteuid().is_root() {
+            eprintln!("not root; skipping review sealing test");
+            return None;
+        }
+        let dir =
+            std::env::temp_dir().join(format!("review-seal-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(dir.join("copy/src")).unwrap();
+        std::fs::write(dir.join("copy/README.md"), "hi").unwrap();
+        std::fs::write(dir.join("copy/src/main.rs"), "fn main() {}").unwrap();
+        Some(dir)
+    }
+
+    #[test]
+    fn a_review_copy_is_sealed_root_owned_and_read_only() {
+        use std::os::unix::fs::MetadataExt as _;
+        let Some(dir) = sealing_root() else { return };
+        super::harden_review_tree(&dir.join("copy")).unwrap();
+        for (path, mode) in [
+            ("copy", 0o550),
+            ("copy/src", 0o550),
+            ("copy/README.md", 0o440),
+            ("copy/src/main.rs", 0o440),
+        ] {
+            let meta = std::fs::symlink_metadata(dir.join(path)).unwrap();
+            assert_eq!(
+                (meta.uid(), meta.gid(), meta.mode() & 0o777),
+                (0, 2000, mode),
+                "{path}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sealing_never_follows_a_link_out_of_the_copy() {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        let Some(dir) = sealing_root() else { return };
+        let secret = dir.join("bridge-credential");
+        std::fs::write(&secret, "secret").unwrap();
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::os::unix::fs::symlink(&secret, dir.join("copy/src/link")).unwrap();
+        assert!(super::harden_review_tree(&dir.join("copy")).is_err());
+        let meta = std::fs::metadata(&secret).unwrap();
+        assert_eq!(
+            (meta.gid(), meta.mode() & 0o777),
+            (0, 0o600),
+            "the link target was changed"
+        );
+
+        std::fs::remove_file(dir.join("copy/src/link")).unwrap();
+        std::fs::hard_link(&secret, dir.join("copy/src/hard")).unwrap();
+        assert!(
+            super::harden_review_tree(&dir.join("copy")).is_err(),
+            "a hard link was sealed"
+        );
+        let meta = std::fs::metadata(&secret).unwrap();
+        assert_eq!(
+            (meta.gid(), meta.mode() & 0o777),
+            (0, 0o600),
+            "the hard-linked file was changed"
+        );
+
+        std::fs::remove_file(dir.join("copy/src/hard")).unwrap();
+        nix::unistd::mkfifo(
+            &dir.join("copy/pipe"),
+            nix::sys::stat::Mode::from_bits_truncate(0o600),
+        )
+        .unwrap();
+        assert!(
+            super::harden_review_tree(&dir.join("copy")).is_err(),
+            "a FIFO was accepted"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
 
     #[test]
