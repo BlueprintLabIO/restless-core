@@ -1,6 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { EventFrames } from './live-events.ts';
+import { EventFrames, isLoopbackHost } from './live-events.ts';
+
+test('every loopback name takes the socket, so streams never hold the six HTTP/1 connections', () => {
+	for (const host of ['localhost', '127.0.0.1', '[::1]', 'plane.localhost', 'acme.plane.localhost']) {
+		assert.equal(isLoopbackHost(host), true, host);
+	}
+	for (const host of ['restless.run', 'localhost.example.com', 'notlocalhost', '10.0.0.2']) {
+		assert.equal(isLoopbackHost(host), false, host);
+	}
+});
 test('socket framing retains fragmented events, comments and multiline data', () => {
 	const frames = new EventFrames();
 	assert.deepEqual(frames.feed(':keep-alive\r\n\r\nevent: acti'), []);
