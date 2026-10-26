@@ -207,7 +207,7 @@ export class RestlessCore {
   ): Promise<Container> {
     checkPlatform(platform);
     if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('company Runtime requires exact source provenance');
-    if (toolsImage && !/^ghcr\.io\/blueprintlabio\/restless-runtime-tools@sha256:[0-9a-f]{64}$/.test(toolsImage)) {
+    if (toolsImage && !/^172\.30\.255\.2:5000\/blueprintlabio\/restless-runtime-tools@sha256:[0-9a-f]{64}$/.test(toolsImage)) {
       throw new Error('Runtime tool base must be an exact Core OCI digest');
     }
     const [cargo, release, entry] = await Promise.all([
@@ -440,16 +440,16 @@ export class RestlessCore {
     return artifacts.withNewFile('timings/publish.json', timingsFile(timings));
   }
 
-  /** Seal publication through the trusted Core main workflow. */
+  /** Seal publication with the release key (ADR 0010 in restless-cloud). */
   @func()
   seal(
     @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
     source: Directory, artifacts: Directory, revision: string, username: string, password: Secret,
-    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string,
+    signingKey: Secret, signingPassword: Secret,
     platform: string = 'linux/amd64',
   ): Promise<Directory> {
     checkPlatform(platform);
-    return sealRelease(source, artifacts, revision, platform, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
+    return sealRelease(source, artifacts, revision, platform, username, password, signingKey, signingPassword);
   }
 
   /** Exercise and export the bounded workbook engine independently of Rust. */
