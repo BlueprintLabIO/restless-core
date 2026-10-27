@@ -89,6 +89,11 @@
 			forgetCode();
 		}
 	}
+	/** Sign-ins last ten minutes (CODE_TTL in owner_cli.rs), so the time left says when it began. */
+	function startedAgo(expiresIn: number): string {
+		const minutes = Math.max(0, Math.round((600 - expiresIn) / 60));
+		return minutes < 1 ? 'just now' : minutes === 1 ? 'a minute ago' : `${minutes} minutes ago`;
+	}
 	function forgetCode() {
 		const clean = new URL(location.href);
 		clean.searchParams.delete('terminal');
@@ -213,10 +218,11 @@
 		{#if waiting}
 			<div class="add terminal-ask" role="alertdialog" aria-label="A terminal is signing in">
 				<p class="joined">
-					<strong>{waiting.label} wants to sign in as you</strong>
+					<strong>A terminal wants to sign in as you</strong>
+					<!-- Whoever ran `restless login` chose the label, so it reads as the terminal's claim. -->
 					<span
-						>Code <code>{waiting.code}</code>. Approve only if it matches the code your terminal
-						shows.</span
+						>It calls itself “{waiting.label}” and started {startedAgo(waiting.expires_in)}. Code
+						<code>{waiting.code}</code>. Approve only if you ran it and the code matches.</span
 					>
 				</p>
 				<div class="add-actions">

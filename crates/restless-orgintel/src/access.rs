@@ -537,6 +537,50 @@ impl OrgIntel {
             .await?;
         }
 
+        // An issuer can move address (Cloud's went from app.restless.run to restless.run on
+        // 27 October). This plane trusts one issuer at a time, so a binding under another issuer
+        // was made by one it trusted before; the same subject arriving with the same membership is
+        // the same person, and their binding moves with them: they keep their Actor, its history
+        // and the owner Actor if they hold it. A fresh Actor bound for them under the new issuer
+        // before this rule existed gives way and is retired.
+        let moved = sqlx::query_as::<_, (String, String)>(
+            "SELECT issuer,actor_id FROM human_principal_actor_bindings              WHERE issuer<>$1 AND subject=$2 AND company_id=$3 AND membership_id=$4              ORDER BY first_verified_at LIMIT 1 FOR UPDATE",
+        )
+        .bind(issuer)
+        .bind(context.subject)
+        .bind(context.company_id)
+        .bind(context.membership_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some((previous_issuer, kept_actor)) = moved {
+            let stray = sqlx::query_scalar::<_, String>(
+                "DELETE FROM human_principal_actor_bindings                  WHERE issuer=$1 AND subject=$2 AND company_id=$3 RETURNING actor_id",
+            )
+            .bind(issuer)
+            .bind(context.subject)
+            .bind(context.company_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(stray) = stray.filter(|stray| *stray != kept_actor) {
+                sqlx::query(
+                    "UPDATE actors SET retired_at=now(),retired_by=$2,                      retirement_reason='the same person, bound again after their issuer moved'                      WHERE id=$1 AND retired_at IS NULL",
+                )
+                .bind(&stray)
+                .bind(&kept_actor)
+                .execute(&mut *tx)
+                .await?;
+            }
+            sqlx::query(
+                "UPDATE human_principal_actor_bindings SET issuer=$1                  WHERE issuer=$2 AND subject=$3 AND company_id=$4",
+            )
+            .bind(issuer)
+            .bind(&previous_issuer)
+            .bind(context.subject)
+            .bind(context.company_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
         let existing = sqlx::query_as::<_, (String, String, String, i64, String, DateTime<Utc>)>(
             "SELECT binding.actor_id,binding.membership_id,binding.membership_role, \
                     binding.membership_version,binding.membership_status, \

@@ -30,6 +30,8 @@ pub const CONTRACT_VERSION: &str = "artifact-launch.v1";
 const SESSION_TTL_SECONDS: i64 = 5 * 60;
 const MAX_NATIVE_ARCHIVE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_NATIVE_ARCHIVE_ENTRIES: usize = 50_000;
+/// Released web artifacts render in a sandbox: scripts and forms work, the owner's origin does not.
+const LAUNCH_CSP: &str = "sandbox allow-scripts allow-forms allow-popups allow-downloads; default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -508,8 +510,12 @@ impl LaunchBroker {
                         if let Some(content_type) = content_type {
                             response = response.header(header::CONTENT_TYPE, content_type);
                         }
+                        // A company built this page and it is served on the owner's own origin, so it
+                        // runs sandboxed: an opaque origin whose scripts never carry the owner's
+                        // session to the plane's API.
                         response
-                            .header("content-security-policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'")
+                            .header("content-security-policy", LAUNCH_CSP)
+                            .header("x-content-type-options", "nosniff")
                             .body(Body::from(bytes))
                             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
                     }
@@ -851,6 +857,16 @@ fn extract_zip(archive: &Path, destination: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn released_web_artifacts_never_run_on_the_owners_origin() {
+        let directives: Vec<&str> = super::LAUNCH_CSP.split(';').map(str::trim).collect();
+        let sandbox = directives
+            .iter()
+            .find(|d| d.starts_with("sandbox"))
+            .expect("sandboxed");
+        assert!(!sandbox.contains("allow-same-origin"), "{sandbox}");
+    }
+
     use super::*;
 
     #[test]

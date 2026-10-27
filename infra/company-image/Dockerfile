@@ -287,7 +287,11 @@ RUN set -eux; \
 RUN groupadd --gid 2000 company \
     && useradd --uid 2000 --gid 2000 --no-create-home --home-dir /company/home company \
     && useradd --uid 2001 --gid 2000 --no-create-home --home-dir /tmp/restless-effect effect \
-    && install -d -o company -g company -m 0770 /company \
+    # /company is root's, group-writable and sticky: the company creates and owns its entries, but
+    # cannot rename or replace root's custody folders (sealed review copies, tool data) inside it.
+    && install -d -o root -g company -m 1770 /company \
+    && install -d -o root -g company -m 0550 /company/reviews /company/reviews/git /company/reviews/by-attempt \
+    && install -d -o root -g company -m 0711 /company/tool-data \
     # A tool sandbox runs as `effect` with the company's tool cache at /cache and
     # its own data at /data. Docker gives a new named volume the ownership of the
     # image's directory, so these make both writable by the tool.

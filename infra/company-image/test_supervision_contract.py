@@ -142,6 +142,18 @@ class SupervisionContractTests(unittest.TestCase):
                     expected_uid=os.getuid(),
                 )
 
+    def test_root_keeps_custody_of_reviews_and_tool_data_on_the_company_volume(self) -> None:
+        entrypoint = (HERE / "entrypoint.sh").read_text()
+        dockerfile = (HERE / "Dockerfile").read_text()
+        volume_init = (HERE / "company-volume-init.sh").read_text()
+        self.assertIn("install -d -o root -g company -m 1770 /company", dockerfile)
+        self.assertIn("chmod 1770 /company", entrypoint)
+        for custody in ("/company/reviews/git", "/company/reviews/by-attempt", "/company/tool-data"):
+            self.assertIn(custody, entrypoint)
+        # The company identity must never create them: it would own them.
+        self.assertNotIn("/company/reviews", volume_init)
+        self.assertNotIn("/company/tool-data", volume_init)
+
     def test_bridge_secret_and_trusted_control_state_cannot_use_company_volume(self) -> None:
         entrypoint = (HERE / "entrypoint.sh").read_text()
         self.assertIn("/company|/company/*)", entrypoint)
