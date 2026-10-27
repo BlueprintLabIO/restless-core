@@ -458,7 +458,7 @@ impl OrgIntel {
     }
 
     /// Record that the person a ready human step is assigned to has done it. The handoff must be
-    /// owed by `actor_id`; payments and judgements keep their dedicated actions.
+    /// owed by `actor_id`; judgements keep their dedicated actions.
     pub async fn complete_human_step_as(
         &self,
         id: Uuid,
@@ -720,13 +720,13 @@ impl OrgIntel {
                     "a human step cannot be marked done while it is still being prepared".into(),
                 ));
             }
-            if matches!(
-                category,
-                OwnerHandoffCategory::OwnerJudgement | OwnerHandoffCategory::PaymentConfirmation
-            ) {
+            // A payment made on a provider's own page (a registrar, a government form) with the
+            // person's own card is a human step like any other: they did it, they say so. A
+            // payment Restless holds is confirmed with its provider; the cockpit API refuses
+            // those before they reach here, since Authority, not OrgIntel, knows them.
+            if category == OwnerHandoffCategory::OwnerJudgement {
                 return Err(OrgIntelError::InvalidWork(
-                    "owner judgements, reviews and payments must use their dedicated source action"
-                        .into(),
+                    "owner judgements and reviews must use their dedicated source action".into(),
                 ));
             }
         }

@@ -10907,6 +10907,28 @@ async fn complete_human_step(
             )
         }
     };
+    // A payment Restless holds is confirmed with its provider, never by a click.
+    match finance::payments(&state.daemon.authority, &company).await {
+        Ok(payments)
+            if payments
+                .iter()
+                .any(|payment| payment.request.owner_handoff_id == handoff) =>
+        {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "human_step",
+                "This payment is confirmed with its provider, so it finishes once the provider says so.",
+            );
+        }
+        Ok(_) => {}
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "human_step",
+                format!("{error:#}"),
+            );
+        }
+    }
     let done = if principal.membership_role() == "owner" {
         org.complete_owner_human_step(
             handoff,
