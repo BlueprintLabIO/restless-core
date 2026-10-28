@@ -1,5 +1,5 @@
 import { openLiveEvents } from './live-events.ts';
-import type { AttentionItem, DecisionContinuation } from './view';
+import type { AttentionItem, DecisionContinuation, OwnerReviewVersion } from './view';
 import { ownerAttention } from './attention-presentation';
 import type { WorkGraphSnapshot } from './generated/orgintel';
 import type {
@@ -54,6 +54,7 @@ export interface MessageInterruptResult {
 }
 
 type WireItem = {
+	review_version?: OwnerReviewVersion;
 	native_document?: AttentionItem['nativeDocument'];
 	direction_request?: AttentionItem['directionRequest'];
 	charter_proposal?: AttentionItem['charterProposal'];
@@ -237,6 +238,7 @@ export async function getAttention(company: string, signal?: AbortSignal): Promi
 						}
 					: undefined,
 				nativeDocument: item.native_document,
+				reviewVersion: item.review_version,
 				reviewTarget: item.review_target
 					? {
 							company: item.review_target.company,
@@ -381,14 +383,16 @@ export async function reviewAction(
 	company: string,
 	handoff: string,
 	decision: 'accept' | 'request_changes',
-	feedback = ''
+	feedback: string,
+	expectedVersion: OwnerReviewVersion | undefined
 ): Promise<void> {
+	if (!expectedVersion) throw new Error('Open the current review before deciding.');
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/handoffs/${encodeURIComponent(handoff)}/review`,
 		{
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ decision, feedback }),
+			body: JSON.stringify({ decision, feedback, expected_version: expectedVersion }),
 			credentials: 'same-origin'
 		}
 	);

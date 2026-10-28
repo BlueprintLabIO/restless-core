@@ -252,6 +252,8 @@ pub enum OrgIntelError {
     Migrate(#[from] sqlx::migrate::MigrateError),
     #[error("invalid Work graph: {0}")]
     InvalidWork(String),
+    #[error("this review changed after you opened it; open the current candidate and review it again")]
+    ReviewChanged,
     #[error("invalid Room state: {0}")]
     InvalidRoom(String),
     #[error("Room access denied: {0}")]
@@ -831,10 +833,19 @@ pub struct OwnerHandoffRow {
 /// owner conversation. The handoff remains the sole durable judgement row;
 /// this token only prevents a same-id refresh from being acknowledged using
 /// an older prompt/projection.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OwnerHandoffInput {
     pub id: Uuid,
     pub snapshot_sha256: String,
+}
+
+/// The authored review and recorded candidate shown by one client. This extends the existing
+/// handoff input token; it does not create another artifact or acceptance lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnerReviewVersion {
+    pub handoff: OwnerHandoffInput,
+    pub work_revision: i64,
+    pub artifact_id: Option<Uuid>,
 }
 
 impl OwnerHandoffRow {

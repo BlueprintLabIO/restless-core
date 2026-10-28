@@ -346,6 +346,312 @@ async fn concurrent_owner_review_decisions_serialize_at_the_outer_work_lock() {
     );
 }
 
+#[tokio::test]
+async fn displayed_review_version_refuses_refreshed_briefs_and_replaced_candidates() {
+    use restless_orgintel::{NewArtifactRef, OwnerReviewVersion, WorkAttemptState, WorkStatus};
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping displayed review version scenario");
+        return;
+    };
+    let company = format!("review_version_{}_test", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    org.create_actor(
+        "review-producer",
+        "lead",
+        "Avery North",
+        None,
+        "exec",
+        "Produces the reviewed candidate",
+    )
+    .await
+    .unwrap();
+    org.create_team(
+        "Review production",
+        "Produce one exact candidate",
+        "review-producer",
+        "exec",
+    )
+    .await
+    .unwrap();
+    let work = work_for(&org, "review-producer", "Review the displayed candidate").await;
+    let attempt = org
+        .claim_ready_work("produce the review fixture")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(attempt.work.id, work);
+    let handoff = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: work,
+            attempt_id: Some(attempt.attempt_id),
+            requested_by: "review-producer",
+            category: OwnerHandoffCategory::OwnerJudgement,
+            requested_action: "Review the candidate",
+            prepared_state: "The candidate is prepared",
+            resume_condition: "An explicit owner review",
+        })
+        .await
+        .unwrap();
+    org.prepare_owner_brief(
+        handoff,
+        "exec",
+        owner_brief(OwnerBriefKind::OutcomeReview, "First candidate"),
+    )
+    .await
+    .unwrap();
+    org.escalate_handoff(handoff, "exec", "The owner reviews the candidate")
+        .await
+        .unwrap();
+    let first = org
+        .link_work_artifact(NewArtifactRef {
+            kind: "review_target",
+            uri: "/company/outputs/first.md",
+            note: "First candidate",
+            created_by: "review-producer",
+            work_id: Some(work),
+            attempt_id: Some(attempt.attempt_id),
+            digest: None,
+            source_commit: None,
+            runtime_generation: None,
+            label: "First candidate",
+        })
+        .await
+        .unwrap();
+    org.finish_work_attempt(
+        attempt.attempt_id,
+        WorkAttemptState::Blocked,
+        "Waiting for the exact owner review",
+    )
+    .await
+    .unwrap();
+    let graph = org.work_graph_snapshot().await.unwrap();
+    let shown = OwnerReviewVersion {
+        handoff: graph
+            .handoffs
+            .iter()
+            .find(|row| row.id == handoff)
+            .unwrap()
+            .conversation_input(),
+        work_revision: graph
+            .work
+            .iter()
+            .find(|row| row.id == work)
+            .unwrap()
+            .revision,
+        artifact_id: Some(first),
+    };
+    let mut wrong_revision = shown.clone();
+    wrong_revision.work_revision += 1;
+    let error = org
+        .decide_review_as_seen(
+            handoff,
+            "owner",
+            OwnerReviewDecision::Accepted,
+            "",
+            &wrong_revision,
+        )
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("changed after you opened"));
+
+    // The handoff id and Work revision remain the same, but the author's explanation changed.
+    org.prepare_owner_brief(
+        handoff,
+        "exec",
+        owner_brief(OwnerBriefKind::OutcomeReview, "Revised explanation"),
+    )
+    .await
+    .unwrap();
+    org.escalate_handoff(
+        handoff,
+        "exec",
+        "The refreshed explanation is ready for owner review",
+    )
+    .await
+    .unwrap();
+    let error = org
+        .decide_review_as_seen(handoff, "owner", OwnerReviewDecision::Accepted, "", &shown)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("changed after you opened"));
+    let graph = org.work_graph_snapshot().await.unwrap();
+    let mut current = OwnerReviewVersion {
+        handoff: graph
+            .handoffs
+            .iter()
+            .find(|row| row.id == handoff)
+            .unwrap()
+            .conversation_input(),
+        work_revision: shown.work_revision,
+        artifact_id: Some(first),
+    };
+    // A newer candidate reference is independently stale even when the authored brief did not change.
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let mut deciding = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('search_path',$1,true)")
+        .bind(org.schema())
+        .execute(&mut *deciding)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM work WHERE id=$1 FOR UPDATE")
+        .bind(work)
+        .fetch_one(&mut *deciding)
+        .await
+        .unwrap();
+    let replacement = org.link_work_artifact(NewArtifactRef {
+        kind: "review_target",
+        uri: "/company/outputs/second.md",
+        note: "Second candidate",
+        created_by: "review-producer",
+        work_id: Some(work),
+        attempt_id: Some(attempt.attempt_id),
+        digest: None,
+        source_commit: None,
+        runtime_generation: None,
+        label: "Second candidate",
+    });
+    tokio::pin!(replacement);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(150), &mut replacement)
+            .await
+            .is_err(),
+        "candidate replacement waits for an in-progress decision"
+    );
+    deciding.commit().await.unwrap();
+    let second = replacement.await.unwrap();
+    pool.close().await;
+    let error = org
+        .decide_review_as_seen(
+            handoff,
+            "owner",
+            OwnerReviewDecision::Accepted,
+            "",
+            &current,
+        )
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("changed after you opened"));
+    current.artifact_id = Some(second);
+    assert!(org
+        .decide_review_as_seen(
+            handoff,
+            "another-person",
+            OwnerReviewDecision::Accepted,
+            "",
+            &current
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("waiting on someone else"));
+    assert_eq!(
+        org.work_graph_snapshot()
+            .await
+            .unwrap()
+            .work
+            .iter()
+            .find(|row| row.id == work)
+            .unwrap()
+            .status,
+        WorkStatus::Blocked
+    );
+    let (one, two) = tokio::join!(
+        org.decide_review_as_seen(
+            handoff,
+            "owner",
+            OwnerReviewDecision::Accepted,
+            "",
+            &current
+        ),
+        org.decide_review_as_seen(
+            handoff,
+            "owner",
+            OwnerReviewDecision::Accepted,
+            "",
+            &current
+        ),
+    );
+    assert_eq!(
+        [one.is_ok(), two.is_ok()]
+            .into_iter()
+            .filter(|ok| *ok)
+            .count(),
+        1
+    );
+    assert_eq!(
+        org.work_graph_snapshot()
+            .await
+            .unwrap()
+            .work
+            .iter()
+            .find(|row| row.id == work)
+            .unwrap()
+            .status,
+        WorkStatus::Completed
+    );
+
+    let missing_work = work_for(&org, "exec", "Return an outcome without a candidate").await;
+    let missing_handoff = judgement(&org, "exec", missing_work).await;
+    org.prepare_owner_brief(
+        missing_handoff,
+        "exec",
+        owner_brief(OwnerBriefKind::OutcomeReview, "Candidate missing"),
+    )
+    .await
+    .unwrap();
+    org.escalate_handoff(
+        missing_handoff,
+        "exec",
+        "The owner can return this for preparation",
+    )
+    .await
+    .unwrap();
+    let graph = org.work_graph_snapshot().await.unwrap();
+    let missing = OwnerReviewVersion {
+        handoff: graph
+            .handoffs
+            .iter()
+            .find(|row| row.id == missing_handoff)
+            .unwrap()
+            .conversation_input(),
+        work_revision: graph
+            .work
+            .iter()
+            .find(|row| row.id == missing_work)
+            .unwrap()
+            .revision,
+        artifact_id: None,
+    };
+    assert!(org
+        .decide_review_as_seen(
+            missing_handoff,
+            "owner",
+            OwnerReviewDecision::Accepted,
+            "",
+            &missing
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("prepared preview"));
+    org.decide_review_as_seen(
+        missing_handoff,
+        "owner",
+        OwnerReviewDecision::ChangesRequested,
+        "Prepare the actual output before sending it for review",
+        &missing,
+    )
+    .await
+    .unwrap();
+    org.drop_schema().await.unwrap();
+}
+
 /// The owner's queue: pending judgement that nobody below them owes.
 async fn owner_queue(org: &OrgIntel) -> Vec<uuid::Uuid> {
     org.list_owner_handoffs()

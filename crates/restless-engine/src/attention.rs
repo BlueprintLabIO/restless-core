@@ -94,6 +94,8 @@ pub struct AttentionItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review_target: Option<ReviewTargetRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_version: Option<restless_orgintel::OwnerReviewVersion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub native_document: Option<restless_orgintel::DocumentAttentionReference>,
     /// A request routed to this person (S80): `source.kind = "direction_request"`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -382,6 +384,7 @@ async fn teammate_messages(
             responsible_actor: Some(actor),
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None,
             direction_request: None,
             charter_proposal: None,
@@ -474,6 +477,7 @@ async fn conversation_requests(
                     responsible_actor: Some(actor),
                     runtime_attach: None,
                     review_target: None,
+                    review_version: None,
                     native_document: None,
                     direction_request: None,
                     charter_proposal: None,
@@ -551,6 +555,7 @@ async fn conversation_requests(
                 responsible_actor: Some(actor),
                 runtime_attach: None,
                 review_target: None,
+                review_version: None,
                 native_document: None,
                 direction_request: None,
                 charter_proposal: None,
@@ -765,6 +770,7 @@ fn spend_warning_item(
         responsible_actor: None,
         runtime_attach: None,
         review_target: None,
+        review_version: None,
         native_document: None,
         direction_request: None,
         charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -844,6 +850,7 @@ fn spend_stopped_item(
         responsible_actor: None,
         runtime_attach: None,
         review_target: None,
+        review_version: None,
         native_document: None,
         direction_request: None,
         charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -948,6 +955,7 @@ async fn account_headroom_item(
         responsible_actor: None,
         runtime_attach: None,
         review_target: None,
+        review_version: None,
         native_document: None,
         direction_request: None,
         charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -1029,6 +1037,7 @@ async fn machine_offline_item(
         responsible_actor: None,
         runtime_attach: None,
         review_target: None,
+        review_version: None,
         native_document: None,
         direction_request: None,
         charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -1173,6 +1182,7 @@ fn model_cooldown_items(
                 responsible_actor: None,
                 runtime_attach: None,
                 review_target: None,
+                review_version: None,
                 native_document: None,
                 direction_request: None,
                 charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -1276,6 +1286,7 @@ async fn account_items(
                 responsible_actor: None,
                 runtime_attach: None,
                 review_target: None,
+                review_version: None,
                 native_document: None,
                 direction_request: None,
                 charter_proposal: None,
@@ -1762,6 +1773,7 @@ fn effect_outcome_item(outcome: EffectOutcome) -> AttentionItem {
         responsible_actor: outcome.actor,
         runtime_attach: None,
         review_target: None,
+        review_version: None,
         native_document: None,
         direction_request: None,
         charter_proposal: None,
@@ -1860,6 +1872,7 @@ async fn stranded_agent_items(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None,
             direction_request: None,
             charter_proposal: None,
@@ -1955,6 +1968,7 @@ async fn direction_items(
                 responsible_actor: None,
                 runtime_attach: None,
                 review_target: None,
+                review_version: None,
                 native_document: None,
                 actions: Vec::new(),
                 can_continue: false,
@@ -2084,6 +2098,7 @@ async fn publication_items(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None,
             direction_request: None,
             charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -2163,6 +2178,7 @@ async fn charter_item(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None,
             actions: Vec::new(),
             can_continue: false,
@@ -2378,6 +2394,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![
                 AttentionAction {
@@ -2472,6 +2489,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![
                 AttentionAction {
@@ -2548,6 +2566,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![AttentionAction {
                 id: "open-app".into(),
@@ -2785,6 +2804,11 @@ async fn project_queue(
             .flatten();
         let outcome_review = brief
             .is_some_and(|brief| brief.kind == restless_orgintel::OwnerBriefKind::OutcomeReview);
+        let review_version = outcome_review.then(|| restless_orgintel::OwnerReviewVersion {
+            handoff: handoff.conversation_input(),
+            work_revision: item.revision,
+            artifact_id: review_artifact.as_ref().map(|artifact| artifact.id),
+        });
         let review_sources = if outcome_review {
             match org {
                 Some(org) => match org.work_external_message_sources(handoff.work_id).await {
@@ -3158,6 +3182,7 @@ async fn project_queue(
             responsible_actor,
             runtime_attach,
             review_target,
+            review_version,
             native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions,
             preparing,
@@ -3227,6 +3252,7 @@ async fn project_queue(
                 responsible_actor: actors.get(&request.requested_by_actor_id).cloned(),
                 runtime_attach: None,
                 review_target: None,
+                review_version: None,
                 created_at: request.created_at,
                 native_document: Some(request),
                 direction_request: None,
@@ -3284,6 +3310,7 @@ async fn project_queue(
                         responsible_actor: None,
                         runtime_attach: None,
                         review_target: None,
+                        review_version: None,
                         native_document: None,
                         direction_request: None,
                         charter_proposal: None,
@@ -3425,6 +3452,7 @@ async fn project_queue(
                                     responsible_actor: actors.get("exec").cloned(),
                                     runtime_attach: None,
                                     review_target: None,
+                                    review_version: None,
                                     native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
                                     actions: vec![action],
                                     can_continue: false,
@@ -3468,7 +3496,7 @@ async fn project_queue(
             uncertainty: Some("Exec makes a judgment on each proposed send against this mandate. It can make mistakes; approval of this mandate is not a guarantee that every send will be appropriate.".into()),
             deadline: Some(proposal.expires_at.to_rfc3339()), brief_status: "source-observed", brief_author: None, briefed_at: None,
             evidence: vec![AttentionEvidence { label: "Exact proposed email mandate".into(), uri: None, content: Some(limits), kind: "authority-email-mandate-proposal" }, AttentionEvidence { label: "Exec judgement".into(), uri: None, content: Some(if note.is_empty() { "No additional rationale supplied.".into() } else { note.into() }), kind: "exec-judgement" }],
-            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, review_version: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![
                 AttentionAction { id: "approve-email-mandate".into(), label: "Approve mandate".into(), role: "decision", consequence: "Grants the exact reviewed email mandate and its limits.".into(), next_state: "The pending proposal is resolved and the mandate becomes active.".into(), href: None },
                 AttentionAction { id: "decline-email-mandate".into(), label: "Decline mandate".into(), role: "decision", consequence: "Declines this exact email mandate proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
@@ -3611,6 +3639,7 @@ async fn project_queue(
                     responsible_actor: None,
                     runtime_attach: None,
                     review_target: None,
+                    review_version: None,
                     native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
                     actions: vec![AttentionAction {
                         id: if route_missing { "open-intelligence-provider".into() } else { "open-company-health".into() },
@@ -3662,6 +3691,7 @@ async fn project_queue(
                     responsible_actor: None,
                     runtime_attach: None,
                     review_target: None,
+                    review_version: None,
                     native_document: None,
                     direction_request: None,
                     charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -3767,6 +3797,7 @@ async fn project_queue(
                     responsible_actor: actors.get(asker).cloned(),
                     runtime_attach: None,
                     review_target: None,
+                    review_version: None,
                     native_document: None,
                     direction_request: None,
                     charter_proposal: None, account_use: None, account_request: None, request_fields: None,
@@ -4537,7 +4568,7 @@ fn select_review_artifact(
                 && artifact.kind == restless_orgintel::REVIEW_TARGET_ARTIFACT_KIND
                 && (attempt_id.is_none() || artifact.attempt_id == attempt_id)
         })
-        .max_by_key(|artifact| artifact.created_at)
+        .max_by_key(|artifact| (artifact.created_at, artifact.id))
 }
 
 fn reader_work_status(status: restless_orgintel::WorkStatus) -> &'static str {

@@ -85,7 +85,7 @@
 
 	let {
 		companyId,
-		item,
+		item: incomingItem,
 		artifacts = [],
 		content,
 		preview,
@@ -99,7 +99,7 @@
 	}: {
 		companyId: string;
 		item: AttentionItem;
-		content?: Snippet;
+		content?: Snippet<[AttentionItem]>;
 		preview?: Snippet;
 		/** The Work graph's artifact references, so a file the item names opens in the Library. */
 		artifacts?: readonly LibraryArtifact[];
@@ -123,6 +123,21 @@
 		/** The item was snoozed or skipped here: the page moves on to the next one. */
 		onleave?: () => void;
 	} = $props();
+	/* A poll may announce a newer candidate, but never silently replace the review being read. */
+	let openedReview = $state<AttentionItem | null>(null);
+	const item = $derived(openedReview?.id === incomingItem.id ? openedReview : incomingItem);
+	$effect(() => {
+		if (incomingItem.actions.some((action) => action.id === 'accept-review')) {
+			if (openedReview?.id !== incomingItem.id || (!openedReview.reviewVersion && incomingItem.reviewVersion))
+				openedReview = $state.snapshot(incomingItem);
+		} else if (openedReview) openedReview = null;
+	});
+	const newerReview = $derived(!!openedReview?.reviewVersion &&
+		JSON.stringify(openedReview.reviewVersion) !== JSON.stringify(incomingItem.reviewVersion));
+	function reviewCurrentVersion() {
+		openedReview = $state.snapshot(incomingItem);
+		requestingReviewChanges = false;
+	}
 
 	const client = useQueryClient();
 	const asker = $derived(attentionAsker(item));
@@ -208,10 +223,11 @@
 		reviewNote?.focus();
 	}
 	function decideReview(decision: 'accept' | 'request_changes') {
+		if (newerReview) return;
 		if (decision === 'request_changes' && !reviewFeedback.trim()) return;
 		return run(
 			async () => {
-				await reviewAction(companyId, item.source.reference, decision, reviewFeedback.trim());
+				await reviewAction(companyId, item.source.reference, decision, reviewFeedback.trim(), item.reviewVersion);
 				await refreshAttention(client, companyId);
 			},
 			decision === 'accept' ? 'Accepted' : 'Changes sent to ' + recipient,
@@ -727,7 +743,7 @@
 		</header>
 
 		{#if preview}<div class="detail-preview">{@render preview()}</div>{/if}
-		{#if content}<div class="detail-preview" hidden={!!preview}>{@render content()}</div>
+		{#if content}<div class="detail-preview" hidden={!!preview}>{@render content(item)}</div>
 		{:else}
 			<div class="body" hidden={!!preview}>
 				<div class="message">
@@ -1170,7 +1186,7 @@
 								: primary.label}</button
 						>{/if}
 				{:else if review}
-					{#if requestingReviewChanges}
+					{#if requestingReviewChanges && !newerReview}
 						<button
 							class="btn primary small"
 							type="button"
@@ -1189,14 +1205,18 @@
 							class="btn primary small"
 							type="button"
 							disabled={acting}
-							title={action('accept-review')?.consequence}
-							onclick={() => void decideReview('accept')}
-							>{acting ? 'Accepting…' : 'Accept outcome'}</button
+							title={newerReview ? 'A newer candidate is ready. Open it before deciding.' : action('accept-review')?.consequence}
+							onclick={() => newerReview ? reviewCurrentVersion() : void decideReview('accept')}
+							><span class="review-accept-label">
+								<span class:inactive={newerReview || acting}>Accept outcome</span>
+								<span class:inactive={!newerReview || acting}>Review new version</span>
+								<span class:inactive={!acting}>Accepting…</span>
+							</span></button
 						>
 						<button
 							class="btn small"
 							type="button"
-							disabled={acting}
+							disabled={acting || newerReview}
 							onclick={() => void showReviewChanges()}>Request changes</button
 						>
 					{/if}
@@ -1389,6 +1409,9 @@
 </article>
 
 <style>
+	.review-accept-label { display: grid; }
+	.review-accept-label > span { grid-area: 1 / 1; }
+	.review-accept-label > .inactive { visibility: hidden; }
 	/* Where the card's setting lives: one quiet line under its panel (S101). */
 	.home {
 		margin: 8px 0 0;

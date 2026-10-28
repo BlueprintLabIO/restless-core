@@ -33,7 +33,15 @@ export type SettingProposal = { proposal: number; current: Record<string, unknow
 	  }
 );
 
+export interface OwnerReviewVersion {
+	handoff: { id: string; snapshot_sha256: string };
+	work_revision: number;
+	artifact_id: string | null;
+}
+
 export interface AttentionItem {
+	/** The exact authored review and recorded candidate received from the server. */
+	reviewVersion?: OwnerReviewVersion;
 	preparing?: boolean;
 	/** A request someone asked Exec for that waits on this person (S80). */
 	directionRequest?: DirectionRequest;

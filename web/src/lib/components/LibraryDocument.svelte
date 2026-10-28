@@ -153,7 +153,8 @@
 				handoff.category === 'owner_judgement'
 		);
 		if (review && ownerAccess) {
-			await reviewAction(companyId, review.id, 'request_changes', feedback);
+			const version = attentionView.view?.items.find((item) => item.source.reference === review.id)?.reviewVersion;
+			await reviewAction(companyId, review.id, 'request_changes', feedback, version);
 			return 'Sent back for changes';
 		}
 		await sendActorMessage(companyId, work.owner_id, `Please revise: ${feedback}`, work.id);
