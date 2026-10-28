@@ -947,12 +947,12 @@
 			}}
 		/>
 	{:else}
-		{#snippet outcomeContent()}<OutcomePreview
+		{#snippet outcomeContent(reviewedItem: AttentionItem)}{#key JSON.stringify(reviewedItem.reviewVersion)}<OutcomePreview
 				{companyId}
-				{item}
+				item={reviewedItem}
 				{artifacts}
 				onrefresh={source.refresh}
-			/>{/snippet}
+			/>{/key}{/snippet}
 		<InboxDetail
 			{companyId}
 			{item}

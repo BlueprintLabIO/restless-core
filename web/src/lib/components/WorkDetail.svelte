@@ -31,7 +31,6 @@
 	import { goalAbout } from '$lib/work/goal';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { attentionTitle, isOutcomeReview } from '$lib/model/attention-presentation';
-	import { reviewAction } from '$lib/model/attention';
 	import type { AttentionItem } from '$lib/model/view';
 	import {
 		PRIORITIES,
@@ -283,7 +282,7 @@
 		)
 	);
 
-	/* The decision waiting on this Work, answered here or opened in the Inbox. */
+	/* The decision waiting on this Work opens beside its prepared candidate in the Inbox. */
 	const pending = $derived(
 		(attentionProjection.view?.items ?? []).filter(
 			(item) => item.workId === workId && !item.preparing
@@ -291,38 +290,6 @@
 	);
 	const inboxHref = (item: AttentionItem) =>
 		`/${encodeURIComponent(companyId)}?${isOutcomeReview(item) ? 'review' : 'item'}=${encodeURIComponent(item.id)}`;
-	let changesFor = $state('');
-	let changesText = $state('');
-	let reviewBusy = $state(false);
-	let reviewFailure = $state('');
-	async function decide(item: AttentionItem, decision: 'accept' | 'request_changes') {
-		if (reviewBusy || (decision === 'request_changes' && !changesText.trim())) return;
-		reviewBusy = true;
-		reviewFailure = '';
-		try {
-			await reviewAction(
-				companyId,
-				item.source.reference,
-				decision,
-				decision === 'request_changes' ? changesText.trim() : ''
-			);
-			if (decision === 'accept') celebrate(document.activeElement);
-			toast(
-				decision === 'accept'
-					? 'Accepted'
-					: `Changes sent to ${item.responsibleActor?.display ?? 'the lead'}`
-			);
-			changesFor = '';
-			changesText = '';
-			feedbackVersion += 1;
-			void attentionProjection.reload();
-			retryWork();
-		} catch (cause) {
-			reviewFailure = failureSentence(cause, 'The review decision was not recorded.');
-		} finally {
-			reviewBusy = false;
-		}
-	}
 
 	/* Feedback given to this Work and the spend it ran up. Owner only; a failure says so. */
 	let feedbackVersion = $state(0);
@@ -743,62 +710,12 @@
 							<div class="pending-copy">
 								<strong>{attentionTitle(item)}</strong>
 								{#if item.requestedAction}<p>{item.requestedAction}</p>{/if}
-								{#if item.reviewTarget}<a
-										class="pending-target"
-										href={inboxHref(item)}
-										title={item.reviewTarget.uri}
-										>Open {item.reviewTarget.label || 'the prepared outcome'}</a
-									>{/if}
 							</div>
 							<div class="pending-actions">
-								{#if isOutcomeReview(item)}
-									<button
-										class="btn small primary"
-										type="button"
-										disabled={reviewBusy}
-										title="Accept the prepared outcome; this Work is done"
-										onclick={() => decide(item, 'accept')}>Accept</button
-									>
-									<button
-										class="btn small"
-										type="button"
-										aria-expanded={changesFor === item.id}
-										onclick={() => (changesFor = changesFor === item.id ? '' : item.id)}
-										>Request changes…</button
-									>
-									<a class="btn small ghost" href={inboxHref(item)}>Review</a>
-								{:else}
-									<a class="btn small primary" href={inboxHref(item)}>Open in Inbox</a>
-								{/if}
+								<a class="btn small primary" href={inboxHref(item)}>{isOutcomeReview(item) ? 'Review in Inbox' : 'Open in Inbox'}</a>
 							</div>
-							{#if changesFor === item.id}
-								<form
-									class="work-steer-form"
-									onsubmit={(event) => {
-										event.preventDefault();
-										void decide(item, 'request_changes');
-									}}
-								>
-									<!-- svelte-ignore a11y_autofocus -->
-									<textarea
-										bind:value={changesText}
-										rows="2"
-										autofocus
-										aria-label="What should change"
-										placeholder="What should change"></textarea>
-									<div class="steer-actions">
-										<button class="btn small primary" disabled={reviewBusy || !changesText.trim()}
-											>{reviewBusy ? 'Recording…' : 'Send changes'}</button
-										>
-										<button class="btn small ghost" type="button" onclick={() => (changesFor = '')}
-											>Cancel</button
-										>
-									</div>
-								</form>
-							{/if}
 						</div>
 					{/each}
-					{#if reviewFailure}<p class="steer-failure" role="alert">{reviewFailure}</p>{/if}
 				</section>
 			{/if}
 
@@ -1401,17 +1318,10 @@
 		margin: 0;
 		color: var(--text-secondary);
 	}
-	.pending-target {
-		font-size: var(--t-label);
-	}
 	.pending-actions {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 6px;
-	}
-	.pending-item > .work-steer-form {
-		flex-basis: 100%;
-		margin: 0;
 	}
 	.work-edit-form {
 		max-width: 720px;

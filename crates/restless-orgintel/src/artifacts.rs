@@ -184,6 +184,12 @@ impl OrgIntel {
         let id = Uuid::new_v4();
         let mut tx = self.pool.begin().await?;
         if let (Some(work_id), Some(attempt_id)) = (artifact.work_id, artifact.attempt_id) {
+            // Candidate replacement and an owner's decision use the same Work lock. A review
+            // cannot pass its version check while a newer reference is being published.
+            sqlx::query("SELECT id FROM work WHERE id=$1 FOR UPDATE")
+                .bind(work_id)
+                .fetch_one(&mut *tx)
+                .await?;
             let matches: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM work_attempts \
                  WHERE id=$1 AND work_id=$2 AND actor_id=$3)",

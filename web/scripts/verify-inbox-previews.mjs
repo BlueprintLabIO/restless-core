@@ -219,16 +219,15 @@ try {
 			await one.waitFor();
 			await pane(page).getByRole('link', { name: 'Open company Limits', exact: true }).click();
 			await preview(page).getByRole('button', { name: 'Edit limit', exact: true }).click();
-			await preview(page)
-				.getByRole('textbox', { name: 'Limit in US dollars', exact: true })
-				.fill(String(160 + width / 1000));
+			const limit = preview(page).getByRole('textbox', { name: 'Limit', exact: true });
+			await limit.fill(String(Number(await limit.inputValue()) + 1));
 			const [saved] = await Promise.all([
 				page.waitForResponse(
 					(response) =>
 						response.request().method() === 'POST' &&
 						response.url().endsWith('/company/spend-limit')
 				),
-				preview(page).getByRole('button', { name: 'Save', exact: true }).click()
+				preview(page).getByRole('button', { name: /^(Raise|Lower) to / }).click()
 			]);
 			assert(saved.ok(), 'Budget is saved through the real Company form');
 			await inInbox(page, row.id);
@@ -361,13 +360,16 @@ try {
 			);
 			await preview(page).getByRole('heading', { name: 'Limits', exact: true }).waitFor();
 			const toggle = page.getByRole('button', { name: 'Exec', exact: true });
-			await pane(page).getByRole('link', { name: 'Discuss', exact: true }).click();
+			await pane(page).locator('summary[aria-label="More"]').click();
+			await pane(page).getByRole('button', { name: 'Ask Exec about this', exact: true }).click();
 			assert(
 				new URL(page.url()).searchParams.has('preview'),
-				'Discuss keeps the actual settings surface in the middle pane'
+				'Asking Exec keeps the actual settings surface in the middle pane'
 			);
 			const rail = page.getByRole('complementary', { name: 'Exec conversation', exact: true });
-			const draft = rail.getByRole('textbox', { name: 'Message Exec', exact: true });
+			const draft = rail.getByRole('textbox', { name: 'Ask Exec', exact: true });
+			await draft.waitFor();
+			assert((await draft.inputValue()).includes(encodeURIComponent(row.id)), 'The draft links the item into the one Exec conversation');
 			await draft.fill(
 				'Verify this prepared Limits page as part of the isolated Inbox preview check.'
 			);
@@ -381,7 +383,7 @@ try {
 			]);
 			assert(
 				sent.ok(),
-				'The actual Work-scoped message is accepted: ' +
+				'The actual general Exec message is accepted: ' +
 					sent.status() +
 					' ' +
 					(sent.ok() ? '' : await sent.text())
@@ -395,24 +397,31 @@ try {
 				'/' + company + '/company/resources',
 				'Exec gets the actual settings page rather than the opaque preview wrapper'
 			);
-			assert.equal(form.get('attention_id'), row.id);
-			assert.equal(form.get('work_id'), row.work_id);
+			assert.equal(form.get('attention_id'), null, 'The item does not open a scoped conversation');
+			assert.equal(form.get('work_id'), null, 'The one Exec conversation is not scoped to this Work');
 			assert((await sent.json()).context_attached, 'The server accepted the linked native context');
 			await toggle.click();
-			// A live change stream relaxes Attention's repair poll to 30 seconds.
-			await page.waitForResponse(
+			// Request an ordinary cross-window refresh instead of depending on a background poll.
+			const refreshed = page.waitForResponse(
 				(response) =>
 					response.request().method() === 'GET' &&
 					new URL(response.url()).pathname.endsWith('/attention'),
-				{ timeout: 45000 }
+				{ timeout: 20000 }
 			);
+			await page.evaluate(company => {
+				const channel = new BroadcastChannel('restless-attention');
+				channel.postMessage(company);
+				channel.close();
+			}, company);
+			await refreshed;
 			assert(
 				!(await rail.isVisible()),
 				'Closing chat stays closed through the next actual attention refresh'
 			);
 			await inInbox(page, row.id);
 			await footerAnchored(page);
-			await pane(page).getByRole('link', { name: 'Discuss', exact: true }).click();
+			await pane(page).locator('summary[aria-label="More"]').click();
+			await pane(page).getByRole('button', { name: 'Ask Exec about this', exact: true }).click();
 			await rail.waitFor();
 		});
 		await journey('update-has-its-own-selection-' + width, viewport, async (page) => {

@@ -120,6 +120,10 @@ owner, admin and member, before calling anything done; a release is cut from mai
 
 ## Track H: new surfaces (design first, build after review)
 
+The owner approved the Resources, Email and map preview layouts on 29 October. Build may proceed;
+the illustrative values in the preview do not establish real measurements or prices. The owner
+also identified `https://restless.run` as the Reno production target for final smoke verification.
+
 - [ ] **H1 Resources page [56].** Per company: storage, CPU and RAM in use against limits, history,
   what's using it, and one clear way to buy more with prices. Linear-quality design, reviewed by
   the owner before it's built.
