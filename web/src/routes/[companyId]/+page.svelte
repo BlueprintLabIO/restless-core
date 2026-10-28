@@ -20,7 +20,6 @@
 	import InboxList from '$lib/components/InboxList.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import InboxDetail from '$lib/components/InboxDetail.svelte';
-	import SetAsideList from '$lib/components/SetAside.svelte';
 	import { celebrate } from '$lib/ui/celebrate';
 	import DirectionRequestDetail from '$lib/components/DirectionRequestDetail.svelte';
 	import CharterPurpose from '$lib/components/CharterPurpose.svelte';
@@ -121,6 +120,7 @@
 	/* The Work graph's file references, so files named by an item open in the Library viewer. */
 	const artifacts = $derived((graph?.artifacts ?? []) as unknown as LibraryArtifact[]);
 	const selectedUpdateId = $derived(page.url.searchParams.get('update'));
+	const inboxFilter = $derived(page.url.searchParams.get('filter') ?? 'open');
 	const selectedItemId = $derived(
 		page.url.searchParams.get('item') ?? page.url.searchParams.get('review')
 	);
@@ -169,7 +169,7 @@
 	});
 	const handoverStatus = $derived(handoverNotice(handover, principal?.actor_id));
 	const queueClear = $derived(
-		attentionClear && !forYou?.items.length && forYou?.filter === 'all' && !handoverStatus
+		inboxFilter === 'open' && attentionClear && !forYou?.items.length && forYou?.filter === 'all' && !handoverStatus
 	);
 	/* Preload office assets on desktop; a clear phone Inbox can still open the floor. */
 	let compactScreen = $state(false);
@@ -206,12 +206,12 @@
 	/* The queue starts collapsed until its source answers, so an idle
 	 * company's office is never squeezed and released; when items do arrive,
 	 * the queue opens with the same motion as any later change. */
-	const selectedItem = $derived(
-		selectedUpdateId
-			? null
-			: (items.find((item) => item.id === selectedItemId) ??
-					(selectedItemId ? null : ((visibleItems ?? items)[0] ?? null)))
-	);
+	const selectedItem = $derived.by(() => {
+		if (selectedUpdateId) return null;
+		if (selectedItemId) return items.find((item) => item.id === selectedItemId) ?? null;
+		if (['skipped', 'done'].includes(inboxFilter)) return null;
+		return (visibleItems ?? items)[0] ?? null;
+	});
 	let missingNotice = $state('');
 	let missingDecisionHref = $state('');
 	let explaining = '';
@@ -814,7 +814,7 @@
 				<span>No decisions</span>
 			</button>
 			{#if queueClear && paneEmpty}<div class="attention-set-aside">
-					{#if owner}<SetAsideList {companyId} />{/if}
+					{#if owner}<a href={`/${companyId}?filter=all`} class="attention-archived">All Inbox items</a>{/if}
 					{#if forYou}<button
 							type="button"
 							class="attention-archived"

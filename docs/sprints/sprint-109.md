@@ -256,3 +256,45 @@ Worktree: `/home/yail/code/work/slot-3`, branch `feat/sprint-109` from origin/ma
   volume, databases and roles. This proves the named scenarios, not every sprint requirement.
 - Final frontend diagnostics returned zero errors/warnings; frontend production build and local
   daemon/CLI build passed. Production deployment and the remaining sprint checklist are still open.
+
+### Main integration and first deployment
+
+- PR #498 merged the first two implementation passes into main at
+  `ffffb56b855dd4ee8b53d0f3b0bac7c5e990b9df`. Main requires a pull request; direct push was
+  rejected and no repository rule was bypassed.
+- `restless-dev promote` built that exact main commit, passed 23 connection scenarios and skipped
+  the separately invoked skills smoke. Connection evidence:
+  `/home/yail/.cache/restless/promote/connections-smoke-ffffb56b855d/evidence.json`.
+- Appliance activation returned release `9ce1344ccfd4b2f634b0`, ready, no rollback. A fresh
+  `restless appliance status` confirmed the matching source commit, live binary/service/socket,
+  owner health 200, no drain or repair. `/api/companies` returned 200.
+- Read-only browser smoke on the installed Aris company: `/aris/work` opened with Board selected
+  and its Work board rendered. No simulated outcome or fixture mutation was made in a live company.
+- This proves deployment to the local stable appliance. Its company list has no Reno company;
+  the triaged Reno production URL has been requested for the final scenario smoke. Do not treat
+  this local release check as proof that the original Reno problems are resolved.
+
+### Filter and board follow-up (local verification)
+
+- B4: Open/Skipped/Done/All now live in the Inbox header filter popover. Skipped uses an inline
+  restorable list; the old bottom drawer is removed. Done uses the existing paginated decision
+  history and links to the exact Activity record. The clear Inbox links to All so history remains
+  reachable. The filter is in the URL; account preference synchronisation remains F2 work.
+- `verify-inbox-filters.mjs` passed at 1440/390: all four views, reload, a real temporary dismissal,
+  and restoring the original request. All fixture mutations were restored. Eight captures across
+  those views and widths passed (`/tmp/s109-filter-surfaces`).
+- A forced unavailable history read showed the failure notice without claiming "No completed
+  decisions". The regression covers this unknown-versus-empty boundary.
+- G4: empty board columns reserve 106px rather than the space of populated columns (192px in the
+  observed narrow desktop pane). Titles stay within two lines, with their full text on hover and
+  in Work detail. Work captures passed at 1440/390 (`/tmp/s109-board-shape`). This changes the card
+  presentation, not existing authored Work titles.
+- Final frontend checks and production build passed. A fresh authenticated multiplayer journey
+  also passed with the new filter views: owner All loads both lists, a member does not load owner
+  lists, and the existing admin screens, Vault refusals and live membership-revocation checks
+  passed. Evidence: `/tmp/sprint109-roles-03/journey.log`; runner cleanup was confirmed.
+- New surface layouts are prepared for owner review, with Resources, Resend setup/test/ready, and
+  map click-through. All three passed interaction/overflow checks at 1024/390/320. Values are
+  explicitly illustrative; real resource prices have not been invented. H remains unapproved and
+  unbuilt. The full sprint remains active, including C1 (`instant-decisions.md`) and all unchecked
+  acceptance requirements above.

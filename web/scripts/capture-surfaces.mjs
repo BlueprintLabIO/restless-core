@@ -69,6 +69,9 @@ const routes = [
 
 	['home', '/'],
 	['attention', `/${company}`],
+	['attention-skipped', `/${company}?filter=skipped`],
+	['attention-done', `/${company}?filter=done`],
+	['attention-all', `/${company}?filter=all`],
 	['work', `/${company}/work`],
 	['work-board', `/${company}/work?view=board`],
 	...(workId ? [['work-item', `/${company}/work/${workId}`]] : []),
