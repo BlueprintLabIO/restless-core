@@ -298,3 +298,19 @@ Worktree: `/home/yail/code/work/slot-3`, branch `feat/sprint-109` from origin/ma
   explicitly illustrative; real resource prices have not been invented. H remains unapproved and
   unbuilt. The full sprint remains active, including C1 (`instant-decisions.md`) and all unchecked
   acceptance requirements above.
+
+### Installed smoke found a missed computer state
+
+- PR #499 landed the filter/board batch at `02e6684c0730c32851b6d725b4afeed11bf22c35`.
+  Promotion passed the same 23 connection scenarios (separate skills smoke skipped), activated
+  release `cfa40c1e87961969e3e6`, and fresh status confirmed ready with owner health 200.
+- The installed Aris smoke then failed: a real attached computer triggered an older `:has()`
+  layout rule that collapsed the Inbox sidebar to 2px and hid the filter. This was a desktop
+  failure as well as a potential phone failure; the first progress note misidentified the width.
+  Earlier fixtures had an unavailable computer placeholder, so they missed the connected state.
+- Deleted the automatic collapse. The existing explicit computer Expand control remains the way
+  to use more space. Added a real attached-computer fixture and a regression that waits until the
+  desktop connects, measures the sidebar, uses its filter, then checks phone All/Done navigation.
+- That real-computer regression and the full filter/restore/unavailable-history journey passed
+  on a fresh isolated `sprint109final` profile. Frontend diagnostics passed. This correction still
+  needs its own main integration, promotion and installed smoke before B4 is complete.

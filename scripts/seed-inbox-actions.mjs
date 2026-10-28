@@ -140,6 +140,16 @@ try {
   await db.query(
     "UPDATE owner_handoffs SET assigned_to=NULL WHERE requested_action='Confirm the isolated Inbox footer test step'",
   );
+  // A real attached computer, rather than a missing-attachment placeholder, catches the old CSS
+  // rule that folded away the entire Inbox whenever the desktop finished connecting.
+  await db.query(
+    "INSERT INTO work (id,owner_id,title,outcome,status,resolution,priority,commissioned_by) SELECT $1,'exec',$2,'The Inbox remains navigable beside a real company computer','blocked','Waiting for the isolated computer review',1,'exec' WHERE NOT EXISTS (SELECT 1 FROM work WHERE title=$2)",
+    [randomUUID(), "Inbox computer navigation verification"],
+  );
+  await db.query(
+    "INSERT INTO owner_handoffs (id,work_id,requested_by,assigned_to,category,requested_action,prepared_state,resume_condition) SELECT $1,w.id,'exec','exec','owner_judgement',$2,'The isolated company computer is ready for a navigation layout check. No external provider action is requested.','The owner reviews the synthetic computer fixture' FROM work w WHERE w.title='Inbox computer navigation verification' AND NOT EXISTS (SELECT 1 FROM owner_handoffs WHERE work_id=w.id AND state='pending')",
+    [randomUUID(), "Inspect the isolated company computer"],
+  );
   const daemon = (request) =>
     new Promise((resolve, reject) => {
       const socket = createConnection(join(home, "restlessd.sock"));
@@ -166,6 +176,16 @@ try {
       });
       socket.on("error", reject);
     });
+  const computer = await db.query("SELECT h.id,h.owner_brief FROM owner_handoffs h JOIN work w ON w.id=h.work_id WHERE w.title='Inbox computer navigation verification' AND h.state='pending'");
+  if (computer.rowCount && !computer.rows[0].owner_brief) {
+    const id=computer.rows[0].id;
+    await db.query("UPDATE owner_handoffs SET assigned_to='exec' WHERE id=$1",[id]);
+    await daemon({cmd:"work-handoff-prepare-brief",id,as_actor:"exec",owner_kind:"decision",
+      headline:"Inspect the isolated company computer",situation:"The real isolated computer is attached for the Inbox navigation check.",
+      impact:"The Inbox and filter must remain usable when the computer connects.",
+      recommendation:"Inspect the computer beside the Inbox.",no_action:"The synthetic fixture stays paused."});
+    await daemon({cmd:"work-handoff-escalate",id,as_actor:"exec",reason:"The synthetic fixture requires owner review of the computer layout."});
+  }
   const goalTitle = "Completed goal for owner reliability test";
   let listed = await daemon({ cmd: "goals" });
   let goals = Array.isArray(listed) ? listed : listed.goals;
