@@ -27,5 +27,18 @@ Observed in the isolated `s109docs` profile, seeded with real-scale data:
   was resolved with the locked install; no dependency versions changed for this UI work.
 
 Evidence: `/tmp/s109-docs-still-final/report.json` and its opening, settled and read-only captures.
-Authenticated owner/admin/member verification and release integration remain required before the
-sprint items are checked. C7's all-surface release gate is a separate remaining requirement.
+The isolated real owner/admin/member journey also passed against this UI and Better Auth 1.7.12:
+concurrent edits, discussion, member document archive/restore/delete, role changes and live session
+revocation all passed. Evidence: `/tmp/s109-combined-roles/journey.log`.
+Release integration remains required before the sprint items are checked. C7's all-surface release gate is a separate remaining requirement.
+
+The Inbox preview suite was also run after the document-specific Back label changed. Its first
+attempt reached a sleeping company before its Runtime was ready and timed out opening the file
+preview; Doctor then confirmed readiness. This startup gap remains part of A4/C7, rather than being
+counted as a document styling pass. The subsequent complete journey results are in
+`/tmp/s109-docs-previews-final/report.json`.
+
+Four Library document/Work captures at 1440/390 passed clipping, overflow and page-error checks
+(`/tmp/s109-docs-captures/report.json`). Motion checks opened and returned at the latest message
+with zero gap; the streaming reply kept its 770px width across 275 samples
+(`/tmp/s109-docs-motion.log`). The built-in browser desktop and phone views were inspected too.
