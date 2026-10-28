@@ -209,3 +209,11 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | US-351 | core | I want Company › Computers to show every machine the company uses, what runs there now, and a Desktop button, while members see only their companies' machines. | S99-6 | multiplayer smoke: owner and member views |
 | US-352 | cloud | I want my cloud computer created in the region closest to me, chosen in set-up, so it is fast and never needs moving. | Cloud | Cloud smoke: wizard defaults to the nearest region |
 | US-353 | full | As Sydney Resale's owner, I want marketplace work to run on my home PC while everything else keeps running in the cloud when my PC is off. | S100 (step 2) | helper placement e2e |
+
+## Owner Reno session, 27 October (Sprint 109)
+
+| ID | Tier | Story | Fix | Check |
+| --- | --- | --- | --- | --- |
+| US-354 | core | I open Work on the board, and can choose List and reload that view. | S109 G1 | frontend check passed; real seeded browser journey pending |
+| US-355 | core | I focus and type in chat without keyboard hints appearing over my messages; shortcuts live on Send. | S109 C3 | frontend check passed; focus/typing geometry journey pending |
+| US-356 | core | Saving a key gives a temporary confirmation and leaves the Vault calm. | S109 C5 | frontend check passed; real Vault save and toast expiry pending |

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import Field from '$lib/ui/forms/Field.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item, Notice, Empty, Dot } from '$lib/ui/page';
@@ -31,8 +32,7 @@
 		saveError = $state(''),
 		search = $state(''),
 		binding = $state(''),
-		secret = $state(''),
-		notice = $state('');
+		secret = $state('');
 	const rows = $derived(keep(view?.secrets ?? [], search, (s) => [s.name, s.path]));
 	const external = $derived(
 		view?.references.filter((r) => !view?.secrets?.some((s) => s.reference === r.reference)) ?? []
@@ -81,7 +81,6 @@
 			return;
 		busy = true;
 		saveError = '';
-		notice = '';
 		try {
 			if (replacing)
 				await saveVaultSecret(companyId, {
@@ -97,7 +96,7 @@
 					create: true,
 					replace: taken
 				});
-			notice = replacing ? `${replacing.name} replaced` : 'Secret stored securely';
+			toast(replacing ? `${replacing.name} replaced` : 'Secret stored securely');
 			closeForm();
 			await refresh();
 		} catch (e) {
@@ -123,11 +122,10 @@
 			return;
 		busy = true;
 		saveError = '';
-		notice = '';
 		try {
 			await deleteVaultSecret(companyId, { reference: item.reference, revision: view.revision });
 			if (replacing?.reference === item.reference) closeForm();
-			notice = `${item.name} deleted`;
+			toast(`${item.name} deleted`);
 			await refresh();
 		} catch (e) {
 			saveError = failureSentence(e, 'Could not delete the secret.');
@@ -184,7 +182,6 @@
 			{#snippet actions()}<button class="btn small" onclick={refresh} disabled={busy}>Retry</button
 				>{/snippet}
 		</Notice>{/if}
-	{#if notice}<Notice tone="success" title={notice} />{/if}
 	{#if view?.status === 'unavailable'}<Notice
 			tone="danger"
 			title="Secure storage is unavailable"

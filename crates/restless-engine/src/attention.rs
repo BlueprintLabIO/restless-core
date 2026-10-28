@@ -3050,7 +3050,7 @@ async fn project_queue(
         let fallback_title = app_titles
             .get(&handoff.id)
             .map(String::as_str)
-            .unwrap_or_else(|| human_step_title(handoff.category));
+            .unwrap_or(handoff.requested_action.trim());
         let payment_title = payment.map(|payment| {
             format!(
                 "Approve {} {} to {}",
@@ -4096,7 +4096,7 @@ fn handoff_decisions(
             let title = payment.map_or_else(
                 || {
                     handoff.owner_brief.as_ref().map_or_else(
-                        || human_step_title(handoff.category).to_string(),
+                        || handoff.requested_action.trim().to_string(),
                         |brief| brief.headline.clone(),
                     )
                 },
@@ -4599,21 +4599,6 @@ fn app_request_title(app: &str) -> String {
     match letters.next() {
         Some(first) => format!("Add {}{}", first.to_uppercase(), letters.as_str()),
         None => "Add an app".into(),
-    }
-}
-
-fn human_step_title(category: restless_orgintel::OwnerHandoffCategory) -> &'static str {
-    match category {
-        restless_orgintel::OwnerHandoffCategory::Identity => "Confirm your identity",
-        restless_orgintel::OwnerHandoffCategory::Captcha => "Complete the human check",
-        restless_orgintel::OwnerHandoffCategory::Mfa => "Confirm the sign-in",
-        restless_orgintel::OwnerHandoffCategory::LegalAttestation => {
-            "Provide the legal attestation"
-        }
-        restless_orgintel::OwnerHandoffCategory::PaymentConfirmation => "Confirm the payment",
-        restless_orgintel::OwnerHandoffCategory::OwnerJudgement => {
-            "A decision needs your judgement"
-        }
     }
 }
 

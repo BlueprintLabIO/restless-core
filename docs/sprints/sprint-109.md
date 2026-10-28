@@ -142,3 +142,61 @@ deciding from a phone, a company timeline. See "10x and broader improvements" in
 
 A first (it blocks real work), then C1, D1 and B1-B3 (the biggest felt changes), then the rest of
 B, C, E and F, then G, then H once its designs are approved. Ship in batches, about twice a day.
+
+## Delivery contracts (implementation review)
+
+- C1: record pending actions durably before removing the card. Undo cancels the pending
+  action; downstream work starts only after that window. Refresh, navigation and restart must
+  not lose the action. A failed save restores the item and explains the failure.
+- A4/B3: accepting a review binds to the exact displayed version. A newer revision requires
+  reviewing again. Repair existing empty review cards as well as preventing new ones.
+- C7: qualify cold and warm loads, slow responses, desktop and phone widths, and explicit
+  loading, empty, failure and populated states of the six primary surfaces and card kinds.
+  Save frame/geometry evidence for failures; intentional user-driven movement is distinguished
+  from unexpected loading shifts. Grid alignment means named shared edges, not every text edge.
+- D2: capture the original Reno replies before changing D1, with fixed prompts, context and
+  model route. Record accuracy against verified company facts, repetition and length.
+- G1: ship board by default with the first batch. Explicit list links remain list links.
+- A2/D3/H2: retain secret usage references, model/computer/key health and the agreed integration
+  catalogue (Email, DNS/Cloudflare, domains, payments) in the delivery audit; Resend is the first
+  implemented integration.
+- H: prepare reviewable resources, email and map designs before implementation; record owner
+  review against those concrete designs before building the new surfaces.
+
+## Implementation evidence
+
+The full checklist above remains the completion target, including deployment and production smoke.
+Do not check an item from compilation or source inspection alone. Each completed ticket records
+its observed scenario, affected layer, removed machinery, and local/production evidence here.
+
+First batch: A, C1, D1/D2, B1-B3 and G1's board default. Subsequent batches complete every remaining
+track; batch ordering does not defer any sprint requirement.
+### First implementation pass, 28 October
+
+Worktree: `/home/yail/code/work/slot-3`, branch `feat/sprint-109` from origin/main b475dbde.
+
+- G1 default: implemented and observed Board selected at `/sprint109_test/work`; selecting List
+  writes `?view=list` and remains selected after reload. Live transition/role matrix pending.
+- C3: deleted hint counter, focus bookkeeping and hint CSS; shortcut text is on Send. Focused and
+  typed an unsent draft in the real browser; `.hc-hint` count remained zero.
+- C5: real synthetic secret saved to isolated company Vault; shared toast observed, then expired.
+  Replace/delete/error scenarios and role matrix pending.
+- A3: replaced category-derived fallback titles with the handoff's requested action in pending and
+  resolved projections; removed `human_step_title`. Rust check and real DNS handoff smoke pending.
+- `npm run check`: zero Svelte errors/warnings, type/UI/document-search checks passed.
+- Seeded with `scripts/seed-reno-scale.mjs sprint109_test`. `capture-surfaces.mjs` on Work at
+  1440 and 390 passed; evidence `/tmp/sprint109-surfaces/{report.json,work-*-light.png}`.
+- `verify-motion.mjs open-latest`: passed, opening and return scroll gaps both 0px.
+- Local daemon/CLI build passed (3m36s). Local Doctor: runtime/browser/OrgIntel/API available;
+  Documents unavailable (identity not provisioned). Resolve before document checks.
+- WSL intermittently refused new process connections with WSAETIMEDOUT; subsequent minimal probes
+  succeeded. No WSL restart or stable-appliance change was performed.
+- No deployment or full-sprint completion claimed. Checklist remains open until its complete
+  acceptance evidence, including admin/member and production smoke, exists.- A3 named Rust regression passed: `preparing_handoff_has_no_external_human_step_and_stable_title`
+  (1 passed). This checks preparation-title behavior; DNS action-title projection still needs a
+  real handoff smoke and is not complete from this test alone.
+- C6: stacked rows now reserve the menu width beside the time; deleted the hover-time hiding and
+  overlapping menu placement. Frontend check and browser hover geometry pending.
+- The development host stack and the two sprint109_test company containers were stopped after the
+  smoke. Seeded test data and its stopped volumes are retained for the next acceptance pass.
+  The shared dev Vault/database belong to the existing slot profile and were not removed.

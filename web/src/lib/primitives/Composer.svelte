@@ -118,31 +118,6 @@
 	const optionDescription = (name: string) =>
 		options.find((option) => option.kind === 'skill' && option.name === name)?.description ?? '';
 
-	let focused = $state(false);
-	/* The keys are shown above the field on the first few focuses on this
-	 * device, then only in tooltips and the shortcut sheet. */
-	const HINT_KEY = 'restless:composer-hint-seen';
-	let hintSessions = $state(5);
-	onMount(() => {
-		try {
-			hintSessions = 5 - (Number(localStorage.getItem(HINT_KEY)) || 0);
-		} catch {
-			hintSessions = 0;
-		}
-	});
-	let hintCounted = false;
-	function noteFocus() {
-		focused = true;
-		if (hintCounted || hintSessions <= 0) return;
-		hintCounted = true;
-		try {
-			localStorage.setItem(HINT_KEY, String(6 - hintSessions));
-		} catch {
-			/* A hint is a convenience. */
-		}
-	}
-	const showHint = $derived(focused && hintSessions > 0 && !value && !menu);
-
 	function refreshMenu() {
 		if (!inputEl || options.length === 0) {
 			menu = null;
@@ -499,13 +474,6 @@
 	     The rows are explicit so narrow rails never wrap one action into an accidental third row.
 	     The chosen files are a row of thumbnails above the text; the bound list is the truth, so
 	     removing one there needs no file input. -->
-	{#if showHint && !menu}<span class="hc-hint" aria-hidden="true"
-			>{interruptible
-				? 'Enter sends now · Alt+Enter sends after this reply · Shift+Enter adds a line'
-				: options.length
-					? 'Enter sends · Shift+Enter adds a line · / $ # @ open menus'
-					: 'Enter sends · Shift+Enter adds a line'}</span
-		>{/if}
 	<div class="hc-field" data-send-state={sendability}>
 		{#if flareKey > 0}
 			{#key flareKey}<span class="hc-flare" aria-hidden="true"></span>{/key}
@@ -571,10 +539,8 @@
 			bind:value
 			oninput={refreshMenu}
 			onclick={refreshMenu}
-			onfocus={noteFocus}
 			onblur={() => {
 				menu = null;
-				focused = false;
 			}}
 			onkeydown={onKeydown}
 			oncompositionstart={() => (composing = true)}
@@ -658,7 +624,9 @@
 						class="hc-send"
 						type="submit"
 						aria-label={interruptible ? 'Send now and redirect the current reply' : sendLabel}
-						title={interruptible ? 'Send now and redirect the current reply (Enter)' : sendLabel}
+						title={interruptible
+							? 'Enter sends now · Alt+Enter sends after this reply · Shift+Enter adds a line'
+							: `${sendLabel} · Enter sends · Shift+Enter adds a line${options.length ? ' · / $ # @ open menus' : ''}`}
 						disabled={!sendable}
 						onclick={() => (interrupt = interruptible)}
 					>
