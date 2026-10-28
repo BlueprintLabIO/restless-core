@@ -958,6 +958,18 @@ try {
   bob.page.off("response", watchAdmin);
   assert.deepEqual([...new Set(adminRefused)], [], "an admin's screens make no refused requests");
   await steadyEntry(bob, "admin");
+  // A company key is the owner's Authority operation, including the new Rename path.
+  for (const who of [alice, bob]) {
+    const reference = `infisical:/companies/${company}/s109-never-created`;
+    for (const [path, body] of [
+      ["/vault/secret", { binding: "s109-never-created", secret: "synthetic", revision: "stale", create: true }],
+      ["/vault/secret/rename", { reference, name: "s109-renamed", revision: "stale" }],
+      ["/vault/secret/delete", { reference, revision: "stale" }],
+    ]) {
+      await coreApi(who, `${base}${path}`, { method: "POST", body, expected: 403 });
+    }
+  }
+  pass("members and admins cannot create, rename or delete company Vault keys");
   const memberTries = await alice.context.request.fetch(`${core}${base}/company/logo`, {
     method: "DELETE",
     headers: { Origin: core },

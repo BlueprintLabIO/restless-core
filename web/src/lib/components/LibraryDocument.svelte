@@ -688,20 +688,6 @@
 							title={`Produced for this Work: ${producedFor.title}. Opens its lead, attempts and review.`}
 							>{producedFor.title}</a
 						>{/if}
-					{#if !documentView.document.linked_room_id}
-						<button
-							type="button"
-							class="btn small discuss"
-							title="Talk it through with Exec beside this document. Where you may share it, Exec can then comment, and you can let Exec edit."
-							onclick={() => void discuss()}>Discuss</button
-						>
-					{:else}
-						<a
-							class="btn small discuss"
-							href={`/${encodeURIComponent(companyId)}/people?${documentView.document.linked_room_id ? `room=${encodeURIComponent(documentView.document.linked_room_id)}` : 'person=exec'}&document=${encodeURIComponent(documentView.document.id)}`}
-							title="Talk it through with Exec, with this document alongside">Discuss</a
-						>
-					{/if}
 					<button
 						type="button"
 						class="btn small share"
@@ -1155,7 +1141,6 @@
 		}
 	}
 	@media (max-width: 560px) {
-		.discuss,
 		.share,
 		.follow,
 		.ask {

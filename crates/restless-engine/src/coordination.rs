@@ -1158,7 +1158,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                             Ok(())
                         }
                         _ if key.starts_with("credentials.") => {
-                            config.credentials.insert(key[12..].to_string(), value.to_string());
+                            config.credentials.insert(credential::canonical_binding(&key[12..]).to_string(), value.to_string());
                             Ok(())
                         }
                         _ => Err(anyhow::anyhow!(
@@ -1179,7 +1179,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             Some(key) if key.starts_with("credentials.") && key.len() > 12 => {
                 match runtime::CompanyConfig::load(&daemon.root, company) {
                     Ok(mut config) => {
-                        let binding = &key[12..];
+                        let binding = credential::canonical_binding(&key[12..]);
                         if config.credentials.remove(binding).is_none() {
                             Response::err(format!(
                                 "company {company} has no credential binding {binding:?}"
@@ -1221,7 +1221,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                     Ok(mut config) => {
                         config
                             .credentials
-                            .insert(binding.to_string(), reference.to_string());
+                            .insert(credential::canonical_binding(binding).to_string(), reference.to_string());
                         match runtime::CompanyConfig::save(&daemon.root, &config) {
                             Ok(()) => Response::ok(format!(
                                 "stored reference for {binding}; no secret value was stored"

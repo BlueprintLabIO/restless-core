@@ -1,0 +1,93 @@
+{
+  "model": "openai-codex/gpt-5.6-terra",
+  "protocol": "Fixed facts, identical five Reno prompts; one real inference per case; no tools or company writes",
+  "style_sha256": "5179903a282d48189f5cfc4a0f09591a0bc102ec5815d34d6af46d4beab2bfd1",
+  "style": "Answer the question plainly, as a person talking to you. Be accurate and link the work you mention.\n\n- Use \"you\". Use a few natural sentences or a short list when the facts need one. No required\n  opener, headings, bold text, repeated summary, ritual closing line or internal ids.\n- Say what the evidence supports. Distinguish a configured capability from one you have checked.\n  If you were wrong, correct the fact once. Mention a limit only when it affects this answer.\n- Apply an authorised change with your tools before saying it changed. Acknowledging a decision\n  is not applying it. Never claim work was done, sent, approved or verified without evidence.\n- Link documents, pages and outcomes with meaningful Markdown labels. Bring the actual result\n  ready to read. Keep internal commands, paths and coordination details out of the visible reply.\n- Keep the existing intent marker as hidden routing metadata. Write the answer first; the marker\n  describes it and never determines its visible structure. Do not repeat its summary, outcome or\n  nextStep in the answer. Use ownerNeed only for exact input needed to continue, and link an\n  existing prepared handoff with ownerNeedHandoff instead of making another decision item.\n- Conversational agreement never approves a review or grants authority. Only an explicit cockpit\n  action does that. Do not turn a question about the work into a request for approval.\n- Use restless-details only for useful supporting Work evidence, rendered as the Work details\n  fold. It is optional and never contains private reasoning. When a result arrives, say what it\n  is and link it; do not narrate routine internal activity or promise an unrecorded follow-up.",
+  "records": [
+    {
+      "id": "resend-account",
+      "question": "You said Resend is bundled, then said there’s no account. Which is it?",
+      "facts": "Restless has code for sending through Resend. It does not include a Resend account or API key. This company has no Resend account connected. A company key belongs in Company > Vault.",
+      "reply": "Resend sending is supported in the codebase, but a Resend account and API key are not bundled or connected for this company. To use it, you’d need to add your Resend API key in Company > Vault.  \n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Clarified that Resend integration code exists but no company account or API key is connected.\"}-->",
+      "visible": "Resend sending is supported in the codebase, but a Resend account and API key are not bundled or connected for this company. To use it, you’d need to add your Resend API key in Company > Vault.",
+      "words": 37,
+      "ms": 4237,
+      "usage": {
+        "prompt_tokens": 498,
+        "completion_tokens": 84,
+        "total_tokens": 582,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "id": "existing-key",
+      "question": "I gave you the key, it's in the vault!",
+      "facts": "The company Vault contains a key named resend. The sending code requests resend.production. This mismatch has not been fixed in this snapshot. The key is already supplied; asking for it again is wrong. No email was sent. This is a Restless defect.",
+      "reply": "You’re right—the key is already in the Vault as `resend`. The defect is that the sending code is looking for `resend.production`, so it can’t use the supplied key. No email was sent.<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Acknowledged Vault key mismatch preventing email send.\"}-->",
+      "visible": "You’re right—the key is already in the Vault as `resend`. The defect is that the sending code is looking for `resend.production`, so it can’t use the supplied key. No email was sent.",
+      "words": 32,
+      "ms": 3787,
+      "usage": {
+        "prompt_tokens": 502,
+        "completion_tokens": 72,
+        "total_tokens": 574,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "id": "brand-approval",
+      "question": "Is that Brand approval actually in my Inbox?",
+      "facts": "The Brand rule is awaiting your OK on Company > Brand. The Inbox currently has no item for it. This is a Restless defect; no approval has been given. You have no write tools in this replay and cannot claim to have filed an item.",
+      "reply": "No. The Brand rule is awaiting your OK on [Company > Brand](#), but there isn’t currently an Inbox item for it. That’s a Restless defect, not an approval.  \n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Confirmed Brand approval is absent from Inbox despite awaiting OK.\"}-->",
+      "visible": "No. The Brand rule is awaiting your OK on [Company > Brand](#), but there isn’t currently an Inbox item for it. That’s a Restless defect, not an approval.",
+      "words": 28,
+      "ms": 3489,
+      "usage": {
+        "prompt_tokens": 500,
+        "completion_tokens": 70,
+        "total_tokens": 570,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "id": "map-review",
+      "question": "Do you have a site where I can see this drawn map?",
+      "facts": "This fixed scenario has a concept map page at http://reno.localhost/concepts/map, previously verified by the company. Its review card has no preview link. Link the page; do not ask the reader to find an ID. This scenario is replay data, not current production state.",
+      "reply": "Yes — you can view the drawn concept map on the [Concept Map page](http://reno.localhost/concepts/map). Its review card does not include a separate preview link.  \n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Provided the verified concept map page link.\"}-->",
+      "visible": "Yes — you can view the drawn concept map on the [Concept Map page](http://reno.localhost/concepts/map). Its review card does not include a separate preview link.",
+      "words": 24,
+      "ms": 2828,
+      "usage": {
+        "prompt_tokens": 510,
+        "completion_tokens": 64,
+        "total_tokens": 574,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "id": "email-revision",
+      "question": "What changed in the first S&I email?",
+      "facts": "The email now opens with one concrete observation about the business website and ends with one clear question. The draft is /company/outputs/si-outreach.md. No additional rewrite or email send took place in this turn.",
+      "reply": "The first S&I email now opens with a specific observation about the business website and ends with one clear question. No additional rewrite or send happened in this turn.\n\nYou can read the current draft in [the S&I outreach email](file:///company/outputs/si-outreach.md).  \n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Reported the verified changes to the first S&I email and linked the current draft.\"}-->",
+      "visible": "The first S&I email now opens with a specific observation about the business website and ends with one clear question. No additional rewrite or send happened in this turn.\n\nYou can read the current draft in [the S&I outreach email](file:///company/outputs/si-outreach.md).",
+      "words": 40,
+      "ms": 3478,
+      "usage": {
+        "prompt_tokens": 493,
+        "completion_tokens": 93,
+        "total_tokens": 586,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  ]
+}

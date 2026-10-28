@@ -536,11 +536,9 @@
 			? person
 			: '';
 	});
-	const railActorId = $derived(
-		wideActor || (focusedAttention?.responsibleActor?.id ?? chosenTopic?.actorId ?? 'exec')
-	);
+	const railActorId = $derived(wideActor || chosenTopic?.actorId || 'exec');
 	const railWorkId = $derived(
-		wideActor ? undefined : (focusedAttention?.workId ?? chosenTopic?.workId)
+		wideActor || railActorId === 'exec' ? undefined : chosenTopic?.workId
 	);
 	const railTopicKey = $derived(
 		wideActor
@@ -565,7 +563,7 @@
 			companyId,
 			railActorId,
 			railWorkId,
-			wideActor ? undefined : focusedAttention?.id,
+			undefined,
 			() => !!principal,
 			principal?.actor_id ?? 'owner',
 			true,
@@ -573,21 +571,14 @@
 		)
 	);
 	const railActorName = $derived(
-		railActorId === 'exec'
-			? 'Exec'
-			: (focusedAttention?.responsibleActor?.display ??
-					railConversation.actor?.display ??
-					personName(railActorId))
+		railActorId === 'exec' ? 'Exec' : (railConversation.actor?.display ?? personName(railActorId))
 	);
-	const railActorRole = $derived(
-		focusedAttention || railActorId !== 'exec' ? 'Responsible lead' : 'Executive'
-	);
+	const railActorRole = $derived(railActorId !== 'exec' ? 'Responsible lead' : 'Executive');
 	const providerIssue = $derived(
 		companies.find((company) => company.id === companyId)?.unstartable_reason ?? ''
 	);
 	const railRouteState = $derived(agentRouteState(intelligence.view, railActorId));
 	const railConnectionStatus = $derived.by(() => {
-		if (providerIssue) return 'unavailable';
 		/* A member has no owner cockpit projection; whether Exec can think is the model route. */
 		if (!ownerAccess) {
 			if (intelligence.error) return 'error';
@@ -885,19 +876,6 @@
 		} catch (cause) {
 			return failureSentence(cause, 'It could not be retried. Send the message again instead.');
 		}
-	}
-
-	function closeFocusedContext() {
-		if (!focusedAttention) return;
-		/* On small screens the executive rail is a full-workspace overlay. Closing
-		 * it must reveal the focused outcome underneath, not also discard that
-		 * outcome's URL context. The actor button can reopen the same lead and
-		 * decision controls without rebuilding any review state. */
-		if (typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches) {
-			execRailOpen = false;
-			return;
-		}
-		void goto(`/${companyId}?item=${encodeURIComponent(focusedAttention.id)}`);
 	}
 
 	/* What the next rail message will be linked to, by name: the Work, Goal,
@@ -1782,10 +1760,10 @@
 			conversationStatus={railConversation.status}
 			conversationFailed={Boolean(railConversation.failure)}
 			onrefreshConversation={() => void railConversation.refresh()}
-			needsProvider={!!providerIssue ||
-				railRouteState === 'needs_connection' ||
-				railRouteState === 'unavailable'}
-			providerLabel={providerIssue ? startLinkLabel(providerIssue) : 'Connect intelligence'}
+			needsProvider={railRouteState === 'needs_connection' || railRouteState === 'unavailable'}
+			providerLabel={railRouteState === 'needs_connection'
+				? 'Connect a model'
+				: 'Check model connection'}
 			contextLabel={currentContext.label}
 			{contextLabelFor}
 			contextKind={currentContext.kind}
@@ -1815,15 +1793,8 @@
 			)}
 			open={wide || execRailOpen}
 			onask={askRail}
-			review={focusedReview && !wide
-				? {
-						id: focusedReview.id,
-						onback: closeFocusedContext
-					}
-				: null}
-			workContext={focusedAttention && !wide
-				? { onback: closeFocusedContext, title: focusedAttention.title }
-				: null}
+			review={null}
+			workContext={null}
 		/>{/if}
 {/snippet}
 

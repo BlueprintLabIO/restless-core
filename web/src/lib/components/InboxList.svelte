@@ -5,6 +5,7 @@
 	 * list on into For you, and what the owner opened or snoozed is kept on the
 	 * server, so every device agrees. */
 	import { goto } from '$app/navigation';
+	import { askExecAboutItem } from '$lib/model/ask-exec';
 	import { pollEvery } from '$lib/model/connection.svelte';
 	import { page } from '$app/state';
 	import { onMount, tick, untrack } from 'svelte';
@@ -291,7 +292,7 @@
 		}
 		if (event.key === 'c' && canDiscuss(item)) {
 			event.preventDefault();
-			void goto(href(item.id) + '&conversation=' + encodeURIComponent(item.id));
+			askExecAboutItem(companyId, item);
 		}
 	}
 </script>
@@ -385,10 +386,9 @@
 							{#snippet actions()}
 								<ActionMenu label={`Actions for ${attentionTitle(item)}`}>
 									<a href={href(item.id)}>Open</a>
-									{#if canDiscuss(item)}<a
-											href={`${href(item.id)}&conversation=${encodeURIComponent(item.id)}`}
-											>Discuss <kbd>C</kbd></a
-										>{/if}
+									<button onclick={() => askExecAboutItem(companyId, item)}
+										>Ask Exec about this <kbd>C</kbd></button
+									>
 									{#if canComplete(item)}<button disabled={!!completing} onclick={() => done(item)}
 											>{completing === item.id ? 'Recording…' : 'Mark done'} <kbd>E</kbd></button
 										>{/if}

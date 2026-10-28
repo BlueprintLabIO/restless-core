@@ -44,7 +44,6 @@
 <div class="inbox-preview" aria-label="Inbox preview">
 	{#if target.kind === 'file' || target.kind === 'path' || target.kind === 'upload'}
 		<LibraryFilePreview
-			showDiscuss={false}
 			{companyId}
 			{artifacts}
 			{backHref}

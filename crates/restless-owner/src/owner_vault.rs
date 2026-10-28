@@ -44,6 +44,16 @@ fn company_secret_reference(company: &str, reference: &str) -> bool {
     })
 }
 
+fn valid_secret_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name != "."
+        && name != ".."
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
 pub(super) async fn store_secret(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
@@ -89,8 +99,8 @@ pub(super) async fn store_secret(
         return store_and_confirm(reference, &input.secret, None).await;
     }
 
-    let binding = input.binding.trim();
-    if binding.is_empty() || binding.starts_with("model.inference") {
+    let binding = credential::canonical_binding(&input.binding);
+    if !valid_secret_name(binding) || binding.starts_with("model.inference") {
         return api_error(
             StatusCode::BAD_REQUEST,
             "vault_binding",
@@ -111,11 +121,11 @@ pub(super) async fn store_secret(
         && binding.len() <= 64
         && binding
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
     {
         format!("infisical:/companies/{company}/{binding}")
     } else {
-        return api_error(StatusCode::BAD_REQUEST, "vault_binding", "Choose a connection, or name a new secret using letters, numbers, underscores and hyphens.");
+        return api_error(StatusCode::BAD_REQUEST, "vault_binding", "Choose a connection, or name a new secret using letters, numbers, dots, underscores and hyphens.");
     };
     let new_binding = !config.credentials.contains_key(binding);
     let prefix = format!("infisical:/companies/{company}/");
@@ -129,7 +139,7 @@ pub(super) async fn store_secret(
     if secret_name.is_empty()
         || !secret_name
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
     {
         return api_error(
             StatusCode::BAD_REQUEST,
@@ -154,6 +164,138 @@ pub(super) async fn store_secret(
         return stored;
     }
     store_and_confirm(&reference, &input.secret, Some(binding)).await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RenameSecretInput {
+    reference: String,
+    name: String,
+    revision: String,
+}
+
+/// Keep the old value until every consumer points at the confirmed new copy. An interrupted
+/// rename can leave an unbound copy, but cannot strand a consumer with a deleted credential.
+pub(super) async fn rename_secret(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<RenameSecretInput>,
+) -> Response {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "vault",
+            "Only the owner can change the vault.",
+        );
+    }
+    let name = credential::canonical_binding(&input.name);
+    if !company_secret_reference(&company, &input.reference)
+        || !valid_secret_name(name)
+        || name.starts_with("model.inference")
+    {
+        return api_error(StatusCode::BAD_REQUEST, "vault_reference", "Choose a company secret and a name using letters, numbers, dots, underscores and hyphens.");
+    }
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    if company_setup_view(&config)["revision"].as_str() != Some(input.revision.as_str()) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "vault_revision",
+            "Company settings changed. Refresh the Vault and try again.",
+        );
+    }
+    let consumers: Vec<String> = config
+        .credentials
+        .iter()
+        .filter(|(_, reference)| **reference == input.reference)
+        .map(|(binding, _)| binding.clone())
+        .collect();
+    if consumers
+        .iter()
+        .any(|binding| binding.starts_with("model.inference") || binding.starts_with("finance."))
+        || config.native_harnesses.values().any(|connection| {
+            connection.credential_reference.as_deref() == Some(input.reference.as_str())
+        })
+    {
+        return api_error(StatusCode::CONFLICT, "vault_in_use", "This connection requires a fixed secret location. Replace its value here or change the connection in its settings.");
+    }
+    let (directory, _) = input
+        .reference
+        .rsplit_once('/')
+        .expect("validated company reference");
+    let destination = format!("{directory}/{name}");
+    if destination == input.reference {
+        return no_store(Json(
+            serde_json::json!({"renamed":true,"cleanup_pending":false}),
+        ));
+    }
+    if config
+        .credentials
+        .get(name)
+        .is_some_and(|reference| reference != &input.reference)
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "vault_exists",
+            "That name is already used by another connection. Choose another name.",
+        );
+    }
+    match credential::probe_reference(&destination).await.status {
+        credential::ProbeStatus::Absent => {}
+        credential::ProbeStatus::Present => {
+            return api_error(
+                StatusCode::CONFLICT,
+                "vault_exists",
+                "A secret with that name already exists. Choose another name.",
+            )
+        }
+        credential::ProbeStatus::Invalid => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "vault",
+                "Could not check the destination in the Vault. Try again.",
+            )
+        }
+    }
+    let value = match credential::resolve_reference(&input.reference).await {
+        Ok(value) => value,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "vault",
+                "Could not read the secret to rename it. Refresh the Vault and try again.",
+            )
+        }
+    };
+    let stored = store_and_confirm(&destination, &value, None).await;
+    if !stored.status().is_success() {
+        return stored;
+    }
+    for reference in config.credentials.values_mut() {
+        if *reference == input.reference {
+            *reference = destination.clone();
+        }
+    }
+    // Consumers keep their binding names while the row's name and storage location change.
+    config
+        .credentials
+        .insert(name.to_string(), destination.clone());
+    if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
+        let _ = credential::delete_reference(&destination).await;
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "vault",
+            "The rename could not be saved. The original secret and its connections are unchanged.",
+        );
+    }
+    let cleanup_pending = !credential::delete_reference(&input.reference).await;
+    no_store(Json(
+        serde_json::json!({"renamed":true,"cleanup_pending":cleanup_pending}),
+    ))
 }
 
 /// Store the value where the reference points, and answer only once Infisical confirms it.
@@ -242,6 +384,9 @@ pub(super) async fn delete_secret(
     if unbound
         .iter()
         .any(|name| name.starts_with("model.inference"))
+        || config.native_harnesses.values().any(|connection| {
+            connection.credential_reference.as_deref() == Some(input.reference.as_str())
+        })
     {
         return api_error(
             StatusCode::CONFLICT,
@@ -271,7 +416,15 @@ pub(super) async fn delete_secret(
 
 #[cfg(test)]
 mod tests {
-    use super::company_secret_reference;
+    use super::{company_secret_reference, valid_secret_name};
+
+    #[test]
+    fn vault_names_accept_service_bindings_but_never_paths() {
+        assert!(valid_secret_name("resend.production"));
+        for name in ["", ".", "..", "../other", "mail/key", "a b"] {
+            assert!(!valid_secret_name(name), "{name}");
+        }
+    }
 
     #[test]
     fn only_this_companys_vault_secrets_can_be_changed_by_reference() {

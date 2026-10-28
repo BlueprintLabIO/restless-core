@@ -1684,6 +1684,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(owner_vault::delete_secret),
         )
         .route(
+            "/companies/{company}/vault/secret/rename",
+            post(owner_vault::rename_secret),
+        )
+        .route(
             "/companies/{company}/intelligence/{actor}",
             axum::routing::put(update_agent_intelligence),
         )
@@ -13842,7 +13846,7 @@ async fn intelligence_view(
             connections.iter().any(|row|row["id"]==format!("direct:{provider}")).then(||serde_json::json!({"connection":format!("direct:{provider}"),"model":model}))
         };
         let known=natives.iter().all(|row|!matches!(row["auth"]["state"].as_str(),Some("unavailable"|"checking"))) && providers["connections"].as_array().into_iter().flatten().all(|row|row["credential_status"]!="invalid");
-        Ok(serde_json::json!({"revision":company_setup_view(&config)["revision"],"default":config.agent_intelligence.get("default"),"base_default":base_default,"has_connections": if connections.is_empty() && !known {serde_json::Value::Null} else {serde_json::Value::Bool(!connections.is_empty())},"connections":connections,"agents":agents}))
+        Ok(serde_json::json!({"revision":company_setup_view(&config)["revision"],"default":config.agent_intelligence.get("default"),"base_default":base_default,"company_issue":crate::company::observed_company_model_issue(&config).await,"has_connections": if connections.is_empty() && !known {serde_json::Value::Null} else {serde_json::Value::Bool(!connections.is_empty())},"connections":connections,"agents":agents}))
     }.await;
     match result {
         Ok(value) => Json(value).into_response(),

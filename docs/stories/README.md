@@ -216,4 +216,9 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | --- | --- | --- | --- | --- |
 | US-354 | core | I open Work on the board, and can choose List and reload that view. | S109 G1 | frontend check passed; real seeded browser journey pending |
 | US-355 | core | I focus and type in chat without keyboard hints appearing over my messages; shortcuts live on Send. | S109 C3 | frontend check passed; focus/typing geometry journey pending |
-| US-356 | core | Saving a key gives a temporary confirmation and leaves the Vault calm. | S109 C5 | frontend check passed; real Vault save and toast expiry pending |
+| US-356 | core | Saving a key gives a temporary confirmation and leaves the Vault calm. | S109 C5 | real isolated Vault save and toast expiry observed |
+| US-357 | core | I see the selected agent's model state consistently and know before sending when a reply must wait. | S109 A1 | shared route regressions; live route and role matrix pending |
+| US-358 | core | The key I supplied is used by the email integration, and I can rename it without breaking its consumers. | S109 A2 | real Vault create/rename/edit/value/collision/scope round trip; browser Rename form |
+| US-359 | core | Asking Exec about an Inbox item keeps our conversation and links the item into it. | S109 B1 | real linked draft and legacy item-chat route readback |
+| US-360 | core | Exec answers plainly without a repeated opener or ritual closing line. | S109 D1/D2 | five identical Reno prompt replays through the real model broker; retained replies and rubric |
+| US-361 | core | A step brings its prepared computer or explains why it is unavailable instead of leaving an empty area. | S109 A5 | real missing-attachment DNS handoff; attached computer and roles pending |

@@ -33,7 +33,6 @@
 		type OpenedFile
 	} from '$lib/model/library-files';
 	import { failureSentence } from '$lib/model/failure';
-	import { askExec } from '$lib/model/ask-exec';
 	import { namePageContext } from '$lib/model/page-context.svelte';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
 	import TextPreview from '$lib/primitives/TextPreview.svelte';
@@ -45,7 +44,6 @@
 		owner,
 		backHref,
 		backLabel = 'Back to the Library',
-		showDiscuss = true,
 		resolve = null,
 		convert = null
 	}: {
@@ -54,7 +52,6 @@
 		owner: string;
 		backHref: string;
 		backLabel?: string;
-		showDiscuss?: boolean;
 		/** Where this file is read from, when it is not a Work file the gateway opens by id. */
 		resolve?: (() => Promise<string | OpenedFile>) | null;
 		/** Make this Word, Excel or CSV file an editable document or sheet, when it can be one. */
@@ -98,7 +95,9 @@
 		total = 0;
 		void (
 			resolve
-				? resolve().then((answer): OpenedFile => (typeof answer === 'string' ? { url: answer } : answer))
+				? resolve().then((answer): OpenedFile =>
+						typeof answer === 'string' ? { url: answer } : answer
+					)
 				: openLibraryFile(companyId, which)
 		)
 			.then((next) => {
@@ -158,14 +157,6 @@
 		}
 		clearTimeout(linkTimer);
 		linkTimer = setTimeout(() => (linkCopied = 'idle'), 1600);
-	}
-
-	/* The draft links the file, as Discuss on a document or sheet does, so Exec knows which one. */
-	function discuss() {
-		const href = resolve
-			? `${location.pathname}${location.search}`
-			: libraryFileHref(companyId, file);
-		askExec(`[${file.label.replace(/[[\]]/gu, '')}](${href}) `);
 	}
 
 	/* ---------- the slideshow ---------- */
@@ -262,12 +253,6 @@
 				onclick={() => void runConvert()}>{converting ? 'Importing…' : convert.label}</button
 			>
 		{/if}
-		{#if showDiscuss}<button
-				class="btn small discuss"
-				type="button"
-				title="Talk it through with Exec, with this file alongside"
-				onclick={discuss}>Discuss</button
-			>{/if}
 		{#if url && !isDownload}
 			<a
 				class="btn small icon"

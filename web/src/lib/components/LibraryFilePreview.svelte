@@ -28,8 +28,7 @@
 		uploadId = '',
 		artifacts = [],
 		backHref,
-		backLabel = 'Back to Inbox item',
-		showDiscuss = true
+		backLabel = 'Back to Inbox item'
 	}: {
 		companyId: string;
 		fileId?: string;
@@ -38,7 +37,6 @@
 		artifacts?: readonly LibraryArtifact[];
 		backHref: string;
 		backLabel?: string;
-		showDiscuss?: boolean;
 	} = $props();
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const owner = $derived(hasOwnerSurfaceAccess(principal.view));
@@ -135,7 +133,7 @@
 </script>
 
 {#if file}
-	<LibraryViewer {companyId} {file} {resolve} {backHref} {backLabel} {showDiscuss} owner="" />
+	<LibraryViewer {companyId} {file} {resolve} {backHref} {backLabel} owner="" />
 {:else}
 	<div class="file-state">
 		<a href={backHref}>{backLabel}</a>

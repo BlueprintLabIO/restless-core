@@ -192,7 +192,8 @@ Worktree: `/home/yail/code/work/slot-3`, branch `feat/sprint-109` from origin/ma
 - WSL intermittently refused new process connections with WSAETIMEDOUT; subsequent minimal probes
   succeeded. No WSL restart or stable-appliance change was performed.
 - No deployment or full-sprint completion claimed. Checklist remains open until its complete
-  acceptance evidence, including admin/member and production smoke, exists.- A3 named Rust regression passed: `preparing_handoff_has_no_external_human_step_and_stable_title`
+  acceptance evidence, including admin/member and production smoke, exists.
+- A3 named Rust regression passed: `preparing_handoff_has_no_external_human_step_and_stable_title`
   (1 passed). This checks preparation-title behavior; DNS action-title projection still needs a
   real handoff smoke and is not complete from this test alone.
 - C6: stacked rows now reserve the menu width beside the time; deleted the hover-time hiding and
@@ -200,3 +201,58 @@ Worktree: `/home/yail/code/work/slot-3`, branch `feat/sprint-109` from origin/ma
 - The development host stack and the two sprint109_test company containers were stopped after the
   smoke. Seeded test data and its stopped volumes are retained for the next acceptance pass.
   The shared dev Vault/database belong to the existing slot profile and were not removed.
+### Second implementation pass, 28 October
+
+- A2: one canonical Resend sending binding; legacy config names migrate at read and are persisted
+  on save. Vault accepts dotted names and has Rename beside Replace value. Copy-confirm-rebind-
+  delete preserves values and consumers; fixed model/finance references cannot be moved. Failed
+  cleanup leaves the old unbound value visible rather than losing the live key.
+- A2 real Authority/Infisical round trip passed (`web/scripts/verify-vault-renames.mjs`): canonical
+  create, exact value preserved across rename, exact replacement, updated sending reference,
+  idempotent same-name rename, collision/stale revision/foreign-path refusal and synthetic cleanup.
+  The real browser create and Rename form also succeeded; the row and its consumers updated.
+- A1: rail and chip share the selected actor's route calculation. The intelligence API includes
+  the observed Exec admission issue used by Doctor; it no longer disables another lead's available
+  route. Stop is withheld when a route is unavailable. A reserved line says before sending that
+  the message will wait. Missing/starting/Exec-vs-lead route regressions pass. Live native/cooldown
+  cases and the complete role matrix remain open.
+- B1: Inbox Ask Exec creates a linked draft in the general chat. Legacy item links were opened in
+  the real browser: the general Exec history and composer remained. Removed item-scoped query/send
+  coordinates, inline Discuss toggles, scoped navigation helper, and document/sheet/file Discuss
+  toolbars. Ordinary author-directed answers retain their recipient.
+- B5: Skip moved into More. C6 real browser geometry: time stayed visible at x=245.75,
+  y=235.09375 before/after opening its row menu. No label swap or movement was observed.
+- A3 real DNS handoff projection passed: a synthetic identity-category handoff was refreshed through
+  the daemon with action "Add the concepts DNS record at GoDaddy"; Attention returned that exact
+  title instead of the category title.
+- A5: every rendered inline computer attempts to show the prepared desktop; absent attachments show
+  a fixed-size explanation rather than an empty area. The DNS fixture exposed the exact missing-
+  attachment refusal. The owner API wording was then made readable; final real-attachment and role
+  cases remain open.
+- D1/D2: simplified the reply prompt; retained all three real-inference replay outputs. Final
+  comparison: 175 to 161 visible words (8% fewer), snapshot facts preserved in 5/5 cases, routine
+  no-email statements 3 to 1, Needs you callouts 2 to 0, supplied destinations correct in 2/2.
+  The first shortened draft invented two unusable links; the retained evidence shows the correction.
+  See `evidence/reply-comparison.md`. This is a five-case writing replay, not production execution.
+- Rust checks passed: binding migration (1), typed-send alias guard (1), Vault scope/name boundaries
+  (2), and context/audience/authority tests (19). Seven route/preview frontend regressions passed.
+  Frontend diagnostics returned zero errors/warnings before the final small markup changes.
+- Fresh isolated profile `/home/yail/.restless-dev/sprint109`, namespace sprint109, offset 15433:
+  Doctor passed all boundaries, including Documents. The earlier document failure was avoided by
+  provisioning an isolated profile rather than reusing the slot's historical company state.
+- Work, People chat and Vault captures passed at 1440/390 (`/tmp/sprint109-pass2-surfaces`). Motion
+  passed opening/return at latest (0px gaps) and streaming (770px width before/after, 286 samples).
+- Wider Inbox footer checks, admin/member browser checks, remaining tracks, debt removal, main
+  integration, deployment and production smoke remain required. The full checklist is unchanged.
+
+### Second pass verification completed
+
+- `verify-inbox-actions.mjs`: all 24 combinations passed (six card kinds at four desktop/phone
+  and short-height sizes). More contains Skip; declining and charter editing remain usable.
+  Evidence: `/tmp/sprint109-inbox-actions`.
+- Multiplayer browser journey passed with owner, admin and member, including concurrent native
+  documents, invitations, role changes/revocation and owner-only Vault create/rename/delete.
+  Evidence: `/tmp/sprint109-roles-02/journey.log`. The runner confirmed removal of its containers,
+  volume, databases and roles. This proves the named scenarios, not every sprint requirement.
+- Final frontend diagnostics returned zero errors/warnings; frontend production build and local
+  daemon/CLI build passed. Production deployment and the remaining sprint checklist are still open.

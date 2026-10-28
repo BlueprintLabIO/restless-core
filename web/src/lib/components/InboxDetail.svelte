@@ -10,8 +10,7 @@
 	 * a note that reaches the company with the decision. Files the item points
 	 * at open alongside the decision in Inbox. Context and the rest of the evidence are folded
 	 * away until asked for. */
-	import { page } from '$app/state';
-	import { inboxDiscussionHref } from '$lib/model/inbox-preview';
+	import { askExecAboutItem } from '$lib/model/ask-exec';
 	import { decideEmailMandateProposal } from '$lib/model/company-actions';
 	import { decidePayee } from '$lib/model/company';
 	import { authorizePublication, stopPublication } from '$lib/model/publications';
@@ -50,7 +49,12 @@
 	import InlineSpendLimit from './inbox/InlineSpendLimit.svelte';
 	import InlineDesktop from './inbox/InlineDesktop.svelte';
 	import { provideCardActions } from './inbox/card-actions.svelte';
-	import { habitLine, PROPOSAL_HOMES, settingHome, type SettingHome } from '$lib/model/setting-homes';
+	import {
+		habitLine,
+		PROPOSAL_HOMES,
+		settingHome,
+		type SettingHome
+	} from '$lib/model/setting-homes';
 	import { inlineHabit, noteInlineAnswer } from '$lib/model/inline-habits';
 	import InlineBrandDrift from './inbox/InlineBrandDrift.svelte';
 	import InlineMachine from './inbox/InlineMachine.svelte';
@@ -59,7 +63,6 @@
 	import InlineSettingProposal from './inbox/InlineSettingProposal.svelte';
 	import InlineSettingMore from './inbox/InlineSettingMore.svelte';
 	import {
-		discussInbox,
 		appRequestHandoffs,
 		copyInboxLink,
 		inboxMarksKey,
@@ -122,9 +125,6 @@
 	} = $props();
 
 	const client = useQueryClient();
-	const discussionHref = $derived(inboxDiscussionHref(page.url, companyId, item.id));
-	/* Working something through with the agent happens in the card, not on another page (S101). */
-	let discussing = $state(false);
 	const asker = $derived(attentionAsker(item));
 	const askerId = $derived(item.responsibleActor?.id ?? item.briefAuthor?.id ?? 'exec');
 	const conversationHref = $derived(
@@ -220,14 +220,18 @@
 		);
 	}
 	const humanStep = $derived(action('complete-human-step'));
-	const discuss = $derived(item.actions.some((candidate) => candidate.id === 'chat-lead'));
 	const documentRequest = $derived(
 		item.source.kind === 'document_collaboration' || item.source.kind === 'document_review'
 	);
 	/* Cards whose task the card itself does (S101): their links out are not shown. */
 	const SITE_ASK =
 		/company browser|shared desktop|https?:\/\/|\b[a-z0-9-]+\.(?:com|net|org|io|co|au|nz|uk)\b|\b(?:sign|log) in\b|\bregister\b|\bpay\b|\bcheckout\b/i;
-	const MODEL_KINDS = ['model_cooldown', 'account_headroom', 'exec_startup_blocked', 'agent_model_unavailable'];
+	const MODEL_KINDS = [
+		'model_cooldown',
+		'account_headroom',
+		'exec_startup_blocked',
+		'agent_model_unavailable'
+	];
 	const SPEND_KINDS = ['spend_warning', 'spend_stopped'];
 	const modelSurface = $derived(
 		MODEL_KINDS.includes(item.source.kind) || !!action('open-intelligence-provider')
@@ -249,7 +253,12 @@
 			: ['Fix it and retry', 'Drop it']
 	);
 	const navigation = $derived(
-		modelSurface || spendSurface || driftSurface || machineSurface || reconnectSurface || startSurface
+		modelSurface ||
+			spendSurface ||
+			driftSurface ||
+			machineSurface ||
+			reconnectSurface ||
+			startSurface
 			? []
 			: item.actions.filter(
 					(candidate) =>
@@ -484,7 +493,8 @@
 		if (modelSurface) return settingHome(companyId, 'intelligence');
 		if (driftSurface) return settingHome(companyId, 'brand', { id: item.source.reference });
 		if (machineSurface || startSurface) return settingHome(companyId, 'computer');
-		if (reconnectSurface || item.accountRequest || appRequest) return settingHome(companyId, 'accounts');
+		if (reconnectSurface || item.accountRequest || appRequest)
+			return settingHome(companyId, 'accounts');
 		if (
 			(item.source.kind === 'conversation_owner_need' || item.source.kind === 'teammate_message') &&
 			item.responsibleActor
@@ -654,16 +664,14 @@
 </script>
 
 {#snippet secondaryActions()}
-	{#if byHandoff || canSetAside}<button
-			type="button"
-			class="btn ghost small dismiss"
-			disabled={acting || markingDone}
-			title={`${skipWho} carries on without it. You can undo.`}
-			onclick={() => void skip()}>Skip</button
-		>{/if}
 	<ActionMenu label="More">
-		{#if discuss}<a href={discussionHref} onclick={(event) => void discussInbox(event)}>Discuss</a
+		{#if byHandoff || canSetAside}<button
+				type="button"
+				disabled={acting || markingDone}
+				title={`${skipWho} carries on without it. You can undo.`}
+				onclick={() => void skip()}>Skip</button
 			>{/if}
+		<button onclick={() => askExecAboutItem(companyId, item)}>Ask Exec about this</button>
 		<a href={conversationHref}>Open conversation with {asker}</a>
 		{#if item.workId}<a
 				href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
@@ -743,9 +751,7 @@
 							/>{/if}
 						{#if item.accountRequest && !canPassToOwner && !item.preparing}
 							<!-- The owner's form below carries the kind and abilities; only the why stays. -->
-							{@const why = item.accountRequest.reason
-								.replace(/\s*\bsite:\s*\S+\s*/i, ' ')
-								.trim()}
+							{@const why = item.accountRequest.reason.replace(/\s*\bsite:\s*\S+\s*/i, ' ').trim()}
 							{#if why}<p class="account-request"><q>{why}</q></p>{/if}
 						{:else if item.accountRequest}
 							<p class="account-request">
@@ -801,7 +807,7 @@
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
-<!-- A task on a site: the computer first, the conversation beside it shorter. -->
+						<!-- A task on a site: the computer first, the conversation beside it shorter. -->
 						{#if siteAsk && !desktopSurface}{#key item.id}<InlineDesktop
 									{companyId}
 									itemId="runtime-rescue"
@@ -816,13 +822,6 @@
 								answers={item.ownerReplies}
 								fields={fields.map((field) => ({ id: field.id, label: field.label }))}
 								ondone={(receipt) => void completedInline(receipt)}
-							/>{/if}
-						<!-- Discussing keeps the card's own decision in the footer; the talk is the People thread. -->
-						{#if discussing && item.source.kind !== 'conversation_owner_need' && item.source.kind !== 'teammate_message'}<InlineConversation
-								{companyId}
-								actorId={askerId}
-								actorName={asker}
-								workId={item.workId}
 							/>{/if}
 						{#if modelSurface}<InlineModel
 								{companyId}
@@ -840,13 +839,13 @@
 						{#if item.settingProposal && ['model', 'schedule', 'notifications'].includes(item.settingProposal.setting)}<InlineSettingMore
 								{companyId}
 								proposal={item.settingProposal}
-								asker={asker}
+								{asker}
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{:else if item.settingProposal}<InlineSettingProposal
 								{companyId}
 								proposal={item.settingProposal}
-								asker={asker}
+								{asker}
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
@@ -898,7 +897,8 @@
 						{#if home && !item.preparing}
 							{@const nudge = habit >= 3 ? habitLine(home, habit) : null}
 							<p class="home">
-								{#if nudge}{nudge.before}<a href={home.href}>{home.label}</a>{nudge.after}{:else}Also in
+								{#if nudge}{nudge.before}<a href={home.href}>{home.label}</a
+									>{nudge.after}{:else}Also in
 									<a href={home.href}>{home.label}</a>{/if}
 							</p>
 						{/if}
@@ -1113,12 +1113,7 @@
 						: 'Write your answer first'}
 					onclick={sendReply}>{acting ? 'Sending…' : 'Send'}</button
 				>
-				{#if discuss}<button
-						class="btn small ghost"
-						type="button"
-						aria-expanded={discussing}
-						onclick={() => (discussing = !discussing)}>Discuss</button
-					>{/if}
+
 				<span class="hint" title={`Goes to ${recipient} as a message in your conversation`}
 					>To {recipient} · ⌘ ↵</span
 				>
@@ -1147,7 +1142,9 @@
 							disabled={!!cardSlot.busy || extra.disabled}
 							title={extra.title}
 							onclick={() => void cardSlot.invoke(extra)}
-							>{cardSlot.busy === extra.label ? (extra.busyLabel ?? extra.label) : extra.label}</button
+							>{cardSlot.busy === extra.label
+								? (extra.busyLabel ?? extra.label)
+								: extra.label}</button
 						>{/each}
 					{#if !primary}
 						<!-- Equal choices, none recommended over another. -->
@@ -1386,12 +1383,6 @@
 							>{navigation[1].label}</a
 						>{/if}
 				{/if}
-				{#if discuss && !humanStep}<button
-						class="btn small ghost"
-						type="button"
-						aria-expanded={discussing}
-						onclick={() => (discussing = !discussing)}>Discuss</button
-					>{/if}
 			</div>
 		{/if}
 	</AttentionFooter>
