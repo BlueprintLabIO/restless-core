@@ -344,3 +344,12 @@ Worktree: `/home/yail/code/work/slot-3`, branch `feat/sprint-109` from origin/ma
 - H layouts are prepared and exercised at 1024/390/320; owner review is still pending. The local
   appliance has no Reno company, so the original Reno production target remains requested. The
   full goal stays active; these deployments do not establish completion of the entire sprint.
+
+### Signed Core and Cloud delivery, 29 October
+
+The identity patch and steady document surface are merged and deployed on Core bec616403890.
+The live owner plane reports that exact source, healthy, desired/applied revision 120/120; all six
+company runtime outcomes are current. Cloud public health and canonical redirects passed.
+See [release-29-oct.md](sprint-109/release-29-oct.md) for signed bundle identities, local role and
+browser checks, deployment evidence, cleanup and the remaining private Reno browser verification.
+The full sprint checklist remains open.
