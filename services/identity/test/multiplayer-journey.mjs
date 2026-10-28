@@ -920,6 +920,16 @@ try {
   await steadyEntry(owner, "owner");
   pass("the cockpit appears once, settled, for the owner and a member");
 
+  await owner.page.goto(`${core}/${company}?filter=all`);
+  await owner.page.getByRole("region", { name: "Skipped items", exact: true }).waitFor({ timeout: 15000 });
+  await owner.page.getByRole("region", { name: "Done items", exact: true }).waitFor({ timeout: 15000 });
+  await owner.page.locator('.inbox-head summary[aria-label="Filter Inbox: All"]').waitFor();
+  await alice.page.goto(`${core}/${company}?filter=all`);
+  await alice.page.getByRole("heading", { name: "Inbox", exact: true, level: 1 }).waitFor({ timeout: 15000 });
+  assert.equal(await alice.page.locator('.inbox-head summary[aria-label^="Filter Inbox:"]').count(), 0);
+  assert.equal(await alice.page.locator('.inbox-history, .set-aside').count(), 0, "the member never loads owner decision lists");
+  pass("the owner filters Open, Skipped, Done and All; a member never loads owner history or skipped lists");
+
   // 9h. An admin runs the day to day: the owner makes Bob an admin from Members. His screens,
   //     Company settings included, make no request he is refused; a member who tries what an
   //     admin may do is told who may.

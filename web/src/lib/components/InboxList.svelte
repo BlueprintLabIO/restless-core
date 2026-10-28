@@ -13,6 +13,7 @@
 	import Eye from '@lucide/svelte/icons/eye';
 	import GitPullRequest from '@lucide/svelte/icons/git-pull-request';
 	import Hand from '@lucide/svelte/icons/hand';
+	import ListFilter from '@lucide/svelte/icons/list-filter';
 	import MessageCircle from '@lucide/svelte/icons/message-circle';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
@@ -22,6 +23,7 @@
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import SetAsideList from './SetAside.svelte';
+	import InboxHistory from './InboxHistory.svelte';
 	import SnoozeChoices from './SnoozeChoices.svelte';
 	import {
 		appRequestHandoffs,
@@ -83,6 +85,15 @@
 	const client = useQueryClient();
 	/* Beside the decisions: mentions, replies, shares and changes to what the owner follows. */
 	const forYou = useForYou();
+	const filter = $derived(page.url.searchParams.get('filter') ?? 'open');
+	const showOpen = $derived(!canSetAside || !['skipped', 'done'].includes(filter));
+	function setFilter(value: string) {
+		const url = new URL(page.url);
+		if (value === 'open') url.searchParams.delete('filter');
+		else url.searchParams.set('filter', value);
+		for (const key of ['item', 'review', 'update']) url.searchParams.delete(key);
+		void goto(url, { keepFocus: true, noScroll: true });
+	}
 
 	let showSnoozed = $state(false);
 	/* The Today line's "requests waiting" shows only those requests until it is pressed again. */
@@ -112,7 +123,7 @@
 	const snoozedCount = $derived(items.filter((item) => snoozedUntil(item) > clock).length);
 	const visible = $derived(
 		inboxOrder(
-			items.filter(
+			(showOpen ? items : []).filter(
 				(item) =>
 					(showSnoozed || snoozedUntil(item) <= clock) && (!requestsOnly || !!item.directionRequest)
 			)
@@ -223,7 +234,7 @@
 		});
 	}
 
-	const feed = $derived(inboxFeed(visible, requestsOnly ? [] : (forYou?.items ?? [])));
+	const feed = $derived(inboxFeed(visible, !showOpen || requestsOnly ? [] : (forYou?.items ?? [])));
 	function keyboard(event: KeyboardEvent) {
 		if (
 			event.defaultPrevented ||
@@ -303,6 +314,14 @@
 	<header class="inbox-head">
 		<h2>Inbox</h2>
 		<span class="spacer"></span>
+		{#if canSetAside}
+			<ActionMenu label={`Filter Inbox: ${filter === 'open' ? 'Open' : filter === 'skipped' ? 'Skipped' : filter === 'done' ? 'Done' : 'All'}`}>
+				{#snippet trigger()}<ListFilter size={16} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+				{#each ['open', 'skipped', 'done', 'all'] as value}
+					<button aria-pressed={filter === value} onclick={() => setFilter(value)}>{value[0].toUpperCase() + value.slice(1)}</button>
+				{/each}
+			</ActionMenu>
+		{/if}
 		<ActionMenu label="Inbox options">
 			<button onclick={() => (showSnoozed = !showSnoozed)} disabled={!snoozedCount && !showSnoozed}
 				>{showSnoozed
@@ -327,13 +346,13 @@
 			>
 		</ActionMenu>
 	</header>
-	<DirectionToday
+	<div>{#if showOpen}<DirectionToday
 		{companyId}
 		{requestsOnly}
 		onrequests={(only) => {
 			requestsOnly = only;
 		}}
-	/>
+	/>{/if}</div>
 
 	<div class="inbox-list">
 		{#if failure && !loaded}
@@ -412,7 +431,7 @@
 				</div>
 			{/each}
 		</div>
-		{#if loaded && !feed.length && !(coordination && !items.length)}
+		{#if showOpen && loaded && !feed.length && !(coordination && !items.length)}
 			<p class="empty">
 				{requestsOnly
 					? 'No requests waiting on you.'
@@ -423,15 +442,18 @@
 		{:else if !loaded && !failure}
 			<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
 		{/if}
-		{#if canSetAside}<div class="set-aside-slot">
-				<SetAsideList {companyId} version={items.length} />
-			</div>{/if}
-		{#if forYou?.failure}<p class="empty">
+		{#if canSetAside && (filter === 'skipped' || filter === 'all')}
+			<SetAsideList {companyId} version={items.length} />
+		{/if}
+		{#if canSetAside && (filter === 'done' || filter === 'all')}
+			<InboxHistory {companyId} version={items.length} />
+		{/if}
+		{#if showOpen && forYou?.failure}<p class="empty">
 				Updates could not be read. <button type="button" onclick={() => forYou?.refresh()}
 					>Try again</button
 				>
 			</p>{/if}
-		{#if forYou?.hasMore}<button
+		{#if showOpen && forYou?.hasMore}<button
 				type="button"
 				class="btn small ghost"
 				disabled={forYou.loadingMore}
@@ -441,11 +463,6 @@
 </div>
 
 <style>
-	.set-aside-slot {
-		display: grid;
-		justify-items: start;
-		margin: 12px 8px 8px;
-	}
 	.inbox {
 		display: grid;
 		grid-template-rows: auto auto minmax(0, 1fr);

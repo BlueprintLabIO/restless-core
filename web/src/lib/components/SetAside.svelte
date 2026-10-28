@@ -1,5 +1,5 @@
 <script lang="ts">
-	/* What the owner skipped as not needed: one quiet fold, out of the way, each item restorable,
+	/* What the owner skipped as not needed: the filtered Inbox list, each item restorable,
 	 * with who asked and when it was skipped. The gateway drops items whose request has gone
 	 * away, so what is listed can come back. A list that cannot be read says so. */
 	import { useQueryClient } from '@tanstack/svelte-query';
@@ -17,6 +17,7 @@
 	let message = $state('');
 	let stale = $state('');
 	let query = $state('');
+	let loaded = $state(false);
 	const cockpit = cockpitQuery(() => companyId);
 	const asker = (entry: SetAside) =>
 		entry.responsible_actor
@@ -25,7 +26,7 @@
 			: '';
 	const shown = $derived(keep(items, query, (entry) => [entry.title, asker(entry)]));
 
-	/* The company whose items are listed; the fold is reused across a company switch. */
+	/* The company whose items are listed; the component is reused across a company switch. */
 	let listedFor = '';
 	async function load() {
 		const company = companyId;
@@ -33,6 +34,7 @@
 			items = [];
 			message = '';
 			stale = '';
+			loaded = false;
 			listedFor = company;
 		}
 		try {
@@ -40,6 +42,7 @@
 			if (company !== companyId) return;
 			items = fresh;
 			stale = '';
+			loaded = true;
 		} catch (cause) {
 			if (company !== companyId) return;
 			/* Keep what was listed, and say plainly that the list could not be read. */
@@ -71,11 +74,8 @@
 	}
 </script>
 
-{#if items.length || message || stale}
-	<details class="set-aside">
-		<summary title="Items you skipped. Restore one to bring it back."
-			>Skipped{#if items.length}<span>{items.length}</span>{/if}</summary
-		>
+	<section class="set-aside" aria-label="Skipped items">
+		<h3>Skipped{#if items.length}<span>{items.length}</span>{/if}</h3>
 		{#if message || stale}<p class="set-aside-message" role="status">
 				{message || stale}
 				{#if stale && !message}<button
@@ -109,27 +109,23 @@
 				>
 			</div>
 		{/each}
-	</details>
-{/if}
+		{#if !items.length && !stale}<p class="set-aside-message">{loaded ? 'No skipped items.' : 'Reading skipped items…'}</p>{/if}
+	</section>
 
 <style>
 	.set-aside {
+		min-width: 0;
+		padding: 4px 4px 12px;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.set-aside summary {
+	.set-aside h3 {
+		margin: 0;
+		font: inherit;
 		padding: 6px 8px;
 		border-radius: var(--radius-control);
-		cursor: pointer;
-		list-style: none;
 	}
-	.set-aside summary::-webkit-details-marker {
-		display: none;
-	}
-	.set-aside summary:hover {
-		background: var(--wash-hover);
-	}
-	.set-aside summary span {
+	.set-aside h3 span {
 		margin-left: 4px;
 		font-variant-numeric: tabular-nums;
 	}

@@ -222,3 +222,5 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | US-359 | core | Asking Exec about an Inbox item keeps our conversation and links the item into it. | S109 B1 | real linked draft and legacy item-chat route readback |
 | US-360 | core | Exec answers plainly without a repeated opener or ritual closing line. | S109 D1/D2 | five identical Reno prompt replays through the real model broker; retained replies and rubric |
 | US-361 | core | A step brings its prepared computer or explains why it is unavailable instead of leaving an empty area. | S109 A5 | real missing-attachment DNS handoff; attached computer and roles pending |
+| US-362 | core | I filter the Inbox to Open, Skipped, Done or All, and can restore a skipped item without opening a clipped drawer. | S109 B4 | desktop/phone filter and real restore journey; eight captures; authenticated owner/member boundary |
+| US-363 | core | Empty Work columns take less space and long card titles stay compact, with their full title available. | S109 G4 | desktop/phone captures; measured empty/populated column widths and two-line title geometry |
