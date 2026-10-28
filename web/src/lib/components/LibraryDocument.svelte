@@ -9,6 +9,7 @@
 	import { goto as routeGoto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+	import Archive from '@lucide/svelte/icons/archive';
 	import BookOpen from '@lucide/svelte/icons/book-open';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import Lock from '@lucide/svelte/icons/lock';
@@ -64,9 +65,11 @@
 	let {
 		surfaceUrl,
 		onnavigate,
+		backHref = '',
 		embedded = false
 	}: {
 		surfaceUrl?: URL;
+		backHref?: string;
 		embedded?: boolean;
 		onnavigate?: (url: string | URL, options?: Parameters<typeof routeGoto>[1]) => Promise<void>;
 	} = $props();
@@ -798,13 +801,13 @@
 							onclick={() => changePanel('review')}>Review</button
 						>
 					{/if}
-					{#if mayArchive}
+					{#if mayArchive && archived}
 						<button
 							type="button"
 							title={archived
 								? 'Return it to the Library as a draft'
 								: 'Take it out of the Library lists; restore it any time'}
-							onclick={() => void setArchived(!archived)}>{archived ? 'Restore' : 'Archive'}</button
+							onclick={() => void setArchived(false)}>Restore</button
 						>
 					{/if}
 					{#if backlinks.length}
@@ -882,11 +885,21 @@
 				</div>
 			</div>
 		{/if}
+		{#if backHref || (documentView && mayArchive && !archived)}
+			<nav class="document-floats" aria-label="Document actions">
+				{#if documentView && mayArchive && !archived}<button
+					type="button" class="btn small" aria-label="Archive"
+					title="Archive this document; restore it from the Library"
+					onclick={() => void setArchived(true)}><Archive size={15} aria-hidden="true" /><span>Archive</span></button>{/if}
+				{#if backHref}<a class="btn small" href={backHref} aria-label="Back to Inbox item" title="Back to Inbox item"
+					><ArrowLeft size={15} aria-hidden="true" /><span>Back to Inbox item</span></a>{/if}
+			</nav>
+		{/if}
 	</section>
 
 	{#if documentView && inspectorOpen}
 		<section class="inspector-pane cockpit-pane">
-			<header class="inspector-bar">
+			<header class="inspector-bar" class:has-inbox={!!backHref}>
 				<button
 					type="button"
 					aria-label="Back to the document"
@@ -894,6 +907,7 @@
 					onclick={closeInspector}><ArrowLeft size={16} strokeWidth={2} /></button
 				>
 				<strong>{documentView.document.title}</strong>
+				{#if backHref}<a class="btn small" href={backHref}>Back to Inbox item</a>{/if}
 			</header>
 			{#if sharing}
 				<div class="share-stack">
@@ -949,6 +963,26 @@
 <style>
 	.documents-screen.embedded {
 		height: 100%;
+	}
+	.document-floats {
+		position: absolute;
+		right: var(--space-3);
+		bottom: var(--space-3);
+		z-index: 25;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		padding: var(--space-1);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-lift);
+	}
+	@container document-surface (max-width: 1024px) {
+		.document-floats { right: 8px; }
+		.document-floats span { display: none; }
+		.document-floats :is(a, button) { width: 28px; min-width: 28px; height: 28px; padding: 0; }
+		.document-stage :global(.paper) { padding-right: 56px; }
 	}
 	@container inbox-preview (max-width:900px) {
 		.documents-screen.embedded.inspector-open {
@@ -1021,6 +1055,9 @@
 		overflow: hidden;
 	}
 	.document-stage {
+		position: relative;
+		isolation: isolate;
+		container: document-surface / inline-size;
 		background: var(--surface-pane);
 	}
 	.inspector-pane {
@@ -1051,6 +1088,9 @@
 		background: transparent;
 		color: var(--text-secondary);
 		cursor: pointer;
+	}
+	.inspector-bar.has-inbox {
+		grid-template-columns: auto minmax(0, 1fr) auto;
 	}
 	.inspector-bar button:hover {
 		background: var(--wash-hover);
@@ -1183,5 +1223,7 @@
 		a.btn.for-work {
 			display: none;
 		}
+		.share, .follow, .ask { display: none; }
+		:global(.document-actions) .narrow-only { display: block; }
 	}
 </style>
