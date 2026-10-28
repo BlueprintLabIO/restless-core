@@ -264,7 +264,7 @@ try {
 				{ origin, company, document, edit }
 			);
 			await inInbox(page, row.id);
-			await preview(page).getByRole('link', { name: '← Back to Inbox item', exact: true }).click();
+			await preview(page).getByRole('link', { name: 'Back to Inbox item', exact: true }).click();
 			await one.waitFor();
 			await pane(page).getByRole('link', { name: 'Open the shared sheet', exact: true }).click();
 			await preview(page)

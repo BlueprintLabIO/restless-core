@@ -14,6 +14,7 @@
 	import NotificationPreferences from './NotificationPreferences.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	let {
 		companyId,
 		target,
@@ -52,13 +53,13 @@
 			uploadId={target.kind === 'upload' ? target.value : ''}
 		/>
 	{:else}
-		<header>
+		{#if target.kind !== 'document'}<header>
 			<a href={backHref}>← Back to Inbox item</a>
 			{#if target.kind === 'limits'}<h2>Limits</h2>
 			{:else if target.kind === 'identity'}<h2>Brand</h2>
 			{:else if target.kind === 'charter'}<h2>Charter</h2>
 			{:else if target.kind === 'notifications'}<h2>Notifications</h2>{/if}
-		</header>
+		</header>{/if}
 		<div
 			class="preview-content"
 			class:settings={target.kind === 'limits' ||
@@ -68,8 +69,8 @@
 				target.kind === 'notifications'}
 		>
 			{#if native}
-				{#await native}<Pending label="Opening editor…" />
-				{:then module}{@const View = module.default}<View {surfaceUrl} {onnavigate} embedded />
+				{#await native}<Skeleton label="Opening editor" variant="page" count={6} />
+				{:then module}{@const View = module.default}<View {surfaceUrl} {onnavigate} embedded {...(target.kind === 'document' ? { backHref } : {})} />
 				{:catch error}<FailureNotice
 						{error}
 						subject="this editor"
