@@ -46,7 +46,7 @@ owner, admin and member, before calling anything done; a release is cut from mai
 - [ ] **B3 One item per thing [7, 34].** A change to the same doc or Work amends its item; FYI
   notices ("changed", "shared", "Can edit") leave the Inbox for a short daily digest in the Exec
   chat. The Inbox count means "things only you can do".
-- [ ] **B4 Filter, not a Skipped drawer [20, 35].** A filter icon in the Inbox sidebar header
+- [x] **B4 Filter, not a Skipped drawer [20, 35].** A filter icon in the Inbox sidebar header
   (Open, Skipped, Done, All) replaces the clipped Skipped panel.
 - [ ] **B5 Fewer card actions [32].** Accept and Request changes visible; Skip, snooze, hand over
   and copy in the `…` menu. The menu opens in a top layer and is never cropped [14].
@@ -314,3 +314,29 @@ Worktree: `/home/yail/code/work/slot-3`, branch `feat/sprint-109` from origin/ma
 - That real-computer regression and the full filter/restore/unavailable-history journey passed
   on a fresh isolated `sprint109final` profile. Frontend diagnostics passed. This correction still
   needs its own main integration, promotion and installed smoke before B4 is complete.
+
+### Correction deployed and observed
+
+- PR #500 merged the connected-computer correction into main at
+  `e82f6e7c4147f335344a74f056177fffc740141c`. Promotion passed 23 connection scenarios, with
+  only the separately invoked skills smoke skipped, and activated release `29212ce0824274123713`.
+  Fresh status: exact source commit, live service/binary/socket, owner health 200, no drain,
+  no repair and no rollback.
+- The installed Aris browser smoke then passed Work board default and Inbox All at 1440/390,
+  with no page errors or fixture mutations. Evidence: `/tmp/s109-installed-smoke/report.json`
+  and its screenshots. The built-in browser additionally waited for the actual computer to
+  connect: its width was 428px, the Inbox sidebar remained visible at 340px, and Filter Inbox: All
+  remained available. This replaces the earlier failed installed smoke, not its history.
+- B4 is checked against the local four-filter/restore/error journey, eight layout captures,
+  authenticated role journey, and corrected installed smoke. Account-saved filters remain F2.
+- Both earlier test profiles' sprint109_test companies were removed, including company/attachment
+  volumes, Documents sidecars, isolated databases/roles and fixture configuration. Shared original
+  development infrastructure was preserved. The fresh sprint109 and sprint109final profiles and
+  their dedicated Vault/database containers and volumes were also removed. Scripted-model and
+  preview servers were stopped; the installed production appliance remains running.
+- A4 current-state audit is in `review-delivery.md`: server brief freshness exists, but the
+  review request does not yet carry the candidate version displayed to the owner. This and C1's
+  durable pending decision remain implementation work, along with every other unchecked item.
+- H layouts are prepared and exercised at 1024/390/320; owner review is still pending. The local
+  appliance has no Reno company, so the original Reno production target remains requested. The
+  full goal stays active; these deployments do not establish completion of the entire sprint.
