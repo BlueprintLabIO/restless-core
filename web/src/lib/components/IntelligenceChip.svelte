@@ -6,6 +6,7 @@
 	import {
 		EFFORTS,
 		assignModel,
+		agentRouteState,
 		intelligenceQuery,
 		setEffort
 	} from '$lib/model/intelligence.svelte';
@@ -32,6 +33,7 @@
 	const catalog = modelCatalog(() => allowed);
 	const source = $derived(intelligenceQuery(companyId, () => allowed));
 	const agent = $derived(source.view?.agents.find((row) => row.id === actorId) ?? null);
+	const routeState = $derived(agentRouteState(source.view, actorId));
 	const assignment = $derived(
 		agent?.assignment ?? source.view?.default ?? source.view?.base_default ?? null
 	);
@@ -116,8 +118,18 @@
 	holdQueries(() => [source]);
 </script>
 
-{#if !allowed}{:else if agent && modelLabel(agent.effective_model) === 'Unavailable'}
-	<a class="chip-link" href={`/${encodeURIComponent(companyId)}/company/provider`}>Choose a model</a
+{#if !allowed}{:else if routeState !== 'ready'}
+	<a
+		class="chip-link"
+		href={`/${encodeURIComponent(companyId)}/company/provider`}
+		title={actorId === 'exec' && source.view?.company_issue
+			? source.view.company_issue
+			: 'Check this agent’s model connection in Intelligence'}
+		>{routeState === 'checking' || routeState === 'starting'
+			? 'Checking model…'
+			: routeState === 'needs_connection'
+				? 'Choose a model'
+				: 'Model unavailable'}</a
 	>
 {:else if agent}
 	<div

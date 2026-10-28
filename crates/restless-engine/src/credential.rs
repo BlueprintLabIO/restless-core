@@ -99,8 +99,27 @@ pub struct Probe {
 /// The company binding for its own Resend webhook signing secret.
 pub const RESEND_WEBHOOK_BINDING: &str = "resend.webhook";
 
+/// The sending integration owns this name; the Vault accepts its ordinary service name too.
+pub const RESEND_SEND_BINDING: &str = "resend.production";
+
+pub fn canonical_binding(binding: &str) -> &str {
+    match binding.trim() {
+        "resend" => RESEND_SEND_BINDING,
+        binding => binding,
+    }
+}
+
+/// Upgrade old company bindings without moving or reading secret values. A configured production
+/// binding wins a collision; the other value remains in the Vault as an unbound secret.
+pub fn migrate_bindings(bindings: &mut std::collections::BTreeMap<String, String>) {
+    if let Some(reference) = bindings.remove("resend") {
+        bindings.entry(RESEND_SEND_BINDING.into()).or_insert(reference);
+    }
+}
+
 /// Resolve one named binding for one governed child process.
 pub async fn resolve(config: &CompanyConfig, binding: &str) -> Result<String> {
+    let binding = canonical_binding(binding);
     if finance_binding(binding) {
         bail!(
             "finance credential bindings may only be resolved by the host-side Authority adapter"

@@ -419,20 +419,6 @@
 	gap: 6px;
 }
 
-.bridge-root .hc-hint {
-	position: absolute;
-	right: 8px;
-	bottom: calc(100% + 6px);
-	padding: 2px 8px;
-	border: 1px solid var(--border);
-	border-radius: 999px;
-	background: var(--surface-raised);
-	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-ui);
-	white-space: nowrap;
-	pointer-events: none;
-}
-
 .bridge-root .hc-send {
 	width: 28px;
 	height: 28px;

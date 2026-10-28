@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import Field from '$lib/ui/forms/Field.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item, Notice, Empty, Dot } from '$lib/ui/page';
@@ -12,6 +13,7 @@
 	import {
 		deleteVaultSecret,
 		readVault,
+		renameVaultSecret,
 		referenceSource,
 		saveVaultSecret,
 		vaultKey,
@@ -27,12 +29,12 @@
 	let adding = $state(false);
 	/* The secret whose value is being replaced from its row. */
 	let replacing = $state<VaultSecret | null>(null);
+	let renaming = $state<VaultSecret | null>(null);
 	let busy = $state(false),
 		saveError = $state(''),
 		search = $state(''),
 		binding = $state(''),
-		secret = $state(''),
-		notice = $state('');
+		secret = $state('');
 	const rows = $derived(keep(view?.secrets ?? [], search, (s) => [s.name, s.path]));
 	const external = $derived(
 		view?.references.filter((r) => !view?.secrets?.some((s) => s.reference === r.reference)) ?? []
@@ -50,6 +52,7 @@
 	);
 	const refresh = () => source.refresh();
 	function openForm(target: VaultSecret | null) {
+		renaming = null;
 		replacing = target;
 		adding = !target;
 		binding = '';
@@ -57,10 +60,42 @@
 		saveError = '';
 	}
 	function closeForm() {
+		renaming = null;
 		adding = false;
 		replacing = null;
 		binding = '';
 		secret = '';
+	}
+	function openRename(target: VaultSecret) {
+		closeForm();
+		renaming = target;
+		binding = target.name;
+		saveError = '';
+	}
+	async function renameSecret(event: SubmitEvent) {
+		event.preventDefault();
+		if (!view || !renaming || busy) return;
+		busy = true;
+		saveError = '';
+		try {
+			const result = await renameVaultSecret(companyId, {
+				reference: renaming.reference,
+				name: binding.trim(),
+				revision: view.revision
+			});
+			toast(
+				result.cleanup_pending
+					? 'Renamed. The old unbound copy could not be removed; refresh the Vault to remove it.'
+					: 'Secret renamed',
+				result.cleanup_pending ? { tone: 'failure' } : {}
+			);
+			closeForm();
+			await refresh();
+		} catch (cause) {
+			saveError = failureSentence(cause, 'Could not rename the secret.');
+		} finally {
+			busy = false;
+		}
 	}
 	async function saveSecret(event: SubmitEvent) {
 		event.preventDefault();
@@ -81,7 +116,6 @@
 			return;
 		busy = true;
 		saveError = '';
-		notice = '';
 		try {
 			if (replacing)
 				await saveVaultSecret(companyId, {
@@ -97,7 +131,7 @@
 					create: true,
 					replace: taken
 				});
-			notice = replacing ? `${replacing.name} replaced` : 'Secret stored securely';
+			toast(replacing ? `${replacing.name} replaced` : 'Secret stored securely');
 			closeForm();
 			await refresh();
 		} catch (e) {
@@ -123,11 +157,10 @@
 			return;
 		busy = true;
 		saveError = '';
-		notice = '';
 		try {
 			await deleteVaultSecret(companyId, { reference: item.reference, revision: view.revision });
 			if (replacing?.reference === item.reference) closeForm();
-			notice = `${item.name} deleted`;
+			toast(`${item.name} deleted`);
 			await refresh();
 		} catch (e) {
 			saveError = failureSentence(e, 'Could not delete the secret.');
@@ -184,26 +217,48 @@
 			{#snippet actions()}<button class="btn small" onclick={refresh} disabled={busy}>Retry</button
 				>{/snippet}
 		</Notice>{/if}
-	{#if notice}<Notice tone="success" title={notice} />{/if}
 	{#if view?.status === 'unavailable'}<Notice
 			tone="danger"
 			title="Secure storage is unavailable"
 			details={view.message}
 		/>{/if}
 
-	{#if (adding || replacing) && view?.secrets}
+	{#if renaming && view?.secrets}
+		<Section title={`Rename ${renaming.name}`}>
+			<form class="form plain" onsubmit={renameSecret}>
+				<Field label="Name" hint="Connections keep using the same key after it is renamed.">
+					<input
+						class="wide"
+						bind:value={binding}
+						aria-label="Secret name"
+						pattern="[A-Za-z0-9_.-]+"
+						maxlength="64"
+						required
+						disabled={busy}
+					/>
+				</Field>
+				<footer class="form-foot">
+					<button class="btn small" type="button" disabled={busy} onclick={closeForm}>Cancel</button
+					>
+					<button class="btn primary small" type="submit" disabled={busy}
+						>{busy ? 'Saving…' : 'Rename'}</button
+					>
+				</footer>
+			</form>
+		</Section>
+	{:else if (adding || replacing) && view?.secrets}
 		<Section title={replacing ? `Replace ${replacing.name}` : 'Store a secret'}>
 			<form class="form plain" id="vault-form" onsubmit={saveSecret}>
 				{#if !replacing}<Field
 						label="Name"
-						hint="Letters, numbers, - and _. Agents refer to the secret by this name."
+						hint="Letters, numbers, dots, - and _. Use resend for the email key."
 					>
 						<input
 							class="wide"
 							bind:value={binding}
 							aria-label="Secret name"
 							placeholder="marketplace-key"
-							pattern="[A-Za-z0-9_-]+"
+							pattern="[A-Za-z0-9_.-]+"
 							maxlength="64"
 							required
 							disabled={busy}
@@ -257,6 +312,9 @@
 							><button
 								disabled={busy || view?.status !== 'connected'}
 								onclick={() => openForm(item)}>Replace value</button
+							><button
+								disabled={busy || view?.status !== 'connected'}
+								onclick={() => openRename(item)}>Rename</button
 							><button disabled={busy || view?.status !== 'connected'} onclick={() => remove(item)}
 								>Delete</button
 							></ActionMenu

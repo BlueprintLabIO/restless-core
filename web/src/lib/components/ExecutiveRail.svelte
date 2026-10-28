@@ -1255,7 +1255,9 @@
 
 	/* A company that never had a model and one whose model connection stopped are different
 	 * situations: say which, in a few words, and name the one action that fixes it. */
-	const neverConnected = $derived(!providerLabel.startsWith('Reconnect'));
+	const neverConnected = $derived(
+		providerLabel === 'Connect a model' || providerLabel === 'Connect intelligence'
+	);
 	/* Only the owner connects models. A teammate is told who can fix it, with no button to a page
 	 * they cannot open. */
 	const ownerFixes = $derived(membershipRole === 'owner');
@@ -1722,11 +1724,7 @@
 									onclick={correct}>Correct</button
 								><span aria-hidden="true">·</span>{/if}{receipt}
 						</p>{/if}
-					{#if setupPending}
-						<p class="exr-setup-pending" role="status">
-							Message saved. {participantName} can reply after intelligence access is restored.
-						</p>
-					{:else if shownTurn}<ConversationTurnDock
+					{#if !setupPending && shownTurn}<ConversationTurnDock
 							{participantName}
 							turn={shownTurn}
 							onstop={null}
@@ -1768,6 +1766,9 @@
 							readOnly={membershipRole !== 'owner'}
 						/>{/if}
 				{/if}
+				<p class="model-reply-state" role="status">
+					{needsProvider ? 'The model can’t reply now. Your message will wait.' : ''}
+				</p>
 				<form class="exr-composer" onsubmit={submitAsk}>
 					{#if quoting}
 						<div class="quoting">
@@ -1790,8 +1791,8 @@
 						uploadProgress={sending ? uploadProgress : null}
 						bind:selectedSkills={composerSkills}
 						options={[...options.value, ...references]}
-						interruptible={working && !setupPending}
-						onstop={stopTurn}
+						interruptible={working && !needsProvider && connected}
+						onstop={working && !needsProvider && connected ? stopTurn : null}
 						bind:interrupt={interruptNext}
 						actionLabel={retryCommandId ? 'Retry send · it cannot be sent twice' : ''}
 						disabled={!canOperate || sending || !onask}
@@ -2417,15 +2418,13 @@
 		text-align: center;
 		animation: focus-arrive var(--motion-disclosure) var(--ease-standard) both;
 	}
-	.exr-setup-pending {
-		margin: var(--space-3);
-		padding: var(--space-3);
-		border: 1px solid var(--border-soft);
-		border-radius: var(--radius-control);
-		background: var(--surface-pane);
+	.model-reply-state {
+		margin: 0;
+		padding-inline: var(--space-3);
+		min-height: 2.6em;
 		color: var(--text-secondary);
 		font-size: var(--t-label);
-		line-height: 1.5;
+		line-height: 1.3;
 	}
 	@keyframes focus-arrive {
 		from {

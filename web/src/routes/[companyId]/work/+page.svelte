@@ -8,8 +8,8 @@
 	 *
 	 * The side panel lists goals as links; choosing one narrows the list and
 	 * "All work" shows everything. Work without a goal is "No goal" here and on
-	 * every Work page. List is the default view, grouped by what each item
-	 * needs; Board is the second view. Both read the same rows. */
+	 * every Work page. Board is the default view; the List groups work by what each item
+	 * needs. Both read the same rows. */
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
@@ -114,7 +114,7 @@
 	/* The goal and view live in the address, so a filtered view can be shared,
 	 * reloaded and reached again with Back. */
 	const selectedGoal = $derived(page.url.searchParams.get('goal') ?? '');
-	const view = $derived(page.url.searchParams.get('view') === 'board' ? 'board' : 'list');
+	const view = $derived(page.url.searchParams.get('view') === 'list' ? 'list' : 'board');
 	/* Who does it, what state it is in, and whether priority leads: filters kept in the address. */
 	const ownerFilter = $derived(page.url.searchParams.get('owner') ?? '');
 	const statusFilter = $derived(page.url.searchParams.get('status') ?? '');
@@ -1079,7 +1079,7 @@
 								{ value: 'list', label: 'List' },
 								{ value: 'board', label: 'Board' }
 							]}
-							onchange={(value) => setQuery('view', value === 'board' ? 'board' : '')}
+							onchange={(value) => setQuery('view', value === 'list' ? 'list' : '')}
 						/>
 					</div>
 				</div>

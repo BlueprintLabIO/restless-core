@@ -62,7 +62,9 @@
 	}
 
 	onMount(() => {
-		if (attached) void connect(false);
+		// A prepared URL is still a computer step even when the author omitted the attachment flag.
+		// Connect to the existing desktop without navigating it; opening the provider is explicit.
+		void connect(false);
 		const stop = control.watch();
 		return () => {
 			stop();
@@ -89,11 +91,13 @@
 	error={error || control.error}
 	note={desktopUrl
 		? ''
-		: connecting
-			? 'Connecting to the company computer…'
-			: url && host
-				? `This step happens on ${host}, on the company computer, here in the card.`
-				: 'This step happens on the company computer, here in the card.'}
+		: error
+			? 'The prepared company computer is unavailable.'
+			: connecting
+				? 'Connecting to the company computer…'
+				: url && host
+					? `This step happens on ${host}, on the company computer, here in the card.`
+					: 'This step happens on the company computer, here in the card.'}
 >
 	{#if desktopUrl}
 		<div class="screen inline-computer">
@@ -136,6 +140,15 @@
 					>{control.working === 'control' ? 'Taking control…' : 'Take control'}</button
 				>{/if}
 		</div>
+	{:else}
+		<div class="screen placeholder" role="status">
+			<span
+				>{error
+					? 'The company computer could not be opened. Use Open to retry.'
+					: 'Connecting to the company computer…'}</span
+			>
+		</div>
+		<div class="bar"><span class="state">{error ? 'Unavailable' : 'Connecting'}</span></div>
 	{/if}
 </InlinePanel>
 
@@ -159,6 +172,13 @@
 		align-items: center;
 		gap: 6px;
 		min-width: 0;
+	}
+	.placeholder {
+		display: grid;
+		place-items: center;
+		padding: 24px;
+		color: var(--text-tertiary);
+		text-align: center;
 	}
 	.spacer {
 		flex: 1;

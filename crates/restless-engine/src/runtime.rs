@@ -936,8 +936,9 @@ impl CompanyConfig {
                 return Err(error).with_context(|| format!("read {}", path.display()));
             }
         };
-        let config: Self =
+        let mut config: Self =
             toml::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
+        crate::credential::migrate_bindings(&mut config.credentials);
         if config.name != name {
             bail!(
                 "company config name mismatch: file {name}.toml says {}",
@@ -962,6 +963,9 @@ impl CompanyConfig {
     /// told why. Rename within a directory is atomic on every filesystem we run
     /// on.
     pub fn save(root: &Path, config: &Self) -> Result<()> {
+        let mut canonical = config.clone();
+        crate::credential::migrate_bindings(&mut canonical.credentials);
+        let config = &canonical;
         validate_company_name(&config.name)?;
         config.model_candidates()?;
         config.validate_harness_models()?;
@@ -5142,6 +5146,25 @@ mod kept_files_e2e {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn legacy_resend_binding_migrates_on_load_and_persists_on_save() {
+        let root = std::env::temp_dir().join(format!("restless-binding-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let path = root.join("companies/bindings_test.toml");
+        std::fs::write(&path, "name = \"bindings_test\"\nmission = \"test\"\nmodel = \"openai/test\"\n[credentials]\nresend = \"infisical:/companies/bindings_test/resend\"\n").unwrap();
+        let mut config = super::CompanyConfig::load(&root, "bindings_test").unwrap();
+        assert!(!config.credentials.contains_key("resend"));
+        assert_eq!(config.credentials["resend.production"], "infisical:/companies/bindings_test/resend");
+        // A deployed production binding wins when an older alias also exists; no backend value
+        // is deleted by migrating configuration names.
+        config.credentials.insert("resend".into(), "env:OTHER_KEY".into());
+        super::CompanyConfig::save(&root, &config).unwrap();
+        let persisted = std::fs::read_to_string(&path).unwrap();
+        assert!(!persisted.contains("OTHER_KEY"));
+        let loaded = super::CompanyConfig::load(&root, "bindings_test").unwrap();
+        assert_eq!(loaded.credentials["resend.production"], "infisical:/companies/bindings_test/resend");
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn desktop_assets_stay_inside_the_novnc_root() {
         for good in [

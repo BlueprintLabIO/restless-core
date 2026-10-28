@@ -237,7 +237,7 @@
 		}
 	}
 	/* Two-line rows: the title wraps to two lines, who and when sit under it, and the row's
-	 * actions take the time's place on hover rather than squeezing the title. */
+	 * actions have a reserved slot beside the time, so hover never swaps a label. */
 	.stacked > .item-row {
 		align-items: flex-start;
 		min-height: 56px;
@@ -270,24 +270,12 @@
 		padding-top: 1px;
 		font-size: var(--t-label);
 	}
+	/* Reserve the action width in both pointer and touch layouts. Hidden controls stay
+	 * unclickable under the shared hover rule; time and title keep their positions. */
 	.stacked .item-actions {
-		position: absolute;
-		top: 6px;
-		right: 8px;
-		border-radius: var(--radius-control);
-		background: var(--surface-hover);
+		position: static;
+		align-self: flex-start;
+		background: transparent;
 		transform: none;
-	}
-	@media (hover: hover) and (pointer: fine) {
-		.stacked:has(.item-actions:not(:empty)):is(:hover, :focus-within)
-			.item-trailing:not(:has(:global(a, button, details, input, label))) {
-			visibility: hidden;
-		}
-	}
-	@media not ((hover: hover) and (pointer: fine)) {
-		.stacked .item-actions {
-			position: static;
-			background: transparent;
-		}
 	}
 </style>

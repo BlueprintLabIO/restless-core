@@ -263,13 +263,7 @@ pub async fn request_effect(
     // the typed send boundary. Generic effects trust caller-declared party
     // and class, so they cannot enforce a mandate against the actual email.
     if !secret_bindings.is_empty() {
-        let resend_reference = config.credentials.get("resend.production");
-        let exposes_resend = secret_bindings.values().any(|binding| {
-            binding == "resend.production"
-                || resend_reference
-                    .is_some_and(|reference| config.credentials.get(binding) == Some(reference))
-        });
-        if exposes_resend
+        if requests_resend_secret(config, &secret_bindings)
             && authority
                 .list_email_mandates(&config.name)
                 .await?
@@ -457,6 +451,37 @@ pub async fn request_effect(
         })).await?;
     }
     Ok(receipt)
+}
+
+fn requests_resend_secret(config: &CompanyConfig, bindings: &BTreeMap<String, String>) -> bool {
+    let reference = config.credentials.get(crate::credential::RESEND_SEND_BINDING);
+    bindings.values().any(|binding| {
+        let binding = crate::credential::canonical_binding(binding);
+        binding == crate::credential::RESEND_SEND_BINDING
+            || reference.is_some_and(|reference| config.credentials.get(binding) == Some(reference))
+    })
+}
+
+#[cfg(test)]
+mod resend_binding_tests {
+    use super::*;
+
+    #[test]
+    fn a_resend_alias_cannot_evade_the_typed_email_send_boundary() {
+        let config: CompanyConfig = toml::from_str(r#"
+name = "binding_test"
+mission = "test"
+model = "openai/test"
+[credentials]
+"resend.production" = "env:MAIL_KEY"
+another_name = "env:MAIL_KEY"
+unrelated = "env:OTHER_KEY"
+"#).unwrap();
+        for binding in ["resend", "resend.production", "another_name"] {
+            assert!(requests_resend_secret(&config, &BTreeMap::from([("KEY".into(), binding.into())])), "{binding}");
+        }
+        assert!(!requests_resend_secret(&config, &BTreeMap::from([("KEY".into(), "unrelated".into())])));
+    }
 }
 
 /// The Work an actor's effect serves: its one running attempt, if it has exactly one. The owner

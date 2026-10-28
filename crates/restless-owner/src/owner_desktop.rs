@@ -187,7 +187,7 @@ pub(crate) async fn issue_ticket(
             return api_error(
                 StatusCode::CONFLICT,
                 "runtime",
-                "this item has no live runtime attachment",
+                "A prepared company computer has not been attached to this step. Ask Exec to prepare it, or use the card's Open action.",
             );
         };
         if current != reference.generation {

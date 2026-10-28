@@ -814,12 +814,6 @@
 						>{/if}</button
 				>
 				<button
-					class="btn small discuss"
-					type="button"
-					title="Talk it through with Exec beside this sheet. Where you may share it, Exec can then comment, and you can let Exec edit."
-					onclick={() => void discuss()}>Discuss</button
-				>
-				<button
 					class="btn small"
 					class:active={panel === 'sharing'}
 					type="button"

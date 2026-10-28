@@ -79,6 +79,16 @@ export function deleteVaultSecret(company: string, body: { reference: string; re
 	);
 }
 
+export function renameVaultSecret(
+	company: string,
+	body: { reference: string; name: string; revision: string }
+) {
+	return ownerRequest<{ renamed: boolean; cleanup_pending: boolean }>(
+		`${base(company)}/vault/secret/rename`,
+		{ method: 'POST', json: body }
+	);
+}
+
 /** Where a credential kept outside the vault lives, as an owner would say it. */
 export function referenceSource(reference: string): string {
 	if (reference.startsWith('env:')) return 'Set on the server running the company';

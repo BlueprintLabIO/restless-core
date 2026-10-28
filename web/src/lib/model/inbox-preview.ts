@@ -101,13 +101,3 @@ export function inboxPreviewContext(
 		? inboxPreviewTarget(company, href, location.origin ?? 'http://restless.local')
 		: null;
 }
-
-/** Discuss is an explicit reveal, and keeps the native surface the owner is asking about. */
-export function inboxDiscussionHref(current: URL, company: string, itemId: string): string {
-	const url = new URL('/' + encodeURIComponent(company), current.origin);
-	url.searchParams.set('item', itemId);
-	url.searchParams.set('conversation', itemId);
-	const preview = inboxPreviewContext(company, current);
-	if (preview) url.searchParams.set('preview', preview.href);
-	return url.pathname + url.search;
-}
