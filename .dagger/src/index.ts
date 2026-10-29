@@ -569,7 +569,7 @@ export class RestlessCore {
   async verifyAccountPlane(
     @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!tools/codex-runner/**',
       '!tools/custom-harness/**', '!tools/harness-auth/**', '!tools/schedule-test-proxy.py',
-      '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
+      '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!infra/host-tools/package.json', '!services/native-sheets/package.json',
       '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
       '!services/identity/package.json', '!services/identity/package-lock.json', '!services/identity/src/**',
       '!services/identity/public/**', '!services/identity/scripts/**',
