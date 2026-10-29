@@ -392,6 +392,9 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
 }
 
 async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
+    if daemon.staff.take_resource_retry_hint() {
+        return OVERDUE_RETRY_INTERVAL;
+    }
     let memory_wait = match runtime::shared_workload_admission() {
         Ok(Some(admission)) => admission.waiting_for_memory,
         Ok(None) => false,
@@ -753,20 +756,24 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
 
     // Leave Work ready in OrgIntel while the shared pool is under pressure.
     // No Attempt, model invocation or failure is created merely to wait.
-    // Missing configured counters also defer new Work; owner conversation and
-    // recovery above remain available to diagnose or release capacity.
+    // Missing configured counters also defer new turns. Owner controls remain
+    // available; conversations retain their durable input and scheduling priority.
     while daemon.staff.has_capacity(company) && daemon.staff.has_work_capacity(company) {
         if !org.has_ready_work().await.unwrap_or(false) {
             break;
         }
-        match runtime::workload_admission(company).await {
-            Ok(Some(admission)) if admission.waiting_for_memory => break,
+        let resources = match daemon
+            .staff
+            .reserve_actor_capacity(company, &daemon.runtime_bridges, &daemon.schedule_wake)
+            .await
+        {
+            Ok(Some(resources)) => resources,
+            Ok(None) => break,
             Err(error) => {
                 tracing::warn!(company, "new Work waits for a resource reading: {error:#}");
                 break;
             }
-            _ => {}
-        }
+        };
         // Conversation turns and Work Attempts share one supervised actor.
         // Exclude the registry snapshot before the database claim so a busy
         // actor's ready node stays untouched rather than being claimed and
@@ -802,6 +809,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
             &daemon.runtime_bridges,
             &daemon.schedule_wake,
             claimed,
+            resources,
         )
         .await
         {
@@ -985,6 +993,31 @@ pub async fn run_exec_turn(
         effective_config.has_effective_model_route(effective_config.coordination_harness),
         "Connect a model in Company → Intelligence before starting the Exec."
     );
+    let resources = daemon
+        .staff
+        .reserve_actor_capacity(&config.name, &daemon.runtime_bridges, &daemon.schedule_wake)
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!(crate::staff::CapacityDeferred)
+                .context(format!("AI capacity reading unavailable: {error:#}"))
+        })?
+        .ok_or(crate::staff::CapacityDeferred)?;
+    run_exec_turn_admitted(daemon, config, org, reason, cancellation, resources).await
+}
+
+async fn run_exec_turn_admitted(
+    daemon: &Daemon,
+    config: &CompanyConfig,
+    org: &OrgIntel,
+    reason: &str,
+    cancellation: &CancellationToken,
+    mut resources: crate::staff::ActorResourcePermit,
+) -> Result<exec::WakeReport> {
+    let effective_config = config.for_agent("exec");
+    anyhow::ensure!(
+        effective_config.has_effective_model_route(effective_config.coordination_harness),
+        "Connect a model in Company → Intelligence before starting the Exec."
+    );
     // The lease row is FK-bound to the durable Actor. Fresh companies may
     // reach this entry point before `exec::wake` has ever bootstrapped it, so
     // initialise the stable principals before competing for the mutex.
@@ -1003,6 +1036,7 @@ pub async fn run_exec_turn(
     else {
         anyhow::bail!("Exec already has a durable cognitive session or running Work Attempt");
     };
+    resources.activate();
     let outcome =
         run_exec_turn_with_lease(daemon, config, org, reason, cancellation, &lease_guard).await;
     lease_guard.finish().await;
@@ -1530,6 +1564,31 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
             .queue(company, reason);
         return;
     }
+    crate::runtime_sleep::wake_for(daemon, company, reason).await;
+    // Reserve before spawning so pending owner replies win their existing
+    // place ahead of new Work. A delayed async start must not lose that slot.
+    let resources = match daemon
+        .staff
+        .reserve_actor_capacity(company, &daemon.runtime_bridges, &daemon.schedule_wake)
+        .await
+    {
+        Ok(Some(resources)) => resources,
+        Ok(None) => {
+            in_flight
+                .lock()
+                .expect("in-flight guard")
+                .queue(company, reason);
+            return;
+        }
+        Err(error) => {
+            tracing::debug!(company, "Exec waits for compute capacity: {error:#}");
+            in_flight
+                .lock()
+                .expect("in-flight guard")
+                .queue(company, reason);
+            return;
+        }
+    };
     let cancellation = {
         let mut guard = in_flight.lock().expect("in-flight guard");
         // Keep this wake hint queued until backoff expires. Scheduled and
@@ -1550,13 +1609,10 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
     let reason = reason.to_string();
     tokio::spawn(async move {
         let _guard = WakeGuard::new(&company, &in_flight);
-        // The Exec is owed this turn, so a sleeping computer wakes for it. A
-        // stopped one is left to the Exec preflight, which tells the owner.
-        crate::runtime_sleep::wake_for(&daemon, &company, &reason).await;
         let outcome = async {
             let config = CompanyConfig::load(&daemon.root, &company)?;
             let org = daemon.orgintel.get(&company).await?;
-            run_exec_turn(&daemon, &config, &org, &reason, &cancellation).await
+            run_exec_turn_admitted(&daemon, &config, &org, &reason, &cancellation, resources).await
         }
         .await;
         // A turn that could not run delivered nothing, so its owed facts are

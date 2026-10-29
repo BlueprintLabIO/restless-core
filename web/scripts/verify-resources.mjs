@@ -53,6 +53,14 @@ try {
 				cpu_limit_cores: 1
 			}
 		};
+		const actorCapacity = {
+			company_slots: 2,
+			shared_slots: 3,
+			company_active: 0,
+			shared_active: 0,
+			waiting_for_memory: false
+		};
+		let actorsAvailable = true;
 		await page.route('**/api/companies/' + company + '/company/compute', async (route) => {
 			if (mode === 'pending') await ready;
 			if (mode === 'error')
@@ -63,7 +71,11 @@ try {
 						? { status: 'not_configured' }
 						: mode === 'unavailable'
 							? { status: 'unavailable' }
-							: { status: 'available', sample }
+							: {
+									status: 'available',
+									sample,
+									actor_capacity: actorsAvailable ? actorCapacity : null
+								}
 			});
 		});
 		await page.goto(origin + '/' + company + '/company/resources');
@@ -85,6 +97,21 @@ try {
 			'Compute readings must not move the following section'
 		);
 		await compute.getByText('Memory available', { exact: true }).waitFor();
+		actorCapacity.company_active = 2;
+		actorCapacity.shared_active = 2;
+		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
+		await compute.getByText('2 / 2 here · 2 / 3 shared', { exact: true }).waitFor();
+		await compute.getByText('Waiting for a slot', { exact: true }).waitFor();
+		assert(
+			Math.abs((await bounds()).top - after.top) <= 1,
+			'Turn capacity changes must not move the next section'
+		);
+		actorCapacity.company_active = 0;
+		actorCapacity.shared_active = 3;
+		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
+		await compute.getByText('0 / 2 here · 3 / 3 shared', { exact: true }).waitFor();
+		await compute.getByText('Waiting for a slot', { exact: true }).waitFor();
+		actorCapacity.shared_active = 0;
 		sample.work_admission.waiting_for_memory = true;
 		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
 		await compute.getByText('Waiting for memory', { exact: true }).waitFor();
@@ -104,6 +131,19 @@ try {
 		sample.work_admission.waiting_for_memory = false;
 		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
 		await compute.getByText('Memory available', { exact: true }).waitFor();
+		actorCapacity.waiting_for_memory = true;
+		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
+		await compute.getByText('Waiting for memory', { exact: true }).waitFor();
+		actorCapacity.waiting_for_memory = false;
+		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
+		await compute.getByText('Memory available', { exact: true }).waitFor();
+		actorsAvailable = false;
+		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
+		await compute.getByText('No reading', { exact: true }).first().waitFor();
+		assert.equal(await compute.getByText('No reading', { exact: true }).count(), 2);
+		actorsAvailable = true;
+		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
+		await compute.getByText('0 / 2 here · 0 / 3 shared', { exact: true }).waitFor();
 		mode = 'error';
 		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
 		await compute.getByText('Could not refresh', { exact: true }).waitFor();
@@ -140,6 +180,7 @@ try {
 			unavailable: 'unknown',
 			memoryWaitShiftPx: waiting.top - after.top,
 			memoryAdmission: 'waiting and resumed',
+			actorAdmission: 'company/shared slots and startup memory',
 			recovery: 'live'
 		});
 		await context.close();

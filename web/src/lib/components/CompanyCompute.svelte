@@ -11,6 +11,21 @@
 	const reading = $derived(source.view);
 	const sample = $derived(reading?.sample);
 	const pool = $derived(sample?.pool);
+	const actors = $derived(reading?.actor_capacity);
+	const missingActorReading = $derived(
+		reading &&
+			'actor_capacity' in reading &&
+			(!actors ||
+				actors.company_active == null ||
+				(actors.shared_slots != null && actors.shared_active == null))
+	);
+	const slotsBusy = $derived(
+		actors &&
+			((actors.company_active != null && actors.company_active >= actors.company_slots) ||
+				(actors.shared_slots != null &&
+					actors.shared_active != null &&
+					actors.shared_active >= actors.shared_slots))
+	);
 	const storage = $derived(runtime?.resources);
 	const diskUsed = $derived(
 		storage?.disk_total_bytes != null && storage.disk_free_bytes != null
@@ -118,16 +133,28 @@
 		><span class="numbers">{usage(sample?.computer)}</span></Row
 	>
 	<Row
-		label="New Work"
-		info="New Work waits in its existing queue when this company or the shared pool needs memory headroom. It resumes automatically after memory is released. Reclaimable file cache does not keep Work waiting; running work and owner conversations continue."
+		label="AI turns"
+		info="Turns running or starting, against this company's limit and the shared limit. Exec, teammates and Work share the available CPU and RAM."
+	>
+		<span class="numbers"
+			>{actors
+				? `${actors.company_active ?? '—'} / ${actors.company_slots} here · ${actors.shared_active ?? '—'} / ${actors.shared_slots ?? '—'} shared`
+				: 'No reading'}</span
+		>
+	</Row>
+	<Row
+		label="New AI turns"
+		info="Messages and Work stay in their existing queues until memory and a turn slot are available. This includes Exec and teammate conversations."
 	>
 		<span
-			>{sample?.work_admission
-				? sample.work_admission.waiting_for_memory
+			>{sample?.work_admission && !missingActorReading
+				? sample.work_admission.waiting_for_memory || actors?.waiting_for_memory
 					? sample.work_admission.scope === 'company'
 						? 'Company RAM busy'
 						: 'Waiting for memory'
-					: 'Memory available'
+					: slotsBusy
+						? 'Waiting for a slot'
+						: 'Memory available'
 				: 'No reading'}</span
 		>
 	</Row>

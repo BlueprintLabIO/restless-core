@@ -9,7 +9,7 @@ This is not a completed ticket or a deployed batch. Sprint 109 and all A0 accept
 
 - New productive Work is left unclaimed in OrgIntel while shared-pool or individual Runtime live memory is above
   the admission threshold. No new queue, Work state, model wake or meter is created.
-- Live memory excludes inactive file cache; admission reserves the larger of ten percent or
+- Live memory excludes clean regular-file cache; admission reserves the larger of ten percent or
   256 MiB below memory.high, capped at half the ceiling for small containers.
   Missing configured counters defer new Work rather than assuming zero use.
 - The existing scheduler rechecks ready Work at its normal five-second overdue cadence.
@@ -148,7 +148,8 @@ and computer ceilings, a scripted Anthropic protocol server and the real daemon/
 - [x] Cold/warm desktop/phone entry, state recovery, real-scale data, access roles and motion.
 - [x] Canonical fixture destruction and exact owned-resource cleanup.
 - [ ] Qualify a clean main commit, deploy signed Core/Cloud batch and verify production health.
-- [ ] CPU/start concurrency and conversation launches, jobs/tools, editable per-company ceilings,
+- [x] CPU/start concurrency across Exec, teammate conversations and Work; see follow-up below.
+- [ ] Jobs/tools, editable per-company ceilings,
   histories/catalogue, wider idle reductions and matched AI cost/quality requirements remain open.
 
 ## Retained local artifacts
@@ -174,3 +175,61 @@ the viewport override reset. Other profiles and caches were preserved.
 
 Latest checks: cargo check -p restlessd and the full frontend check passed after the Inbox
 browser-probe bound was added. That is compilation/type evidence, not a passing load smoke.
+
+## AI turn admission follow-up, 30 October Sydney time
+
+PR 513 was merged, but its release was held before publication when inspection found the
+100-actor logical limit did not bound conversation starts against the host's CPU and RAM.
+Production is still on c409988e; none of the evidence below is a production deployment claim.
+
+All local Exec, teammate and Work turns now reserve capacity before claiming durable input or
+making a model call. Limits derive from the individual Runtime and shared pool CPU/memory
+ceilings, with 512 MiB reserved for each start. Reservations include starts whose RSS has not
+appeared yet, release on completion/cancellation, and wake the existing scheduler. Capacity
+waits retain messages and ready Work, use the existing five-second retry, and create no failed
+Attempt. Pending owner replies reserve synchronously before background Work can take the slot.
+Paired remote machines remain outside the local host pool. Unconfigured local execution is
+serialized. Resources shows actual active/allowed turns and the same memory/slot wait reason.
+
+The populated fixture found a further idle-state defect: clean mapped file cache left an empty
+Runtime unable to start a turn. Admission now subtracts clean regular-file cache, retaining
+tmpfs/shared, dirty, writeback and unevictable memory. A regression uses the actual observed
+counters. Restarting only the daemon against the unchanged Runtime confirmed active=0 and
+waiting_for_memory=false; no cache flush or Runtime recreation was used.
+
+Verification:
+
+- Atomic 30-request reservation test admitted three shared starts; covered company bounds,
+  lowering limits, reserved startup memory, cancellation/release and absence of unused-permit
+  notification loops. Schedule tests: 11 passed. Full frontend checks passed.
+- At 768 MiB per Runtime, held owner/teammate messages and Work made zero new model calls and
+  zero Work Attempts. After timestamped release, the owner replied at 17:16:46 UTC, the teammate
+  at 17:17:05, and Work started at 17:17:05, producing one attached file with verified contents.
+  Process sampling found at most one native harness, zero child OOM kills and zero hard-limit
+  events. The earlier async-reservation version failed owner priority; that failure is retained.
+- Full owner/admin/member authorization and three-person coediting journey passed and cleaned
+  its isolated fixture. Resources states and populated desktop/phone capture passed without
+  overflow, page errors or geometry shifts. Built-in browser review confirmed both layouts.
+- Reno-scale open-latest and streaming journeys passed at 768 MiB: new reply width 770 to
+  770 pixels over 334 measured samples, with no tool-row flashes. The earlier startup wrapper
+  degraded during a concurrent role journey; its log is retained. Direct daemon checks and the
+  subsequent journeys passed.
+- The actual individual diagnostic pressure probe passed again after the cache accounting fix:
+  30 deferred probes caused no process growth/child OOM, execution recovered after backoff,
+  and remote timeout left no process.
+
+Evidence: /tmp/s109-actors-priority-report.json, /tmp/s109-actors-priority-process-report.json,
+/tmp/s109-actors-priority-outcome.json, /tmp/s109-actors-cache-fixed-compute.json,
+/tmp/s109-actors-cache-test.log, /tmp/s109-actors-final-motion.log,
+/tmp/s109-actors-final-surfaces/report.json, /tmp/s109-actors-resource-states/report.json,
+/tmp/s109-actors-roles/journey.log, /tmp/s109-actors-scale-disabled.log.
+
+These synthetic model fixtures establish admission and recovery, not real provider quality,
+token-dollar savings or the maximum economical tenant density. Matched AI cost/quality work,
+jobs/tools, editable ceilings and the rest of A0 remain open. Keep the current paid host plan.
+
+The shared-pool diagnostic pressure probe also passed after the cache fix. Canonical company
+destruction and exact ownership checks removed the fixture Runtime/computer/Documents,
+four infrastructure containers, three infrastructure volumes and its network. The profile,
+model profiles, temporary unit/drop-ins and private database URL were removed; its mock,
+daemon and frontend were stopped. The browser tab was closed and viewport reset.

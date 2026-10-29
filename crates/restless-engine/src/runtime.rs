@@ -389,6 +389,88 @@ pub struct WorkloadAdmission {
     pub resume_below_bytes: u64,
 }
 
+/// Process-start capacity, shared by Exec, addressed conversations and Work.
+/// A reservation covers startup before the harness appears in live counters.
+#[derive(Debug, Clone, Copy)]
+pub struct ActorCapacity {
+    pub company_slots: usize,
+    pub shared_slots: Option<usize>,
+    pub company_memory_slots: usize,
+    pub shared_memory_slots: Option<usize>,
+    pub waiting_for_memory: bool,
+}
+
+impl ActorCapacity {
+    pub fn waits_for_memory(self, company_active: usize, shared_active: usize) -> bool {
+        self.waiting_for_memory
+            || company_active >= self.company_memory_slots
+            || self
+                .shared_memory_slots
+                .is_some_and(|slots| shared_active >= slots)
+    }
+}
+
+const ACTOR_MEMORY_RESERVATION: u64 = 512 * 1024 * 1024;
+
+fn actor_slots(memory: u64, cpu_max: &str) -> Result<usize> {
+    let mut fields = cpu_max.split_whitespace();
+    let quota = fields.next().context("actor CPU quota is unavailable")?;
+    let period: u64 = fields
+        .next()
+        .context("actor CPU period is unavailable")?
+        .parse()?;
+    anyhow::ensure!(period > 0, "actor CPU period must be positive");
+    let memory_slots = (memory / ACTOR_MEMORY_RESERVATION).max(1) as usize;
+    if quota == "max" {
+        return Ok(memory_slots);
+    }
+    let quota: u64 = quota.parse()?;
+    anyhow::ensure!(quota > 0, "actor CPU quota must be positive");
+    Ok(memory_slots.min(quota.div_ceil(period).max(1) as usize))
+}
+
+fn actor_cgroup_capacity(path: &Path) -> Result<(usize, usize, bool)> {
+    let sample = admission_from_cgroup(path)?;
+    let maximum: u64 = std::fs::read_to_string(path.join("memory.max"))?
+        .trim()
+        .parse()?;
+    let threshold = sample
+        .resume_below_bytes
+        .min(maximum.saturating_sub(ACTOR_MEMORY_RESERVATION));
+    let slots = actor_slots(maximum, &std::fs::read_to_string(path.join("cpu.max"))?)?;
+    let memory_slots = maximum.saturating_sub(sample.working_set_bytes) / ACTOR_MEMORY_RESERVATION;
+    Ok((
+        slots,
+        memory_slots as usize,
+        sample.working_set_bytes >= threshold,
+    ))
+}
+
+pub async fn actor_capacity(company: &str) -> Result<Option<ActorCapacity>> {
+    validate_company_name(company)?;
+    if workload_cgroup_parent()?.is_none() {
+        return Ok(None);
+    }
+    let root = PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
+    let (shared_slots, shared_memory_slots, shared_waiting) = actor_cgroup_capacity(&root)?;
+    let path = workload_container_scope(&container_name(company))
+        .await?
+        .context("company Runtime has not joined its workload pool")?;
+    let (company_slots, company_memory_slots, company_waiting) =
+        if std::fs::read_to_string(path.join("memory.max"))?.trim() == "max" {
+            (shared_slots, shared_memory_slots, false)
+        } else {
+            actor_cgroup_capacity(&path)?
+        };
+    Ok(Some(ActorCapacity {
+        company_slots: company_slots.min(shared_slots),
+        shared_slots: Some(shared_slots),
+        company_memory_slots,
+        shared_memory_slots: Some(shared_memory_slots),
+        waiting_for_memory: shared_waiting || company_waiting,
+    }))
+}
+
 pub fn shared_workload_admission() -> Result<Option<WorkloadAdmission>> {
     if workload_cgroup_parent()?.is_none() {
         return Ok(None);
@@ -475,14 +557,25 @@ fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
     };
     let current = read("memory.current")?;
     let maximum = read("memory.max")?;
-    // Inactive file cache is reclaimable: counting it as live work can leave
-    // a quiet pool waiting forever for cache that only new demand would reclaim.
-    let inactive = std::fs::read_to_string(root.join("memory.stat"))?
-        .lines()
-        .find_map(|line| line.strip_prefix("inactive_file "))
-        .context("host workload reclaimable memory is unavailable")?
-        .trim()
-        .parse::<u64>()?;
+    // Clean mapped/active file cache is reclaimable too. Counting only the
+    // inactive list stranded an idle Runtime after a long conversation.
+    // Keep tmpfs/shared, dirty/writeback and pinned memory charged.
+    // Counter definitions: docs.kernel.org/admin-guide/cgroup-v2.html#memory
+    let stat = std::fs::read_to_string(root.join("memory.stat"))?;
+    let counter = |name: &str| -> Result<u64> {
+        stat.lines()
+            .filter_map(|line| line.split_once(' '))
+            .find_map(|(key, value)| (key == name).then_some(value))
+            .with_context(|| format!("host workload memory {name} is unavailable"))?
+            .trim()
+            .parse()
+            .with_context(|| format!("invalid memory {name}"))
+    };
+    let protected = counter("shmem")?
+        .saturating_add(counter("file_dirty")?)
+        .saturating_add(counter("file_writeback")?)
+        .saturating_add(counter("unevictable")?);
+    let reclaimable = counter("file")?.saturating_sub(protected);
     let high = std::fs::read_to_string(root.join("memory.high"))?;
     let high = if high.trim() == "max" {
         maximum / 10 * 9
@@ -496,7 +589,7 @@ fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
     // 768 MiB limit is less than one normal harness startup.
     let reserve = (high / 10).max(256 * 1024 * 1024).min(high / 2);
     let resume_below_bytes = high.saturating_sub(reserve);
-    let working_set_bytes = current.saturating_sub(inactive);
+    let working_set_bytes = current.saturating_sub(reclaimable);
     Ok(WorkloadAdmission {
         scope: "shared",
         waiting_for_memory: working_set_bytes >= resume_below_bytes,
@@ -5778,6 +5871,103 @@ mod kept_files_e2e {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn clean_mapped_cache_does_not_strand_an_idle_actor() {
+        let root = std::env::temp_dir().join(format!(
+            "actor_cache_{}_test",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        for (name, value) in [
+            ("memory.max", "805306368"),
+            ("memory.high", "max"),
+            ("memory.current", "358072320"),
+            ("cpu.max", "50000 100000"),
+        ] {
+            std::fs::write(root.join(name), value).unwrap();
+        }
+        let write_stat = |protected: &str| {
+            let mut values = std::collections::BTreeMap::from([
+                ("file", 303079424_u64),
+                ("inactive_file", 80924672),
+                ("active_file", 222154752),
+                ("file_mapped", 222154752),
+                ("shmem", 0),
+                ("file_dirty", 0),
+                ("file_writeback", 0),
+                ("unevictable", 0),
+            ]);
+            if !protected.is_empty() {
+                values.insert(protected, 262144000);
+            }
+            std::fs::write(
+                root.join("memory.stat"),
+                values
+                    .iter()
+                    .map(|(key, value)| format!("{key} {value}\n"))
+                    .collect::<String>(),
+            )
+            .unwrap();
+        };
+        write_stat("");
+        assert!(
+            !super::actor_cgroup_capacity(&root).unwrap().2,
+            "the real idle snapshot must admit a turn without waiting for cache aging"
+        );
+        for protected in ["shmem", "file_dirty", "file_writeback", "unevictable"] {
+            write_stat(protected);
+            assert!(
+                super::actor_cgroup_capacity(&root).unwrap().2,
+                "{protected} is not clean reclaimable cache"
+            );
+        }
+        std::fs::write(root.join("memory.stat"), "file 303079424\n").unwrap();
+        assert!(
+            super::actor_cgroup_capacity(&root).is_err(),
+            "unknown protected memory is not zero"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn actor_capacity_follows_cpu_and_reserves_startup_memory() {
+        let mib = 1024 * 1024;
+        assert_eq!(super::actor_slots(768 * mib, "50000 100000").unwrap(), 1);
+        assert_eq!(super::actor_slots(4096 * mib, "300000 100000").unwrap(), 3);
+        assert_eq!(super::actor_slots(1024 * mib, "max 100000").unwrap(), 2);
+        assert!(super::actor_slots(1024 * mib, "100000 0").is_err());
+        let root = std::env::temp_dir().join(format!(
+            "actor_capacity_{}_test",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        for (name, value) in [
+            ("memory.max", "805306368"),
+            ("memory.high", "max"),
+            ("memory.current", "314572800"),
+            (
+                "memory.stat",
+                "file 0\nshmem 0\nfile_dirty 0\nfile_writeback 0\nunevictable 0\n",
+            ),
+            ("cpu.max", "50000 100000"),
+        ] {
+            std::fs::write(root.join(name), value).unwrap();
+        }
+        assert!(
+            !super::admission_from_cgroup(&root)
+                .unwrap()
+                .waiting_for_memory
+        );
+        assert_eq!(
+            super::actor_cgroup_capacity(&root).unwrap(),
+            (1, 0, true),
+            "a new harness needs startup room"
+        );
+        std::fs::write(root.join("memory.current"), "52428800").unwrap();
+        assert_eq!(super::actor_cgroup_capacity(&root).unwrap(), (1, 1, false));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn legacy_resend_binding_migrates_on_load_and_persists_on_save() {
         let root = std::env::temp_dir().join(format!("restless-binding-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join("companies")).unwrap();
@@ -6310,7 +6500,10 @@ mission = "Choose intelligence"
         write("memory.max", "805306368");
         write("memory.high", "max");
         write("memory.current", "629145600");
-        write("memory.stat", "inactive_file 0\n");
+        write(
+            "memory.stat",
+            "file 0\nshmem 0\nfile_dirty 0\nfile_writeback 0\nunevictable 0\n",
+        );
         let shared = || super::WorkloadAdmission {
             scope: "shared",
             waiting_for_memory: false,
@@ -6349,13 +6542,19 @@ mission = "Choose intelligence"
             super::admission_from_cgroup(&root).is_err(),
             "unknown cache is not zero"
         );
-        write("memory.stat", "anon 900\ninactive_file 50\n");
+        write(
+            "memory.stat",
+            "anon 900\nfile 50\nshmem 0\nfile_dirty 0\nfile_writeback 0\nunevictable 0\n",
+        );
         assert!(
             super::admission_from_cgroup(&root)
                 .unwrap()
                 .waiting_for_memory
         );
-        write("memory.stat", "anon 100\ninactive_file 850\n");
+        write(
+            "memory.stat",
+            "anon 100\nfile 850\nshmem 0\nfile_dirty 0\nfile_writeback 0\nunevictable 0\n",
+        );
         assert!(
             !super::admission_from_cgroup(&root)
                 .unwrap()
@@ -6363,7 +6562,10 @@ mission = "Choose intelligence"
             "reclaimable file cache must not strand queued Work"
         );
         write("memory.current", "200");
-        write("memory.stat", "inactive_file 0\n");
+        write(
+            "memory.stat",
+            "file 0\nshmem 0\nfile_dirty 0\nfile_writeback 0\nunevictable 0\n",
+        );
         assert!(
             !super::admission_from_cgroup(&root)
                 .unwrap()
