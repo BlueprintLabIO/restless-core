@@ -383,9 +383,19 @@ impl OrgIntel {
             })
             .connect(database_url)
             .await?;
-        sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {company}"))
-            .execute(&admin)
+        // Startup and an owner command can discover the same new company.
+        // IF NOT EXISTS is not concurrency-safe for PostgreSQL namespace DDL:
+        // both callers can pass its lookup before either insert commits.
+        let mut schema_tx = admin.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("restless-orgintel-schema:{company}"))
+            .execute(&mut *schema_tx)
             .await?;
+        sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {company}"))
+            .execute(&mut *schema_tx)
+            .await?;
+        schema_tx.commit().await?;
+        // SQLx takes its own migration lock after the namespace exists.
         MIGRATOR.run(&admin).await?;
         admin.close().await;
 
