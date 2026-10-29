@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
@@ -16,6 +16,7 @@ assert.deepEqual(
 );
 const output = "/tmp/s109_ai_bench_test";
 const profile = "s109-ai-bench";
+const profileDirectory = "/home/yail/.omp/profiles/s109-ai-bench";
 const model = "gpt-5.6-sol";
 const fixture = JSON.parse(
   await readFile(
@@ -110,10 +111,18 @@ async function run(item, variant) {
     stderr = [];
   child.stdout.on("data", (b) => stdout.push(b));
   child.stderr.on("data", (b) => stderr.push(b));
+  let killTimer;
   const timer = setTimeout(() => {
     try {
       process.kill(-child.pid, "SIGTERM");
     } catch {}
+    killTimer = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch {}
+      }
+    }, 5000);
   }, 135000);
   let status;
   try {
@@ -123,6 +132,7 @@ async function run(item, variant) {
     });
   } finally {
     clearTimeout(timer);
+    clearTimeout(killTimer);
   }
   const events = Buffer.concat(stdout)
     .toString()
@@ -227,11 +237,17 @@ async function run(item, variant) {
     }),
   );
 }
-for (const [index, item] of fixture.cases.entries()) {
-  for (const variant of index % 2 === 0
-    ? ["before", "after"]
-    : ["after", "before"])
-    await run(item, variant);
+// Exclusive creation prevents a concurrent run from sharing or deleting this profile.
+await mkdir(profileDirectory, { mode: 0o700 });
+try {
+  for (const [index, item] of fixture.cases.entries()) {
+    for (const variant of index % 2 === 0
+      ? ["before", "after"]
+      : ["after", "before"])
+      await run(item, variant);
+  }
+} finally {
+  await rm(profileDirectory, { recursive: true, force: true });
 }
 report.finishedAt = new Date().toISOString();
 await writeFile(

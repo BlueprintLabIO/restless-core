@@ -97,9 +97,10 @@ retries or drops a failed completion from the final report.
   output under `/tmp/s109_ai_bench_test`. It makes 14 live requests, sequentially, with a two-minute
   per-request bound. Stop on an unavailable exact route rather than silently choosing another model.
 
-The benchmark profile is disposable and must be removed after its processes exit; no provider token
-is printed, copied into the repository or persisted by this runner. The pre-existing broker remains
-owned by its original launcher.
+The runner claims a fresh disposable profile exclusively, removes it after its processes exit,
+and has a termination/kill fallback after the session deadline. No provider token is printed or
+copied into the repository. The measured run's profile was removed after completion; the
+pre-existing broker remains owned by its original launcher.
 
 A0 still needs matched productive outcomes, real provider cost/quality, larger histories/media,
 no-change wakes and route-specific cache-retirement verification. Inspection found the generic
