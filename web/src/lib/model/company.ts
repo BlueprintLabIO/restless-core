@@ -361,6 +361,7 @@ export interface ComputeSample {
 	cpu_limit_cores: number | null;
 }
 export interface ComputeReading {
+	limits?: ComputeLimitsView | null;
 	status: 'available' | 'not_configured' | 'unavailable';
 	detail?: string;
 	actor_capacity?: {
@@ -385,6 +386,34 @@ export interface ComputeReading {
 			resume_below_bytes: number;
 		};
 	};
+}
+export interface ContainerLimits {
+	cpu_millis: number;
+	memory_mib: number;
+}
+export interface TargetComputeLimits {
+	minimum_memory_mib?: number;
+	saved: ContainerLimits | null;
+	effective: { cpu_millis: number | null; memory_mib: number | null };
+	maximum: { cpu_millis: number | null; memory_mib: number | null };
+	applied: { cpu_millis: number | null; memory_mib: number | null } | null;
+	state: string;
+	pending: boolean;
+}
+export interface ComputeLimitsView {
+	runtime: TargetComputeLimits;
+	computer: TargetComputeLimits;
+}
+export function saveComputeLimits(
+	company: string,
+	target: 'runtime' | 'computer',
+	limits: ContainerLimits | null,
+	expected: ContainerLimits | null
+) {
+	return postCompany<ComputeLimitsView>(company, `/company/compute-limits/${target}`, {
+		limits,
+		expected
+	});
 }
 export async function getCompanyCompute(
 	company: string,

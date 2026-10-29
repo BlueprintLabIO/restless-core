@@ -221,7 +221,9 @@ class Plane:
             docker('rm', '-f', self.container(company), check=False)
             docker('volume', 'rm', self.volume(company), check=False)
             docker('volume', 'rm', f'restless-{self.namespace}-mcp-cache-{company}', check=False)
-        docker('rm', '-f', self.pg_container, check=False)
+        # postgres declares an anonymous data volume. It belongs to this exact
+        # disposable database container; removing only the container leaked it.
+        docker('rm', '-fv', self.pg_container, check=False)
         leftover = docker('ps', '-a', '--filter', f'name={self.namespace}', '--format', '{{.Names}}', check=False).stdout.split()
         leftover += [name for company in self.companies
                      for name in docker('ps', '-a', '--filter', f'name={company}', '--format', '{{.Names}}', check=False).stdout.split()]

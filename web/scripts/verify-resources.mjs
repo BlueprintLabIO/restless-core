@@ -20,6 +20,24 @@ try {
 		const page = await context.newPage();
 		const errors = [];
 		page.on('pageerror', (e) => errors.push(e.message));
+		// Capture the real owner editor before response-state fixtures replace readings.
+		await page.goto(origin + '/' + company + '/company/resources');
+		const edit = page.getByRole('button', { name: 'Edit agent computer limits', exact: true });
+		await edit.waitFor();
+		await edit.click();
+		const form = page.getByRole('form', { name: 'Agent computer limits', exact: true });
+		await form.getByRole('button', { name: 'Save limits', exact: true }).scrollIntoViewIfNeeded();
+		assert(
+			Number(await form.getByRole('spinbutton', { name: 'CPU cores', exact: true }).inputValue()) >
+				0
+		);
+		assert(
+			Number(
+				await form.getByRole('spinbutton', { name: 'Memory (MB)', exact: true }).inputValue()
+			) > 0
+		);
+		await page.screenshot({ path: output + '/resources-real-editor-' + width + '.png' });
+		await form.getByRole('button', { name: 'Cancel', exact: true }).click();
 		let mode = 'pending',
 			release;
 		const ready = new Promise((resolve) => (release = resolve));
@@ -61,6 +79,15 @@ try {
 			waiting_for_memory: false
 		};
 		let actorsAvailable = true;
+		const targetLimits = () => ({
+			saved: null,
+			effective: { cpu_millis: 1000, memory_mib: 1024 },
+			maximum: { cpu_millis: 2000, memory_mib: 2048 },
+			applied: { cpu_millis: 1000, memory_mib: 1024 },
+			state: 'running',
+			pending: false
+		});
+		const limits = { runtime: targetLimits(), computer: targetLimits() };
 		await page.route('**/api/companies/' + company + '/company/compute', async (route) => {
 			if (mode === 'pending') await ready;
 			if (mode === 'error')
@@ -74,14 +101,15 @@ try {
 							: {
 									status: 'available',
 									sample,
-									actor_capacity: actorsAvailable ? actorCapacity : null
+									actor_capacity: actorsAvailable ? actorCapacity : null,
+									limits
 								}
 			});
 		});
 		await page.goto(origin + '/' + company + '/company/resources');
 		const compute = page.locator('#compute');
 		await compute.waitFor();
-		await compute.getByText('Reading…', { exact: true }).waitFor();
+		await compute.getByText('Reading…', { exact: true }).first().waitFor();
 		const bounds = () =>
 			page.locator('#ai-usage').evaluate((node) => ({
 				top: node.getBoundingClientRect().top,
@@ -97,6 +125,19 @@ try {
 			'Compute readings must not move the following section'
 		);
 		await compute.getByText('Memory available', { exact: true }).waitFor();
+		limits.runtime.pending = true;
+		limits.runtime.effective.memory_mib = 768;
+		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
+		await compute.getByText('Pending', { exact: true }).waitFor();
+		const pendingLimit = await bounds();
+		assert(
+			Math.abs(pendingLimit.top - after.top) <= 1,
+			'Pending saved limits must not move the next section'
+		);
+		limits.runtime.pending = false;
+		limits.runtime.applied.memory_mib = 768;
+		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
+		await compute.getByText('Pending', { exact: true }).waitFor({ state: 'hidden' });
 		actorCapacity.company_active = 2;
 		actorCapacity.shared_active = 2;
 		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
@@ -154,7 +195,7 @@ try {
 		);
 		mode = 'not_configured';
 		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
-		await compute.getByText('Shared limits not enabled', { exact: true }).waitFor();
+		await compute.getByText('Account limits not enabled', { exact: true }).waitFor();
 		assert(
 			!(await compute.innerText()).includes('3 GB'),
 			'unconfigured limits must not present an old live sample'
@@ -181,6 +222,7 @@ try {
 			memoryWaitShiftPx: waiting.top - after.top,
 			memoryAdmission: 'waiting and resumed',
 			actorAdmission: 'company/shared slots and startup memory',
+			pendingLimitShiftPx: pendingLimit.top - after.top,
 			recovery: 'live'
 		});
 		await context.close();

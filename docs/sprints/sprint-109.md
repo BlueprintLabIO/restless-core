@@ -22,6 +22,11 @@ Owner priority, 29 October, following the production outage: deliver this before
 sprint tracks. This promotes H1's approved Resources design into the first delivery batch and adds
 explicit compute and AI efficiency acceptance. The other sprint requirements remain open.
 
+Owner clarification, 30 October: memory or CPU pressure must throttle the owning account, never
+take down the whole site. The account budget covers all its companies and workloads together;
+company and computer limits sit within it. Protect sign-in, navigation and Inbox access, and prove
+one pressured account cannot consume another account's capacity or the platform's reserve.
+
 - [ ] **A0.1 Measure the real baseline.** Record idle and active CPU/RAM/storage per company and
   service, host headroom, swap, browser count and concurrent work. For AI record calls, input,
   cached input, output, retries and actual cost per useful completed outcome. Retain before/after
@@ -30,8 +35,9 @@ explicit compute and AI efficiency acceptance. The other sprint requirements rem
   when their capability is requested. Release idle resources safely, preserving profiles, saved
   work and prepared human steps. An idle company must not require a running Chrome desktop or
   spend AI tokens merely to remain available. Verify on-demand start and recovery in practice.
-- [ ] **A0.3 Enforced shared capacity.** Keep per-company CPU/RAM/process/storage caps and enforce
-  the host-wide budget across companies, including simultaneous starts and release roll-forward.
+- [ ] **A0.3 Enforced account capacity.** Keep per-company CPU/RAM/process/storage caps and enforce
+  the owner's aggregate account budget across all companies, plus the host-wide budget, including
+  simultaneous starts and release roll-forward. Per-computer controls never replace the account cap.
   Protect the app, database, tunnel and host services. At capacity, queue new heavy work with an
   observable reason and resume condition instead of exhausting RAM or thrashing swap. Existing
   runtime/Authority limits remain the source; do not add a second general scheduler or meter.
@@ -57,11 +63,20 @@ explicit compute and AI efficiency acceptance. The other sprint requirements rem
   controls for supported caps, history and reasons work is waiting. Distinguish company usage,
   shared host capacity and reserved platform resources. Prices and currency come from the real
   catalogue, including relevant backup/tax costs; a design value never becomes a real offer.
+
+  [Owner CPU/RAM controls and account-pressure evidence](sprint-109/compute-controls.md)
+  now cover real cap edits, persistence, safe pending reductions and admission recovery.
+  Four real jobs were contained to a 768 MiB / half-core test account pool with memory
+  throttling and zero OOM kills; all 128 entry checks across that plane and a separate
+  peer passed. This is local containment evidence, not the complete Cloud resource gate.
 - [ ] **A0.6 Resource release gate.** Exercise multiple idle companies, on-demand browsers,
   simultaneous heavy work, exhausted compute/AI budgets, restart and upgrade on a constrained
   host. Verify stable owner entry, protected headroom, bounded concurrency, no idle AI spend and
   no duplicate effects. Preserve browser/role/zero-jank checks and compare resource and token
   consumption for equivalent useful outcomes before declaring this complete.
+  Under real account CPU and memory pressure, probe navigation/identity, Inbox and Work APIs as
+  well as health. Verify platform services and another owner's account remain responsive; an
+  account's backlog must throttle or wait without causing a site-wide failure.
 
 The outage exposed eager computer startup and independent per-company limits whose combined
 allowance can exceed the host. Increasing VM size provides headroom; completion requires the

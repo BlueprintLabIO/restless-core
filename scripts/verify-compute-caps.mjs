@@ -9,16 +9,15 @@ const run = promisify(execFile);
 const company = process.argv[2],
   namespace = process.env.RESTLESS_RESOURCE_NAMESPACE;
 assert(
-  /^[a-z0-9]+$/.test(namespace ?? "") &&
+  /^[a-z][a-z0-9_-]{0,31}$/.test(namespace ?? "") &&
     /^[a-z0-9_]+_test$/.test(company ?? ""),
   "Use an explicitly owned test namespace and company",
 );
-const slice = "restless-" + namespace + ".slice",
+const slice = process.env.RESTLESS_RESOURCE_TEST_SLICE,
   root = "/sys/fs/cgroup/restless.slice/" + slice;
-assert.equal(
-  process.env.RESTLESS_RESOURCE_TEST_SLICE,
-  slice,
-  "A temporary test-owned slice is required",
+assert(
+  /^restless-[a-z0-9_-]+\.slice$/.test(slice ?? ""),
+  "An explicit temporary test slice is required",
 );
 assert.notEqual(
   slice,
@@ -42,11 +41,22 @@ for (const name of names) {
   const parent = (
     await run("docker", ["inspect", "-f", "{{.HostConfig.CgroupParent}}", name])
   ).stdout.trim();
-  if (parent === slice)
+  if (
+    parent === slice &&
+    ![co, "restless-" + namespace + "-pc-" + company].includes(name)
+  ) {
+    const labels = JSON.parse(
+      (await run("docker", ["inspect", "-f", "{{json .Config.Labels}}", name]))
+        .stdout,
+    );
     assert(
-      [co, "restless-" + namespace + "-pc-" + company].includes(name),
+      labels["com.restless.company"] === company &&
+        process.env.RESTLESS_RESOURCE_TEST_STATE_ROOT &&
+        labels["com.restless.local-documents-root"] ===
+          process.env.RESTLESS_RESOURCE_TEST_STATE_ROOT,
       "Another workload shares this test slice",
     );
+  }
 }
 const unit = (
   await run("systemctl", ["show", slice, "--property=FragmentPath", "--value"])
@@ -79,11 +89,49 @@ const usage = async () => {
   assert.equal(r.status, 200);
   return r.json();
 };
+const entryObservations = [];
+const peer = process.env.RESTLESS_PEER_SMOKE_ORIGIN
+  ? {
+      origin: new URL(process.env.RESTLESS_PEER_SMOKE_ORIGIN),
+      company: process.env.RESTLESS_PEER_SMOKE_COMPANY,
+    }
+  : null;
+if (peer) {
+  assert(
+    peer.origin.protocol === "http:" &&
+      peer.origin.hostname === "127.0.0.1" &&
+      peer.company?.endsWith("_test"),
+  );
+  assert.notEqual(
+    peer.origin.origin,
+    origin.origin,
+    "The peer must be a separate test plane",
+  );
+}
 const health = async () => {
-  const r = await fetch(new URL("/health", origin), {
-    signal: AbortSignal.timeout(5000),
-  });
-  assert.equal(r.status, 200);
+  for (const target of [
+    { origin, company, scope: "pressured account" },
+    ...(peer ? [{ ...peer, scope: "peer account" }] : []),
+  ]) {
+    for (const path of [
+      "/health",
+      `/api/companies/${target.company}/principal`,
+      `/api/companies/${target.company}/attention`,
+      `/api/companies/${target.company}/work-graph`,
+    ]) {
+      const at = performance.now();
+      const r = await fetch(new URL(path, target.origin), {
+        signal: AbortSignal.timeout(5000),
+      });
+      assert.equal(r.status, 200, `Owner entry remains available: ${path}`);
+      await r.arrayBuffer();
+      entryObservations.push({
+        path,
+        scope: target.scope,
+        elapsedMs: performance.now() - at,
+      });
+    }
+  }
 };
 const original = {
   memory: (await readFile(root + "/memory.max", "utf8")).trim(),
@@ -163,10 +211,11 @@ try {
   );
   assert(memory <= 768 * 1024 * 1024);
   const endEvents = await events();
-  assert(
-    endEvents.high > initialEvents.high ||
-      endEvents.oom_kill > initialEvents.oom_kill,
-    "actual shared memory pressure",
+  assert(endEvents.high > initialEvents.high, "actual shared memory pressure");
+  assert.equal(
+    endEvents.oom_kill,
+    initialEvents.oom_kill,
+    "Account pressure throttles before an OOM kill",
   );
   assert(
     during.sample.work.memory_limit_bytes <= 768 * 1024 * 1024,
@@ -218,6 +267,13 @@ try {
     cpuSeconds: used,
     wallSeconds: seconds,
     ownerHealthChecks: controls.length,
+    ownerEntryChecks: entryObservations.length,
+    ownerEntryMaxMs: Math.max(
+      ...entryObservations.map((value) => value.elapsedMs),
+    ),
+    peerEntryChecks: entryObservations.filter(
+      (value) => value.scope === "peer account",
+    ).length,
     computeApi: "available",
   };
   await writeFile(output, JSON.stringify(report, null, 2) + "\n");
