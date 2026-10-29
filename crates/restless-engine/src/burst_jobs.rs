@@ -536,6 +536,10 @@ pub async fn run(
     if let Some(memory) = memory.as_deref() {
         args.extend(["--memory", memory, "--memory-swap", memory]);
     }
+    let workload_parent = crate::runtime::workload_cgroup_parent()?;
+    if let Some(parent) = workload_parent.as_deref() {
+        args.extend(["--cgroup-parent", parent]);
+    }
     args.extend([image.as_str(), "-c", script.as_str()]);
     let output = crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(60)).await?;
     if !output.status.success() {

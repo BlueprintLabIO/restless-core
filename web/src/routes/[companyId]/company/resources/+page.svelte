@@ -7,6 +7,8 @@
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import CompanyLimits from '$lib/components/CompanyLimits.svelte';
+	import CompanyCompute from '$lib/components/CompanyCompute.svelte';
+	import CompanyAiUsage from '$lib/components/CompanyAiUsage.svelte';
 	import Publications from '$lib/components/Publications.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -21,7 +23,7 @@
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const owner = $derived(hasOwnerSurfaceAccess(principal.view));
 	const source = $derived(companyQuery(companyId, () => owner));
-	$effect(() => source.attach(true));
+	$effect(() => source.attach());
 	const view = $derived(source.view);
 	const launchable = $derived(view?.resources.items.filter((item) => item.launch) ?? []);
 	let opening = $state<string | null>(null);
@@ -71,17 +73,17 @@
 	});
 </script>
 
-<CompanyTitle title="Limits" {companyId} />
+<CompanyTitle title="Resources" {companyId} />
 
 <Page
-	title="Limits"
-	info="What the company may spend and do, the tools it can reach, and how long its computer runs. Every action is still checked before it runs."
+	title="Resources"
+	info="Compute, AI usage and the limits on what the company can spend and do."
 >
 	{#snippet actions()}
 		{#if owner}<nav class="jump" aria-label="Sections on this page">
-				<a href="#spend">Spend</a><a href="#authority">Authority</a><a href="#tools">Tools</a><a
-					href="#computer">Computer</a
-				>
+				<a href="#compute">Compute</a><a href="#ai-usage">AI</a><a href="#spend">Spend</a><a
+					href="#authority">Authority</a
+				><a href="#tools">Tools</a><a href="#computer">Computer</a>
 			</nav>{/if}
 	{/snippet}
 	{#if principal.view && !owner}
@@ -91,6 +93,8 @@
 				{#snippet actions()}<button class="btn small" onclick={() => source.refresh()}>Retry</button
 					>{/snippet}
 			</Notice>{/if}
+		{#if owner}<CompanyCompute {companyId} runtime={view.computer.runtime} />
+			<CompanyAiUsage {companyId} />{/if}
 		<CompanyLimits section="spend" />
 		{#if owner}<CompanyLimits section="authority" />
 
@@ -177,7 +181,7 @@
 		border-radius: var(--radius-lg);
 		background: var(--surface-raised);
 	}
-	@container page (max-width: 640px) {
+	@container page (max-width: 800px) {
 		.jump {
 			display: none;
 		}

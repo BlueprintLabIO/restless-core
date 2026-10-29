@@ -127,7 +127,7 @@ pub(crate) async fn issue_ticket(
                 api_error(
                     StatusCode::CONFLICT,
                     "runtime_hours",
-                    "This month's computer hours are used up, so it cannot wake. Raise or clear the limit in Company → Limits.",
+                    "This month's computer hours are used up, so it cannot wake. Raise or clear the limit in Company → Resources.",
                 )
             }
             _ => api_error(

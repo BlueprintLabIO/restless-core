@@ -282,7 +282,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 				counted(schedules, 'active schedule', 'Nothing scheduled'),
 				CalendarClock
 			),
-			{ ...row('limits', 'Limits', limits, Gauge), alert: limitsPaused },
+			{ ...row('limits', 'Resources', limits, Gauge), alert: limitsPaused },
 			row('members', 'Members', counted(members, 'person', 'Only you', 'people'), Users),
 			row('notifications', 'Notifications', telegram ?? '…', Bell),
 			{ ...row('computer', 'Computer', computer, Monitor), alert: computerFailing }

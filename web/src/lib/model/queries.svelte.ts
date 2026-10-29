@@ -35,6 +35,8 @@ import {
 	getBrowserStatus,
 	getCompany,
 	getCompanySpend,
+	getCompanyCompute,
+	type ComputeReading,
 	type BrowserStatus,
 	type CompanySpendView,
 	type CompanyView
@@ -332,7 +334,9 @@ export async function removeConfirmedAttention(
 		(view) =>
 			view && {
 				...view,
-				...(pendingHandoffDecision ? { pendingDecisionItems: [...new Set([...(view.pendingDecisionItems ?? []), itemId])] } : {}),
+				...(pendingHandoffDecision
+					? { pendingDecisionItems: [...new Set([...(view.pendingDecisionItems ?? []), itemId])] }
+					: {}),
 				items: view.items.filter((item) => item.id !== itemId)
 			}
 	);
@@ -438,8 +442,32 @@ export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 	};
 }
 
-/** What the company spends, for an admin who reads it beside the owner; the owner reads it from
- * the whole company view. */
+/** Owner-only host counters, observed while Resources is visible. */
+export function companyComputeQuery(companyId: string, enabled: QueryEnabled = true) {
+	const query = createQuery(() => ({
+		queryKey: ['company-compute', companyId],
+		queryFn: ({ signal }: { signal: AbortSignal }) => getCompanyCompute(companyId, signal),
+		enabled: queryEnabled(enabled),
+		staleTime: 10_000,
+		gcTime: 60_000,
+		retry: false,
+		refetchInterval: pollEvery(30_000),
+		refetchIntervalInBackground: false
+	}));
+	return {
+		get view() {
+			return (query.data as ComputeReading | undefined) ?? null;
+		},
+		get status() {
+			return statusOf(query);
+		},
+		get failure() {
+			return (query.error as Error | null) ?? null;
+		},
+		refresh: () => refresh(query)
+	};
+}
+
 export function companySpendQuery(companyId: string, enabled: QueryEnabled = true) {
 	const query = createQuery(() => ({
 		queryKey: queryKeys.companySpend(companyId),

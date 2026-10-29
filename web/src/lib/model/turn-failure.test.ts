@@ -42,11 +42,11 @@ test('the company spend ceiling reads as a sentence with where to raise it, neve
 	const reason = turnFailureReason(raw);
 	assert.equal(
 		reason,
-		'the company has reached its $100.00 spend limit. Raise it in Company → Limits.'
+		'the company has reached its $100.00 spend limit. Raise it in Company → Resources.'
 	);
 	assert.doesNotMatch(reason, /company_|\[budget\]/);
 	assert.deepEqual(turnFailureFix(raw), {
-		label: 'Company → Limits',
+		label: 'Company → Resources',
 		path: 'company/resources#spend'
 	});
 	assert.match(

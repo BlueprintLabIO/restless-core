@@ -715,8 +715,14 @@
 	$effect(() => {
 		const authenticated = principal;
 		if (!authenticated || mayOpenCompanyRoute(companyId, page.url.pathname, authenticated)) return;
-		toast(refusedRouteReason(companyId, page.url.pathname));
-		void goto(collaboratorHome(companyId), { replaceState: true });
+		const reason = refusedRouteReason(companyId, page.url.pathname);
+		const home = collaboratorHome(companyId);
+		// The toast reads and writes its own reactive list. It is an effect's
+		// outcome, not a dependency that should repeatedly send this person home.
+		untrack(() => {
+			toast(reason);
+			void goto(home, { replaceState: true });
+		});
 	});
 	/* Until intelligence is connected the rail can only say so, and the start
 	 * blocker already says it on Attention. Start it closed once so the work

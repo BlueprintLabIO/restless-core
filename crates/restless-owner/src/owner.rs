@@ -1868,6 +1868,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(company_settings_api::legal_profile).put(company_settings_api::save_legal_profile),
         )
         .route(
+            "/companies/{company}/company/compute",
+            get(company_settings_api::read_compute_usage),
+        )
+        .route(
             "/companies/{company}/company/runtime-policy",
             post(company_settings_api::save_runtime_policy),
         )
@@ -13262,7 +13266,7 @@ async fn open_browser_link(
             return api_error(
                 StatusCode::CONFLICT,
                 "runtime_hours",
-                "This month's computer hours are used up, so it cannot wake. Raise or clear the limit in Company → Limits.",
+                "This month's computer hours are used up, so it cannot wake. Raise or clear the limit in Company → Resources.",
             );
         }
         return api_error(

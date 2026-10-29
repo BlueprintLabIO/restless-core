@@ -264,12 +264,16 @@ pub fn fit_job_memory(requested: Option<&str>) -> Option<String> {
 }
 
 fn host_memory_bytes() -> Option<u64> {
+    host_memory_field("MemTotal:")
+}
+
+fn host_memory_field(field: &str) -> Option<u64> {
     std::fs::read_to_string("/proc/meminfo")
         .ok()
         .and_then(|meminfo| {
             meminfo
                 .lines()
-                .find_map(|line| line.strip_prefix("MemTotal:"))
+                .find_map(|line| line.strip_prefix(field))
                 .and_then(|rest| {
                     rest.trim()
                         .trim_end_matches("kB")
@@ -293,6 +297,327 @@ fn fit_memory(bound: Option<String>, host_bytes: Option<u64>) -> Option<String> 
     } else {
         bound
     })
+}
+
+/// Fleet installs one shared host slice and exposes its read-only cgroup to
+/// the account plane. A configured but missing/unbounded slice must refuse new
+/// work rather than silently allowing every company its independent ceiling.
+pub fn workload_cgroup_parent() -> Result<Option<String>> {
+    let parent = match std::env::var("RESTLESS_WORKLOAD_CGROUP_PARENT") {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => return Ok(None),
+        Err(error) => return Err(error).context("read host workload parent"),
+    };
+    validate_workload_parent(&parent)?;
+    let root = std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")
+        .context("host workload cgroup observation is not configured")?;
+    validate_workload_cgroup(std::path::Path::new(&root))?;
+    Ok(Some(parent))
+}
+
+fn validate_workload_cgroup(root: &std::path::Path) -> Result<()> {
+    let memory = std::fs::read_to_string(root.join("memory.max"))
+        .context("host workload memory cap is unavailable")?;
+    let memory: u64 = memory
+        .trim()
+        .parse()
+        .context("host workload memory cap must be finite")?;
+    anyhow::ensure!(memory > 0, "host workload memory cap must be positive");
+    if let Some(total) = host_memory_bytes() {
+        anyhow::ensure!(
+            memory < total,
+            "host workload cap must leave memory outside the pool"
+        );
+    }
+
+    let cpu = std::fs::read_to_string(root.join("cpu.max"))
+        .context("host workload CPU cap is unavailable")?;
+    let values: Vec<_> = cpu.split_whitespace().collect();
+    anyhow::ensure!(
+        values.len() == 2
+            && values
+                .iter()
+                .all(|value| value.parse::<u64>().is_ok_and(|value| value > 0)),
+        "host workload CPU cap must be finite and positive"
+    );
+    let swap = std::fs::read_to_string(root.join("memory.swap.max"))
+        .context("host workload swap cap is unavailable")?;
+    anyhow::ensure!(
+        swap.trim() == "0",
+        "host workloads must not consume shared swap"
+    );
+    Ok(())
+}
+
+async fn container_uses_workload_parent(name: &str) -> Result<bool> {
+    let Some(parent) = workload_cgroup_parent()? else {
+        return Ok(true);
+    };
+    Ok(
+        inspect_value(&["inspect", "-f", "{{.HostConfig.CgroupParent}}", name])
+            .await?
+            .as_deref()
+            == Some(parent.as_str()),
+    )
+}
+
+#[derive(Debug, Serialize)]
+pub struct ComputeSample {
+    pub memory_used_bytes: u64,
+    pub memory_limit_bytes: Option<u64>,
+    pub cpu_used_cores: Option<f64>,
+    pub cpu_limit_cores: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ComputeUsage {
+    pub observed_at: chrono::DateTime<chrono::Utc>,
+    pub host_memory_bytes: Option<u64>,
+    pub host_available_bytes: Option<u64>,
+    pub pool: ComputeSample,
+    pub work: Option<ComputeSample>,
+    pub computer: Option<ComputeSample>,
+    pub placement_current: bool,
+}
+
+struct ComputeCounter {
+    memory: u64,
+    memory_limit: Option<u64>,
+    cpu: u64,
+    cpu_limit: Option<f64>,
+}
+
+fn compute_counter(root: &std::path::Path) -> Result<ComputeCounter> {
+    let memory = std::fs::read_to_string(root.join("memory.current"))?
+        .trim()
+        .parse()?;
+    let memory_limit = std::fs::read_to_string(root.join("memory.max"))?
+        .trim()
+        .parse()
+        .ok();
+    let cpu = std::fs::read_to_string(root.join("cpu.stat"))?
+        .lines()
+        .find_map(|line| line.strip_prefix("usage_usec "))
+        .context("CPU usage is unavailable")?
+        .trim()
+        .parse()?;
+    let limit = std::fs::read_to_string(root.join("cpu.max"))?;
+    let parts: Vec<_> = limit.split_whitespace().collect();
+    let cpu_limit = parts
+        .first()
+        .and_then(|value| value.parse::<f64>().ok())
+        .zip(parts.get(1).and_then(|value| value.parse::<f64>().ok()))
+        .filter(|(quota, period)| *quota > 0.0 && *period > 0.0)
+        .map(|(quota, period)| quota / period);
+    Ok(ComputeCounter {
+        memory,
+        memory_limit,
+        cpu,
+        cpu_limit,
+    })
+}
+
+fn compute_sample(before: &ComputeCounter, after: ComputeCounter, seconds: f64) -> ComputeSample {
+    ComputeSample {
+        memory_used_bytes: after.memory,
+        memory_limit_bytes: after.memory_limit,
+        cpu_used_cores: after
+            .cpu
+            .checked_sub(before.cpu)
+            .map(|used| used as f64 / 1_000_000.0 / seconds),
+        cpu_limit_cores: after.cpu_limit,
+    }
+}
+
+/// Owner-only observations, requested while Resources is visible. No model,
+/// process contents, global business store, or permanent polling loop is used.
+pub async fn compute_usage(company: &str) -> Result<Option<ComputeUsage>> {
+    validate_company_name(company)?;
+    let Some(parent) = workload_cgroup_parent()? else {
+        return Ok(None);
+    };
+    let root = std::path::PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
+    let work_name = container_name(company);
+    let computer_name = computer_container_name(company);
+    // Labels select auxiliary jobs, tool workers and Documents without reading
+    // any process arguments, files, environments or another company's contents.
+    let inventory = docker_bounded(&[
+        "ps", "--no-trunc", "--format",
+        r#"{"id":{{json .ID}},"name":{{json .Names}},"job_company":{{json (.Label "restless.company")}},"company":{{json (.Label "io.restless.company")}},"documents_company":{{json (.Label "com.restless.company")}},"namespace":{{json (.Label "io.restless.namespace")}},"documents_root":{{json (.Label "com.restless.local-documents-root")}}}"#,
+    ], Duration::from_secs(5)).await?;
+    anyhow::ensure!(
+        inventory.status.success(),
+        "container usage inventory is unavailable"
+    );
+    let namespace = std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default();
+    let state = state_root();
+    let authority_root = state
+        .canonicalize()
+        .unwrap_or(state)
+        .to_string_lossy()
+        .into_owned();
+    let mut selected = vec![work_name.clone(), computer_name.clone()];
+    for line in String::from_utf8_lossy(&inventory.stdout).lines() {
+        let row: serde_json::Value = serde_json::from_str(line)?;
+        if compute_container_belongs(&row, company, &namespace, &authority_root, &work_name) {
+            if let Some(id) = row["id"]
+                .as_str()
+                .filter(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            {
+                selected.push(id.to_string());
+            }
+        }
+    }
+    let mut args = vec![
+        "inspect",
+        "-f",
+        r#"{"id":{{json .Id}},"name":{{json .Name}},"parent":{{json .HostConfig.CgroupParent}},"running":{{json .State.Running}}}"#,
+    ];
+    args.extend(selected.iter().map(String::as_str));
+    let output = docker_bounded(&args, Duration::from_secs(5)).await?;
+    let mut seen = std::collections::HashSet::new();
+    let rows: Vec<serde_json::Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|row| row["running"].as_bool() == Some(true))
+        .filter(|row| seen.insert(row["id"].as_str().unwrap_or_default().to_string()))
+        .collect();
+    // Finished jobs do not keep a company's limits looking perpetually pending.
+    let placement_current = rows
+        .iter()
+        .all(|row| row["parent"].as_str() == Some(parent.as_str()));
+    let mut work_paths = Vec::new();
+    let mut computer_path = None;
+    for row in &rows {
+        let Some(id) = row["id"]
+            .as_str()
+            .filter(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        else {
+            continue;
+        };
+        if row["parent"].as_str() != Some(parent.as_str()) {
+            continue;
+        }
+        let path = root.join(format!("docker-{id}.scope"));
+        if row["name"]
+            .as_str()
+            .map(|name| name.trim_start_matches('/'))
+            == Some(computer_name.as_str())
+        {
+            computer_path = Some(path);
+        } else {
+            work_paths.push(path);
+        }
+    }
+    let pool_before = compute_counter(&root)?;
+    let work_before: Vec<_> = work_paths
+        .iter()
+        .filter_map(|path| compute_counter(path).ok().map(|counter| (path, counter)))
+        .collect();
+    let computer_before = computer_path
+        .as_ref()
+        .and_then(|path| compute_counter(path).ok());
+    let at = std::time::Instant::now();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let pool_after = compute_counter(&root)?;
+    let seconds = at.elapsed().as_secs_f64();
+    let observed_work_scopes = work_before.len();
+    let work_samples: Vec<_> = work_before
+        .into_iter()
+        .filter_map(|(path, before)| {
+            compute_counter(path)
+                .ok()
+                .map(|after| compute_sample(&before, after, seconds))
+        })
+        .collect();
+    let lost_work_scope = work_samples.len() != observed_work_scopes;
+    let mut work = aggregate_compute_samples(work_samples, &pool_after);
+    if lost_work_scope {
+        if let Some(work) = &mut work {
+            work.cpu_used_cores = None;
+        }
+    }
+    let computer = computer_before.and_then(|before| {
+        Some(compute_sample(
+            &before,
+            compute_counter(computer_path.as_ref()?).ok()?,
+            seconds,
+        ))
+    });
+    Ok(Some(ComputeUsage {
+        observed_at: chrono::Utc::now(),
+        host_memory_bytes: host_memory_bytes(),
+        host_available_bytes: host_memory_field("MemAvailable:"),
+        pool: compute_sample(&pool_before, pool_after, seconds),
+        work,
+        computer,
+        placement_current,
+    }))
+}
+
+fn compute_container_belongs(
+    row: &serde_json::Value,
+    company: &str,
+    namespace: &str,
+    root: &str,
+    work_name: &str,
+) -> bool {
+    (row["documents_company"].as_str() == Some(company)
+        && row["documents_root"].as_str() == Some(root))
+        || (row["job_company"].as_str() == Some(company)
+            && row["name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with(&format!("{work_name}-job-"))))
+        || (row["company"].as_str() == Some(company)
+            && row["namespace"].as_str().unwrap_or_default() == namespace)
+}
+
+fn aggregate_compute_samples(
+    samples: Vec<ComputeSample>,
+    pool: &ComputeCounter,
+) -> Option<ComputeSample> {
+    if samples.is_empty() {
+        return None;
+    }
+    let memory = samples.iter().map(|sample| sample.memory_used_bytes).sum();
+    let memory_limit = samples
+        .iter()
+        .map(|sample| sample.memory_limit_bytes)
+        .sum::<Option<u64>>()
+        .zip(pool.memory_limit)
+        .map(|(sum, cap)| sum.min(cap))
+        .or(pool.memory_limit);
+    let cpu = samples
+        .iter()
+        .map(|sample| sample.cpu_used_cores)
+        .sum::<Option<f64>>();
+    let cpu_limit = samples
+        .iter()
+        .map(|sample| sample.cpu_limit_cores)
+        .sum::<Option<f64>>()
+        .zip(pool.cpu_limit)
+        .map(|(sum, cap)| sum.min(cap))
+        .or(pool.cpu_limit);
+    Some(ComputeSample {
+        memory_used_bytes: memory,
+        memory_limit_bytes: memory_limit,
+        cpu_used_cores: cpu,
+        cpu_limit_cores: cpu_limit,
+    })
+}
+
+fn validate_workload_parent(parent: &str) -> Result<()> {
+    anyhow::ensure!(
+        parent.starts_with("restless-")
+            && parent.ends_with(".slice")
+            && parent.len() <= 128
+            && parent.len() > "restless-.slice".len()
+            && parent[..parent.len() - 6]
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'),
+        "host workload parent must name a Restless systemd slice"
+    );
+    Ok(())
 }
 
 /// Docker's memory notation (`4g`, `512m`, `1073741824`) in bytes.
@@ -1597,6 +1922,7 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
     if !computer_split() {
         return Ok(());
     }
+    let workload_parent = workload_cgroup_parent()?;
     let company = &config.name;
     let runtime = container_name(company);
     let runtime_id = inspect_value(&["inspect", "-f", "{{.Id}}", &runtime])
@@ -1615,15 +1941,16 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
         .filter(|value| value != "<no value>")
         .unwrap_or_default();
     let sites_current = sites_now == config.home_sites.join(",");
+    let parent_current = container_uses_workload_parent(&name).await?;
     match attached.as_deref() {
-        Some(id) if id == runtime_id && sites_current => {
+        Some(id) if id == runtime_id && sites_current && parent_current => {
             if container_state(&name).await? != ContainerStatus::Running {
                 run_ok(&["start", &name]).await?;
             }
             return Ok(());
         }
         Some(_) => {
-            run_ok(&["rm", "-f", &name]).await?;
+            remove_computer(company).await;
         }
         None => {}
     }
@@ -1676,6 +2003,9 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
         "--cpu-shares",
         "512",
     ];
+    if let Some(parent) = workload_parent.as_deref() {
+        args.extend(["--cgroup-parent", parent]);
+    }
     if let Some(cpus) = cpus.as_deref() {
         args.extend(["--cpus", cpus]);
     }
@@ -2377,12 +2707,14 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let image = company_image();
     let mut fetched = false;
     let mut replaced = false;
+    workload_cgroup_parent()?;
     if reconcile {
         fetched = ensure_image_available(&image).await?;
         if status(company).await? != ContainerStatus::Absent
             && (container_uses_old_image(company).await?
                 || !container_uses_company_volume(company).await?
-                || !container_mounts_attachments(company).await?)
+                || !container_mounts_attachments(company).await?
+                || !container_uses_workload_parent(&container_name(company)).await?)
         {
             // Reconciliation replaces the shell. A configured monthly hours
             // cap must gate that replacement before it stops live work.
@@ -2474,6 +2806,10 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             ];
             if cfg!(target_os = "linux") && internal_network.is_none() {
                 args.extend(["--add-host", "host.docker.internal:host-gateway"]);
+            }
+            let workload_parent = workload_cgroup_parent()?;
+            if let Some(parent) = workload_parent.as_deref() {
+                args.extend(["--cgroup-parent", parent]);
             }
             if let Some(cpus) = cpus.as_deref() {
                 args.extend(["--cpus", cpus]);
@@ -5476,6 +5812,157 @@ mission = "Choose intelligence"
             true,
             "broker-only restart must recognize an already running browser"
         );
+    }
+
+    #[test]
+    fn workload_parent_is_a_scoped_systemd_slice() {
+        for valid in ["restless-workloads.slice", "restless-s109caps.slice"] {
+            assert!(super::validate_workload_parent(valid).is_ok());
+        }
+        for invalid in [
+            "",
+            "system.slice",
+            "restless-.slice",
+            "restless-workloads.slice/other",
+            "../restless-workloads.slice",
+            "restless-workloads.service",
+            "restless-☃.slice",
+        ] {
+            assert!(
+                super::validate_workload_parent(invalid).is_err(),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn configured_workload_pool_refuses_missing_unbounded_or_swappable_caps() {
+        let root = std::env::temp_dir().join(format!(
+            "workload_caps_{}_test",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        assert!(super::validate_workload_cgroup(&root).is_err());
+        std::fs::write(root.join("memory.max"), "1073741824\n").unwrap();
+        std::fs::write(root.join("cpu.max"), "50000 100000\n").unwrap();
+        std::fs::write(root.join("memory.swap.max"), "0\n").unwrap();
+        assert!(super::validate_workload_cgroup(&root).is_ok());
+        std::fs::write(root.join("memory.max"), "max\n").unwrap();
+        assert!(super::validate_workload_cgroup(&root).is_err());
+        std::fs::write(root.join("memory.max"), "1073741824\n").unwrap();
+        std::fs::write(root.join("cpu.max"), "max 100000\n").unwrap();
+        assert!(super::validate_workload_cgroup(&root).is_err());
+        std::fs::write(root.join("cpu.max"), "50000 100000\n").unwrap();
+        std::fs::write(root.join("memory.swap.max"), "1073741824\n").unwrap();
+        assert!(super::validate_workload_cgroup(&root).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an existing disposable company in an explicitly configured temporary pool"]
+    async fn missing_pool_refuses_reconcile_without_stopping_live_company() {
+        let company = std::env::var("RESTLESS_TEST_RESOURCE_COMPANY").unwrap();
+        assert!(company.ends_with("_test"));
+        let parent = super::workload_cgroup_parent().unwrap().unwrap();
+        assert_ne!(parent, "restless-workloads.slice");
+        let root = std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT").unwrap();
+        let config = super::CompanyConfig::load(&super::state_root(), &company).unwrap();
+        let name = super::container_name(&company);
+        assert_eq!(
+            super::status(&company).await.unwrap(),
+            super::ContainerStatus::Running
+        );
+        let before = super::inspect_value(&["inspect", "-f", "{{.Id}}", &name])
+            .await
+            .unwrap();
+        std::env::set_var(
+            "RESTLESS_WORKLOAD_CGROUP_ROOT",
+            std::env::temp_dir().join(format!("missing_pool_{}_test", uuid::Uuid::new_v4())),
+        );
+        let result = super::up(&config, true).await;
+        std::env::set_var("RESTLESS_WORKLOAD_CGROUP_ROOT", root);
+        assert!(result.is_err());
+        assert_eq!(
+            super::status(&company).await.unwrap(),
+            super::ContainerStatus::Running
+        );
+        assert_eq!(
+            super::inspect_value(&["inspect", "-f", "{{.Id}}", &name])
+                .await
+                .unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn compute_inventory_keeps_company_and_profile_boundaries() {
+        let own = serde_json::json!({"company":"acme_test", "namespace":"own_test"});
+        assert!(super::compute_container_belongs(
+            &own,
+            "acme_test",
+            "own_test",
+            "/own",
+            "own-co"
+        ));
+        assert!(!super::compute_container_belongs(
+            &own,
+            "other_test",
+            "own_test",
+            "/own",
+            "own-co"
+        ));
+        assert!(!super::compute_container_belongs(
+            &own,
+            "acme_test",
+            "another_test",
+            "/own",
+            "own-co"
+        ));
+        let document =
+            serde_json::json!({"documents_company":"acme_test","documents_root":"/another"});
+        assert!(!super::compute_container_belongs(
+            &document,
+            "acme_test",
+            "own_test",
+            "/own",
+            "own-co"
+        ));
+        let job = serde_json::json!({"job_company":"acme_test","name":"another-co-job-123"});
+        assert!(!super::compute_container_belongs(
+            &job,
+            "acme_test",
+            "own_test",
+            "/own",
+            "own-co"
+        ));
+    }
+
+    #[test]
+    fn compute_usage_keeps_counter_resets_unknown() {
+        let before = super::ComputeCounter {
+            memory: 100,
+            memory_limit: Some(1000),
+            cpu: 1000000,
+            cpu_limit: Some(1.0),
+        };
+        let after = super::ComputeCounter {
+            memory: 200,
+            memory_limit: Some(1000),
+            cpu: 1100000,
+            cpu_limit: Some(1.0),
+        };
+        let sample = super::compute_sample(&before, after, 0.2);
+        assert_eq!(sample.cpu_used_cores, Some(0.5));
+        assert_eq!(sample.memory_used_bytes, 200);
+        let reset = super::ComputeCounter {
+            memory: 20,
+            memory_limit: Some(1000),
+            cpu: 1,
+            cpu_limit: Some(1.0),
+        };
+        assert!(super::compute_sample(&before, reset, 0.2)
+            .cpu_used_cores
+            .is_none());
     }
 
     #[test]

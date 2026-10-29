@@ -205,6 +205,7 @@ pub async fn ensure(root: &Path, company: &str, org: &OrgIntel, issuer: &str) ->
             "local Documents image is unavailable after build"
         );
     }
+    let workload_parent = crate::runtime::workload_cgroup_parent()?;
     let image_id = String::from_utf8(image_info.stdout)?.trim().to_owned();
     let name = container_name(identity.cell_id);
     let restart_marker = crate::cell::native_documents_rotation_marker_path(&root, company);
@@ -218,7 +219,9 @@ pub async fn ensure(root: &Path, company: &str, org: &OrgIntel, issuer: &str) ->
             }
             run(&["rm", &name]).await?;
         } else {
-            let matches = container["Image"].as_str() == Some(image_id.as_str())
+            let matches = workload_parent.as_ref().is_none_or(|parent| {
+                container["HostConfig"]["CgroupParent"].as_str() == Some(parent.as_str())
+            }) && container["Image"].as_str() == Some(image_id.as_str())
                 && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_TOKEN_ISSUER") == Some(issuer)
                 && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_JWKS_URL")
                     == Some(jwks_url.as_str())
@@ -230,7 +233,10 @@ pub async fn ensure(root: &Path, company: &str, org: &OrgIntel, issuer: &str) ->
                     .filter(|p| *p > 0);
             }
             if port.is_none() {
-                run(&["rm", "-f", &name]).await?;
+                if container["State"]["Running"].as_bool() == Some(true) {
+                    stop_gracefully(&name).await?;
+                }
+                run(&["rm", &name]).await?;
             } else if container["State"]["Running"].as_bool() != Some(true) {
                 run(&["start", &name]).await?;
             }
@@ -243,7 +249,7 @@ pub async fn ensure(root: &Path, company: &str, org: &OrgIntel, issuer: &str) ->
             // than publishing a guessed service. The container owns the port after startup.
             let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
             let port = listener.local_addr()?.port();
-            let args = vec![
+            let mut args = vec![
                 "run".into(),
                 "-d".into(),
                 "--name".into(),
@@ -291,6 +297,9 @@ pub async fn ensure(root: &Path, company: &str, org: &OrgIntel, issuer: &str) ->
                 format!("RESTLESS_NATIVE_DOCUMENTS_LISTEN_PORT={port}"),
                 image,
             ];
+            if let Some(parent) = &workload_parent {
+                args.splice(1..1, ["--cgroup-parent".into(), parent.clone()]);
+            }
             drop(listener);
             run(&args.iter().map(String::as_str).collect::<Vec<_>>()).await?;
             port
