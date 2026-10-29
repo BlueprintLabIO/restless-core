@@ -2,7 +2,7 @@
 use chrono::{Duration, Utc};
 use restless_orgintel::{
     CompanyAccessIdentity, ExternalMembershipControlContext, ExternalMembershipStatus,
-    HandoffDecision, HandoffDecisionMembership, HandoffDecisionPrincipal, HumanAccessContext,
+    HandoffDecision, HumanAccessContext, HumanDecisionMembership, HumanDecisionPrincipal,
     NewArtifactRef, NewOwnerHandoff, NewWork, OrgIntel, OwnerBrief, OwnerBriefKind,
     OwnerHandoffCategory, OwnerHandoffState, OwnerReviewVersion, WorkAttemptState, WorkStatus,
     WorkspaceSpec, MEMBERSHIP_CONTROL_CONTRACT_VERSION,
@@ -15,8 +15,8 @@ struct Fixture {
     db: PgPool,
     url: String,
 }
-fn owner() -> HandoffDecisionPrincipal {
-    HandoffDecisionPrincipal {
+fn owner() -> HumanDecisionPrincipal {
+    HumanDecisionPrincipal {
         actor_id: "owner".into(),
         owner_account: None,
         membership: None,
@@ -226,9 +226,10 @@ async fn deadline_survives_reopen_and_two_workers_apply_exactly_once() {
         .queue_handoff_decision(id, &owner(), &version, &HandoffDecision::CompleteHumanStep)
         .await
         .unwrap();
+    let other_id = Uuid::new_v4();
     let other = reopened
         .queue_handoff_decision(
-            Uuid::new_v4(),
+            other_id,
             &owner(),
             &version,
             &HandoffDecision::CompleteHumanStep,
@@ -267,6 +268,19 @@ async fn deadline_survives_reopen_and_two_workers_apply_exactly_once() {
         graph.work.iter().find(|w| w.id == work).unwrap().status,
         WorkStatus::Active
     );
+    let replay = reopened
+        .queue_handoff_decision(
+            other_id,
+            &owner(),
+            &version,
+            &HandoffDecision::CompleteHumanStep,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (replay.id, replay.state.as_str(), replay.undo_until),
+        (id, "applied", saved.undo_until)
+    );
     assert!(!f.org.apply_handoff_decision(id).await.unwrap());
     assert_eq!(
         f.org
@@ -287,7 +301,7 @@ async fn deadline_survives_reopen_and_two_workers_apply_exactly_once() {
         f.org
             .acknowledge_handoff_decision(
                 id,
-                &HandoffDecisionPrincipal {
+                &HumanDecisionPrincipal {
                     owner_account: Some("another-account".into()),
                     ..owner()
                 }
@@ -323,6 +337,20 @@ async fn undo_cancels_without_effect_and_old_request_ids_never_create_a_new_deci
         .queue_handoff_decision(id, &owner(), &version, &HandoffDecision::CompleteHumanStep)
         .await
         .unwrap();
+    let other_id = Uuid::new_v4();
+    assert_eq!(
+        f.org
+            .queue_handoff_decision(
+                other_id,
+                &owner(),
+                &version,
+                &HandoffDecision::CompleteHumanStep
+            )
+            .await
+            .unwrap()
+            .id,
+        id
+    );
     assert!(f
         .org
         .queue_handoff_decision(Uuid::new_v4(), &owner(), &version, &HandoffDecision::Skip)
@@ -335,7 +363,7 @@ async fn undo_cancels_without_effect_and_old_request_ids_never_create_a_new_deci
             .is_err(),
         "a pending decision cannot be acknowledged away"
     );
-    let impostor = HandoffDecisionPrincipal {
+    let impostor = HumanDecisionPrincipal {
         owner_account: Some("another-owner".into()),
         ..owner()
     };
@@ -359,6 +387,24 @@ async fn undo_cancels_without_effect_and_old_request_ids_never_create_a_new_deci
         .await
         .unwrap();
     assert_eq!(replay.state, "canceled");
+    let other_replay = f
+        .org
+        .queue_handoff_decision(
+            other_id,
+            &owner(),
+            &version,
+            &HandoffDecision::CompleteHumanStep,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            other_replay.id,
+            other_replay.state.as_str(),
+            other_replay.undo_until
+        ),
+        (id, "canceled", replay.undo_until)
+    );
     assert_ne!(next.id, replay.id);
     assert!(!f.org.apply_handoff_decision(id).await.unwrap());
     assert_eq!(f.feedback_count(work).await, 0);
@@ -481,10 +527,10 @@ async fn assigned_member_and_admin_recheck_membership_before_the_delayed_effect(
             )
             .await
             .unwrap();
-        let principal = HandoffDecisionPrincipal {
+        let principal = HumanDecisionPrincipal {
             actor_id: binding.actor_id,
             owner_account: None,
-            membership: Some(HandoffDecisionMembership {
+            membership: Some(HumanDecisionMembership {
                 membership_id: "membership-casey".into(),
                 membership_version: 1,
                 membership_role: role.into(),
@@ -537,8 +583,8 @@ async fn assigned_member_and_admin_recheck_membership_before_the_delayed_effect(
             .await
             .unwrap();
         if role == "admin" {
-            let current = HandoffDecisionPrincipal {
-                membership: Some(HandoffDecisionMembership {
+            let current = HumanDecisionPrincipal {
+                membership: Some(HumanDecisionMembership {
                     membership_role: "member".into(),
                     membership_version: 2,
                     membership_id: "membership-casey".into(),
@@ -627,10 +673,10 @@ async fn a_company_owner_keeps_the_verified_actor_and_loses_owner_decisions_on_d
                 .await
                 .unwrap();
         }
-        let principal = HandoffDecisionPrincipal {
+        let principal = HumanDecisionPrincipal {
             actor_id: binding.actor_id,
             owner_account: None,
-            membership: Some(HandoffDecisionMembership {
+            membership: Some(HumanDecisionMembership {
                 membership_id: "membership-owner".into(),
                 membership_version: owner_version,
                 membership_role: "owner".into(),
@@ -681,8 +727,8 @@ async fn a_company_owner_keeps_the_verified_actor_and_loses_owner_decisions_on_d
             .fail_handoff_decision(saved.id, &error.plain_message())
             .await
             .unwrap();
-        let current = HandoffDecisionPrincipal {
-            membership: Some(HandoffDecisionMembership {
+        let current = HumanDecisionPrincipal {
+            membership: Some(HumanDecisionMembership {
                 membership_id: "membership-owner".into(),
                 membership_version: owner_version + 1,
                 membership_role: "member".into(),

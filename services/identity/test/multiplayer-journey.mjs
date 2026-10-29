@@ -534,7 +534,9 @@ try {
   const tracers = editors.map((who) => [who, (response) => {
     const url = response.url();
     if (url.includes(`/rooms/${room.id}`)) {
-      roomTraffic.get(who.key).push({ at: Date.now() - started, status: response.status(), url: url.slice(url.indexOf("/rooms/")) });
+      const entry = { at: Date.now() - started, status: response.status(), url: url.slice(url.indexOf("/rooms/")) };
+      roomTraffic.get(who.key).push(entry);
+      if (url.includes("/messages?") && response.ok()) void response.json().then(page => { entry.messages = page.messages?.map(message => ({ id: message.id, body: message.body, parent: message.parent_message_id })); }).catch(() => {});
     }
   }]);
   for (const [who, trace] of tracers) who.page.on("response", trace);
@@ -709,6 +711,38 @@ try {
     "a reaction on a comment is visible to the other person",
   );
   pass("a comment mention reached only Alice, her reply came back to the owner, and a reaction is shared");
+
+  // An assigned human member owns their Native Document Undo, even in an owner's company.
+  const undoDoc = await coreApi(owner, `${base}/documents`, {
+    method: "POST", expected: 201,
+    body: { title: "Member review Undo", kind: "brief", visibility: "participants", content_json: commentBody("The exact saved candidate."), reason: "Multiplayer Undo smoke" },
+  });
+  let undoView = await coreApi(owner, `${base}/documents/${undoDoc.document_id}`);
+  await coreApi(owner, `${base}/documents/${undoDoc.document_id}/participants/${alice.principal.actor_id}`, {
+    method: "PUT", body: { expected_document_version: undoView.document.version, access: "edit" },
+  });
+  undoView = await coreApi(owner, `${base}/documents/${undoDoc.document_id}`);
+  const undoReview = await coreApi(owner, `${base}/documents/${undoDoc.document_id}/reviews`, {
+    method: "POST", expected: 201,
+    body: { expected_document_version: undoView.document.version, expected_current_version_id: undoView.current_version.version.id, summary: "Alice judges this candidate", reviewer_actor_id: alice.principal.actor_id },
+  });
+  undoView = await coreApi(alice, `${base}/documents/${undoDoc.document_id}`);
+  const nativeInput = { id: randomUUID(), decision: { kind: "accept_review", expected_document_version: undoView.document.version, expected_review_version: undoReview.review.version, accepted_version_name: "Alice reviewed", feedback: "The member's private note" } };
+  const nativeQueue = `${base}/documents/${undoDoc.document_id}/reviews/${undoReview.review.id}/pending-decision`;
+  await coreApi(owner, nativeQueue, { method: "POST", body: { ...nativeInput, id: randomUUID() }, expected: 409 });
+  const nativePending = await coreApi(alice, nativeQueue, { method: "POST", body: nativeInput });
+  assert.equal(nativePending.state, "pending");
+  assert((await coreApi(alice, `${base}/document-decisions`)).items.some(item => item.id === nativePending.id));
+  assert(!(await coreApi(owner, `${base}/document-decisions`)).items.some(item => item.id === nativePending.id), "an owner cannot read the member's private decision receipts");
+  await coreApi(owner, `${base}/document-decisions/${nativePending.id}`, { method: "DELETE", expected: 404 });
+  await coreApi(alice, `${base}/document-decisions/${nativePending.id}`, { method: "DELETE" });
+  assert.equal((await coreApi(alice, nativeQueue, { method: "POST", body: nativeInput })).state, "canceled");
+  assert.equal((await coreApi(alice, `${base}/documents/${undoDoc.document_id}`)).document.status, "in_review");
+  const ownDraft = await coreApi(alice, `${base}/documents/${undoDoc.document_id}/reviews/${undoReview.review.id}/decision-draft`);
+  assert.equal(ownDraft.draft.decision.feedback, nativeInput.decision.feedback);
+  assert.equal((await coreApi(owner, `${base}/documents/${undoDoc.document_id}/reviews/${undoReview.review.id}/decision-draft`)).draft, null);
+  await coreApi(alice, `${base}/document-decisions/${nativePending.id}/seen`, { method: "POST" });
+  pass("assigned member's Native Document review queues and undoes with private recoverable input; another owner cannot decide or cancel it");
 
   const viewOnly = await coreApi(owner, `${base}/documents`, {
     method: "POST",

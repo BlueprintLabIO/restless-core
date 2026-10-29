@@ -332,7 +332,7 @@ export async function removeConfirmedAttention(
 		(view) =>
 			view && {
 				...view,
-				...(pendingHandoffDecision ? { pendingHandoffDecisions: [...new Set([...(view.pendingHandoffDecisions ?? []), itemId])] } : {}),
+				...(pendingHandoffDecision ? { pendingDecisionItems: [...new Set([...(view.pendingDecisionItems ?? []), itemId])] } : {}),
 				items: view.items.filter((item) => item.id !== itemId)
 			}
 	);

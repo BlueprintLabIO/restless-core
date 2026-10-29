@@ -3588,7 +3588,7 @@ async fn active_actor(tx: &mut Transaction<'_, Postgres>, actor_id: &str) -> Doc
 /// Review acceptance and direct named-body changes carry organisational
 /// meaning beyond an ACL edit grant. Humans may judge; agent Actors may judge
 /// only while they are the Exec or the accountable lead of a live Team.
-async fn require_document_judgement_actor(
+pub(super) async fn require_document_judgement_actor(
     tx: &mut Transaction<'_, Postgres>,
     actor_id: &str,
 ) -> DocumentResult<()> {
@@ -3859,7 +3859,7 @@ async fn access_in_transaction(
     Ok(None)
 }
 
-async fn require_access(
+pub(super) async fn require_access(
     tx: &mut Transaction<'_, Postgres>,
     document_id: Uuid,
     actor_id: &str,
@@ -3874,7 +3874,7 @@ async fn require_access(
     Ok(access)
 }
 
-fn clean_bounded(label: &str, value: &str, maximum: usize) -> DocumentResult<String> {
+pub(super) fn clean_bounded(label: &str, value: &str, maximum: usize) -> DocumentResult<String> {
     let value = value.trim();
     if value.is_empty() || value.chars().count() > maximum {
         return Err(DocumentError::Invalid(format!(
@@ -3949,7 +3949,7 @@ fn comment_columns() -> &'static str {
      content_hash,mentioned_actor_ids,created_at,edited_at,deleted_at"
 }
 
-fn review_select() -> &'static str {
+pub(super) fn review_select() -> &'static str {
     "SELECT id,document_id,requested_version_id,requested_by_actor_id,summary,status,\
             accepted_version_id,accepted_by_actor_id,accepted_at,material_unresolved_thread_ids,\
             stale_against_version_id,stale_detected_by_actor_id,stale_at,created_at,version,\
@@ -3978,7 +3978,7 @@ fn work_review_dependency_columns() -> &'static str {
      resolved_by_actor_id,resolved_at,resumed_at,created_at"
 }
 
-async fn load_work_review_dependency(
+pub(super) async fn load_work_review_dependency(
     tx: &mut Transaction<'_, Postgres>,
     document_id: Uuid,
     review_id: Uuid,
@@ -6877,198 +6877,10 @@ impl OrgIntel {
         input: NewDocumentCommentThread<'_>,
         quote: Option<&str>,
     ) -> DocumentResult<DocumentCommentThreadCreated> {
-        let content = validated_comment_content(input.content_json)?;
-        let block_id = input.block_id.map(validate_block_id).transpose()?;
-        let quote = quote
-            .map(str::trim)
-            .filter(|quote| !quote.is_empty())
-            .map(|quote| {
-                if block_id.is_none() {
-                    return Err(DocumentError::Invalid(
-                        "Only a comment on a block can point at words in it.".into(),
-                    ));
-                }
-                if quote.chars().count() > 500 || quote.contains('\0') {
-                    return Err(DocumentError::Invalid(
-                        "The quoted words must be at most 500 characters.".into(),
-                    ));
-                }
-                Ok(quote.to_string())
-            })
-            .transpose()?;
-        let mentions = mentioned_actor_ids(&content)?;
-        let fingerprint = request_fingerprint(
-            "comment_thread_create",
-            json!({
-                "document_id": input.document_id,
-                "actor_id": input.actor_id,
-                "block_id": block_id,
-                "anchor_quote": quote,
-                "content_json": content.content_json,
-            }),
-        );
         let mut tx = self.pool.begin().await?;
-        lock_document_command(&mut tx, input.command_id).await?;
-        // Take the write lock before access checks acquire their shared lock:
-        // two simultaneous anchored comments must not deadlock on an upgrade.
-        if block_id.is_some() {
-            let exists: Option<Uuid> =
-                sqlx::query_scalar("SELECT id FROM native_documents WHERE id=$1 FOR UPDATE")
-                    .bind(input.document_id)
-                    .fetch_optional(&mut *tx)
-                    .await?;
-            if exists.is_none() {
-                return Err(DocumentError::Unavailable);
-            }
-        }
-        require_access(
-            &mut tx,
-            input.document_id,
-            input.actor_id,
-            DocumentAccess::Comment,
-        )
-        .await?;
-        if let Some(thread_id) = replayed_document_command(
-            &mut tx,
-            input.command_id,
-            input.document_id,
-            input.actor_id,
-            "comment_thread_create",
-            &fingerprint,
-        )
-        .await?
-        {
-            let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
-                "{} WHERE document_id=$1 AND id=$2",
-                comment_thread_select()
-            ))
-            .bind(input.document_id)
-            .bind(thread_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| {
-                DocumentError::Corrupt("comment command receipt has no thread".into())
-            })?;
-            let thread = comment_thread_creation_projection(thread);
-            let first_comment = sqlx::query_as::<_, DocumentCommentRow>(&format!(
-                "{} WHERE document_id=$1 AND thread_id=$2 AND reply_to_comment_id IS NULL \
-                 ORDER BY created_at,id LIMIT 1",
-                comment_select()
-            ))
-            .bind(input.document_id)
-            .bind(thread_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| {
-                DocumentError::Corrupt("comment command receipt has no first comment".into())
-            })?;
-            tx.commit().await?;
-            return Ok(DocumentCommentThreadCreated {
-                thread: DocumentCommentThreadView {
-                    anchor_state: if thread.block_id.is_some() {
-                        DocumentCommentAnchorState::Active
-                    } else {
-                        DocumentCommentAnchorState::Document
-                    },
-                    thread,
-                },
-                first_comment: validate_comment_row(first_comment)?,
-            });
-        }
-        require_mentioned_actor_access(&mut tx, input.document_id, &mentions).await?;
-        if block_id.is_some() {
-            snapshot_live_document(&mut tx, input.document_id, input.actor_id, "Comment added")
-                .await?;
-        }
-        let current: DocumentVersionRow = sqlx::query_as(&format!(
-            "{} WHERE document_id=$1 AND id=(SELECT current_named_version_id \
-             FROM native_documents WHERE id=$1)",
-            version_select()
-        ))
-        .bind(input.document_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| DocumentError::Corrupt("document has no current named version".into()))?;
-        version_view(current.clone())?;
-        if let Some(block_id) = &block_id {
-            if !top_level_block_ids(&current.content_json)?.contains(block_id) {
-                return Err(DocumentError::Invalid(
-                    "That paragraph is no longer in the document. Select another paragraph or comment on the whole document.".into(),
-                ));
-            }
-        }
-        let thread_id = Uuid::new_v4();
-        let comment_id = Uuid::new_v4();
-        let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
-            "INSERT INTO native_document_comment_threads \
-             (id,document_id,anchored_version_id,block_id,created_by_actor_id,anchor_quote) \
-             VALUES ($1,$2,$3,$4,$5,$6) RETURNING {}",
-            comment_thread_columns()
-        ))
-        .bind(thread_id)
-        .bind(input.document_id)
-        .bind(current.id)
-        .bind(&block_id)
-        .bind(input.actor_id)
-        .bind(&quote)
-        .fetch_one(&mut *tx)
-        .await?;
-        let first_comment = sqlx::query_as::<_, DocumentCommentRow>(&format!(
-            "INSERT INTO native_document_comments \
-             (id,document_id,thread_id,author_actor_id,content_json,plain_text,content_hash,\
-              mentioned_actor_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING {}",
-            comment_columns()
-        ))
-        .bind(comment_id)
-        .bind(input.document_id)
-        .bind(thread_id)
-        .bind(input.actor_id)
-        .bind(&content.content_json)
-        .bind(&content.plain_text)
-        .bind(&content.content_hash)
-        .bind(&mentions)
-        .fetch_one(&mut *tx)
-        .await?;
-        enqueue_document_mentions(&mut tx, &first_comment).await?;
-        record_document_command(
-            &mut tx,
-            input.command_id,
-            input.document_id,
-            "comment_thread_create",
-            &fingerprint,
-            thread_id,
-            input.actor_id,
-        )
-        .await?;
-        append_document_event(
-            &mut tx,
-            "document.comment_thread.created.v1",
-            input.document_id,
-            input.actor_id,
-            json!({
-                "document_id": input.document_id,
-                "source_named_version_id": current.id,
-                "thread_id": thread_id,
-                "comment_id": comment_id,
-                "block_id": block_id,
-                "author_actor_id": input.actor_id,
-                "mentioned_actor_ids": mentions,
-                "command_id": input.command_id,
-            }),
-        )
-        .await?;
+        let result = create_document_comment_thread_in_tx(&mut tx, input, quote).await?;
         tx.commit().await?;
-        Ok(DocumentCommentThreadCreated {
-            thread: DocumentCommentThreadView {
-                anchor_state: if thread.block_id.is_some() {
-                    DocumentCommentAnchorState::Active
-                } else {
-                    DocumentCommentAnchorState::Document
-                },
-                thread,
-            },
-            first_comment: validate_comment_row(first_comment)?,
-        })
+        Ok(result)
     }
 
     pub async fn reply_to_document_comment(
@@ -7876,6 +7688,14 @@ impl OrgIntel {
         &self,
         input: AcceptDocumentReview<'_>,
     ) -> DocumentResult<DocumentReviewResolution> {
+        self.accept_document_review_with_pending(input, None).await
+    }
+
+    pub(crate) async fn accept_document_review_with_pending(
+        &self,
+        input: AcceptDocumentReview<'_>,
+        pending_id: Option<Uuid>,
+    ) -> DocumentResult<DocumentReviewResolution> {
         let version_name =
             clean_bounded("accepted version name", input.accepted_version_name, 500)?;
         let feedback = if input.feedback.trim().is_empty() {
@@ -7912,6 +7732,19 @@ impl OrgIntel {
                 return Err(DocumentError::Unavailable);
             }
         }
+        let pending_decision = match pending_id {
+            Some(id) => Some(
+                crate::document_decisions::admit_pending_document_decision(
+                    &mut tx,
+                    id,
+                    input.document_id,
+                    input.review_id,
+                    input.actor_id,
+                )
+                .await?,
+            ),
+            None => None,
+        };
         require_document_judgement_actor(&mut tx, input.actor_id).await?;
         require_access(
             &mut tx,
@@ -7995,6 +7828,13 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DocumentError::Unavailable)?;
+        if review
+            .reviewer_actor_id
+            .as_deref()
+            .is_some_and(|reviewer| reviewer != input.actor_id)
+        {
+            return Err(DocumentError::Unavailable);
+        }
         if review.version != input.expected_review_version {
             return Err(DocumentError::Conflict(format!(
                 "review is version {}, expected {}",
@@ -8096,6 +7936,33 @@ impl OrgIntel {
         version_view(source.clone())?;
         let source_content = validate_document_json(&source.content_json)
             .map_err(|error| DocumentError::Corrupt(error.to_string()))?;
+        if let (Some(pending), Some(note)) = (&pending_decision, feedback.as_deref()) {
+            if work_dependency.is_none() {
+                let nodes = if review.requested_by_actor_id != input.actor_id {
+                    let label:Option<String>=sqlx::query_scalar("SELECT COALESCE(NULLIF(display,''),'Teammate') FROM actors WHERE id=$1 AND retired_at IS NULL").bind(&review.requested_by_actor_id).fetch_optional(&mut *tx).await?;
+                    let label = label.ok_or(DocumentError::Unavailable)?;
+                    vec![
+                        json!({"type":"mention","attrs":{"actor_id":review.requested_by_actor_id,"label":label}}),
+                        json!({"type":"text","text":format!(" {note}")}),
+                    ]
+                } else {
+                    vec![json!({"type":"text","text":note})]
+                };
+                let content = json!({"type":"doc","content":[{"type":"paragraph","attrs":{"block_id":Uuid::new_v4().to_string()},"content":nodes}]});
+                create_document_comment_thread_in_tx(
+                    &mut tx,
+                    NewDocumentCommentThread {
+                        document_id: input.document_id,
+                        actor_id: input.actor_id,
+                        command_id: pending.comment_command_id,
+                        block_id: None,
+                        content_json: &content,
+                    },
+                    None,
+                )
+                .await?;
+            }
+        }
         let mut unresolved: Vec<Uuid> = sqlx::query_scalar(
             "SELECT id FROM native_document_comment_threads \
              WHERE document_id=$1 AND status='open' ORDER BY created_at,id LIMIT 257",
@@ -8197,6 +8064,9 @@ impl OrgIntel {
         } else {
             None
         };
+        if let Some(id) = pending_id {
+            crate::document_decisions::complete_pending_document_decision(&mut tx, id).await?;
+        }
         tx.commit().await?;
         Ok(DocumentReviewResolution {
             review: accepted_review,
@@ -9917,8 +9787,36 @@ impl OrgIntel {
         actor: &str,
         request: Uuid,
     ) -> DocumentResult<DocumentCollaborationRequest> {
+        self.resolve_document_collaboration_with_pending(document, actor, request, None)
+            .await
+    }
+
+    pub(crate) async fn resolve_document_collaboration_with_pending(
+        &self,
+        document: Uuid,
+        actor: &str,
+        request: Uuid,
+        pending_id: Option<Uuid>,
+    ) -> DocumentResult<DocumentCollaborationRequest> {
         let mut tx = self.pool.begin().await?;
+        if pending_id.is_some() {
+            let exists: Option<Uuid> =
+                sqlx::query_scalar("SELECT id FROM native_documents WHERE id=$1 FOR UPDATE")
+                    .bind(document)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            if exists.is_none() {
+                return Err(DocumentError::Unavailable);
+            }
+        }
         require_access(&mut tx, document, actor, DocumentAccess::Read).await?;
+        if let Some(id) = pending_id {
+            crate::document_decisions::admit_pending_document_decision(
+                &mut tx, id, document, request, actor,
+            )
+            .await?;
+        }
+
         let row = sqlx::query_as::<_,DocumentCollaborationRequest>("SELECT * FROM native_document_collaboration_requests WHERE id=$1 AND document_id=$2 FOR UPDATE")
             .bind(request).bind(document).fetch_optional(&mut *tx).await?.ok_or(DocumentError::Unavailable)?;
         if row.requested_owner_actor_id != actor {
@@ -9939,6 +9837,9 @@ impl OrgIntel {
         } else {
             row
         };
+        if let Some(id) = pending_id {
+            crate::document_decisions::complete_pending_document_decision(&mut tx, id).await?;
+        }
         tx.commit().await?;
         Ok(row)
     }
@@ -10592,6 +10493,222 @@ async fn require_sharing_manager(
             .ok_or(DocumentError::Unavailable)?;
     if !may_manage_participants(tx, document_id, &owner, actor_id).await? {
         return Err(DocumentError::Unavailable);
+    }
+    Ok(())
+}
+
+// Review acceptance can include its ordinary comment in the same document transaction.
+pub(super) async fn create_document_comment_thread_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    input: NewDocumentCommentThread<'_>,
+    quote: Option<&str>,
+) -> DocumentResult<DocumentCommentThreadCreated> {
+    let content = validated_comment_content(input.content_json)?;
+    let block_id = input.block_id.map(validate_block_id).transpose()?;
+    let quote = quote
+        .map(str::trim)
+        .filter(|quote| !quote.is_empty())
+        .map(|quote| {
+            if block_id.is_none() {
+                return Err(DocumentError::Invalid(
+                    "Only a comment on a block can point at words in it.".into(),
+                ));
+            }
+            if quote.chars().count() > 500 || quote.contains('\0') {
+                return Err(DocumentError::Invalid(
+                    "The quoted words must be at most 500 characters.".into(),
+                ));
+            }
+            Ok(quote.to_string())
+        })
+        .transpose()?;
+    let mentions = mentioned_actor_ids(&content)?;
+    let fingerprint = request_fingerprint(
+        "comment_thread_create",
+        json!({
+            "document_id": input.document_id,
+            "actor_id": input.actor_id,
+            "block_id": block_id,
+            "anchor_quote": quote,
+            "content_json": content.content_json,
+        }),
+    );
+    lock_document_command(tx, input.command_id).await?;
+    // Take the write lock before access checks acquire their shared lock:
+    // two simultaneous anchored comments must not deadlock on an upgrade.
+    if block_id.is_some() {
+        let exists: Option<Uuid> =
+            sqlx::query_scalar("SELECT id FROM native_documents WHERE id=$1 FOR UPDATE")
+                .bind(input.document_id)
+                .fetch_optional(&mut **tx)
+                .await?;
+        if exists.is_none() {
+            return Err(DocumentError::Unavailable);
+        }
+    }
+    require_access(
+        tx,
+        input.document_id,
+        input.actor_id,
+        DocumentAccess::Comment,
+    )
+    .await?;
+    if let Some(thread_id) = replayed_document_command(
+        tx,
+        input.command_id,
+        input.document_id,
+        input.actor_id,
+        "comment_thread_create",
+        &fingerprint,
+    )
+    .await?
+    {
+        let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2",
+            comment_thread_select()
+        ))
+        .bind(input.document_id)
+        .bind(thread_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| DocumentError::Corrupt("comment command receipt has no thread".into()))?;
+        let thread = comment_thread_creation_projection(thread);
+        let first_comment = sqlx::query_as::<_, DocumentCommentRow>(&format!(
+            "{} WHERE document_id=$1 AND thread_id=$2 AND reply_to_comment_id IS NULL \
+                 ORDER BY created_at,id LIMIT 1",
+            comment_select()
+        ))
+        .bind(input.document_id)
+        .bind(thread_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| {
+            DocumentError::Corrupt("comment command receipt has no first comment".into())
+        })?;
+        return Ok(DocumentCommentThreadCreated {
+            thread: DocumentCommentThreadView {
+                anchor_state: if thread.block_id.is_some() {
+                    DocumentCommentAnchorState::Active
+                } else {
+                    DocumentCommentAnchorState::Document
+                },
+                thread,
+            },
+            first_comment: validate_comment_row(first_comment)?,
+        });
+    }
+    require_mentioned_actor_access(tx, input.document_id, &mentions).await?;
+    if block_id.is_some() {
+        snapshot_live_document(tx, input.document_id, input.actor_id, "Comment added").await?;
+    }
+    let current: DocumentVersionRow = sqlx::query_as(&format!(
+        "{} WHERE document_id=$1 AND id=(SELECT current_named_version_id \
+             FROM native_documents WHERE id=$1)",
+        version_select()
+    ))
+    .bind(input.document_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| DocumentError::Corrupt("document has no current named version".into()))?;
+    version_view(current.clone())?;
+    if let Some(block_id) = &block_id {
+        if !top_level_block_ids(&current.content_json)?.contains(block_id) {
+            return Err(DocumentError::Invalid(
+                    "That paragraph is no longer in the document. Select another paragraph or comment on the whole document.".into(),
+                ));
+        }
+    }
+    let thread_id = Uuid::new_v4();
+    let comment_id = Uuid::new_v4();
+    let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
+        "INSERT INTO native_document_comment_threads \
+             (id,document_id,anchored_version_id,block_id,created_by_actor_id,anchor_quote) \
+             VALUES ($1,$2,$3,$4,$5,$6) RETURNING {}",
+        comment_thread_columns()
+    ))
+    .bind(thread_id)
+    .bind(input.document_id)
+    .bind(current.id)
+    .bind(&block_id)
+    .bind(input.actor_id)
+    .bind(&quote)
+    .fetch_one(&mut **tx)
+    .await?;
+    let first_comment = sqlx::query_as::<_, DocumentCommentRow>(&format!(
+        "INSERT INTO native_document_comments \
+             (id,document_id,thread_id,author_actor_id,content_json,plain_text,content_hash,\
+              mentioned_actor_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING {}",
+        comment_columns()
+    ))
+    .bind(comment_id)
+    .bind(input.document_id)
+    .bind(thread_id)
+    .bind(input.actor_id)
+    .bind(&content.content_json)
+    .bind(&content.plain_text)
+    .bind(&content.content_hash)
+    .bind(&mentions)
+    .fetch_one(&mut **tx)
+    .await?;
+    enqueue_document_mentions(tx, &first_comment).await?;
+    record_document_command(
+        tx,
+        input.command_id,
+        input.document_id,
+        "comment_thread_create",
+        &fingerprint,
+        thread_id,
+        input.actor_id,
+    )
+    .await?;
+    append_document_event(
+        tx,
+        "document.comment_thread.created.v1",
+        input.document_id,
+        input.actor_id,
+        json!({
+            "document_id": input.document_id,
+            "source_named_version_id": current.id,
+            "thread_id": thread_id,
+            "comment_id": comment_id,
+            "block_id": block_id,
+            "author_actor_id": input.actor_id,
+            "mentioned_actor_ids": mentions,
+            "command_id": input.command_id,
+        }),
+    )
+    .await?;
+    Ok(DocumentCommentThreadCreated {
+        thread: DocumentCommentThreadView {
+            anchor_state: if thread.block_id.is_some() {
+                DocumentCommentAnchorState::Active
+            } else {
+                DocumentCommentAnchorState::Document
+            },
+            thread,
+        },
+        first_comment: validate_comment_row(first_comment)?,
+    })
+}
+
+// A human can only accept the exact prepared Work review, once its producer has stopped.
+pub(super) async fn require_pending_document_work_ready(
+    tx: &mut Transaction<'_, Postgres>,
+    dependency: &DocumentWorkReviewDependencyRow,
+) -> DocumentResult<()> {
+    let bound = lock_bound_work(
+        tx,
+        dependency.work_id,
+        dependency.attempt_id,
+        dependency.work_revision,
+    )
+    .await?;
+    if bound.work_status != crate::WorkStatus::Blocked
+        || bound.attempt_state != crate::WorkAttemptState::Blocked
+    {
+        return Err(DocumentError::Conflict(
+            "The work is still being prepared. Open the review once it is ready.".into(),
+        ));
     }
     Ok(())
 }

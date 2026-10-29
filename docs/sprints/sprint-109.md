@@ -364,3 +364,37 @@ The durable handoff Undo slice is described in [handoff-undo.md](sprint-109/hand
 It replaces the browser-owned timeout for Mark done, handoff Skip and outcome Accept. Authority
 approvals, native-document decisions and generic set-aside remain before C1 can be checked.
 No additional checklist item is claimed complete by this slice alone.
+### Native document Undo, 29 October
+
+- Native review Accept and saved collaboration Done now use durable source-owned five-second
+  intents. Acceptance, its named version, the note to its requester and its receipt commit
+  together; Work resumes through its existing document-review transaction. Undo publishes
+  neither a note nor a mention. A person's form input survives Undo, acknowledgement and reload.
+- Equivalent request keys from two tabs now retain the same receipt after Undo or completion,
+  for both handoff and native decisions. Migrations 112/113 are additive; an expired pending
+  native decision survived the real daemon stop, schema upgrade and restart with its original
+  deadline, one acceptance and one requester mention.
+- Fourteen real PostgreSQL decision scenarios and 22 related document scenarios pass. Thirteen
+  desktop/phone UI/source scenarios pass, including a lost save response, separate failures with
+  identical wording and exact notice clearance after cold loading. The final advance measurements
+  were 160/153 ms. Frontend check/build, four surface captures and chat motion passed.
+- The real owner/member/admin journey passed, including private saved review input and assigned
+  member Undo. The first run exposed an intermittent room projection omission; the message was
+  stored but absent in Alice's screen. That evidence is retained, and no Room fix is claimed.
+- Removed the immediate frontend native-accept/collaboration helpers and reused the native comment
+  transaction. Shared code is limited to verified human identity and notice rendering. The Inbox
+  review no longer repeats its requester/version metadata in the form. Its loading pane reserves
+  the same height, so the decision bar and notice remain still.
+- See [source ownership, exact evidence and remaining scope](sprint-109/document-undo.md).
+  C1 remains open for Authority approvals, generic set-aside and the full next-item prefetch audit.
+  A4 admission/repair, mutable files and the other open sprint requirements remain required.
+- This slice is verified locally. Its main integration, signed release and production cutover
+  are recorded separately when they actually happen.
+
+- Native verification cleanup completed: the official company destroy removed its cell,
+  computer, kept files, spend records and volume. Its host stack/mock, four infrastructure
+  containers, three infrastructure volumes, temporary PostgreSQL and private URL/profile were
+  removed. The role runner removed its own resources. The read-only debt report retains
+  pre-existing resources belonging to other runs; none was pruned.
+  Evidence: `/tmp/s109-native-company-cleanup.log`, `/tmp/s109-native-cleanup.log`,
+  `/tmp/s109-native-debt-after.log`.

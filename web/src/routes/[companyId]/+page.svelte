@@ -215,7 +215,7 @@
 		if (selectedItemId) {
 			const selected = items.find((item) => item.id === selectedItemId);
 			if (selected) return selected;
-			if (view?.pendingHandoffDecisions?.includes(selectedItemId)) {
+			if (view?.pendingDecisionItems?.includes(selectedItemId)) {
 				const rows = currentVisibleItems;
 				const index = Math.max(0, previousItemOrder.indexOf(selectedItemId));
 				return rows[Math.min(index, rows.length - 1)] ?? null;
@@ -267,12 +267,12 @@
 		) {
 			missingItemRedirect = selectedItemId;
 			missingNotice =
-				(resolvedHere === selectedItemId || view?.pendingHandoffDecisions?.includes(selectedItemId))
+				(resolvedHere === selectedItemId || view?.pendingDecisionItems?.includes(selectedItemId))
 					? ''
 					: 'That item has been resolved or is no longer in the Inbox.';
 			missingDecisionHref = '';
 			/* An old link to an item someone already answered says who decided and what. */
-			if (resolvedHere !== selectedItemId && !view?.pendingHandoffDecisions?.includes(selectedItemId)) void explainMissing(companyId, selectedItemId);
+			if (resolvedHere !== selectedItemId && !view?.pendingDecisionItems?.includes(selectedItemId)) void explainMissing(companyId, selectedItemId);
 			const previousIndex = Math.max(0, previousItemOrder.indexOf(selectedItemId));
 			const next = currentVisibleItems[
 				Math.min(previousIndex, currentVisibleItems.length - 1)

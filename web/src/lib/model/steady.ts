@@ -81,6 +81,7 @@ export function hintTouches(kinds: readonly string[], queryKey: readonly unknown
 	const head = String(queryKey[0]);
 	if (kinds.includes('resync')) return !SETTINGS_KEYS.has(head);
 	if (SETTINGS_KEYS.has(head)) return false;
+	if (kinds.every((kind) => kind === 'document_decision_changed')) return head === 'document-decisions' || head === 'attention' || head.startsWith('document');
 	if (kinds.every((kind) => kind === 'handoff_decision_changed'))
 		return head === 'handoff-decisions' || head === 'attention';
 	if (head === 'schedules') return kinds.includes('schedule_changed');

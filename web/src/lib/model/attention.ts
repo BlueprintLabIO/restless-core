@@ -30,7 +30,7 @@ export interface AttentionView {
 	};
 	workGraph: WorkGraphSnapshot | null;
 	items: AttentionItem[];
-	pendingHandoffDecisions?: string[];
+	pendingDecisionItems?: string[];
 	refreshedAt: string;
 }
 
@@ -178,7 +178,7 @@ export async function getAttention(company: string, signal?: AbortSignal): Promi
 	const wire = await response.json();
 	return {
 		company: wire.company,
-		pendingHandoffDecisions: wire.pending_handoff_decisions ?? [],
+		pendingDecisionItems: [...(wire.pending_handoff_decisions ?? []), ...(wire.pending_document_decisions ?? [])],
 		sourceHealth: {
 			orgintel: wire.source_health.orgintel,
 			authority: wire.source_health.authority,

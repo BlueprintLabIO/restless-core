@@ -878,7 +878,7 @@ impl IntoResponse for DocumentApiFailure {
     }
 }
 
-fn document_error(error: restless_orgintel::DocumentError) -> Response<Body> {
+pub(super) fn document_error(error: restless_orgintel::DocumentError) -> Response<Body> {
     match error {
         restless_orgintel::DocumentError::Invalid(message) => {
             document_api_error(StatusCode::UNPROCESSABLE_ENTITY, "document", message)
