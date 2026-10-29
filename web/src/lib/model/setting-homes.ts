@@ -25,7 +25,7 @@ export function settingHome(
 ): SettingHome {
 	switch (key) {
 		case 'limits':
-			return { key, label: 'Company › Limits', href: company(companyId, '/resources#spend') };
+			return { key, label: 'Company › Resources', href: company(companyId, '/resources#spend') };
 		case 'intelligence':
 			return { key, label: 'Company › Intelligence', href: company(companyId, '/provider') };
 		case 'brand':

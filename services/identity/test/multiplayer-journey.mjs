@@ -1002,6 +1002,28 @@ try {
   bob.page.off("response", watchAdmin);
   assert.deepEqual([...new Set(adminRefused)], [], "an admin's screens make no refused requests");
   await steadyEntry(bob, "admin");
+  // Resources uses the real verified accounts. Shared host observations are owner-only.
+  const computeReading = await coreApi(owner, `${base}/company/compute`);
+  assert.equal(computeReading.status, process.env.RESTLESS_WORKLOAD_CGROUP_PARENT ? "available" : "not_configured");
+  await owner.page.goto(`${core}/${company}/company/resources`);
+  await owner.page.locator("#compute").waitFor();
+  await owner.page.locator("#ai-usage").waitFor();
+  await shot(owner, "resources");
+  for (const who of [alice, bob]) {
+    await coreApi(who, `${base}/company/compute`, { expected: 403 });
+    const requests = [];
+    const observe = request => { if (new URL(request.url()).pathname === `${base}/company/compute`) requests.push(request.url()); };
+    who.page.on("request", observe);
+    await who.page.goto(`${core}/${company}/company/resources`);
+    if (who.principal.membership_role === "member") await who.page.waitForURL(core + "/" + company);
+    else await who.page.getByRole("heading", {name:"Spend", exact:true}).waitFor();
+    assert.equal(await who.page.locator("#compute").count(), 0);
+    assert.equal(await who.page.locator("#ai-usage").count(), 0);
+    assert.deepEqual(requests, [], "members and admins do not request owner host readings");
+    who.page.off("request", observe);
+    await shot(who, "resources");
+  }
+  pass("Resources shows live compute and AI usage to the owner; verified admin and member accounts are refused host readings without leaking requests from their page");
   // A company key is the owner's Authority operation, including the new Rename path.
   for (const who of [alice, bob]) {
     const reference = `infisical:/companies/${company}/s109-never-created`;

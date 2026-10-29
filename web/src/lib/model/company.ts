@@ -239,6 +239,14 @@ export interface CompanyDoctor {
 }
 
 export interface RuntimeDoctor {
+	resources?: {
+		disk_free_bytes: number | null;
+		disk_total_bytes: number | null;
+		memory_used_bytes: number | null;
+		memory_limit_bytes: number | null;
+		cpu_pressure_percent: number | null;
+		oom_kills: number | null;
+	};
 	company: string;
 	container: 'Running' | 'Stopped' | 'Absent';
 	volume: string;
@@ -342,6 +350,38 @@ export async function getCompanySpend(company: string): Promise<CompanySpendView
 		await fetch(`/api/companies/${encodeURIComponent(company)}/company/spend`, {
 			credentials: 'same-origin',
 			cache: 'no-store'
+		})
+	);
+}
+
+export interface ComputeSample {
+	memory_used_bytes: number;
+	memory_limit_bytes: number | null;
+	cpu_used_cores: number | null;
+	cpu_limit_cores: number | null;
+}
+export interface ComputeReading {
+	status: 'available' | 'not_configured' | 'unavailable';
+	detail?: string;
+	sample?: {
+		observed_at: string;
+		host_memory_bytes: number | null;
+		host_available_bytes: number | null;
+		pool: ComputeSample;
+		work: ComputeSample | null;
+		computer: ComputeSample | null;
+		placement_current: boolean;
+	};
+}
+export async function getCompanyCompute(
+	company: string,
+	signal?: AbortSignal
+): Promise<ComputeReading> {
+	return ownerResponse<ComputeReading>(
+		await bootFetch(`/api/companies/${encodeURIComponent(company)}/company/compute`, {
+			credentials: 'same-origin',
+			cache: 'no-store',
+			signal
 		})
 	);
 }

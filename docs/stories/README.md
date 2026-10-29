@@ -234,3 +234,10 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | ID | Tier | Story: I want … and I see … | Fix | Check |
 | --- | --- | --- | --- | --- |
 | US-368 | core | Idle companies do not keep Chrome or models running; opening the computer still works and a service restart cannot bypass the existing lean AI history rule. | S109 A0 first slice | Six real isolated computers: 74.3% lower matched idle computer memory, health probes do not pin Chrome, calibrated zero idle model calls; live cold viewer/link and broker restart; persisted context reuse gate and old-locator compatibility. [Evidence](../sprints/evidence/sprint-109-resources/README.md). Shared host caps and Resources UI remain open. |
+
+
+## From the owner, 29 October — bounded compute and visible usage
+
+| ID | Tier | Story | Fix | Check |
+| --- | --- | --- | --- | --- |
+| US-369 | core | Company work shares an enforced host budget that leaves the app responsive. Resources shows actual compute limits, company work, the computer and AI usage without waking a model or hiding missing readings. | S109 A0 shared-cap/Resources slice | Four real jobs hit shared memory/CPU limits while owner health stays ready; two idle companies make zero calibrated model calls; exhausted AI budget stops before a request; live owner/admin/member entry; desktop/phone, failure recovery and zero-shift resource reads. [Evidence](../sprints/evidence/sprint-109-resources/README.md). Queue/resume, CPU/RAM editing, history and matched AI efficiency benchmarks remain open. |

@@ -319,6 +319,40 @@ pub(super) struct RuntimePolicyInput {
     expected_monthly_runtime_cap_hours: Option<u32>,
 }
 
+pub(super) async fn read_compute_usage(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> axum::response::Response {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "compute",
+            "Only the owner can read host resource usage.",
+        )
+        .into_response();
+    }
+    if !principal.permits_company(&company)
+        || runtime::CompanyConfig::load(&state.daemon.root, &company).is_err()
+    {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "compute",
+            "This company is unavailable.",
+        )
+        .into_response();
+    }
+    let body = match runtime::compute_usage(&company).await {
+        Ok(Some(sample)) => serde_json::json!({"status":"available", "sample": sample}),
+        Ok(None) => serde_json::json!({"status":"not_configured"}),
+        Err(error) => {
+            tracing::warn!(%error, "could not observe company compute usage");
+            serde_json::json!({"status":"unavailable", "detail":"Resource readings are temporarily unavailable."})
+        }
+    };
+    Json(body).into_response()
+}
+
 pub(super) async fn save_runtime_policy(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,

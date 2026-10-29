@@ -65,10 +65,10 @@ export const COMPANY_PAGES: CompanyPage[] = [
 	{
 		key: 'limits',
 		group: 'Operations',
-		label: 'Limits',
+		label: 'Resources',
 		path: '/resources',
 		keywords:
-			'spend budget authority email payments allowance pause freeze outside actions tools mcp'
+			'limits resources cpu ram memory storage tokens compute spend budget authority email payments allowance pause freeze outside actions tools mcp'
 	},
 	{
 		key: 'notifications',

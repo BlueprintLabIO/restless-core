@@ -260,6 +260,9 @@ try {
   const environment = {};
   for (const name of ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR"])
     if (process.env[name]) environment[name] = process.env[name];
+  // Explicit test-owned shared pool, never inherited host credentials.
+  for (const name of ["RESTLESS_WORKLOAD_CGROUP_PARENT", "RESTLESS_WORKLOAD_CGROUP_ROOT"])
+    if (process.env[name]) environment[name] = process.env[name];
   if (process.env.RESTLESS_COCKPIT_DIR) environment.RESTLESS_COCKPIT_DIR = process.env.RESTLESS_COCKPIT_DIR;
   if (process.env.RESTLESS_BROWSER_EXECUTABLE) environment.RESTLESS_BROWSER_EXECUTABLE = process.env.RESTLESS_BROWSER_EXECUTABLE;
   Object.assign(environment, {

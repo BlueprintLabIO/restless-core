@@ -2843,6 +2843,7 @@ fn an_admin_reads_activity_spend_and_apps_but_changes_none_of_them() {
 #[test]
 fn hosted_provider_vault_and_sign_in_settings_stay_owner_only() {
     let settings = [
+        (Method::GET, "/api/companies/aris/company/compute"),
         (Method::GET, "/api/companies/aris/provider"),
         (Method::PUT, "/api/companies/aris/provider"),
         (Method::GET, "/api/companies/aris/vault"),
@@ -4074,6 +4075,7 @@ fn owner_message_metadata_round_trips_without_leaking_into_visible_copy() {
         vec![attachment.upload_id]
     );
     let attention_item = attention::AttentionItem {
+        review_version: None,
         id: "orgintel:handoff:00000000-0000-0000-0000-000000000001".into(),
         work_id: Some(Uuid::nil()),
         source: attention::AttentionSource {
