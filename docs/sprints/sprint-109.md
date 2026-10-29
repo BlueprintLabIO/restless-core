@@ -16,6 +16,47 @@ Owner decisions (28 Oct):
 Rule for every track: verify on a local stack with real-scale data in the built-in browser, as
 owner, admin and member, before calling anything done; a release is cut from main only.
 
+## Priority A0: resource safety, compute efficiency and AI token efficiency
+
+Owner priority, 29 October, following the production outage: deliver this before the remaining
+sprint tracks. This promotes H1's approved Resources design into the first delivery batch and adds
+explicit compute and AI efficiency acceptance. The other sprint requirements remain open.
+
+- [ ] **A0.1 Measure the real baseline.** Record idle and active CPU/RAM/storage per company and
+  service, host headroom, swap, browser count and concurrent work. For AI record calls, input,
+  cached input, output, retries and actual cost per useful completed outcome. Retain before/after
+  results for the same workload, model route and quality checks; missing measurements stay unknown.
+- [ ] **A0.2 Lightweight idle companies.** Start desktops/browsers and other heavy services only
+  when their capability is requested. Release idle resources safely, preserving profiles, saved
+  work and prepared human steps. An idle company must not require a running Chrome desktop or
+  spend AI tokens merely to remain available. Verify on-demand start and recovery in practice.
+- [ ] **A0.3 Enforced shared capacity.** Keep per-company CPU/RAM/process/storage caps and enforce
+  the host-wide budget across companies, including simultaneous starts and release roll-forward.
+  Protect the app, database, tunnel and host services. At capacity, queue new heavy work with an
+  observable reason and resume condition instead of exhausting RAM or thrashing swap. Existing
+  runtime/Authority limits remain the source; do not add a second general scheduler or meter.
+- [ ] **A0.4 Efficient AI execution.** Remove duplicate/no-change model wakes, polling-driven
+  reasoning, repeated orientation and routine supervisory relay. Bound retries. Reuse verified
+  results and compact durable context rather than repeatedly resending histories, tool output or
+  media. Choose a sufficient admitted model for the task and preserve measured outcome quality.
+  Enforce company AI budgets before chargeable work, reconcile real usage afterwards, and keep
+  the app responsive when a cap is reached. A quiet company with no due work makes zero model calls.
+- [ ] **A0.5 Resources UI (H1, first batch).** Show actual CPU/RAM/storage against limits, host
+  headroom and what is using resources, plus AI token/cache/cost usage and budgets. Include clear
+  controls for supported caps, history and reasons work is waiting. Distinguish company usage,
+  shared host capacity and reserved platform resources. Prices and currency come from the real
+  catalogue, including relevant backup/tax costs; a design value never becomes a real offer.
+- [ ] **A0.6 Resource release gate.** Exercise multiple idle companies, on-demand browsers,
+  simultaneous heavy work, exhausted compute/AI budgets, restart and upgrade on a constrained
+  host. Verify stable owner entry, protected headroom, bounded concurrency, no idle AI spend and
+  no duplicate effects. Preserve browser/role/zero-jank checks and compare resource and token
+  consumption for equivalent useful outcomes before declaring this complete.
+
+The outage exposed eager computer startup and independent per-company limits whose combined
+allowance can exceed the host. Increasing VM size provides headroom; completion requires the
+measured efficiency and shared-capacity controls above. Paid capacity changes require a separate,
+explicit owner decision. The proposed 16 GB production resize has not been approved or applied.
+
 ## Track A: broken or blocking (first)
 
 - [ ] **A1 One source of model status [1, 36, 37].** The rail shows "Connect a model" and "Eames can
@@ -124,7 +165,7 @@ The owner approved the Resources, Email and map preview layouts on 29 October. B
 the illustrative values in the preview do not establish real measurements or prices. The owner
 also identified `https://restless.run` as the Reno production target for final smoke verification.
 
-- [ ] **H1 Resources page [56].** Per company: storage, CPU and RAM in use against limits, history,
+- [ ] **H1 Resources page [56], promoted to A0.5.** Per company: storage, CPU and RAM in use against limits, history,
   what's using it, and one clear way to buy more with prices. Linear-quality design, reviewed by
   the owner before it's built.
 - [ ] **H2 Email integration [15].** Resend as a first-class integration: guided setup, domain and
@@ -144,8 +185,10 @@ deciding from a phone, a company timeline. See "10x and broader improvements" in
 
 ## Order
 
-A first (it blocks real work), then C1, D1 and B1-B3 (the biggest felt changes), then the rest of
-B, C, E and F, then G, then H once its designs are approved. Ship in batches, about twice a day.
+A0 first: stabilise shared capacity, remove idle compute/token waste and deliver the Resources UI
+with real caps and measurements. Then complete A, C1, D1 and B1-B3, followed by the remaining B, C,
+E, F and G work and the approved new surfaces. Ship verified batches; resource stability and owner
+entry are required before the next production rollout.
 
 ## Delivery contracts (implementation review)
 
@@ -398,3 +441,19 @@ No additional checklist item is claimed complete by this slice alone.
   pre-existing resources belonging to other runs; none was pruned.
   Evidence: `/tmp/s109-native-company-cleanup.log`, `/tmp/s109-native-cleanup.log`,
   `/tmp/s109-native-debt-after.log`.
+
+## A0 first-slice evidence — 29 October
+
+[Resource efficiency evidence](evidence/sprint-109-resources/README.md) records the
+six-company matched comparison: computer-container memory fell from 2,368.6 MiB
+to 608.81 MiB (74.3%) after all six browsers were used then left idle under
+continuous health checks. Idle checks made zero model calls, with the local mock
+log calibrated by a control request. Chrome now starts on demand; health reads
+no longer pin it awake. Cold owner viewer/link opening and broker-only restart
+passed against the real Runtime. The existing lean/cold AI history policy now
+survives daemon restart through the existing scoped session locator.
+
+This is a verified first slice, not A0 completion or a production savings claim.
+Shared host capacity, reserve and queueing, the Resources controls/history UI,
+and measured AI useful-outcome/token efficiency remain open. No paid resize was
+approved or applied.

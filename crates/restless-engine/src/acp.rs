@@ -118,6 +118,25 @@ struct SessionLocator {
     effort: String,
     session_id: String,
     cumulative_cost_usd: Option<f64>,
+    #[serde(default)]
+    context_observation: Option<ContextObservation>,
+}
+
+/// Provider usage is saved with the existing session scope so a daemon restart
+/// cannot bypass the same history limits applied between ordinary wakes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ContextObservation {
+    used: u64,
+    at: chrono::DateTime<chrono::Utc>,
+}
+
+impl ContextObservation {
+    fn requires_fresh_session_at(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        self.used > LEAN_SESSION_TOKENS
+            || (self.used > COLD_SESSION_TOKENS
+                && now.signed_duration_since(self.at).num_seconds()
+                    >= PROMPT_CACHE_TTL.as_secs() as i64)
+    }
 }
 
 pub const DEFAULT_REASONING_EFFORT: &str = "medium";
@@ -179,6 +198,10 @@ fn session_locator_is_reusable(
         && locator.model == model
         && locator.effort == effort
         && load_session_available
+        && !locator
+            .context_observation
+            .as_ref()
+            .is_some_and(|observed| observed.requires_fresh_session_at(chrono::Utc::now()))
         && profile.harness != crate::runtime::AgentHarness::CustomAcp
 }
 
@@ -880,8 +903,8 @@ fn settled_sessions(
 }
 
 /// Record that a responsibility's hot session ended a turn at this size. The
-/// record is process memory: after a daemon restart the first wake resumes as
-/// before (accepted; it costs one cold resume).
+/// record is a fast path between wakes. The session locator also persists the
+/// last provider observation, so a daemon restart does not bypass retirement.
 pub fn note_session_settled(company: &str, actor: &str, responsibility: &str, used: u64) {
     if let Ok(mut settled) = settled_sessions().lock() {
         settled.insert(
@@ -1976,6 +1999,10 @@ where
                     if let SessionUpdate::UsageUpdate(usage) = &notification.update {
                         let updated = if let Ok(mut current) = live_locator.lock() {
                             current.as_mut().map(|locator| {
+                                locator.context_observation = Some(ContextObservation {
+                                    used: usage.used,
+                                    at: chrono::Utc::now(),
+                                });
                                 if let Some(observed) = usage.cost.as_ref().map(|cost| cost.amount) {
                                     if locator
                                         .cumulative_cost_usd
@@ -2067,6 +2094,9 @@ where
                     .unwrap_or_else(|| "unknown".to_string());
                 tracing::info!(agent = %agent_name, "acp agent initialized");
 
+                let prior_context = prior_locator
+                    .as_ref()
+                    .and_then(|locator| locator.context_observation.clone());
                 let (
                     session_id,
                     resumed,
@@ -2125,7 +2155,11 @@ where
                             }
                         }
                         Some(prior) => {
-                            let reason = if prior.cwd != workdir {
+                            let reason = if prior.context_observation.as_ref().is_some_and(|observed| {
+                                observed.requires_fresh_session_at(chrono::Utc::now())
+                            }) {
+                                "Provider history exceeded the lean limit or its prompt cache expired".to_string()
+                            } else if prior.cwd != workdir {
                                 format!(
                                     "workspace changed from {} to {}; prior provider session is not reusable",
                                     prior.cwd, workdir
@@ -2266,6 +2300,7 @@ where
                     effort: launch_auth.effort.clone(),
                     session_id: session_id.to_string(),
                     cumulative_cost_usd: baseline_cost,
+                    context_observation: if resumed { prior_context } else { None },
                 };
                 persist_session_locator(&launch_container, &session_locator_path, &locator)
                     .await
@@ -2774,6 +2809,31 @@ mod tests {
     }
 
     #[test]
+    fn persisted_context_retirement_survives_restart_without_retiring_warm_sessions() {
+        let now = chrono::Utc::now();
+        let observed = super::ContextObservation {
+            used: 40_000,
+            at: now,
+        };
+        let saved = serde_json::to_vec(&observed).unwrap();
+        let restored: super::ContextObservation = serde_json::from_slice(&saved).unwrap();
+        assert!(!restored.requires_fresh_session_at(now));
+        assert!(!restored.requires_fresh_session_at(now - chrono::Duration::seconds(1)));
+        let expired = now + chrono::Duration::seconds(super::PROMPT_CACHE_TTL.as_secs() as i64);
+        assert!(restored.requires_fresh_session_at(expired));
+        assert!(!super::ContextObservation {
+            used: super::COLD_SESSION_TOKENS,
+            at: now
+        }
+        .requires_fresh_session_at(expired));
+        assert!(super::ContextObservation {
+            used: super::LEAN_SESSION_TOKENS + 1,
+            at: now
+        }
+        .requires_fresh_session_at(now));
+    }
+
+    #[test]
     fn resumed_usage_is_a_per_wake_delta_and_counter_regression_is_unknown() {
         assert_eq!(session_cost_delta(Some(1.25), Some(1.0)), Some(0.25));
         assert_eq!(session_cost_delta(Some(0.8), Some(1.0)), None);
@@ -2795,6 +2855,7 @@ mod tests {
             effort: DEFAULT_REASONING_EFFORT.into(),
             session_id: "session-1".into(),
             cumulative_cost_usd: Some(0.2),
+            context_observation: None,
         };
         let profile = AcpProfile::new(crate::runtime::AgentHarness::RestlessManaged).unwrap();
         validate_session_locator(
@@ -2824,6 +2885,30 @@ mod tests {
             ),
             "a new revision worktree reconstructs rather than crashing or loading stale context"
         );
+        // Old locators remain readable; a new observation survives a restart
+        // and gates the actual session/load decision rather than only a timer.
+        let mut legacy_json = serde_json::to_value(&locator).unwrap();
+        legacy_json
+            .as_object_mut()
+            .unwrap()
+            .remove("context_observation");
+        let legacy: SessionLocator = serde_json::from_value(legacy_json).unwrap();
+        assert!(legacy.context_observation.is_none());
+        let mut observed = locator.clone();
+        observed.context_observation = Some(super::ContextObservation {
+            used: 40_000,
+            at: chrono::Utc::now() - chrono::Duration::hours(2),
+        });
+        let restored: SessionLocator =
+            serde_json::from_slice(&serde_json::to_vec(&observed).unwrap()).unwrap();
+        assert!(!session_locator_is_reusable(
+            &restored,
+            profile,
+            &locator.cwd,
+            &locator.model,
+            &locator.effort,
+            true,
+        ));
         let older_build = SessionLocator {
             harness_build: "omp-0.0.1".into(),
             ..locator.clone()
@@ -3287,6 +3372,7 @@ mod tests {
             effort: "high".into(),
             session_id: "session-1".into(),
             cumulative_cost_usd: None,
+            context_observation: None,
         };
         let claude = AcpProfile::new(crate::runtime::AgentHarness::ClaudeAgent).unwrap();
         assert!(!session_locator_is_reusable(
