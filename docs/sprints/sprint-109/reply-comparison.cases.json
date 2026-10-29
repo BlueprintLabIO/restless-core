@@ -1,0 +1,55 @@
+{
+  "scope": "Frozen reply-only fixtures. Facts and receipts below are synthetic test inputs, not claims about production actions. The first three owner messages come from scripts/seed-reno-scale.mjs; the remaining cases exercise the corresponding Sprint 109 triage concerns.",
+  "cases": [
+    {
+      "id": "charter",
+      "source": "scripts/seed-reno-scale.mjs THREAD",
+      "message": "Is the Reno charter showing in Company > Charter? No, it is empty.",
+      "facts": "The page was empty when you checked. An authorised tool step has now saved the existing Reno charter into the native Company Charter and read it back successfully. Its purpose is renovating established small-business websites so they look credible, load fast and turn visitors into enquiries. Exact page: /reno/company/charter. No owner action is needed to publish this internal charter.",
+      "quality": ["Confirm the internal charter is now saved, with its exact page link.", "Do not hand the completed publication step back to the person or paste a long charter.", "Do not claim a public website was deployed."]
+    },
+    {
+      "id": "archive",
+      "source": "scripts/seed-reno-scale.mjs THREAD",
+      "message": "Archive the old sites please, my Library is full of them.",
+      "facts": "The archive transaction succeeded for 69 stale Library entries, and a subsequent query confirms they are archived. The two current site jobs, Reno's own website and Taylor & Ward version 4, were kept. Exact Library link: /reno/library. Archiving is recoverable; no files were permanently deleted. No further input is needed.",
+      "quality": ["State what was archived and link the Library.", "Distinguish archived entries from permanent deletion and preserve the two current jobs.", "Do not invent a public deployment or ask to perform the already completed archive."]
+    },
+    {
+      "id": "raised-budget",
+      "source": "scripts/seed-reno-scale.mjs THREAD",
+      "message": "I raised the spend cap and renamed the company. Carry on with the Reno site.",
+      "facts": "Fresh company reads confirm the name Reno and the model budget US$150, with US$100.14 spent. The old Opus connection is still revoked. Sonnet 5.5 was already admitted as a temporary fallback. The dispatcher has resumed the existing Reno site Work once on Sonnet 5.5 and its Attempt is running. The standing model preference remains Opus. Exact Work page: /reno/work. No duplicate Work was created and no new approval is required for this fallback.",
+      "quality": ["Say that the existing site work is running again, and link Work.", "If naming the route, distinguish temporary Sonnet from the revoked Opus connection.", "Do not claim budget or connection status that contradicts the fresh reads, and do not ask for redundant permission."]
+    },
+    {
+      "id": "model-status",
+      "source": "Sprint 109 A1, model status disagrees between screens",
+      "message": "Why does the chat say to connect a model when the composer shows Claude Opus 5.5?",
+      "facts": "Company configuration selects Claude Opus 5.5. A fresh exact-route admission probe failed because that account connection is no longer granted to Reno. No Exec turn is running. The composer currently displays the configured preference, which is not evidence of working access. The existing account connection can be managed at /account/settings/accounts. No connection repair has been performed.",
+      "quality": ["Explain selected model versus verified access in plain language.", "State the observed grant failure and link the existing account settings.", "Do not say Opus can reply, a repair happened, or the whole site is down."]
+    },
+    {
+      "id": "review-preview",
+      "source": "Sprint 109 A4, review cards carry their output",
+      "message": "Where is Taylor & Ward version 4? I can't see what I'm supposed to review.",
+      "facts": "The existing review card now contains the prepared live preview for Taylor & Ward version 4, with the original full-resolution photos. The preview was checked at phone width. The exact existing review link is /reno?item=review-tw-v4. The current prepared preview is /reno/library?preview=tw-v4. Owner judgement is still pending on that one card; no new review item or approval was created. This question asks where to look, not whether to approve.",
+      "quality": ["Bring the existing review/preview link and identify the version.", "Do not invent a new approval question or a second review card.", "Do not imply the preview is already approved or publicly deployed."]
+    },
+    {
+      "id": "conversational-feedback",
+      "source": "Sprint 109 D1 and the existing explicit-approval boundary",
+      "message": "Looks good.",
+      "facts": "The immediately preceding message linked the Taylor & Ward version 4 preview at /reno?item=review-tw-v4. This is conversational feedback. The review card's explicit Accept action has not been used, and no approval, outside permission or Work status has changed. No new question or decision is needed in response to this feedback.",
+      "quality": ["Acknowledge feedback briefly without turning it into formal approval.", "Do not claim Accept, deployment, a grant or a Work transition.", "Do not manufacture another question or owner decision."]
+    },
+    {
+      "id": "email-status",
+      "source": "Sprint 109 A2/B6/D3, accurate email capability and authority",
+      "message": "Did you send it yet?",
+      "facts": "The question refers to the prepared Reno outreach email. Resend is connected and its exact stored key binding is valid, but the new recipient has not been approved. The send boundary refused delivery for missing recipient approval; provider records show no send. The ready draft is /company/outputs/reno-outreach-draft.md. The existing recipient-approval card is /reno?item=00000000-0000-4000-8000-000000000007; its exact existing handoff UUID is 00000000-0000-4000-8000-000000000007. This is the only missing owner action; no additional key is needed.",
+      "handoffId": "00000000-0000-4000-8000-000000000007",
+      "quality": ["Clearly say it has not been sent, because this question asks about sending.", "Link the ready draft and existing recipient approval, without asking for a duplicate key.", "Distinguish working email capability from missing authority and do not claim delivery."]
+    }
+  ]
+}
