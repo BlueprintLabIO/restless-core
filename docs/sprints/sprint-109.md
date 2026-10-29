@@ -99,14 +99,20 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
 - [ ] **A4 A review card carries its work or doesn't ship [8, 30, 31].** Review cards render the
   output inline (doc, page preview, result). A card with no linked preview is refused at creation
   and goes back to its author, instead of showing "No prepared preview was linked" and a Try again
-  that can't help. "Ready for you" is a review, not a Question.
+  that can't help. "Ready for you" is a review, not a Question. Open or render the actual work or
+  attention item in context; do not send the owner elsewhere to search for it.
 - [ ] **A5 Lead chats and step cards stay usable [28].** A step that says "here in the card" shows
-  the company computer, or says why it can't.
+  the company computer, or says why it can't. Investigate the reported computer panel appearing over
+  the settings content; reproduce the actual state and fix the layering or placement without hiding
+  the controls underneath. Verify the connected, unavailable and narrow-screen states.
 
 ## Track B: one conversation, one Inbox
 
 - [ ] **B1 One Exec chat [5, 10].** Items never open a new item-scoped Exec chat. "Ask Exec about
-  this" links the item into the one chat. Discuss is removed from cards and the doc toolbar.
+  this" links the item into the one chat. Discuss is removed from cards and the doc toolbar. Remove
+  the duplicate middle-pane reply composer; a floating Reply action opens the one right-side Exec
+  chat with the actual current item attached. Use floating actions in middle panes where they save
+  space without obscuring content, and verify keyboard and phone access.
 - [ ] **B2 Everything waiting on the owner is an Inbox item [9, 42].** Brand rules waiting for an
   OK first, then any page-held approval. Exec can read what's in the Inbox, so it never says "if a
   card is there".
@@ -131,7 +137,10 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
 - [ ] **C3 Nothing shifts under the composer [19].** The key hints move to the send button's
   tooltip. Conditional text has reserved space or none.
 - [ ] **C4 Jump to latest [38].** Only when scrolled up, and never over a message or button.
-- [ ] **C5 Toasts, not banners [55].** "Secret stored securely" goes after a few seconds.
+- [ ] **C5 Toasts, not banners [55].** "Secret stored securely" goes after a few seconds. Work
+  loading failures and chat reconnect/send warnings must not insert banners that shift the page.
+  Use accessible, non-shifting notices with retry and failure details where needed; preserve unsent
+  messages and keep persistent problems discoverable.
 - [ ] **C6 Rows don't swap [33].** Inbox rows keep the time and show `…` beside it on hover.
 - [ ] **C7 Zero-jank gate.** A headless pass over every page and card that fails on any layout
   shift, any unstyled frame or any edge off the grid. Runs in release qualification.
@@ -167,8 +176,9 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   "Saved" inside it.
 - [ ] **E2 Floating actions [17].** Archive and Back to Inbox float over the doc's bottom-right.
 - [ ] **E3 Blocks [22, 46, 47].** Every list item has its own drag handle with a hover zone that
-  reaches it. Checkboxes line up with the first line of text, gaps are even, the block toolbar
-  never covers text.
+  reaches it. Hovering anywhere in a block highlights its whole area and exposes a reachable drag
+  handle. Checkboxes line up with the first line of text, gaps are even, the block toolbar never
+  covers text.
 - [ ] **E4 Comments in the margin [23].** Beside the text they belong to, not a separate page.
   A margin comment goes to the doc's author, who replies with tracked changes to accept in place.
 
@@ -182,6 +192,17 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
 - [ ] **F3 Chat spacing [24].** One spacing scale for paragraphs, lists, Work details and footers.
 - [ ] **F4 Chat header [25, 39].** Fixed row heights; no tooltip over "About: …".
 - [ ] **F5 Clipping [29, 49].** The stray chip in the card footer and Library's cut-off "Archived".
+- [ ] **F6 Compact entry and concise copy.** Make the sign-in button proportionate to the surrounding
+  controls at desktop and phone sizes. Remove unnecessary eyebrows and explanatory footer copy,
+  including the "A snapshot, picked by hand" example, while keeping essential privacy information
+  available in its appropriate place.
+- [ ] **F7 Queued sends are distinct.** Show scheduled messages as queued above the composer,
+  visually distinct from sent messages, with their schedule and usable edit/cancel actions. Confirm
+  scheduling, send, cancellation and failure states without layout jumps.
+- [ ] **F8 Company browser title.** Company pages use the company name as the browser tab title,
+  independent of whether Inbox, Work or People is selected; verify navigation and multiple companies.
+- [ ] **F9 Sidebar minimum width.** Allow the Inbox and other resizable left sidebars to minimise
+  further when space permits, without clipping their controls; restore the person's saved preference.
 
 ## Track G: Work and the Library
 
@@ -191,7 +212,9 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   flags a card waiting in Next while its owner has three or more in motion.
 - [ ] **G3 Churn shows [50].** The board flags Work past a few revisions (A$500 pass was at 15), and
   the lead says why.
-- [ ] **G4 Board shape [51, 52].** Empty columns are narrow; card titles are short.
+- [ ] **G4 Board shape [51, 52].** All columns use consistent widths, including empty columns;
+  horizontal scrolling is acceptable. Keep card titles short and their full text accessible. This
+  newer owner instruction supersedes the earlier request for narrow empty columns.
 - [ ] **G5 Scratch out of sight [48].** Agents' working notes leave the owner's default Library
   view. Check the "Folders 2000" count, which looks like a cap.
 
@@ -208,6 +231,40 @@ also identified `https://restless.run` as the Reno production target for final s
   DNS records, a test send, status, sending limits. Built on A2 and D3.
 - [ ] **H3 Interactive maps [57].** Concept page maps get basic zoom, or a click through to Google
   Maps.
+
+## Owner follow-up: active issue reconciliation
+
+The owner supplied a consolidated issue list and three screenshots on 30 October. Its newer board
+width instruction overrides the earlier narrow-empty-column idea. The list is in scope even where a
+partial fix exists; an unchecked item needs its full acceptance and production smoke, not just a
+similar-looking change. The screenshot of the computer overlay needs reproduction before its cause
+is known. The Lexifina article in the pasted list is a marketing reference, not a request to copy or
+publish its contents.
+
+| Owner feedback | Sprint coverage | Verified status |
+| --- | --- | --- |
+| Oversized sign-in and unnecessary eyebrow/footer copy | F6 | Open |
+| Mark done unavailable or slow; instant Undo | C1 | Partial: handoff and native-document Undo tested; Authority, generic set-aside and full prefetch remain |
+| Double doc header/footer and raw-to-styled jump | E1, E2, C2 | Open |
+| Review card must show the actual work and open the real item | A4, B2 | Open |
+| List-item dragging, alignment, block hover and reachable handle | E3 | Open |
+| Inbox filter instead of Skipped drawer | B4 | Checked against local and installed evidence; production Reno walkthrough remains |
+| Repeated structured/bold agent replies | D1, D2 | Prompt comparison checked; full plain-reply acceptance remains open |
+| Brand and other owner approvals belong in Inbox | B2 | Open |
+| Discuss duplicates linked Exec chat; duplicate middle composer | B1 | Open |
+| Cropped popover and inconsistent model connection status | B5, A1 | Open |
+| Composer hint shifting and general alignment / chat spacing | C3, C7, F1, F3, F4 | Open |
+| Margin comments rather than a separate comments pane | E4 | Open |
+| Lead fails to delegate | G2 | Open |
+| Resend capabilities, integration and secret names; vault versus account | D3, H2, A2, B6 | Open |
+| Sidebar size, saved width and narrow minimum | F1, F2, F9 | Open |
+| Duplicate attention items | B3 | Open |
+| Company storage, CPU and RAM controls and capacity purchase | A0.1–A0.6, H1 | Partial: CPU/RAM controls passed local checks; release and full account isolation gate remain |
+| Computer panel unexpectedly covers settings | A5 | Open; reproduce and diagnose |
+| Scheduled sends must look queued above composer | F7 | Open |
+| Equal board column widths, horizontal scroll acceptable | G4 | Open; supersedes narrow empty columns |
+| Browser tab shows company name rather than selected page | F8 | Open |
+| Work and chat warnings shift content | C5, C7 | Open |
 
 ## Later (agreed, not this sprint)
 
