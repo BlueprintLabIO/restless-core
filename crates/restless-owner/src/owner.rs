@@ -202,6 +202,7 @@ pub const OWNER_ATTACHMENT_RECONCILE_INTERVAL: Duration = Duration::from_secs(5 
 #[derive(Clone)]
 struct OwnerState {
     daemon: Arc<Daemon>,
+    decision_wake: Arc<tokio::sync::Notify>,
     charter_writes: Arc<tokio::sync::Mutex<()>>,
     tickets: Arc<Mutex<HashMap<String, AttachTicket>>>,
     attaches: Arc<Mutex<HashMap<String, AttachSession>>>,
@@ -1287,6 +1288,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     ));
     let state = OwnerState {
         daemon,
+        decision_wake: Arc::new(tokio::sync::Notify::new()),
         charter_writes: Arc::new(tokio::sync::Mutex::new(())),
         tickets: Arc::new(Mutex::new(HashMap::new())),
         attaches: Arc::new(Mutex::new(HashMap::new())),

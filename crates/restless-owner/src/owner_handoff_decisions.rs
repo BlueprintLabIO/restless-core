@@ -154,7 +154,10 @@ async fn queue(
         .queue_handoff_decision(input.id, identity, &input.expected_version, &input.decision)
         .await
     {
-        Ok(saved) => response(summary(&saved)),
+        Ok(saved) => {
+            state.decision_wake.notify_one();
+            response(summary(&saved))
+        }
         Err(error) => decision_error(error),
     }
 }
@@ -216,18 +219,24 @@ async fn cancel(
 /// Joined to the gateway future, so stopping/restarting the gateway stops the
 /// worker. Its next start discovers every original deadline from PostgreSQL.
 pub(super) async fn run(state: OwnerState) -> std::io::Result<()> {
-    let mut interval = tokio::time::interval(Duration::from_secs(1));
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // Subscribe before the first durable read. Local queue saves wake us even
+    // before a newly created company's shared PostgreSQL listener is ready.
+    let mut wakes = state.daemon.cell_wakes.subscribe();
     loop {
-        interval.tick().await;
+        let mut until = tokio::time::Instant::now() + Duration::from_secs(2);
         let companies = match crate::daemon::configured_companies(&state.daemon.root) {
             Ok(companies) => companies,
             Err(error) => {
                 tracing::warn!(%error,"pending handoff decisions could not list companies");
+                tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             }
         };
+        state.daemon.cell_wakes.retain_companies(&companies);
         for company in companies {
+            if let Ok(url) = state.daemon.orgintel.cell_database_url(&company).await {
+                state.daemon.cell_wakes.ensure_company(&company, &url);
+            }
             let org = match state.daemon.orgintel.get(&company).await {
                 Ok(org) => org,
                 Err(_) => continue,
@@ -262,6 +271,29 @@ pub(super) async fn run(state: OwnerState) -> std::io::Result<()> {
                         tracing::warn!(%error,"a pending handoff decision could not save its refusal");
                     }
                 }
+            }
+            match org.next_human_decision_delay().await {
+                Ok(Some(next)) => {
+                    until =
+                        until.min(tokio::time::Instant::now() + next.max(Duration::from_secs(1)))
+                }
+                Ok(None) => {}
+                Err(error) => tracing::warn!(%error, "pending decision deadline could not be read"),
+            }
+        }
+        // Hints shorten this sleep; durable rows and their original deadlines
+        // remain authoritative. The bounded repair also covers lost hints.
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep_until(until) => break,
+                _ = state.decision_wake.notified() => break,
+                wake = wakes.recv() => match wake {
+                    Ok(wake) if matches!(wake.kind.as_deref(),
+                        Some("handoff_decision_changed" | "document_decision_changed")) => break,
+                    Ok(_) => {},
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+                },
             }
         }
     }

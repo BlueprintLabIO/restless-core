@@ -2,6 +2,22 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
+impl OrgIntel {
+    /// Delay to the next source-owned Undo deadline, using the database's clock.
+    /// The owner worker can sleep without repeatedly reading every quiet cell.
+    pub async fn next_human_decision_delay(&self) -> Result<Option<std::time::Duration>> {
+        let seconds: Option<f64> = sqlx::query_scalar(
+            "SELECT GREATEST(0, EXTRACT(EPOCH FROM (MIN(undo_until) - clock_timestamp())))::double precision \
+             FROM (SELECT undo_until FROM owner_handoff_decisions WHERE state='pending' \
+                   UNION ALL SELECT undo_until FROM owner_document_decisions WHERE state='pending') pending \
+             HAVING COUNT(*) > 0",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(seconds.map(std::time::Duration::from_secs_f64))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HumanDecisionMembership {
     pub membership_id: String,
