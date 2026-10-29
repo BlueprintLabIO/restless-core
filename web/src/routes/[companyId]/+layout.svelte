@@ -101,7 +101,7 @@
 		type RetainedAttachment
 	} from '$lib/model/attachments';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	import { keepCountInTitle } from '$lib/model/title-count';
+	import { keepCompanyTabTitle } from '$lib/model/company-tab-title';
 	import { forYouSentence, getInboxMarks, newlyUnread, unreadMarks } from '$lib/model/for-you';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { inboxMarksKey } from '$lib/components/inbox-actions';
@@ -1064,9 +1064,8 @@
 		);
 	});
 
-	/* The tab title leads with what needs the person, from the same count as the Inbox badge. */
-	const needsYouCount = $derived(tabs.find((tab) => tab.key === 'attention')?.badge ?? 0);
-	$effect(() => keepCountInTitle(needsYouCount));
+	/* Nested pages may set their own title; the tab always identifies the company. */
+	$effect(() => keepCompanyTabTitle(companyName || rememberedName(companyId) || 'Restless'));
 
 	/* The Apps dot: a sign-in to renew, a tool to review, or an app Exec asked
 	 * for. Checked on arrival, on every move and once a minute. Know-how
