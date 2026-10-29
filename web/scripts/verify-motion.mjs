@@ -94,6 +94,9 @@ await journey('stream', async (page) => {
 	// the newest Exec message, sampled every 50 ms until it has been still for 3 s.
 	await page.evaluate(() => {
 		const root = document.querySelector('.exr-msgs');
+		const existing = new Set(
+			[...root.querySelectorAll('[data-message-sender]')].map((node) => node.id)
+		);
 		const seen = new Map();
 		const flashes = [];
 		const watcher = new MutationObserver((records) => {
@@ -110,12 +113,17 @@ await journey('stream', async (page) => {
 			}
 		});
 		watcher.observe(root, { childList: true, subtree: true });
-		window.__motion = { flashes, widths: [] };
+		window.__motion = { flashes, widths: [], replyArrived: false };
 		const sample = () => {
 			const replies = root.querySelectorAll(
 				'[data-message-sender]:not([data-message-sender="owner"])'
 			);
-			const last = replies[replies.length - 1];
+			// An earlier scripted reply must not satisfy a repeated journey.
+			const fresh = [...replies].filter((node) => !existing.has(node.id));
+			const last = fresh.at(-1);
+			window.__motion.replyArrived = fresh.some((node) =>
+				node.textContent.includes('Here is where things stand')
+			);
 			if (last) window.__motion.widths.push(Math.round(last.getBoundingClientRect().width));
 			window.__motion.timer = setTimeout(sample, 50);
 		};
@@ -133,23 +141,23 @@ await journey('stream', async (page) => {
 	// Wait for the reply to land and settle.
 	let settled = 0;
 	let last = -1;
-	for (let i = 0; i < 240 && settled < 60; i++) {
+	for (let i = 0; i < 600 && settled < 60; i++) {
 		await page.waitForTimeout(50);
 		const widths = await page.evaluate(() => window.__motion.widths.length);
 		settled = widths === last ? settled + 1 : 0;
 		last = widths;
-		const text = await page.locator('.exr-msgs').innerText();
-		if (!text.includes('Here is where things stand')) settled = 0;
+		if (!(await page.evaluate(() => window.__motion.replyArrived))) settled = 0;
 	}
 	const motion = await page.evaluate(() => {
 		clearTimeout(window.__motion.timer);
 		return window.__motion;
 	});
 	assert(
-		(await page.locator('.exr-msgs').innerText()).includes('Here is where things stand'),
+		motion.replyArrived,
 		'the scripted reply never arrived: is the stack pointed at tools/mock-model with a model connected?'
 	);
 	const tail = motion.widths.slice(-20);
+	assert(motion.widths.length >= 40, 'the new reply did not provide enough width samples');
 	const finalWidth = tail.at(-1);
 	const streamingWidth =
 		motion.widths

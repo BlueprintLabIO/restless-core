@@ -507,7 +507,20 @@ pub async fn project(
         ),
     };
 
-    let runtime_result = runtime::cockpit_doctor(&config.name).await;
+    // Company controls and Resources must remain usable while a constrained
+    // Runtime cannot answer its independent diagnostic probes. Explicit Doctor
+    // and lifecycle actions still use the full live check.
+    let runtime_result = match tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        runtime::cockpit_doctor(&config.name),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(anyhow::anyhow!(
+            "Company computer checks are taking longer than usual. Retry in Company → Computer."
+        )),
+    };
     let (runtime_doctor, runtime_source) = match runtime_result {
         Ok((doctor, runtime_observed_at)) => (
             Some(doctor),

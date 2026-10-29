@@ -28,6 +28,12 @@ try {
 			host_memory_bytes: 8 * 1024 ** 3,
 			host_available_bytes: 2 * 1024 ** 3,
 			placement_current: true,
+			work_admission: {
+				scope: 'shared',
+				waiting_for_memory: false,
+				working_set_bytes: 2 * 1024 ** 3,
+				resume_below_bytes: 5.4 * 1024 ** 3
+			},
 			pool: {
 				memory_used_bytes: 3 * 1024 ** 3,
 				memory_limit_bytes: 6 * 1024 ** 3,
@@ -65,12 +71,10 @@ try {
 		await compute.waitFor();
 		await compute.getByText('Reading…', { exact: true }).waitFor();
 		const bounds = () =>
-			page
-				.locator('#ai-usage')
-				.evaluate((node) => ({
-					top: node.getBoundingClientRect().top,
-					height: node.getBoundingClientRect().height
-				}));
+			page.locator('#ai-usage').evaluate((node) => ({
+				top: node.getBoundingClientRect().top,
+				height: node.getBoundingClientRect().height
+			}));
 		const before = await bounds();
 		mode = 'available';
 		release();
@@ -80,6 +84,26 @@ try {
 			Math.abs(before.top - after.top) <= 1,
 			'Compute readings must not move the following section'
 		);
+		await compute.getByText('Memory available', { exact: true }).waitFor();
+		sample.work_admission.waiting_for_memory = true;
+		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
+		await compute.getByText('Waiting for memory', { exact: true }).waitFor();
+		const waiting = await bounds();
+		assert(
+			Math.abs(waiting.top - after.top) <= 1,
+			'Memory admission changes must not move the next section'
+		);
+		sample.work_admission.scope = 'company';
+		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
+		await compute.getByText('Company RAM busy', { exact: true }).waitFor();
+		assert(
+			Math.abs((await bounds()).top - after.top) <= 1,
+			'Company memory wait must not move the next section'
+		);
+		sample.work_admission.scope = 'shared';
+		sample.work_admission.waiting_for_memory = false;
+		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
+		await compute.getByText('Memory available', { exact: true }).waitFor();
 		mode = 'error';
 		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
 		await compute.getByText('Could not refresh', { exact: true }).waitFor();
@@ -114,6 +138,8 @@ try {
 			failedRefresh: 'retains readings',
 			unconfigured: 'unknown',
 			unavailable: 'unknown',
+			memoryWaitShiftPx: waiting.top - after.top,
+			memoryAdmission: 'waiting and resumed',
 			recovery: 'live'
 		});
 		await context.close();

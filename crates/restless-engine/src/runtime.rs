@@ -53,6 +53,16 @@ static BROWSER_CONTROL_STATES: LazyLock<
     tokio::sync::Mutex<HashMap<String, tokio::sync::watch::Sender<Option<serde_json::Value>>>>,
 > = LazyLock::new(Default::default);
 
+// A cancelled Docker CLI does not cancel an OCI startup already accepted by
+// the engine. Serialize each diagnostic program, and retain its retry deadline
+// across cancellation. Distinct programs remain independent: a coordination
+// probe can call the host, which may need a bounded browser-file read.
+type ExecObservationSlot = Arc<tokio::sync::Mutex<Option<Instant>>>;
+static EXEC_OBSERVATIONS: LazyLock<
+    tokio::sync::Mutex<HashMap<(String, String), ExecObservationSlot>>,
+> = LazyLock::new(Default::default);
+const EXEC_OBSERVATION_RETRY: Duration = Duration::from_secs(30);
+
 type HealthCacheSlot<T> = Arc<tokio::sync::Mutex<Option<(Instant, T)>>>;
 static COCKPIT_DOCTOR_CACHE: LazyLock<
     tokio::sync::Mutex<HashMap<String, HealthCacheSlot<(RuntimeDoctor, DateTime<Utc>)>>>,
@@ -369,8 +379,135 @@ pub struct ComputeSample {
     pub cpu_limit_cores: Option<f64>,
 }
 
+/// Pressure admission for new Work only. OrgIntel keeps the ready Work;
+/// running Attempts, owner reads and recovery are not interrupted.
+#[derive(Debug, Serialize)]
+pub struct WorkloadAdmission {
+    pub scope: &'static str,
+    pub waiting_for_memory: bool,
+    pub working_set_bytes: u64,
+    pub resume_below_bytes: u64,
+}
+
+pub fn shared_workload_admission() -> Result<Option<WorkloadAdmission>> {
+    if workload_cgroup_parent()?.is_none() {
+        return Ok(None);
+    }
+    let root = std::path::PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
+    admission_from_cgroup(&root).map(Some)
+}
+
+/// Read the individual Runtime's existing cgroup without starting a process
+/// inside it. The configured read-only pool mount is the only filesystem root.
+async fn workload_container_scope(name: &str) -> Result<Option<PathBuf>> {
+    let Some(parent) = workload_cgroup_parent()? else {
+        return Ok(None);
+    };
+    let output = docker_bounded(
+        &[
+            "inspect",
+            "-f",
+            r#"{"id":{{json .Id}},"parent":{{json .HostConfig.CgroupParent}}}"#,
+            name,
+        ],
+        Duration::from_secs(3),
+    )
+    .await?;
+    anyhow::ensure!(
+        output.status.success(),
+        "company memory observation is unavailable"
+    );
+    let row: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    if row["parent"].as_str() != Some(parent.as_str()) {
+        return Ok(None); // Platform-owned identity browsers are outside the pool.
+    }
+    let id = row["id"]
+        .as_str()
+        .filter(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .context("invalid company resource identity")?;
+    Ok(Some(
+        PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?)
+            .join(format!("docker-{id}.scope")),
+    ))
+}
+
+pub async fn workload_admission(company: &str) -> Result<Option<WorkloadAdmission>> {
+    validate_company_name(company)?;
+    let Some(shared) = shared_workload_admission()? else {
+        return Ok(None);
+    };
+    if shared.waiting_for_memory {
+        return Ok(Some(shared));
+    }
+    let path = workload_container_scope(&container_name(company))
+        .await?
+        .context("company Runtime has not joined the shared workload pool")?;
+    Ok(Some(combine_admission(shared, container_admission(&path)?)))
+}
+
+fn container_admission(path: &Path) -> Result<Option<WorkloadAdmission>> {
+    // An explicitly uncapped local Runtime still shares its finite parent.
+    if std::fs::read_to_string(path.join("memory.max"))?.trim() == "max" {
+        return Ok(None);
+    }
+    admission_from_cgroup(path).map(Some)
+}
+
+fn combine_admission(
+    shared: WorkloadAdmission,
+    own: Option<WorkloadAdmission>,
+) -> WorkloadAdmission {
+    if !shared.waiting_for_memory {
+        if let Some(mut own) = own.filter(|own| own.waiting_for_memory) {
+            own.scope = "company";
+            return own;
+        }
+    }
+    shared
+}
+
+fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
+    let read = |name: &str| -> Result<u64> {
+        std::fs::read_to_string(root.join(name))?
+            .trim()
+            .parse()
+            .with_context(|| format!("host workload {name} is unavailable"))
+    };
+    let current = read("memory.current")?;
+    let maximum = read("memory.max")?;
+    // Inactive file cache is reclaimable: counting it as live work can leave
+    // a quiet pool waiting forever for cache that only new demand would reclaim.
+    let inactive = std::fs::read_to_string(root.join("memory.stat"))?
+        .lines()
+        .find_map(|line| line.strip_prefix("inactive_file "))
+        .context("host workload reclaimable memory is unavailable")?
+        .trim()
+        .parse::<u64>()?;
+    let high = std::fs::read_to_string(root.join("memory.high"))?;
+    let high = if high.trim() == "max" {
+        maximum / 10 * 9
+    } else {
+        high.trim().parse::<u64>()?.min(maximum)
+    };
+    anyhow::ensure!(high > 0, "host workload admission limit must be positive");
+    // Keep startup room before Linux starts throttling the pool at memory.high.
+    // This is admission headroom, not a reservation or a second memory limit.
+    // Small runtimes need real process-start headroom too: ten percent of a
+    // 768 MiB limit is less than one normal harness startup.
+    let reserve = (high / 10).max(256 * 1024 * 1024).min(high / 2);
+    let resume_below_bytes = high.saturating_sub(reserve);
+    let working_set_bytes = current.saturating_sub(inactive);
+    Ok(WorkloadAdmission {
+        scope: "shared",
+        waiting_for_memory: working_set_bytes >= resume_below_bytes,
+        working_set_bytes,
+        resume_below_bytes,
+    })
+}
+
 #[derive(Debug, Serialize)]
 pub struct ComputeUsage {
+    pub work_admission: WorkloadAdmission,
     pub observed_at: chrono::DateTime<chrono::Utc>,
     pub host_memory_bytes: Option<u64>,
     pub host_available_bytes: Option<u64>,
@@ -488,6 +625,7 @@ pub async fn compute_usage(company: &str) -> Result<Option<ComputeUsage>> {
         .all(|row| row["parent"].as_str() == Some(parent.as_str()));
     let mut work_paths = Vec::new();
     let mut computer_path = None;
+    let mut runtime_path = None;
     for row in &rows {
         let Some(id) = row["id"]
             .as_str()
@@ -499,6 +637,13 @@ pub async fn compute_usage(company: &str) -> Result<Option<ComputeUsage>> {
             continue;
         }
         let path = root.join(format!("docker-{id}.scope"));
+        if row["name"]
+            .as_str()
+            .map(|name| name.trim_start_matches('/'))
+            == Some(work_name.as_str())
+        {
+            runtime_path = Some(path.clone());
+        }
         if row["name"]
             .as_str()
             .map(|name| name.trim_start_matches('/'))
@@ -545,6 +690,14 @@ pub async fn compute_usage(company: &str) -> Result<Option<ComputeUsage>> {
         ))
     });
     Ok(Some(ComputeUsage {
+        work_admission: combine_admission(
+            admission_from_cgroup(&root)?,
+            runtime_path
+                .as_deref()
+                .map(container_admission)
+                .transpose()?
+                .flatten(),
+        ),
         observed_at: chrono::Utc::now(),
         host_memory_bytes: host_memory_bytes(),
         host_available_bytes: host_memory_field("MemAvailable:"),
@@ -2432,7 +2585,7 @@ sed -n 's/^some avg10=[^ ]* avg60=\([^ ]*\).*/cpu_some_avg60 \1/p' /sys/fs/cgrou
 true"#;
     let output = tokio::time::timeout(
         Duration::from_secs(5),
-        docker_observe(&["exec", &container_name(company), "sh", "-c", PROBE]),
+        docker_diagnostic(&["exec", &container_name(company), "sh", "-c", PROBE]),
     )
     .await
     .ok()?
@@ -2506,8 +2659,8 @@ pub struct BrowserDoctor {
 async fn docker(args: &[&str]) -> Result<std::process::Output> {
     tokio::process::Command::new("docker")
         .args(args)
-        // A timed health probe must not leave an orphaned `docker exec`
-        // process behind if the Runtime or coordinator has stopped answering.
+        // Reap the host CLI when its caller is cancelled. Remote diagnostic
+        // processes have their own deadline in docker_observe.
         .kill_on_drop(true)
         .output()
         .await
@@ -2529,6 +2682,113 @@ pub async fn docker_observe(args: &[&str]) -> Result<std::process::Output> {
     docker_bounded(args, DOCKER_OBSERVATION_TIMEOUT)
         .await
         .context("bounded Docker observation")
+}
+
+/// Read-only health checks may defer under memory pressure. Lifecycle and
+/// user operations retain their own existing deadlines and admission rules.
+async fn docker_diagnostic(args: &[&str]) -> Result<std::process::Output> {
+    if STARTUP_RECOVERY_ACTIVE.load(Ordering::SeqCst) {
+        bail!("Runtime observation is deferred while startup recovery owns Docker");
+    }
+    bound_docker_call(
+        async {
+            if let Some(index) = observation_exec_index(args)? {
+                let name = args[index];
+                let program = args
+                    .get(index + 1)
+                    .context("Docker exec command is missing")?;
+                let slot = EXEC_OBSERVATIONS
+                    .lock()
+                    .await
+                    .entry((name.to_string(), program.to_string()))
+                    .or_default()
+                    .clone();
+                observe_exec(&slot, async {
+                    if let Some(path) = workload_container_scope(name).await? {
+                        anyhow::ensure!(
+                            !shared_workload_admission()?
+                                .is_some_and(|sample| sample.waiting_for_memory),
+                            "shared diagnostics are waiting for memory"
+                        );
+                        anyhow::ensure!(
+                            !container_admission(&path)?
+                                .is_some_and(|sample| sample.waiting_for_memory),
+                            "company diagnostics are waiting for memory"
+                        );
+                    }
+                    if name.starts_with(&container_name("")) {
+                        // Bound the process inside our Ubuntu Runtime too. Killing
+                        // the host CLI alone does not stop an already-started exec.
+                        let mut bounded: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+                        bounded.splice(
+                            index + 1..index + 1,
+                            ["timeout", "--signal=TERM", "--kill-after=1s", "6s"]
+                                .map(str::to_string),
+                        );
+                        let refs: Vec<&str> = bounded.iter().map(String::as_str).collect();
+                        let output = docker(&refs).await?;
+                        anyhow::ensure!(
+                            !matches!(output.status.code(), Some(124 | 137)),
+                            "company diagnostic exceeded its Runtime deadline"
+                        );
+                        Ok(output)
+                    } else {
+                        docker(args).await
+                    }
+                })
+                .await
+            } else {
+                docker(args).await
+            }
+        },
+        DOCKER_OBSERVATION_TIMEOUT,
+    )
+    .await
+    .context("bounded Docker observation")
+}
+
+/// Only parse Docker's exec prefix; commands and their arguments remain opaque.
+fn observation_exec_index(args: &[&str]) -> Result<Option<usize>> {
+    if args.first() != Some(&"exec") {
+        return Ok(None);
+    }
+    let mut index = 1;
+    while let Some(value) = args.get(index) {
+        match *value {
+            "--" => {
+                return args
+                    .get(index + 1)
+                    .map(|_| Some(index + 1))
+                    .context("Docker exec target is missing")
+            }
+            "-u" | "--user" | "-w" | "--workdir" | "-e" | "--env" | "--env-file"
+            | "--detach-keys" => index += 2,
+            "-i" | "-t" | "-it" | "-ti" | "--interactive" | "--tty" | "-d" | "--detach"
+            | "--privileged" => index += 1,
+            value if value.starts_with("--") && value.contains('=') => index += 1,
+            value if value.starts_with('-') => bail!("unsupported diagnostic exec option"),
+            _ => return Ok(Some(index)),
+        }
+    }
+    bail!("Docker exec target is missing")
+}
+
+async fn observe_exec<T>(
+    slot: &ExecObservationSlot,
+    call: impl std::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    let mut retry_after = slot.lock().await;
+    anyhow::ensure!(
+        retry_after.is_none_or(|at| Instant::now() >= at),
+        "company diagnostics are waiting after an interrupted probe"
+    );
+    // Arm before polling: dropping this future must not clear its retry window.
+    *retry_after = Some(Instant::now() + EXEC_OBSERVATION_RETRY);
+    let result = call.await;
+    if result.is_ok() {
+        *retry_after = None;
+    }
+    result
 }
 
 pub async fn docker_bounded(args: &[&str], bound: Duration) -> Result<std::process::Output> {
@@ -3094,15 +3354,31 @@ pub async fn cockpit_doctor(company: &str) -> Result<(RuntimeDoctor, DateTime<Ut
         .entry(company.to_string())
         .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(None)))
         .clone();
-    let mut cached = slot.lock().await;
+    let Ok(mut cached) = slot.try_lock_owned() else {
+        bail!("Company computer checks are already refreshing");
+    };
     if let Some((at, result)) = cached.as_ref() {
         if at.elapsed() < Duration::from_secs(15) {
             return Ok(result.clone());
         }
     }
-    let result = (doctor(company).await?, Utc::now());
-    *cached = Some((Instant::now(), result.clone()));
-    Ok(result)
+    let previous = cached.as_ref().map(|(_, result)| result.clone());
+    let company = company.to_string();
+    // Keep one bounded refresh alive when an owner read reaches its shorter
+    // response deadline. It owns the cache guard, so further reads do not queue
+    // tasks or cancel healthy probes and repeatedly arm their retry backoff.
+    let refresh = tokio::spawn(async move {
+        let result = (doctor(&company).await?, Utc::now());
+        *cached = Some((Instant::now(), result.clone()));
+        Ok(result)
+    });
+    // Owner refreshes can be farther apart than this cache's fresh interval.
+    // Keep the last observation (including its actual timestamp) visible while
+    // refreshing, rather than turning every slow refresh into unavailable.
+    if let Some(previous) = previous {
+        return Ok(previous);
+    }
+    refresh.await?
 }
 
 /// Check the replaceable runtime image independently of an agent report.
@@ -3258,7 +3534,7 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
 async fn collaboration_tool_doctor(company: &str, tool: &str) -> CollaborationToolDoctor {
     let probe = tokio::time::timeout(
         Duration::from_secs(5),
-        docker_observe(&[
+        docker_diagnostic(&[
             "exec",
             "-u",
             "company",
@@ -3279,7 +3555,7 @@ async fn release_identity_doctor(company: &str) -> Option<RuntimeReleaseIdentity
     let name = container_name(company);
     let probe = tokio::time::timeout(
         Duration::from_secs(3),
-        docker_observe(&[
+        docker_diagnostic(&[
             "exec",
             "-u",
             "company",
@@ -3312,7 +3588,7 @@ async fn coordination_doctor(company: &str) -> CoordinationDoctor {
     let name = container_name(company);
     let probe = tokio::time::timeout(
         Duration::from_secs(5),
-        docker_observe(&["exec", "-u", "company", &name, "restless", "status"]),
+        docker_diagnostic(&["exec", "-u", "company", &name, "restless", "status"]),
     )
     .await;
     match probe {
@@ -3391,7 +3667,7 @@ async fn browser_doctor(company: &str, supervisor: &SupervisorDoctor) -> Browser
     let desktop = process("desktop");
     let mut chromium = process("chromium");
     let web_transport = process("desktop-web");
-    let automation: String = match docker_observe(&[
+    let automation: String = match docker_diagnostic(&[
         "exec",
         &name,
         "curl",
@@ -3458,10 +3734,13 @@ async fn supervisor_doctor(company: &str) -> SupervisorDoctor {
     let mut services = Vec::new();
     for config in configs {
         let output =
-            docker_observe(&["exec", &name, "supervisorctl", "-c", config, "status"]).await;
+            docker_diagnostic(&["exec", &name, "supervisorctl", "-c", config, "status"]).await;
         // supervisorctl exits nonzero when any optional program is stopped,
         // but its stdout still contains the status of every other program.
-        let Ok(output) = output else { continue };
+        let Ok(output) = output else {
+            tracing::debug!(company, config, error = ?output.err(), "supervisor observation unavailable");
+            continue;
+        };
         services.extend(
             String::from_utf8_lossy(&output.stdout)
                 .lines()
@@ -3524,7 +3803,7 @@ pub async fn desktop_asset(company: &str, asset: &str) -> Result<Vec<u8>> {
         bail!("invalid desktop asset path");
     }
     let path = format!("{NOVNC_ROOT}/{asset}");
-    let output = docker_observe(&[
+    let output = docker_diagnostic(&[
         "exec",
         "--user",
         "root",
@@ -3546,7 +3825,7 @@ pub async fn desktop_asset(company: &str, asset: &str) -> Result<Vec<u8>> {
 /// Whether the desktop's web transport answers inside the company computer. Only its status is
 /// read; what it serves never reaches a browser (see [`desktop_asset`]).
 pub async fn desktop_web_ready(company: &str) -> bool {
-    docker_observe(&[
+    docker_diagnostic(&[
         "exec",
         &container_name(company),
         "curl",
@@ -3585,7 +3864,7 @@ pub async fn open_browser_url(company: &str, value: &str) -> Result<()> {
     // field. Without it, the first `=` inside an OAuth-style destination
     // query is misread as curl's own name/value separator.
     let destination = format!("={}", parsed.as_str());
-    let opened = docker_observe(&[
+    let opened = docker_diagnostic(&[
         "exec",
         &container,
         "curl",
@@ -3621,7 +3900,7 @@ pub async fn open_browser_url(company: &str, value: &str) -> Result<()> {
         })
         .context("opened browser tab has no valid target id")?;
     let activate_url = format!("http://127.0.0.1:9223/json/activate/{target_id}");
-    let activated = docker_observe(&[
+    let activated = docker_diagnostic(&[
         "exec",
         &container,
         "curl",
@@ -3646,7 +3925,7 @@ pub async fn open_browser_url(company: &str, value: &str) -> Result<()> {
 /// Enumerate live X11 application windows through the private company broker.
 pub async fn desktop_windows(company: &str) -> Result<serde_json::Value> {
     let container = container_name(company);
-    let output = docker_observe(&[
+    let output = docker_diagnostic(&[
         "exec",
         &container,
         "curl",
@@ -4421,7 +4700,7 @@ async fn private_tcp_stream(company: &str, port: u16) -> Result<DesktopStream> {
 
 pub async fn read_browser_control(company: &str) -> Result<Option<serde_json::Value>> {
     let name = container_name(company);
-    let output = docker_observe(&[
+    let output = docker_diagnostic(&[
         "exec",
         &name,
         "sh",
@@ -5506,15 +5785,23 @@ mod tests {
         std::fs::write(&path, "name = \"bindings_test\"\nmission = \"test\"\nmodel = \"openai/test\"\n[credentials]\nresend = \"infisical:/companies/bindings_test/resend\"\n").unwrap();
         let mut config = super::CompanyConfig::load(&root, "bindings_test").unwrap();
         assert!(!config.credentials.contains_key("resend"));
-        assert_eq!(config.credentials["resend.production"], "infisical:/companies/bindings_test/resend");
+        assert_eq!(
+            config.credentials["resend.production"],
+            "infisical:/companies/bindings_test/resend"
+        );
         // A deployed production binding wins when an older alias also exists; no backend value
         // is deleted by migrating configuration names.
-        config.credentials.insert("resend".into(), "env:OTHER_KEY".into());
+        config
+            .credentials
+            .insert("resend".into(), "env:OTHER_KEY".into());
         super::CompanyConfig::save(&root, &config).unwrap();
         let persisted = std::fs::read_to_string(&path).unwrap();
         assert!(!persisted.contains("OTHER_KEY"));
         let loaded = super::CompanyConfig::load(&root, "bindings_test").unwrap();
-        assert_eq!(loaded.credentials["resend.production"], "infisical:/companies/bindings_test/resend");
+        assert_eq!(
+            loaded.credentials["resend.production"],
+            "infisical:/companies/bindings_test/resend"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -5812,6 +6099,286 @@ mission = "Choose intelligence"
             true,
             "broker-only restart must recognize an already running browser"
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an explicitly owned disposable probe container and pool"]
+    async fn shared_pool_pressure_defers_diagnostic_execs() {
+        let name = std::env::var("RESTLESS_TEST_PROBE_CONTAINER").unwrap();
+        assert!(name.starts_with("restless-s109probe-") && name.ends_with("_test"));
+        assert_eq!(
+            super::workload_cgroup_parent().unwrap().as_deref(),
+            Some("restless-s109probe.slice")
+        );
+        let path = super::workload_container_scope(&name)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            !super::container_admission(&path)
+                .unwrap()
+                .unwrap()
+                .waiting_for_memory
+        );
+        assert!(
+            super::shared_workload_admission()
+                .unwrap()
+                .unwrap()
+                .waiting_for_memory
+        );
+        let procs = || std::fs::read_to_string(path.join("cgroup.procs")).unwrap();
+        let events = || std::fs::read_to_string(path.join("memory.events")).unwrap();
+        let before = procs();
+        let before_events = events();
+        let mut probes = tokio::task::JoinSet::new();
+        for index in 0..30 {
+            let name = name.clone();
+            let program = ["true", "cat", "sh", "node", "restless", "supervisorctl"][index % 6];
+            probes.spawn(async move { super::docker_diagnostic(&["exec", &name, program]).await });
+        }
+        while let Some(result) = probes.join_next().await {
+            assert!(result.unwrap().is_err());
+        }
+        assert!(super::resource_doctor("guard_test").await.is_none());
+        assert_eq!(procs(), before);
+        assert_eq!(events(), before_events);
+        println!("30 probes deferred by the busy shared pool while individual Runtime still had headroom; no OCI growth");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an explicitly owned disposable probe container and pool"]
+    async fn diagnostic_exec_pressure_defers_without_oci_growth_and_recovers() {
+        let name = std::env::var("RESTLESS_TEST_PROBE_CONTAINER").unwrap();
+        assert!(name.starts_with("restless-s109probe-") && name.ends_with("_test"));
+        assert_eq!(
+            super::workload_cgroup_parent().unwrap().as_deref(),
+            Some("restless-s109probe.slice")
+        );
+        let path = super::workload_container_scope(&name)
+            .await
+            .unwrap()
+            .unwrap();
+        let process_ids = || {
+            std::fs::read_to_string(path.join("cgroup.procs"))
+                .unwrap()
+                .lines()
+                .map(str::to_string)
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        let events = || std::fs::read_to_string(path.join("memory.events")).unwrap();
+        assert!(
+            super::container_admission(&path)
+                .unwrap()
+                .unwrap()
+                .waiting_for_memory
+        );
+        assert!(
+            !super::shared_workload_admission()
+                .unwrap()
+                .unwrap()
+                .waiting_for_memory
+        );
+        let before = process_ids();
+        let before_events = events();
+        let mut probes = tokio::task::JoinSet::new();
+        for index in 0..30 {
+            let name = name.clone();
+            let program = ["true", "cat", "sh", "node", "restless", "supervisorctl"][index % 6];
+            probes.spawn(async move { super::docker_diagnostic(&["exec", &name, program]).await });
+        }
+        while let Some(result) = probes.join_next().await {
+            assert!(result.unwrap().is_err());
+        }
+        assert!(super::resource_doctor("guard_test").await.is_none());
+        assert_eq!(
+            process_ids(),
+            before,
+            "deferred probes must not create OCI startup processes"
+        );
+        assert_eq!(
+            events(),
+            before_events,
+            "deferred probes must not add child OOM/max events"
+        );
+        let updated = super::docker_bounded(
+            &["update", "--memory", "512m", "--memory-swap", "512m", &name],
+            std::time::Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+        assert!(updated.status.success());
+        assert!(
+            !super::container_admission(&path)
+                .unwrap()
+                .unwrap()
+                .waiting_for_memory
+        );
+        assert!(
+            super::docker_diagnostic(&["exec", &name, "true"])
+                .await
+                .is_err(),
+            "free memory does not erase a still-uncertain probe's retry window"
+        );
+        tokio::time::sleep(super::EXEC_OBSERVATION_RETRY + std::time::Duration::from_secs(1)).await;
+        let recovered = super::docker_diagnostic(&["exec", &name, "true"])
+            .await
+            .unwrap();
+        assert!(recovered.status.success());
+        assert_eq!(
+            process_ids(),
+            before,
+            "completed recovery must not leave exec processes"
+        );
+        assert_eq!(events(), before_events);
+        let slow = super::docker_diagnostic(&["exec", &name, "sleep", "60"]).await;
+        assert!(
+            slow.is_err(),
+            "an actual slow diagnostic must hit its Runtime deadline"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert_eq!(
+            process_ids(),
+            before,
+            "a timed-out probe must not leave its remote process"
+        );
+        println!("30 deferred probes: no process growth or child OOM; actual exec recovered after backoff; remote timeout left no process");
+    }
+
+    #[tokio::test]
+    async fn cancelled_diagnostic_does_not_launch_replacement_execs() {
+        let slot = std::sync::Arc::new(tokio::sync::Mutex::new(None));
+        let started = std::sync::Arc::new(tokio::sync::Notify::new());
+        let task = tokio::spawn({
+            let slot = slot.clone();
+            let started = started.clone();
+            async move {
+                super::observe_exec(&slot, async {
+                    started.notify_one();
+                    std::future::pending::<anyhow::Result<()>>().await
+                })
+                .await
+            }
+        });
+        started.notified().await;
+        task.abort();
+        let _ = task.await;
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let retry = super::observe_exec(&slot, async {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        })
+        .await;
+        assert!(retry.is_err());
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        *slot.lock().await = Some(std::time::Instant::now());
+        super::observe_exec(&slot, async { Ok(()) }).await.unwrap();
+        assert!(slot.lock().await.is_none());
+    }
+
+    #[test]
+    fn diagnostic_exec_options_never_become_the_container() {
+        assert_eq!(
+            super::observation_exec_index(&[
+                "exec",
+                "-u",
+                "company",
+                "-i",
+                "test-container",
+                "sh",
+                "-c",
+                "anything"
+            ])
+            .unwrap(),
+            Some(4)
+        );
+        assert_eq!(
+            super::observation_exec_index(&["inspect", "test-container"]).unwrap(),
+            None
+        );
+        assert!(super::observation_exec_index(&["exec", "-u"]).is_err());
+        assert!(super::observation_exec_index(&["exec", "--unknown", "x"]).is_err());
+    }
+
+    #[test]
+    fn individual_runtime_waits_even_when_shared_memory_is_available() {
+        let root = std::env::temp_dir().join(format!(
+            "runtime_admission_{}_test",
+            Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let write = |name: &str, value: &str| std::fs::write(root.join(name), value).unwrap();
+        write("memory.max", "805306368");
+        write("memory.high", "max");
+        write("memory.current", "629145600");
+        write("memory.stat", "inactive_file 0\n");
+        let shared = || super::WorkloadAdmission {
+            scope: "shared",
+            waiting_for_memory: false,
+            working_set_bytes: 100,
+            resume_below_bytes: 1000,
+        };
+        let busy = super::combine_admission(shared(), super::container_admission(&root).unwrap());
+        assert!(busy.waiting_for_memory);
+        assert_eq!(busy.scope, "company");
+        assert!(
+            busy.resume_below_bytes <= 512 * 1024 * 1024,
+            "small runtimes need room for an actual harness startup"
+        );
+        write("memory.current", "209715200");
+        assert!(
+            !super::combine_admission(shared(), super::container_admission(&root).unwrap())
+                .waiting_for_memory
+        );
+        write("memory.max", "max");
+        assert!(super::container_admission(&root).unwrap().is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workload_admission_waits_for_live_memory_and_recovers_without_cache_deadlock() {
+        let root = std::env::temp_dir().join(format!(
+            "workload_admission_{}_test",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let write = |name: &str, value: &str| std::fs::write(root.join(name), value).unwrap();
+        write("memory.max", "1000");
+        write("memory.high", "900");
+        write("memory.current", "950");
+        assert!(
+            super::admission_from_cgroup(&root).is_err(),
+            "unknown cache is not zero"
+        );
+        write("memory.stat", "anon 900\ninactive_file 50\n");
+        assert!(
+            super::admission_from_cgroup(&root)
+                .unwrap()
+                .waiting_for_memory
+        );
+        write("memory.stat", "anon 100\ninactive_file 850\n");
+        assert!(
+            !super::admission_from_cgroup(&root)
+                .unwrap()
+                .waiting_for_memory,
+            "reclaimable file cache must not strand queued Work"
+        );
+        write("memory.current", "200");
+        write("memory.stat", "inactive_file 0\n");
+        assert!(
+            !super::admission_from_cgroup(&root)
+                .unwrap()
+                .waiting_for_memory
+        );
+        write("memory.high", "max");
+        assert_eq!(
+            super::admission_from_cgroup(&root)
+                .unwrap()
+                .resume_below_bytes,
+            450
+        );
+        write("memory.high", "0");
+        assert!(super::admission_from_cgroup(&root).is_err());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
