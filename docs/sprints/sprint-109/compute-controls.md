@@ -28,7 +28,9 @@ Evidence is in `../evidence/sprint-109-resources/compute-controls/`:
 
 The two planes were isolated local fixtures without real model routes, not two newly provisioned Cloud accounts. Real owner/admin/member identity and coediting tests separately passed, including owner cap updates and 403 responses for both other roles. Engine cap tests (5), Runtime tests (47 passed, 4 ignored), workspace test compilation, and frontend checks passed.
 
-The source-fingerprinted release smoke now includes the live cap API probe, followed by the normal-scheduler zero-idle-model-call probe. Full release qualification and production verification are still required before calling this batch deployed.
+The source-fingerprinted release smoke includes the live cap API probe and the normal-scheduler zero-idle-model-call probe. Full Core release qualification passed, followed by 23 connection scenarios, the live cap probe, and 330 idle seconds with zero model calls and positive controls on either side.
+
+The signed Core `3572b1b56dced440bcefffda5857f94fdb1508c6` and Cloud release `cloud-0d5d50184e7d6e0ed4d7661815e7feb495b82ea5` deployed on 30 October. Production reported healthy, desired/applied 126/126. The running account-plane and cockpit image digests matched the Core release assembly. The read-only production placement sample is `../evidence/sprint-109-resources/compute-controls/production-2026-10-30.json`: the owner pool had a 3-CPU limit, 5,377,003,520-byte memory.high, 5,974,450,176-byte memory.max and zero workload swap; all six observed running document services were in that pool, with zero recorded OOM kills. No Runtime or browser container was running in this sample. The temporary operator-only access rule was detached and removed. This proves the named production deployment and sampled placement, not a live owner cap edit, full multi-owner pressure isolation, or an authenticated Reno walkthrough.
 
 ## Cleanup and remaining work
 
