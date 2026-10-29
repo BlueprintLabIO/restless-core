@@ -50,7 +50,7 @@
 	role="region"
 	aria-label={label}
 	style:--board-tracks={columns
-		.map((column) => (column.items.length ? 'minmax(180px, 1fr)' : 'minmax(106px, .4fr)'))
+		.map(() => 'minmax(180px, 1fr)')
 		.join(' ')}
 >
 	{#each columns as column (column.key)}
@@ -99,7 +99,7 @@
 		min-width: 0;
 		min-height: 0;
 		display: grid;
-		/* Empty columns stay findable without taking the space a real queue needs. */
+		/* Equal tracks prevent columns from resizing as work moves between them. */
 		grid-template-columns: var(--board-tracks);
 		overflow: auto;
 	}
