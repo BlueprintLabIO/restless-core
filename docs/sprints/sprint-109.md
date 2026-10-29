@@ -116,8 +116,18 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   rules: answer the question plainly, be accurate, use "you", link what you mention, no internal
   ids. No required opener, no bold, no closing limit line. The intent marker stays as hidden
   metadata and never shapes the text. Keep `restless-details` only as the Work details fold.
-- [ ] **D2 Measure it.** Run the same Reno prompts before and after; compare accuracy, repetition
+- [x] **D2 Measure it.** Run the same Reno prompts before and after; compare accuracy, repetition
   and length. Keep the result in this file.
+
+  [Matched live reply comparison](sprint-109/evidence/reply-comparison.md), 30 October: seven question pairs
+  on exact `openai-codex/gpt-5.6-sol`, medium effort, with identical frozen facts. The short contract
+  used 854 fewer input tokens per reply; visible words were 268 before and 256 after across the seven
+  replies. All decision-bearing facts were retained in the after sample; the old archive answer
+  overclaimed that only two Library entries remained. The new model-status answer was longer.
+  A live diagnostic omitted hidden routing metadata, so the short contract now explicitly ends with
+  that marker; all seven final after replies passed structural routing checks. Cases, replies,
+  usage and failed diagnostics are retained. This is a reply-only cold-context comparison, not
+  a production Opus, whole-task quality, cache-efficiency or company-spend result. A0 remains open.
 - [ ] **D3 Agents know Restless [3, 15].** A capabilities read (what's built in, what's connected,
   what each key is called) that Exec checks before stating facts about Restless. Faults it finds in
   Restless are filed to the Restless company with evidence.
