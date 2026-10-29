@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The connections smoke on the exact release candidate, as the GitHub release workflow ran it before
 # ADR 0010 (restless-cloud): build restlessd, restless and the company image from this checkout,
-# then drive the daemon, CLI, company image and host tools end to end.
+# then drive the daemon, CLI, company image and host tools end to end. The normal-scheduler
+# idle check follows using the same built daemon and company image.
 #
 # Fast lane: the smoke never touches the cockpit or the docs, so when nothing else changed since a
 # run that passed on this computer it would test identical bytes again; it says so and skips.
@@ -38,5 +39,7 @@ if [ -n "$previous" ] && [ "$previous" != "$(docker image inspect --format '{{.I
 fi
 RESTLESSD_BIN="$CARGO_TARGET_DIR/debug/restlessd" RESTLESS_CLI_BIN="$CARGO_TARGET_DIR/debug/restless" \
   RESTLESS_COMPANY_IMAGE="$image" python3 scripts/connections-smoke --target core --output "$evidence"
+RESTLESSD_BIN="$CARGO_TARGET_DIR/debug/restlessd" \
+  python3 scripts/verify-ai-idle.py --image "$image" --output "$evidence/ai-idle"
 mkdir -p "$passed" && printf '%s\n' "$revision" >"$passed/$inputs"
 find "$passed" -type f -printf '%T@ %p\n' | sort -rn | tail -n +41 | cut -d' ' -f2- | xargs -r rm -f
