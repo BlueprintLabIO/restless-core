@@ -44,7 +44,8 @@ explicit compute and AI efficiency acceptance. The other sprint requirements rem
 
   [Metered Claude cache retirement](sprint-109/cache-retirement.md) now uses the configured short
   cache window for large cold history, including persisted session reuse after restart. Local
-  policy, gateway and actual OMP wire checks pass; its signed release is pending. Native/subscription
+  policy, gateway and actual OMP wire checks pass; Core `0e3c44c1` is deployed with healthy
+  desired/applied revision `125/125`, verified on 30 October Sydney time. Native/subscription
   routes retain their existing window. This is a bounded A0.4 fix, not full A0 completion.
 - [ ] **A0.5 Resources UI (H1, first batch).** Show actual CPU/RAM/storage against limits, host
   headroom and what is using resources, plus AI token/cache/cost usage and budgets. Include clear
