@@ -12,6 +12,10 @@ export type Toast = {
 	action?: { label: string; run: () => unknown };
 	/** Stays until dismissed or acted on, as a failure does. */
 	persist?: boolean;
+	/** A source-owned deadline is never extended by hovering or focus. */
+	expiresAt?: number;
+	/** Called only for an explicit dismissal, never automatic eviction. */
+	onDismiss?: () => unknown;
 };
 
 /* Long enough to reach Undo without hurrying; a plain notice goes sooner. A failure stays until it
@@ -30,6 +34,12 @@ export function dismissToast(id: number) {
 	toasts.list = toasts.list.filter((item) => item.id !== id);
 }
 
+export function closeToast(id: number) {
+	const item = toasts.list.find((entry) => entry.id === id);
+	dismissToast(id);
+	void item?.onDismiss?.();
+}
+
 function schedule(id: number) {
 	clearTimeout(timers.get(id));
 	const item = toasts.list.find((entry) => entry.id === id);
@@ -37,14 +47,23 @@ function schedule(id: number) {
 	const undoable = item.undo;
 	timers.set(
 		id,
-		setTimeout(() => dismissToast(id), undoable ? UNDO_LIFETIME_MS : LIFETIME_MS)
+		setTimeout(
+			() => dismissToast(id),
+			item.expiresAt === undefined
+				? undoable
+					? UNDO_LIFETIME_MS
+					: LIFETIME_MS
+				: Math.max(0, item.expiresAt - Date.now())
+		)
 	);
 }
 
 /** Say what happened. Pass undo when the action can be reversed; it runs once, then the toast goes. */
 export function toast(
 	text: string,
-	options: Pick<Toast, 'undo' | 'action' | 'persist'> & { tone?: ToastTone } = {}
+	options: Pick<Toast, 'undo' | 'action' | 'persist' | 'expiresAt' | 'onDismiss'> & {
+		tone?: ToastTone;
+	} = {}
 ) {
 	const item: Toast = { ...options, id: next++, text, tone: options.tone ?? 'done' };
 	/* The same lasting notice said again replaces itself rather than stacking. */
@@ -68,7 +87,9 @@ export function toast(
 
 /** Take back the newest action that still offers Undo. False when none does. */
 export function undoLatest(): boolean {
-	const item = toasts.list.findLast((entry) => entry.undo);
+	const item = toasts.list.findLast(
+		(entry) => entry.undo && (entry.expiresAt === undefined || entry.expiresAt > Date.now())
+	);
 	if (!item) return false;
 	dismissToast(item.id);
 	void item.undo?.();
@@ -77,6 +98,7 @@ export function undoLatest(): boolean {
 
 /** Hovering or focusing a toast holds it; leaving starts its clock again. */
 export function holdToast(id: number, held: boolean) {
+	if (toasts.list.find((entry) => entry.id === id)?.expiresAt !== undefined) return;
 	if (held) {
 		clearTimeout(timers.get(id));
 		timers.delete(id);
@@ -93,7 +115,12 @@ export function clearOfToasts(node: HTMLElement) {
 	 * depend on its own write and loop (effect_update_depth_exceeded on the Inbox). */
 	const measure = () =>
 		untrack(() => {
-			const px = Math.max(0, Math.round(window.innerHeight - node.getBoundingClientRect().top));
+			const rect = node.getBoundingClientRect();
+			// A detail pane kept mounted but hidden at phone width must not push notices offscreen.
+			const px =
+				rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.top < window.innerHeight
+					? Math.round(window.innerHeight - rect.top)
+					: 0;
 			clearances.list = [...clearances.list.filter((entry) => entry.id !== id), { id, px }];
 		});
 	measure();

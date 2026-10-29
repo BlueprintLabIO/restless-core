@@ -326,6 +326,7 @@ pub struct RequestPrincipal {
     membership_role: String,
     company: Option<String>,
     cache_partition: String,
+    decision_principal: restless_orgintel::HandoffDecisionPrincipal,
 }
 
 impl RequestPrincipal {
@@ -335,6 +336,11 @@ impl RequestPrincipal {
             membership_role: "owner".into(),
             company: None,
             cache_partition: "local-owner-v1".into(),
+            decision_principal: restless_orgintel::HandoffDecisionPrincipal {
+                actor_id: "owner".into(),
+                owner_account: None,
+                membership: None,
+            },
         }
     }
 
@@ -362,7 +368,23 @@ impl RequestPrincipal {
                 .unwrap_or_default()
                 .to_be_bytes(),
         );
+        let decision_principal = restless_orgintel::HandoffDecisionPrincipal {
+            actor_id: actor_id.clone(),
+            owner_account: (identity.scope == CompanyScope::Owner).then(|| identity.owner.clone()),
+            membership: identity
+                .membership_id
+                .as_ref()
+                .zip(identity.membership_version)
+                .map(
+                    |(id, version)| restless_orgintel::HandoffDecisionMembership {
+                        membership_id: id.clone(),
+                        membership_version: version,
+                        membership_role: identity.role.clone(),
+                    },
+                ),
+        };
         Some(Self {
+            decision_principal,
             actor_id,
             membership_role: identity.role.clone(),
             company,
@@ -372,6 +394,10 @@ impl RequestPrincipal {
 
     pub fn actor_id(&self) -> &str {
         &self.actor_id
+    }
+
+    pub fn handoff_decision_principal(&self) -> &restless_orgintel::HandoffDecisionPrincipal {
+        &self.decision_principal
     }
 
     pub fn membership_role(&self) -> &str {

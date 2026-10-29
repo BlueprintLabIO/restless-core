@@ -436,7 +436,7 @@ impl OrgIntel {
         state: OwnerHandoffState,
         resolution: &str,
     ) -> Result<()> {
-        self.resolve_handoff(id, "owner", state, resolution, false, false, false)
+        self.resolve_handoff(id, "owner", state, resolution, false, false, false, None)
             .await
             .map(|_| ())
     }
@@ -453,6 +453,7 @@ impl OrgIntel {
             false,
             true,
             false,
+            None,
         )
         .await
         .map(|_| ())
@@ -474,6 +475,7 @@ impl OrgIntel {
             false,
             true,
             false,
+            None,
         )
         .await
         .map(|_| ())
@@ -498,6 +500,7 @@ impl OrgIntel {
             true,
             false,
             false,
+            None,
         )
         .await
     }
@@ -513,9 +516,18 @@ impl OrgIntel {
         state: OwnerHandoffState,
         resolution: &str,
     ) -> Result<()> {
-        self.resolve_handoff(id, resolved_by, state, resolution, false, false, false)
-            .await
-            .map(|_| ())
+        self.resolve_handoff(
+            id,
+            resolved_by,
+            state,
+            resolution,
+            false,
+            false,
+            false,
+            None,
+        )
+        .await
+        .map(|_| ())
     }
 
     /// The owner answered a handoff owed to them in their conversation with Exec instead of on
@@ -609,6 +621,7 @@ impl OrgIntel {
                     &answer_text,
                     true,
                     None,
+                    None,
                 )
                 .await
             }
@@ -619,6 +632,7 @@ impl OrgIntel {
                     OwnerReviewDecision::ChangesRequested,
                     &answer_text,
                     true,
+                    None,
                     None,
                 )
                 .await
@@ -635,14 +649,14 @@ impl OrgIntel {
                 } else {
                     OwnerHandoffState::Declined
                 };
-                self.resolve_handoff(id, "owner", state, &answer_text, false, false, true)
+                self.resolve_handoff(id, "owner", state, &answer_text, false, false, true, None)
                     .await
                     .map(|_| ())
             }
         }
     }
 
-    async fn resolve_handoff(
+    pub(super) async fn resolve_handoff(
         &self,
         id: Uuid,
         resolved_by: &str,
@@ -652,6 +666,7 @@ impl OrgIntel {
         owner_human_step_completion: bool,
         // The owner's own words from conversation stand in for the card's authored brief.
         owner_words: bool,
+        pending_decision: Option<Uuid>,
     ) -> Result<bool> {
         if matches!(
             state,
@@ -684,10 +699,7 @@ impl OrgIntel {
             crate::actors::lock_work_accountability_for_update_in_tx(&mut tx, candidate_work_id)
                 .await?;
         let row = sqlx::query(
-            "SELECT work_id,attempt_id,category,state,requested_action,prepared_state, \
-                    resume_condition,assigned_to,owner_brief,brief_source_fingerprint \
-             FROM owner_handoffs \
-             WHERE id=$1 AND work_id=$2 AND state IN ('pending','preparing') FOR UPDATE",
+            "SELECT * FROM owner_handoffs WHERE id=$1 AND work_id=$2 AND state IN ('pending','preparing') FOR UPDATE",
         )
         .bind(id)
         .bind(candidate_work_id)
@@ -771,6 +783,22 @@ impl OrgIntel {
                 ));
             }
         }
+        if let Some(pending_id) = pending_decision {
+            let action = if owner_human_step_completion {
+                HandoffDecision::CompleteHumanStep
+            } else {
+                HandoffDecision::Skip
+            };
+            crate::handoff_decisions::admit_pending_handoff_decision_in_tx(
+                &mut tx,
+                pending_id,
+                &OwnerHandoffRow::from_row(&row)?,
+                accountability.revision,
+                resolved_by,
+                &action,
+            )
+            .await?;
+        }
         sqlx::query(
             "UPDATE owner_handoffs SET state=$2, resolution=$3, resolved_at=now() WHERE id=$1",
         )
@@ -826,6 +854,9 @@ impl OrgIntel {
         .bind(state == OwnerHandoffState::Resolved)
         .execute(&mut *tx)
         .await?;
+        if let Some(id) = pending_decision {
+            crate::handoff_decisions::complete_pending_handoff_decision_in_tx(&mut tx, id).await?;
+        }
         tx.commit().await?;
         Ok(true)
     }
@@ -852,7 +883,7 @@ impl OrgIntel {
         decision: OwnerReviewDecision,
         feedback: &str,
     ) -> Result<()> {
-        self.decide_review(id, reviewer, decision, feedback, false, None)
+        self.decide_review(id, reviewer, decision, feedback, false, None, None)
             .await
     }
 
@@ -866,13 +897,13 @@ impl OrgIntel {
         feedback: &str,
         version: &OwnerReviewVersion,
     ) -> Result<()> {
-        self.decide_review(id, reviewer, decision, feedback, false, Some(version))
+        self.decide_review(id, reviewer, decision, feedback, false, Some(version), None)
             .await
     }
 
     /// `owner_words`: the owner decided in conversation, so their own words stand in for the
     /// card's authored brief.
-    async fn decide_review(
+    pub(super) async fn decide_review(
         &self,
         id: Uuid,
         reviewer: &str,
@@ -880,6 +911,7 @@ impl OrgIntel {
         feedback: &str,
         owner_words: bool,
         expected: Option<&OwnerReviewVersion>,
+        pending_decision: Option<Uuid>,
     ) -> Result<()> {
         let feedback = feedback.trim();
         if decision == OwnerReviewDecision::ChangesRequested && feedback.is_empty() {
@@ -928,6 +960,19 @@ impl OrgIntel {
             return Err(OrgIntelError::InvalidWork(
                 "this review is still assigned below you, or is waiting on someone else".into(),
             ));
+        }
+        if let Some(pending_id) = pending_decision {
+            crate::handoff_decisions::admit_pending_handoff_decision_in_tx(
+                &mut tx,
+                pending_id,
+                &OwnerHandoffRow::from_row(&row)?,
+                accountability.revision,
+                reviewer,
+                &HandoffDecision::AcceptReview {
+                    feedback: feedback.into(),
+                },
+            )
+            .await?;
         }
         if let Some(expected) = expected {
             let current = OwnerHandoffRow::from_row(&row)?.conversation_input();
@@ -1084,6 +1129,9 @@ impl OrgIntel {
             OwnerReviewDecision::ChangesRequested => {
                 invalidate_from(&mut tx, work_id, reviewer, feedback).await?;
             }
+        }
+        if let Some(id) = pending_decision {
+            crate::handoff_decisions::complete_pending_handoff_decision_in_tx(&mut tx, id).await?;
         }
         tx.commit().await?;
         Ok(())

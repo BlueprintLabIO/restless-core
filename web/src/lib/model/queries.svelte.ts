@@ -308,6 +308,7 @@ async function invalidateAttentionReads(client: QueryClient, company: string) {
 
 /** One server-owned queue, refreshed in this window and other open cockpit tabs. */
 export async function refreshAttention(client: QueryClient, companyId: string) {
+	void client.invalidateQueries({ queryKey: ['handoff-decisions', companyId] });
 	if (typeof BroadcastChannel !== 'undefined') {
 		const channel = new BroadcastChannel('restless-attention');
 		channel.postMessage(companyId);
@@ -320,7 +321,8 @@ export async function refreshAttention(client: QueryClient, companyId: string) {
 export async function removeConfirmedAttention(
 	client: QueryClient,
 	companyId: string,
-	itemId: string
+	itemId: string,
+	pendingHandoffDecision = false
 ) {
 	const queryKey = queryKeys.attention(companyId);
 	// An older in-flight read must not put the decided card back into the queue.
@@ -330,6 +332,7 @@ export async function removeConfirmedAttention(
 		(view) =>
 			view && {
 				...view,
+				...(pendingHandoffDecision ? { pendingHandoffDecisions: [...new Set([...(view.pendingHandoffDecisions ?? []), itemId])] } : {}),
 				items: view.items.filter((item) => item.id !== itemId)
 			}
 	);

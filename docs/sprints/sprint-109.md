@@ -353,3 +353,14 @@ company runtime outcomes are current. Cloud public health and canonical redirect
 See [release-29-oct.md](sprint-109/release-29-oct.md) for signed bundle identities, local role and
 browser checks, deployment evidence, cleanup and the remaining private Reno browser verification.
 The full sprint checklist remains open.
+
+### Owner steering and the next C1 slice, 29 October
+
+The owner supplied `restless.run` as the Reno production target and approved the Resources, Email
+and map preview layouts. Track H design review is satisfied; real resource metrics and offers
+still need to come from their actual providers. The owner asked work to continue while away.
+
+The durable handoff Undo slice is described in [handoff-undo.md](sprint-109/handoff-undo.md).
+It replaces the browser-owned timeout for Mark done, handoff Skip and outcome Accept. Authority
+approvals, native-document decisions and generic set-aside remain before C1 can be checked.
+No additional checklist item is claimed complete by this slice alone.

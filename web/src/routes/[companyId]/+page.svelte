@@ -206,11 +206,24 @@
 	/* The queue starts collapsed until its source answers, so an idle
 	 * company's office is never squeezed and released; when items do arrive,
 	 * the queue opens with the same motion as any later change. */
+	const currentVisibleItems = $derived((visibleItems ?? items).flatMap((row) => {
+		const current = items.find((candidate) => candidate.id === row.id);
+		return current ? [current] : [];
+	}));
 	const selectedItem = $derived.by(() => {
 		if (selectedUpdateId) return null;
-		if (selectedItemId) return items.find((item) => item.id === selectedItemId) ?? null;
+		if (selectedItemId) {
+			const selected = items.find((item) => item.id === selectedItemId);
+			if (selected) return selected;
+			if (view?.pendingHandoffDecisions?.includes(selectedItemId)) {
+				const rows = currentVisibleItems;
+				const index = Math.max(0, previousItemOrder.indexOf(selectedItemId));
+				return rows[Math.min(index, rows.length - 1)] ?? null;
+			}
+			return null;
+		}
 		if (['skipped', 'done'].includes(inboxFilter)) return null;
-		return (visibleItems ?? items)[0] ?? null;
+		return currentVisibleItems[0] ?? null;
 	});
 	let missingNotice = $state('');
 	let missingDecisionHref = $state('');
@@ -254,15 +267,15 @@
 		) {
 			missingItemRedirect = selectedItemId;
 			missingNotice =
-				resolvedHere === selectedItemId
+				(resolvedHere === selectedItemId || view?.pendingHandoffDecisions?.includes(selectedItemId))
 					? ''
 					: 'That item has been resolved or is no longer in the Inbox.';
 			missingDecisionHref = '';
 			/* An old link to an item someone already answered says who decided and what. */
-			if (resolvedHere !== selectedItemId) void explainMissing(companyId, selectedItemId);
+			if (resolvedHere !== selectedItemId && !view?.pendingHandoffDecisions?.includes(selectedItemId)) void explainMissing(companyId, selectedItemId);
 			const previousIndex = Math.max(0, previousItemOrder.indexOf(selectedItemId));
-			const next = (visibleItems ?? items)[
-				Math.min(previousIndex, (visibleItems ?? items).length - 1)
+			const next = currentVisibleItems[
+				Math.min(previousIndex, currentVisibleItems.length - 1)
 			];
 			void goto(next ? itemHref(next.id) : baseHref, {
 				replaceState: true,
@@ -456,12 +469,16 @@
 	async function finishStep() {
 		const item = focusItem;
 		if (!item || finishingStep) return;
+		const rows = visibleItems ?? items;
+		const others = rows.filter((row) => row.id !== item.id);
+		const index = Math.max(0, rows.findIndex((row) => row.id === item.id));
+		const next = others[Math.min(index, others.length - 1)] ?? null;
 		finishingStep = true;
 		try {
-			if (await markDoneSoon(queryClient, companyId, item.source.reference)) {
+			if (await markDoneSoon(queryClient, companyId, item)) {
 				resolvedHere = item.id;
-				sent = { text: 'Marked done. The work resumes.' };
-				await closePreparedComputer(null);
+				sent = null;
+				await closePreparedComputer(next);
 			}
 		} finally {
 			finishingStep = false;
@@ -982,10 +999,11 @@
 				if (result.error) throw result.error;
 			}}
 			onresolved={(result) => {
+				if (result.pending) { sent = null; return; }
 				/* From the answer just given, before the detail closes around it. */
 				celebrate(document.activeElement);
 				resolvedHere = item.id;
-				sent = result;
+				sent = result.pending ? null : result;
 			}}
 		/>{/if}
 {/snippet}

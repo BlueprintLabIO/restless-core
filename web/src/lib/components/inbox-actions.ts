@@ -1,15 +1,14 @@
+import { queueHandoffDecision, type HandoffDecision } from '$lib/model/handoff-decisions';
 import { pollEvery } from '$lib/model/connection.svelte';
 /* The Inbox's own moves on one item, shared by the list's row menu, the item detail and the
  * computer view, so all say the same thing and all can be taken back: skip (with Undo),
  * snooze until a chosen time (with Undo), mark a human step done (with Undo), and copy the
  * item's link. */
 import { createQuery, type QueryClient } from '@tanstack/svelte-query';
-import { dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
+import { toast } from '$lib/ui/feedback/toast.svelte';
 import { formatMoment } from '$lib/ui/time';
 import {
-	completeHandoffHumanStep,
 	dismissAttention,
-	resolveHandoffDecision,
 	restoreAttention
 } from '$lib/model/attention';
 import { fetchAppRequests } from '$lib/model/app-requests';
@@ -100,89 +99,37 @@ export async function copyInboxLink(companyId: string, itemId: string) {
 	}
 }
 
-/* Marking a step done resumes the Work and skipping a request closes it, and neither can be
- * taken back once it lands; so each waits out an Undo window first, whichever way it was
- * pressed. */
-const UNDO_MS = 5000;
-const pending = new Set<string>();
-
-/** Run `commit` after a few seconds in which Undo takes it back. Resolves true once it is
- * recorded, false when undone, already pending, or refused (the refusal is said). */
-function afterUndo(
-	client: QueryClient,
-	companyId: string,
-	key: string,
-	message: string,
-	commit: () => Promise<unknown>
-): Promise<boolean> {
-	if (pending.has(key)) return Promise.resolve(false);
-	pending.add(key);
-	return new Promise((resolve) => {
-		const timer = setTimeout(async () => {
-			dismissToast(id);
-			try {
-				await commit();
-				resolve(true);
-			} catch (cause) {
-				toast(failureSentence(cause, 'That was not recorded.'), { tone: 'failure' });
-				resolve(false);
-			} finally {
-				pending.delete(key);
-				await refreshAttention(client, companyId);
-			}
-		}, UNDO_MS);
-		const id = toast(message, {
-			undo: () => {
-				clearTimeout(timer);
-				pending.delete(key);
-				resolve(false);
-			}
-		});
-	});
-}
-
-/** Mark a human step done, with a few seconds of Undo. */
+/** Mark a human step done after its durable Undo window. Returns once saved, not once applied. */
 export function markDoneSoon(
-	client: QueryClient,
-	companyId: string,
-	handoff: string
+    client: QueryClient,
+    companyId: string,
+    item: AttentionItem
 ): Promise<boolean> {
-	return afterUndo(
-		client,
-		companyId,
-		`${companyId} ${handoff}`,
-		'Marking done. The work resumes in a moment.',
-		() => completeHandoffHumanStep(companyId, handoff)
-	);
+    return saveHandoffDecision(client, companyId, item, { kind: 'complete_human_step' });
 }
 
-/* What a skipped request tells whoever owns the Work, in the owner's words. It closes the
- * request and wakes them; whether skipping changes the outcome is theirs to judge. */
-const SKIP_NOTE =
-	'Skipped: not needed. Carry on without it. Ask me only if skipping changes what you can deliver.';
-
-/** A request the company waits on (an answer or a human step) is skipped by closing it, which
- * whoever it is owed to may do; anything else is skipped by keeping it off the owner's Inbox. */
 export const skipsByHandoff = (item: AttentionItem) =>
-	item.source.kind === 'owner_handoff' &&
-	item.actions.some(
-		(action) => action.id === 'record-decision' || action.id === 'complete-human-step'
-	);
+    item.source.kind === 'owner_handoff' &&
+    item.actions.some(
+        (action) => action.id === 'record-decision' || action.id === 'complete-human-step'
+    );
 
-/** Skip a request the company is waiting on, with a few seconds of Undo. */
-export function skipHandoffSoon(
-	client: QueryClient,
-	companyId: string,
-	handoff: string,
-	who: string
+export function skipHandoffSoon(client: QueryClient, companyId: string, item: AttentionItem): Promise<boolean> {
+    return saveHandoffDecision(client, companyId, item, { kind: 'skip' });
+}
+
+async function saveHandoffDecision(
+    client: QueryClient,
+    companyId: string,
+    item: AttentionItem,
+    decision: HandoffDecision
 ): Promise<boolean> {
-	return afterUndo(
-		client,
-		companyId,
-		`${companyId} ${handoff}`,
-		`Skipped. ${who} carries on without it.`,
-		() => resolveHandoffDecision(companyId, handoff, SKIP_NOTE, true)
-	);
+    try {
+        return await queueHandoffDecision(client, companyId, item, decision);
+    } catch (cause) {
+        toast(failureSentence(cause, 'That was not recorded.'), { tone: 'failure' });
+        return false;
+    }
 }
 
 /** The handoffs that are app requests: adding the app resumes them, so they have no Mark done.

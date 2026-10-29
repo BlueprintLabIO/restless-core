@@ -141,7 +141,7 @@
 	const canSkip = (item: AttentionItem) => canSetAside || skipsByHandoff(item);
 	const skip = (item: AttentionItem) => {
 		const who = attentionAsker(item);
-		if (skipsByHandoff(item)) void skipHandoffSoon(client, companyId, item.source.reference, who);
+		if (skipsByHandoff(item)) void skipHandoffSoon(client, companyId, item);
 		else void setAsideInboxItem(client, companyId, item.id, who);
 	};
 	const canDiscuss = (item: AttentionItem) =>
@@ -212,9 +212,8 @@
 		const row = document.activeElement?.closest('[role="listitem"], li, a') ?? null;
 		const at = row?.getBoundingClientRect() ?? null;
 		try {
-			if (await markDoneSoon(client, companyId, item.source.reference)) {
+			if (await markDoneSoon(client, companyId, item)) {
 				celebrate(at);
-				toast('Marked done. The work resumes.');
 			}
 		} finally {
 			completing = '';
