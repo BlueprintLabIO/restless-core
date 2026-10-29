@@ -29,6 +29,8 @@ mod custom_harnesses;
 mod desktop_api;
 #[path = "owner_direction.rs"]
 mod direction_api;
+#[path = "owner_document_decisions.rs"]
+mod document_decisions_api;
 #[path = "owner_documents.rs"]
 mod documents_api;
 #[path = "owner_event_transport.rs"]
@@ -1973,6 +1975,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(agent_activity_live),
         )
         .merge(handoff_decisions_api::routes())
+        .merge(document_decisions_api::routes())
         .route(
             "/companies/{company}/handoffs/{handoff}/review",
             post(review_outcome),
@@ -2702,6 +2705,7 @@ fn membership_boundary_violation(
         // A person answers what is assigned to them; OrgIntel checks the assignment.
         || is_handoff_answer(method, path)
         || handoff_decisions_api::is_own_route(method,path)
+        || document_decisions_api::is_own_route(method,path)
         // Each person's Inbox: the handler projects only what is assigned to them. Exactly the
         // read: the owner's set-aside list and dismissals stay the owner's.
         || is_own_attention_read(method, path)
@@ -7317,7 +7321,7 @@ async fn attention_view(
                             .iter()
                             .filter(|decision| {
                                 decision.state == "pending"
-                                    && decision.principal == *principal.handoff_decision_principal()
+                                    && decision.principal == *principal.human_decision_principal()
                             })
                             .collect();
                         view.items.retain(|item| {
@@ -7342,11 +7346,32 @@ async fn attention_view(
                     }
                 }
             }
+            let mut pending_document_ids = Vec::new();
+            if let Some(org) = org.as_ref() {
+                match org.document_decisions_for_actor(principal.actor_id()).await {
+                    Ok(decisions) => {
+                        let pending: Vec<_> = decisions
+                            .iter()
+                            .filter(|decision| {
+                                decision.state == "pending"
+                                    && decision.principal == *principal.human_decision_principal()
+                            })
+                            .collect();
+                        view.items.retain(|item|{
+                            let hidden=item.native_document.as_ref().is_some_and(|request|pending.iter().any(|decision|request.document_id==decision.document_id&&request.id==decision.request_id&&request.kind==match decision.decision{restless_orgintel::DocumentDecision::AcceptReview{..}=>"review",restless_orgintel::DocumentDecision::CompleteCollaboration{..}=>"collaboration"}));
+                            if hidden{pending_document_ids.push(item.id.clone());}
+                            !hidden
+                        });
+                    }
+                    Err(error) => return documents_api::document_error(error),
+                }
+            }
             if !query.include_work_graph {
                 view.work_graph = None;
             }
             let mut output = serde_json::json!(view);
             output["pending_handoff_decisions"] = serde_json::json!(pending_ids);
+            output["pending_document_decisions"] = serde_json::json!(pending_document_ids);
             Json(output).into_response()
         }
         Err(error) => api_error(

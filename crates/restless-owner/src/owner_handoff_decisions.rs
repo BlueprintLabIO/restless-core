@@ -2,7 +2,7 @@
 //! worker call the same source-owned OrgIntel decision transaction.
 use super::*;
 use restless_orgintel::{
-    HandoffDecision, HandoffDecisionPrincipal, OwnerReviewVersion, PendingHandoffDecision,
+    HandoffDecision, HumanDecisionPrincipal, OwnerReviewVersion, PendingHandoffDecision,
 };
 
 pub(super) fn routes() -> Router<OwnerState> {
@@ -82,7 +82,7 @@ fn decision_error(error: restless_orgintel::OrgIntelError) -> Response<Body> {
     api_error(status, "handoff_decision", error.plain_message())
 }
 
-fn owner_access_current(state: &OwnerState, principal: &HandoffDecisionPrincipal) -> bool {
+pub(super) fn owner_access_current(state: &OwnerState, principal: &HumanDecisionPrincipal) -> bool {
     if principal.membership.is_some() {
         return principal.owner_account.is_none(); // OrgIntel locks and checks the exact membership tuple.
     }
@@ -129,7 +129,7 @@ async fn queue(
             "Open the current request before deciding.",
         );
     }
-    let identity = principal.handoff_decision_principal();
+    let identity = principal.human_decision_principal();
     if !owner_access_current(&state, identity) {
         return api_error(
             StatusCode::FORBIDDEN,
@@ -176,7 +176,7 @@ async fn list(
     };
     match org.handoff_decisions_for_actor(principal.actor_id()).await {
         Ok(items) => response(serde_json::json!({"items":items.iter()
-            .filter(|saved|saved.principal.same_person(principal.handoff_decision_principal()) && (saved.state!="pending" || saved.principal==*principal.handoff_decision_principal()))
+            .filter(|saved|saved.principal.same_person(principal.human_decision_principal()) && (saved.state!="pending" || saved.principal==*principal.human_decision_principal()))
             .map(summary).collect::<Vec<_>>()})),
         Err(error) => decision_error(error),
     }
@@ -187,7 +187,7 @@ async fn cancel(
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, id)): AxumPath<(String, Uuid)>,
 ) -> Response<Body> {
-    if !owner_access_current(&state, principal.handoff_decision_principal()) {
+    if !owner_access_current(&state, principal.human_decision_principal()) {
         return api_error(
             StatusCode::FORBIDDEN,
             "handoff_decision",
@@ -205,7 +205,7 @@ async fn cancel(
         }
     };
     match org
-        .cancel_handoff_decision(id, principal.handoff_decision_principal())
+        .cancel_handoff_decision(id, principal.human_decision_principal())
         .await
     {
         Ok(saved) => response(summary(&saved)),
@@ -232,6 +232,7 @@ pub(super) async fn run(state: OwnerState) -> std::io::Result<()> {
                 Ok(org) => org,
                 Err(_) => continue,
             };
+            super::document_decisions_api::apply_due(&state, &org).await;
             let due = match org.due_handoff_decisions().await {
                 Ok(due) => due,
                 Err(error) => {
@@ -271,7 +272,7 @@ async fn acknowledge(
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, id)): AxumPath<(String, Uuid)>,
 ) -> Response<Body> {
-    if !owner_access_current(&state, principal.handoff_decision_principal()) {
+    if !owner_access_current(&state, principal.human_decision_principal()) {
         return api_error(
             StatusCode::FORBIDDEN,
             "handoff_decision",
@@ -289,7 +290,7 @@ async fn acknowledge(
         }
     };
     match org
-        .acknowledge_handoff_decision(id, principal.handoff_decision_principal())
+        .acknowledge_handoff_decision(id, principal.human_decision_principal())
         .await
     {
         Ok(()) => response(serde_json::json!({"seen":true})),
