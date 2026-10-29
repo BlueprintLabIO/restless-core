@@ -1,4 +1,4 @@
-# Metered Claude cache retirement — verified locally, release pending
+# Metered Claude cache retirement — deployed and verified
 
 Sprint 109 A0.4: avoid paying to replay large cold history. Runtime owns this change; no new
 scheduler, model wake, usage meter or background cache-warmer is introduced.
@@ -58,8 +58,32 @@ populated. The final predicate uses the authenticated billing/model contract; th
 dual-provider condition still controls the actual Messages routing. That failed log is retained
 at `/tmp/s109-cache-policy-test.log`; successful results are `/tmp/s109-cache-policy-test2.log`,
 `/tmp/s109-cache-acp-tests.log`, `/tmp/s109-cache-model-tests.log` and
-`/tmp/s109-cache-wire-test.log`.
+`/tmp/s109-cache-wire-final.log`.
 
-The prompt-marker clarification from PR 516 is also pending this release batch. Whole-task
-provider cost/quality, no-change wakes, longer histories/media and the remaining A0/Sprint 109
-requirements are still open. No paid hosting change is authorised or needed for this fix.
+## Production release
+
+Core `0e3c44c17bfee3a401d9ad0de7aa395a5800c872` is live through Cloud release
+`cloud-3488969efb35b46ac458d54118076ff38d657bf0`, retaining qualified Cloud source
+`7602eba31c824a9a0e3801fad2bf2ab50e673a3d`. This also deploys PR 516's explicit hidden
+intent-marker instruction and its measured short reply contract. At 21:00:56 UTC on 29 October
+(30 October Sydney), desired/applied revisions were `125/125`, healthy, with a fresh heartbeat
+and no error. Public site, provider, relay and one-address checks passed.
+
+Full Core qualification passed; Connections passed 23 checks with no failures and the separate
+skills smoke skipped. The first registry transfer failed on a network request after signing.
+The unchanged official transfer/verification tail resumed from the signed handoff, without a
+second build. Public signatures verified, and all four image manifests were inspected before
+deployment. Direct read-only server inspection confirmed the running account-plane and cockpit
+image digests match this exact signed assembly. Temporary operator SSH access was removed.
+
+The existing 8 GB/four-CPU plan is unchanged. The workload pool remains capped at
+5,974,450,176 bytes, three CPU cores and zero workload swap. Its OOM/max counters were zero.
+All six active company workloads in the snapshot were protected Documents services with their
+duplicate Docker health checks disabled; their individual OOM counters were zero. Host available
+memory was 5,340,143,616 bytes (about 5 GiB); a short sample observed zero swap in/out. This is
+a point-in-time operational observation, not a matched workload efficiency benchmark.
+
+Authenticated production Reno browser testing remains unavailable; no session was bypassed.
+Whole-task provider cost/quality, scheduler-enabled no-change wakes, longer histories/media,
+editable compute caps and the remaining A0/Sprint 109 requirements stay open. No production
+cache-hit or dollar saving is inferred from the local wire test or this deployment.
