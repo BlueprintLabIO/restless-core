@@ -47,6 +47,11 @@ explicit compute and AI efficiency acceptance. The other sprint requirements rem
   policy, gateway and actual OMP wire checks pass; Core `0e3c44c1` is deployed with healthy
   desired/applied revision `125/125`, verified on 30 October Sydney time. Native/subscription
   routes retain their existing window. This is a bounded A0.4 fix, not full A0 completion.
+
+  [Normal-scheduler idle verification](evidence/sprint-109-resources/README.md#normal-scheduler-idle-verification)
+  now proves zero model calls over 330 seconds in two connected, always-on synthetic companies,
+  with successful owner replies before and after. The verifier joins the source-fingerprinted
+  local release checks; the full resource gate and active-work scenarios remain open.
 - [ ] **A0.5 Resources UI (H1, first batch).** Show actual CPU/RAM/storage against limits, host
   headroom and what is using resources, plus AI token/cache/cost usage and budgets. Include clear
   controls for supported caps, history and reasons work is waiting. Distinguish company usage,

@@ -25,6 +25,43 @@ asserts Chrome stops despite health probes, and checks no model requests occur
 while idle. A synthetic request to the loopback mock first proves request
 logging works. Both the one-browser and all-browser variants passed.
 
+## Normal-scheduler idle verification
+
+On 30 October Sydney time, two fresh synthetic companies each answered an owner message through
+the actual Runtime, managed OMP client, gateway and loopback scripted provider. The automatic
+scheduler was enabled. The Runtime sleep policy was explicitly always-on, and no Work or
+schedules were due. After both turns settled, the verifier observed 330 seconds of quiet,
+longer than the source's 300-second repair interval: **zero model calls**. Each company then
+answered another owner message. The provider recorded four control calls before the window
+and four afterwards; those calls are outside the idle count.
+
+[`scheduler-idle.json`](scheduler-idle.json) retains the exact binary/image hashes, source revision,
+timestamps, samples and cleanup result. This is a local protocol/lifecycle check using synthetic
+credentials, not production cost/quality evidence. It does not cover populated schedules,
+pending external work, restart or upgrade. Earlier browser-idle probes did not establish the
+normal-scheduler guarantee; this check is separate from their Chrome lifecycle assertions.
+
+Reproduce after building `restlessd` with `scripts/restless-cargo`:
+
+```sh
+python3 scripts/verify-ai-idle.py --image <installed-company-image> --output /tmp/ai-idle-evidence
+```
+
+`RESTLESSD_BIN` selects an explicitly built daemon; otherwise the checkout's `target/debug/restlessd`
+is used. The existing local Connections qualification now runs this verifier on its freshly built
+daemon and company image before writing its success cache. A verifier failure therefore prevents
+publication. Identical source inputs keep the existing fast lane; documentation-only releases do
+not repeat this observation. The complete release wrapper has not been rerun for this test-only
+change; its next qualifying release will exercise the hook. The standalone end-to-end probe passed.
+
+The test owns a private home, database, profiles and two `_test` companies, and removes them in
+`finally`. Both readiness and post-idle controls are required, so a disconnected gateway cannot
+pass as quiet operation. Initial fixture diagnostics caught a gateway reload race and an invalid
+assumption that a local unconfigured pool exposed compute turn counts. Stable route readiness and
+the existing People activity projection now gate the observation. All diagnostic fixture cleanups
+completed; the two profiles created before home isolation were removed separately, preserving
+pre-existing profiles. No real provider request was made.
+
 ## Owner path and AI session checks
 
 The live Runtime probe `cold_browser_opens_for_owner_and_survives_broker_restart`
