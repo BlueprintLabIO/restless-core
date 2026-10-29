@@ -41,6 +41,11 @@ explicit compute and AI efficiency acceptance. The other sprint requirements rem
   media. Choose a sufficient admitted model for the task and preserve measured outcome quality.
   Enforce company AI budgets before chargeable work, reconcile real usage afterwards, and keep
   the app responsive when a cap is reached. A quiet company with no due work makes zero model calls.
+
+  [Metered Claude cache retirement](sprint-109/cache-retirement.md) now uses the configured short
+  cache window for large cold history, including persisted session reuse after restart. Local
+  policy, gateway and actual OMP wire checks pass; its signed release is pending. Native/subscription
+  routes retain their existing window. This is a bounded A0.4 fix, not full A0 completion.
 - [ ] **A0.5 Resources UI (H1, first batch).** Show actual CPU/RAM/storage against limits, host
   headroom and what is using resources, plus AI token/cache/cost usage and budgets. Include clear
   controls for supported caps, history and reasons work is waiting. Distinguish company usage,

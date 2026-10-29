@@ -518,7 +518,13 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
                 )
                 .await?;
         } else if let Some(usage) = ended_context {
-            acp::note_session_settled(&run.company, &run.actor, &run.responsibility, usage.used);
+            acp::note_session_settled(
+                &run.company,
+                &run.actor,
+                &run.responsibility,
+                usage.used,
+                acp::prompt_cache_ttl(run.worker_harness, model, auth.billing),
+            );
         }
 
         if let Some(kind) = failure_kind.filter(|kind| health::is_provider_failover_kind(*kind)) {

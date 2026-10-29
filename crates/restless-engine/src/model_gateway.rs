@@ -4092,6 +4092,12 @@ pub async fn import_codex_oauth(
     Ok(())
 }
 
+/// Whether this actor uses a metered Claude key. Both the direct Messages
+/// route and the broker's API-key transport use OMP's explicit short cache.
+pub(crate) fn is_metered_anthropic(model: &str, billing: ModelBilling) -> bool {
+    model.starts_with("anthropic/") && billing == ModelBilling::MeteredApi
+}
+
 pub fn models_config(
     model: &str,
     runtime_url: &str,
@@ -4119,8 +4125,7 @@ pub fn models_config(
     if !recognised_runtime_relay || token_env != MODEL_CAPABILITY_ENV {
         bail!("refusing an unrecognised model gateway route");
     }
-    if provider == "anthropic" && billing == ModelBilling::MeteredApi && is_dual_provider(provider)
-    {
+    if is_metered_anthropic(model, billing) && is_dual_provider(provider) {
         // The broker's Anthropic credential is the account sign-in, so this per-token company
         // goes to the relay's Messages route, which sends its own API key to Anthropic.
         let id = serde_json::to_string(&runtime_model_id(model_id))?;

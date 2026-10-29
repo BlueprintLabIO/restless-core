@@ -660,7 +660,13 @@ pub async fn wake(
             )
             .await?;
         } else if let Some(usage) = usage {
-            acp::note_session_settled(&config.name, "exec", &responsibility, usage.used);
+            acp::note_session_settled(
+                &config.name,
+                "exec",
+                &responsibility,
+                usage.used,
+                acp::prompt_cache_ttl(harness, model, auth.billing),
+            );
         }
         if let Some(kind) = failover_kind {
             crate::model_gateway::record_cooldown(
