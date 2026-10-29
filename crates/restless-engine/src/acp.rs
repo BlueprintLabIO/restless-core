@@ -131,11 +131,14 @@ struct ContextObservation {
 }
 
 impl ContextObservation {
-    fn requires_fresh_session_at(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+    fn requires_fresh_session_at(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+        cache_ttl: std::time::Duration,
+    ) -> bool {
         self.used > LEAN_SESSION_TOKENS
             || (self.used > COLD_SESSION_TOKENS
-                && now.signed_duration_since(self.at).num_seconds()
-                    >= PROMPT_CACHE_TTL.as_secs() as i64)
+                && now.signed_duration_since(self.at).num_seconds() >= cache_ttl.as_secs() as i64)
     }
 }
 
@@ -191,6 +194,7 @@ fn session_locator_is_reusable(
     model: &str,
     effort: &str,
     load_session_available: bool,
+    cache_ttl: std::time::Duration,
 ) -> bool {
     locator.harness == profile.harness
         && locator.harness_build == profile.build()
@@ -201,7 +205,9 @@ fn session_locator_is_reusable(
         && !locator
             .context_observation
             .as_ref()
-            .is_some_and(|observed| observed.requires_fresh_session_at(chrono::Utc::now()))
+            .is_some_and(|observed| {
+                observed.requires_fresh_session_at(chrono::Utc::now(), cache_ttl)
+            })
         && profile.harness != crate::runtime::AgentHarness::CustomAcp
 }
 
@@ -821,7 +827,8 @@ pub async fn prepare_agent_runtime(
             &config,
         )
         .await?;
-        write_private_container_file(container, OMP_RUNTIME_CONFIG, RESTLESS_OMP_CONFIG).await?;
+        let runtime_config = omp_runtime_config(&auth.model, auth.billing);
+        write_private_container_file(container, OMP_RUNTIME_CONFIG, &runtime_config).await?;
     } else {
         let model = profile.session_model(&auth.model)?;
         let settings = claude_agent_settings(&model)?;
@@ -882,34 +889,64 @@ impl TurnUsage {
     }
 }
 
-/// Idle time after which a provider's prompt cache for a session is assumed
-/// gone. Resuming then re-bills the whole history uncached, while a fresh
-/// session pays only the stable prompt plus the bounded snapshot. Retiring a
-/// session whose cache is still warm costs more than it saves (cached history
-/// is ~10% of the price), so this sits at the long end of provider TTLs.
+/// Conservative fallback idle window for transports whose retention is not
+/// configured here. A known metered Claude route uses its short window below.
+/// Retiring warm history can increase cost; an unknown transport must not
+/// inherit another provider's shorter cache policy.
 pub const PROMPT_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// A known metered Messages route uses five-minute writes. Keep the existing
+/// conservative window for transports whose cache retention is not owned here.
+pub(crate) fn prompt_cache_ttl(
+    harness: crate::runtime::AgentHarness,
+    model: &str,
+    billing: crate::model_gateway::ModelBilling,
+) -> std::time::Duration {
+    if harness == crate::runtime::AgentHarness::RestlessManaged
+        && crate::model_gateway::is_metered_anthropic(model, billing)
+    {
+        std::time::Duration::from_secs(5 * 60)
+    } else {
+        PROMPT_CACHE_TTL
+    }
+}
+
+fn omp_runtime_config(model: &str, billing: crate::model_gateway::ModelBilling) -> String {
+    if crate::model_gateway::is_metered_anthropic(model, billing) {
+        format!("{RESTLESS_OMP_CONFIG}\nproviders:\n  cacheRetention: short\n")
+    } else {
+        RESTLESS_OMP_CONFIG.to_string()
+    }
+}
 
 /// Below this size a cold resume costs about what a fresh start does.
 pub const COLD_SESSION_TOKENS: u64 = 32_000;
 
 type SettledKey = (String, String, String);
 static SETTLED_SESSIONS: std::sync::OnceLock<
-    Mutex<std::collections::HashMap<SettledKey, (std::time::Instant, u64)>>,
+    Mutex<std::collections::HashMap<SettledKey, (std::time::Instant, u64, std::time::Duration)>>,
 > = std::sync::OnceLock::new();
 
-fn settled_sessions(
-) -> &'static Mutex<std::collections::HashMap<SettledKey, (std::time::Instant, u64)>> {
+fn settled_sessions() -> &'static Mutex<
+    std::collections::HashMap<SettledKey, (std::time::Instant, u64, std::time::Duration)>,
+> {
     SETTLED_SESSIONS.get_or_init(Default::default)
 }
 
 /// Record that a responsibility's hot session ended a turn at this size. The
 /// record is a fast path between wakes. The session locator also persists the
 /// last provider observation, so a daemon restart does not bypass retirement.
-pub fn note_session_settled(company: &str, actor: &str, responsibility: &str, used: u64) {
+pub fn note_session_settled(
+    company: &str,
+    actor: &str,
+    responsibility: &str,
+    used: u64,
+    cache_ttl: std::time::Duration,
+) {
     if let Ok(mut settled) = settled_sessions().lock() {
         settled.insert(
             (company.into(), actor.into(), responsibility.into()),
-            (std::time::Instant::now(), used),
+            (std::time::Instant::now(), used, cache_ttl),
         );
     }
 }
@@ -932,8 +969,8 @@ fn cold_session_at(
         actor.to_string(),
         responsibility.to_string(),
     );
-    let &(at, used) = settled.get(&key)?;
-    if now.saturating_duration_since(at) < PROMPT_CACHE_TTL || used <= COLD_SESSION_TOKENS {
+    let &(at, used, cache_ttl) = settled.get(&key)?;
+    if now.saturating_duration_since(at) < cache_ttl || used <= COLD_SESSION_TOKENS {
         return None;
     }
     settled.remove(&key);
@@ -2113,6 +2150,7 @@ where
                                 &launch_auth.model,
                                 &launch_auth.effort,
                                 initialized.agent_capabilities.load_session,
+                                prompt_cache_ttl(launch_profile.harness, &launch_auth.model, launch_auth.billing),
                             ) =>
                         {
                             let prior_id: SessionId = prior.session_id.clone().into();
@@ -2156,7 +2194,7 @@ where
                         }
                         Some(prior) => {
                             let reason = if prior.context_observation.as_ref().is_some_and(|observed| {
-                                observed.requires_fresh_session_at(chrono::Utc::now())
+                                observed.requires_fresh_session_at(chrono::Utc::now(), prompt_cache_ttl(launch_profile.harness, &launch_auth.model, launch_auth.billing))
                             }) {
                                 "Provider history exceeded the lean limit or its prompt cache expired".to_string()
                             } else if prior.cwd != workdir {
@@ -2782,22 +2820,154 @@ mod tests {
     };
 
     #[test]
+    fn metered_messages_cache_expires_without_retiring_warm_or_subscription_history() {
+        use crate::model_gateway::ModelBilling;
+        use crate::runtime::AgentHarness;
+        let metered = super::prompt_cache_ttl(
+            AgentHarness::RestlessManaged,
+            "anthropic/claude-opus-5-5",
+            ModelBilling::MeteredApi,
+        );
+        assert_eq!(metered, std::time::Duration::from_secs(300));
+        for (harness, model, billing) in [
+            (
+                AgentHarness::RestlessManaged,
+                "anthropic/claude-opus-5-5",
+                ModelBilling::Subscription,
+            ),
+            (
+                AgentHarness::RestlessManaged,
+                "litellm/claude-opus-5-5",
+                ModelBilling::MeteredApi,
+            ),
+            (
+                AgentHarness::ClaudeAgent,
+                "anthropic/claude-opus-5-5",
+                ModelBilling::MeteredApi,
+            ),
+            (
+                AgentHarness::Codex,
+                "openai/gpt-5.6-sol",
+                ModelBilling::MeteredApi,
+            ),
+        ] {
+            assert_eq!(
+                super::prompt_cache_ttl(harness, model, billing),
+                super::PROMPT_CACHE_TTL
+            );
+        }
+        let now = chrono::Utc::now();
+        let observed = super::ContextObservation {
+            used: 40_000,
+            at: now,
+        };
+        let restored: super::ContextObservation =
+            serde_json::from_slice(&serde_json::to_vec(&observed).unwrap()).unwrap();
+        let before = now + chrono::Duration::seconds(299);
+        let expired = now + chrono::Duration::seconds(300);
+        assert!(!restored.requires_fresh_session_at(before, metered));
+        assert!(restored.requires_fresh_session_at(expired, metered));
+        assert!(!restored.requires_fresh_session_at(expired, super::PROMPT_CACHE_TTL));
+        assert!(!super::ContextObservation {
+            used: super::COLD_SESSION_TOKENS,
+            at: now
+        }
+        .requires_fresh_session_at(expired, metered));
+
+        let clock = std::time::Instant::now();
+        super::note_session_settled("cache_ttl_test", "exec", "metered", 40_000, metered);
+        super::note_session_settled(
+            "cache_ttl_test",
+            "exec",
+            "subscription",
+            40_000,
+            super::PROMPT_CACHE_TTL,
+        );
+        assert_eq!(
+            super::cold_session_at("cache_ttl_test", "exec", "metered", clock),
+            None
+        );
+        assert_eq!(
+            super::cold_session_at(
+                "cache_ttl_test",
+                "exec",
+                "metered",
+                clock + metered + std::time::Duration::from_secs(1)
+            ),
+            Some(40_000)
+        );
+        assert_eq!(
+            super::cold_session_at(
+                "cache_ttl_test",
+                "exec",
+                "subscription",
+                clock + metered + std::time::Duration::from_secs(1)
+            ),
+            None
+        );
+    }
+
+    #[test]
+    #[ignore = "requires the pinned host OMP install and Node; uses only a local scripted provider"]
+    fn live_metered_cache_overlay_sends_five_minute_cache_controls() {
+        use crate::model_gateway::ModelBilling;
+        use std::io::Write;
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut child = std::process::Command::new("node")
+            .arg(root.join("infra/host-tools/tests/cache-retention.mjs"))
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let configs = serde_json::json!({
+            "metered": super::omp_runtime_config("anthropic/claude-opus-5-5", ModelBilling::MeteredApi),
+            "subscription": super::omp_runtime_config("anthropic/claude-opus-5-5", ModelBilling::Subscription),
+        });
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(serde_json::to_string(&configs).unwrap().as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        println!("{}", String::from_utf8_lossy(&output.stdout));
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
     fn only_a_large_session_past_the_cache_ttl_is_retired_cold() {
         // Retiring a warm session re-bills its prompt uncached, so warm or
         // small sessions must keep resuming.
         let now = std::time::Instant::now();
         let later = now + super::PROMPT_CACHE_TTL + std::time::Duration::from_secs(1);
-        super::note_session_settled("cold_test", "exec", "warm", 90_000);
+        super::note_session_settled("cold_test", "exec", "warm", 90_000, super::PROMPT_CACHE_TTL);
         assert_eq!(
             super::cold_session_at("cold_test", "exec", "warm", now),
             None
         );
-        super::note_session_settled("cold_test", "exec", "small", super::COLD_SESSION_TOKENS);
+        super::note_session_settled(
+            "cold_test",
+            "exec",
+            "small",
+            super::COLD_SESSION_TOKENS,
+            super::PROMPT_CACHE_TTL,
+        );
         assert_eq!(
             super::cold_session_at("cold_test", "exec", "small", later),
             None
         );
-        super::note_session_settled("cold_test", "exec", "large", 40_000);
+        super::note_session_settled(
+            "cold_test",
+            "exec",
+            "large",
+            40_000,
+            super::PROMPT_CACHE_TTL,
+        );
         assert_eq!(
             super::cold_session_at("cold_test", "exec", "large", later),
             Some(40_000)
@@ -2817,20 +2987,23 @@ mod tests {
         };
         let saved = serde_json::to_vec(&observed).unwrap();
         let restored: super::ContextObservation = serde_json::from_slice(&saved).unwrap();
-        assert!(!restored.requires_fresh_session_at(now));
-        assert!(!restored.requires_fresh_session_at(now - chrono::Duration::seconds(1)));
+        assert!(!restored.requires_fresh_session_at(now, super::PROMPT_CACHE_TTL));
+        assert!(!restored.requires_fresh_session_at(
+            now - chrono::Duration::seconds(1),
+            super::PROMPT_CACHE_TTL
+        ));
         let expired = now + chrono::Duration::seconds(super::PROMPT_CACHE_TTL.as_secs() as i64);
-        assert!(restored.requires_fresh_session_at(expired));
+        assert!(restored.requires_fresh_session_at(expired, super::PROMPT_CACHE_TTL));
         assert!(!super::ContextObservation {
             used: super::COLD_SESSION_TOKENS,
             at: now
         }
-        .requires_fresh_session_at(expired));
+        .requires_fresh_session_at(expired, super::PROMPT_CACHE_TTL));
         assert!(super::ContextObservation {
             used: super::LEAN_SESSION_TOKENS + 1,
             at: now
         }
-        .requires_fresh_session_at(now));
+        .requires_fresh_session_at(now, super::PROMPT_CACHE_TTL));
     }
 
     #[test]
@@ -2873,6 +3046,7 @@ mod tests {
             "zai/glm-5.3",
             DEFAULT_REASONING_EFFORT,
             true,
+            super::PROMPT_CACHE_TTL,
         ));
         assert!(
             !session_locator_is_reusable(
@@ -2882,6 +3056,7 @@ mod tests {
                 "zai/glm-5.3",
                 DEFAULT_REASONING_EFFORT,
                 true,
+                super::PROMPT_CACHE_TTL,
             ),
             "a new revision worktree reconstructs rather than crashing or loading stale context"
         );
@@ -2908,7 +3083,29 @@ mod tests {
             &locator.model,
             &locator.effort,
             true,
+            super::PROMPT_CACHE_TTL,
         ));
+        // The persisted locator, not just the in-memory settled-session map,
+        // applies the metered route's window after a daemon restart.
+        let mut metered = restored.clone();
+        metered.model = "anthropic/claude-opus-5-5".into();
+        metered.context_observation.as_mut().unwrap().at =
+            chrono::Utc::now() - chrono::Duration::minutes(6);
+        let metered: SessionLocator =
+            serde_json::from_slice(&serde_json::to_vec(&metered).unwrap()).unwrap();
+        let reusable = |billing| {
+            session_locator_is_reusable(
+                &metered,
+                profile,
+                &metered.cwd,
+                &metered.model,
+                &metered.effort,
+                true,
+                super::prompt_cache_ttl(profile.harness, &metered.model, billing),
+            )
+        };
+        assert!(!reusable(crate::model_gateway::ModelBilling::MeteredApi));
+        assert!(reusable(crate::model_gateway::ModelBilling::Subscription));
         let older_build = SessionLocator {
             harness_build: "omp-0.0.1".into(),
             ..locator.clone()
@@ -2929,6 +3126,7 @@ mod tests {
                 "zai/glm-5.3",
                 DEFAULT_REASONING_EFFORT,
                 true,
+                super::PROMPT_CACHE_TTL,
             ),
             "a session from an older harness build starts fresh"
         );
@@ -3382,6 +3580,7 @@ mod tests {
             "anthropic/claude-sonnet-4-6",
             "high",
             true,
+            super::PROMPT_CACHE_TTL,
         ));
     }
 
