@@ -392,6 +392,11 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
 }
 
 async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
+    let memory_wait = match runtime::shared_workload_admission() {
+        Ok(Some(admission)) => admission.waiting_for_memory,
+        Ok(None) => false,
+        Err(_) => true,
+    };
     let now = chrono::Utc::now();
     let mut earliest = None;
     for company in configured_companies(daemon).unwrap_or_default() {
@@ -415,6 +420,16 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
         // A sleeping computer is woken by the same due facts that a running
         // one would act on; a stopped one is not timed at all.
         let runtime_sleeping = !runtime_running && runtime::is_sleeping(&company);
+        if runtime_running && org.has_ready_work().await.unwrap_or(false) {
+            let company_wait = match runtime::workload_admission(&company).await {
+                Ok(Some(admission)) => admission.waiting_for_memory,
+                Ok(None) => false,
+                Err(_) => true,
+            };
+            if memory_wait || company_wait {
+                return OVERDUE_RETRY_INTERVAL;
+            }
+        }
         let schedule_due = if runtime_running || runtime_sleeping {
             org.next_schedule_due_at().await
         } else {
@@ -736,7 +751,22 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         }
     }
 
+    // Leave Work ready in OrgIntel while the shared pool is under pressure.
+    // No Attempt, model invocation or failure is created merely to wait.
+    // Missing configured counters also defer new Work; owner conversation and
+    // recovery above remain available to diagnose or release capacity.
     while daemon.staff.has_capacity(company) && daemon.staff.has_work_capacity(company) {
+        if !org.has_ready_work().await.unwrap_or(false) {
+            break;
+        }
+        match runtime::workload_admission(company).await {
+            Ok(Some(admission)) if admission.waiting_for_memory => break,
+            Err(error) => {
+                tracing::warn!(company, "new Work waits for a resource reading: {error:#}");
+                break;
+            }
+            _ => {}
+        }
         // Conversation turns and Work Attempts share one supervised actor.
         // Exclude the registry snapshot before the database claim so a busy
         // actor's ready node stays untouched rather than being claimed and

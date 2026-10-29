@@ -371,6 +371,12 @@ export interface ComputeReading {
 		work: ComputeSample | null;
 		computer: ComputeSample | null;
 		placement_current: boolean;
+		work_admission: {
+			scope: 'shared' | 'company';
+			waiting_for_memory: boolean;
+			working_set_bytes: number;
+			resume_below_bytes: number;
+		};
 	};
 }
 export async function getCompanyCompute(

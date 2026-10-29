@@ -3545,7 +3545,16 @@ async fn project_queue(
         (priority, Reverse(item.created_at))
     });
 
-    let health = runtime::cockpit_browser_health(&config.name).await.ok();
+    // Owner decisions live outside the company computer. A slow browser probe
+    // must not hold the whole Inbox (and every navigation badge) behind it.
+    // Unknown health preserves the source facts without inventing a failure.
+    let health = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        runtime::cockpit_browser_health(&config.name),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok);
     let (runtime_health, browser_health) = match health.as_ref() {
         Some((ContainerStatus::Running, browser)) => (
             "available".to_string(),

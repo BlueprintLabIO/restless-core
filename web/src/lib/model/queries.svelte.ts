@@ -248,6 +248,9 @@ export function attentionQuery(
 	const query = createQuery(() => ({
 		queryKey: queryKeys.attention(currentCompany()),
 		queryFn: ({ queryKey, signal }) => getAttention(queryKey[1], signal),
+		// The ordinary refresh and manual retry already repair this read.
+		// Repeating a stalled first read hides every surface for several deadlines.
+		retry: false,
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,

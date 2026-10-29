@@ -457,3 +457,17 @@ This is a verified first slice, not A0 completion or a production savings claim.
 Shared host capacity, reserve and queueing, the Resources controls/history UI,
 and measured AI useful-outcome/token efficiency remain open. No paid resize was
 approved or applied.
+
+
+### Capacity admission follow-up, 30 October — not yet deployed
+
+The owner chose to keep the current plan and reduce resource use. Shared-pool Work admission
+and degraded-runtime entry are being implemented in
+[capacity-admission.md](sprint-109/capacity-admission.md). New diagnostics defer under pressure,
+individual Runtime headroom is checked, and cold Resources entry now passes at desktop/phone.
+Two strict release/resume tests produced useful attached artifacts without child OOM kills or
+new model requests while waiting. A pending-Work restart exposed extra startup cleanup processes;
+the recovery barrier now waits for headroom. The rebuilt role/coediting journey, real-scale Resources
+captures and motion comparison pass. Two conversations still stalled the deliberately small 768 MiB
+stress Runtime; wider actor-start/concurrency control remains open. Release qualification and
+deployment remain open. This is not A0 completion or a new production release.

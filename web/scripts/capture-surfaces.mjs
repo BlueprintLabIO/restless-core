@@ -139,8 +139,14 @@ try {
 			page.on('pageerror', (e) => recordError(e.message));
 			page.on('console', (m) => m.type() === 'error' && recordError(m.text(), m.location().url));
 			await page
-				.goto(origin + path, { waitUntil: 'networkidle' })
+				.goto(origin + path, { waitUntil: 'domcontentloaded' })
 				.catch((e) => errors.push(String(e)));
+			// Background recovery reads can remain in flight on a usable page.
+			// Observe the actual reveal; a loading screen is never a passing capture.
+			await page
+				.locator('.boot')
+				.waitFor({ state: 'hidden', timeout: 20_000 })
+				.catch(() => errors.push('Workspace did not reveal its content or recovery state'));
 			await page.waitForTimeout(700);
 			if (name === 'not-found') {
 				await page

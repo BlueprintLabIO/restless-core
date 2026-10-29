@@ -118,6 +118,20 @@
 		><span class="numbers">{usage(sample?.computer)}</span></Row
 	>
 	<Row
+		label="New Work"
+		info="New Work waits in its existing queue when this company or the shared pool needs memory headroom. It resumes automatically after memory is released. Reclaimable file cache does not keep Work waiting; running work and owner conversations continue."
+	>
+		<span
+			>{sample?.work_admission
+				? sample.work_admission.waiting_for_memory
+					? sample.work_admission.scope === 'company'
+						? 'Company RAM busy'
+						: 'Waiting for memory'
+					: 'Memory available'
+				: 'No reading'}</span
+		>
+	</Row>
+	<Row
 		label="Reserved for the app"
 		info="RAM kept outside the company work pool for the app, database and operating system. Capacity changes are managed on the host."
 		>{bytes(reserved)}</Row

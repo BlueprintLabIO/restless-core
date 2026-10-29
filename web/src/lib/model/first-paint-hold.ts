@@ -31,6 +31,9 @@ export function holdsReveal(read: CachedRead, companyId: string): boolean {
 	const key = String(read.queryKey[0]);
 	if (!CRITICAL.has(key)) return false;
 	if (!['companies', 'appliance'].includes(key) && read.queryKey[1] !== companyId) return false;
+	// A failed read has a recovery state to show. A retry of its persisted
+	// placeholder must not hide the whole app again while the source is down.
+	if (read.state.status === 'error') return false;
 	if (read.state.fetchStatus !== 'fetching') return false;
 	return (read.state.data === undefined && read.state.status === 'pending') || placeholder(read);
 }

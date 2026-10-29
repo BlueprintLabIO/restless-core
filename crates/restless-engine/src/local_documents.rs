@@ -222,6 +222,9 @@ pub async fn ensure(root: &Path, company: &str, org: &OrgIntel, issuer: &str) ->
             let matches = workload_parent.as_ref().is_none_or(|parent| {
                 container["HostConfig"]["CgroupParent"].as_str() == Some(parent.as_str())
             }) && container["Image"].as_str() == Some(image_id.as_str())
+                && container["Config"]["Healthcheck"]["Test"]
+                    .as_array()
+                    .is_some_and(|test| test.len() == 1 && test[0].as_str() == Some("NONE"))
                 && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_TOKEN_ISSUER") == Some(issuer)
                 && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_JWKS_URL")
                     == Some(jwks_url.as_str())
@@ -256,6 +259,10 @@ pub async fn ensure(root: &Path, company: &str, org: &OrgIntel, issuer: &str) ->
                 name.clone(),
                 "--restart".into(),
                 "unless-stopped".into(),
+                // Core probes readiness through HTTP below. An in-container
+                // Docker health check forks another OCI process on every tick
+                // even when the shared pool is under memory pressure.
+                "--no-healthcheck".into(),
                 "--network".into(),
                 "host".into(),
                 "--cpus".into(),
