@@ -171,7 +171,10 @@ async fn queue(
         )
         .await
     {
-        Ok(saved) => response(summary(&saved)),
+        Ok(saved) => {
+            state.decision_wake.notify_one();
+            response(summary(&saved))
+        }
         Err(cause) => error(cause),
     }
 }
