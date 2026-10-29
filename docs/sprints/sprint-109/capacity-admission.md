@@ -3,7 +3,8 @@
 Owner priority: keep the current paid plan and reduce compute and AI use.
 Layers: Runtime capacity observations, the existing OrgIntel Work scheduler, owner projections.
 
-This is not a completed ticket or a deployed batch. Sprint 109 and all A0 acceptance remain open.
+The capacity/diagnostic batch is deployed; see the production record below. Sprint 109 and full
+A0 acceptance remain open.
 
 ## Current implementation
 
@@ -147,7 +148,7 @@ and computer ceilings, a scripted Anthropic protocol server and the real daemon/
 - [x] Child OOM/process census; finite transient full-stack process and failed comparison retained.
 - [x] Cold/warm desktop/phone entry, state recovery, real-scale data, access roles and motion.
 - [x] Canonical fixture destruction and exact owned-resource cleanup.
-- [ ] Qualify a clean main commit, deploy signed Core/Cloud batch and verify production health.
+- [x] Qualify a clean main commit, deploy signed Core/Cloud batch and verify production health.
 - [x] CPU/start concurrency across Exec, teammate conversations and Work; see follow-up below.
 - [ ] Jobs/tools, editable per-company ceilings,
   histories/catalogue, wider idle reductions and matched AI cost/quality requirements remain open.
@@ -180,7 +181,8 @@ browser-probe bound was added. That is compilation/type evidence, not a passing 
 
 PR 513 was merged, but its release was held before publication when inspection found the
 100-actor logical limit did not bound conversation starts against the host's CPU and RAM.
-Production is still on c409988e; none of the evidence below is a production deployment claim.
+At that local verification stage production was still on c409988e; the following test evidence
+is local. The subsequent production deployment is recorded separately below.
 
 All local Exec, teammate and Work turns now reserve capacity before claiming durable input or
 making a model call. Limits derive from the individual Runtime and shared pool CPU/memory
@@ -233,3 +235,42 @@ destruction and exact ownership checks removed the fixture Runtime/computer/Docu
 four infrastructure containers, three infrastructure volumes and its network. The profile,
 model profiles, temporary unit/drop-ins and private database URL were removed; its mock,
 daemon and frontend were stopped. The browser tab was closed and viewport reset.
+
+## Production deployment, 30 October Sydney time
+
+- PR 514 merged as Core ed5669582e50907e9b7b40d35202c0339c5a35f5. Qualification on
+  that exact main commit passed. Connections smoke: 23 passed, zero failed; the separately
+  invoked skills smoke was skipped. Cloud 7602eba qualified with no source changes.
+- Signed Core bundle:
+  registry.restless.run/blueprintlabio/restless-core-release@sha256:901ac2ee980c54898cfd9d07cd5fa26c7d320ee5cfd2d247526e1d48c022697a.
+  Public signatures verified and every exact Core image was pullable before Cloud deployment.
+- Cloud release cloud-226e0562ca3d955d13b145f50c79a20bd10ca914 deployed at 18:58:43 UTC.
+  Site/provider/relay health and the one-address checks passed. At 19:01:56 UTC the owner
+  plane reported desired/applied 124/124, healthy, no rollout error and a fresh heartbeat.
+- Direct operator inspection matched the running account-plane image to a45ddf472d3e…
+  and cockpit to 9dba8da45573… from this signed assembly. The pool still limits workloads
+  to 5,974,450,176 bytes, three CPU cores and zero workload swap; its counters are mounted
+  read-only in the platform. The installed updater matches the qualified Cloud source.
+- All six active company workloads in the final snapshot were Documents services, protected
+  by the shared pool, with duplicate Docker health checks disabled. Their individual OOM-kill
+  counters and the parent pool's OOM/max counters were zero. Host available RAM was
+  4,659,822,592 bytes (about 4.3 GiB); the short swap-traffic sample was zero in/out.
+  No paid capacity change was applied; the host remains on its existing 8 GB/four-CPU plan.
+- Two temporary operator-only SSH rules were detached and removed after inspection. Release
+  secret files were removed by the release script. Both source checkouts remained clean.
+
+A pinned dependency download and the first registry transfer each hit a network error.
+An unnecessary duplicate build was stopped before it could replace the sealed release;
+the unchanged official publisher resumed at its transfer stage, retained all consumer signature
+checks, and completed successfully. Failed logs are retained rather than counted as passes.
+
+Production browser entry reached the sign-in page but had no authenticated Reno session.
+No authenticated Reno UI journey or real provider cost/quality benchmark is claimed. Local
+owner/admin/member, populated desktop/phone, pressure/recovery and reply-motion evidence remains
+the functional evidence for this batch. Wider A0 and Sprint 109 requirements remain open.
+
+Records: /tmp/s109-actors-core-release-retry.log (qualification/connections and failed transfer),
+/tmp/s109-actors-core-transfer-resume.log (successful signed publication),
+/tmp/s109-actors-cloud-qualify.log, /tmp/s109-actors-cloud-release3.log,
+/tmp/s109-actors-prod-rollout.log, /tmp/s109-actors-placement-report.json,
+/tmp/s109-actors-production-placement-final.log.
