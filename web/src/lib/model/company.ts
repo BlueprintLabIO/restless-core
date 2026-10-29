@@ -363,6 +363,13 @@ export interface ComputeSample {
 export interface ComputeReading {
 	status: 'available' | 'not_configured' | 'unavailable';
 	detail?: string;
+	actor_capacity?: {
+		company_slots: number;
+		shared_slots: number | null;
+		company_active: number | null;
+		shared_active: number | null;
+		waiting_for_memory: boolean;
+	} | null;
 	sample?: {
 		observed_at: string;
 		host_memory_bytes: number | null;

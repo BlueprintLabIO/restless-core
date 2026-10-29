@@ -583,6 +583,13 @@ pub async fn dispatch_actor_conversation(
     if !observed_owed {
         return Ok(false);
     }
+    let Some(mut resources) = runtime
+        .registry
+        .reserve_actor_capacity(&config.name, runtime.runtime_bridges, runtime.schedule_wake)
+        .await?
+    else {
+        return Ok(false);
+    };
 
     let candidates = crate::model_gateway::available_actor_candidates(
         config,
@@ -906,7 +913,9 @@ pub async fn dispatch_actor_conversation(
         )
     };
     let interruption = cancellation.clone();
+    resources.activate();
     tokio::spawn(async move {
+        let _resources = resources;
         let outcome = run_staff_with_failover(StaffRun {
             container,
             workdir: conversation_workspace.workdir,

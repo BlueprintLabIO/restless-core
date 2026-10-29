@@ -342,8 +342,20 @@ pub(super) async fn read_compute_usage(
         )
         .into_response();
     }
-    let body = match runtime::compute_usage(&company).await {
-        Ok(Some(sample)) => serde_json::json!({"status":"available", "sample": sample}),
+    let (usage, actor_capacity) = tokio::join!(
+        runtime::compute_usage(&company),
+        runtime::actor_capacity(&company),
+    );
+    let counts = state.daemon.staff.resource_counts(&company);
+    let actor_capacity = actor_capacity.ok().flatten().map(|limits| serde_json::json!({
+        "company_slots": limits.company_slots, "shared_slots": limits.shared_slots,
+        "waiting_for_memory": counts.map_or(limits.waiting_for_memory, |(own, shared)| limits.waits_for_memory(own, shared)),
+        "company_active": counts.map(|value| value.0), "shared_active": counts.map(|value| value.1),
+    }));
+    let body = match usage {
+        Ok(Some(sample)) => {
+            serde_json::json!({"status":"available", "sample": sample, "actor_capacity":actor_capacity})
+        }
         Ok(None) => serde_json::json!({"status":"not_configured"}),
         Err(error) => {
             tracing::warn!(%error, "could not observe company compute usage");
