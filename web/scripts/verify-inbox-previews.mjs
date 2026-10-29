@@ -122,11 +122,17 @@ try {
 				page.waitForResponse(
 					(response) =>
 						response.request().method() === 'POST' &&
-						response.url().endsWith('/handoffs/' + row.source.reference + '/review')
+						response.url().endsWith('/handoffs/' + row.source.reference + '/pending-decision')
 				),
 				pane(page).getByRole('button', { name: 'Accept outcome', exact: true }).click()
 			]);
-			assert(decision.ok(), 'The real review endpoint accepts the outcome');
+			assert(decision.ok(), 'The real source saves the pending acceptance');
+			assert.equal((await decision.json()).state, 'pending');
+			assert.notEqual(
+				(await api('/attention')).work_graph.work.find((work) => work.id === row.work_id)?.status,
+				'completed',
+				'Acceptance has no source effect before its Undo deadline'
+			);
 			await page.waitForFunction(
 				async ({ origin, company, id }) => {
 					const data = await (
@@ -227,7 +233,9 @@ try {
 						response.request().method() === 'POST' &&
 						response.url().endsWith('/company/spend-limit')
 				),
-				preview(page).getByRole('button', { name: /^(Raise|Lower) to / }).click()
+				preview(page)
+					.getByRole('button', { name: /^(Raise|Lower) to / })
+					.click()
 			]);
 			assert(saved.ok(), 'Budget is saved through the real Company form');
 			await inInbox(page, row.id);
@@ -369,7 +377,10 @@ try {
 			const rail = page.getByRole('complementary', { name: 'Exec conversation', exact: true });
 			const draft = rail.getByRole('textbox', { name: 'Ask Exec', exact: true });
 			await draft.waitFor();
-			assert((await draft.inputValue()).includes(encodeURIComponent(row.id)), 'The draft links the item into the one Exec conversation');
+			assert(
+				(await draft.inputValue()).includes(encodeURIComponent(row.id)),
+				'The draft links the item into the one Exec conversation'
+			);
 			await draft.fill(
 				'Verify this prepared Limits page as part of the isolated Inbox preview check.'
 			);
@@ -398,7 +409,11 @@ try {
 				'Exec gets the actual settings page rather than the opaque preview wrapper'
 			);
 			assert.equal(form.get('attention_id'), null, 'The item does not open a scoped conversation');
-			assert.equal(form.get('work_id'), null, 'The one Exec conversation is not scoped to this Work');
+			assert.equal(
+				form.get('work_id'),
+				null,
+				'The one Exec conversation is not scoped to this Work'
+			);
 			assert((await sent.json()).context_attached, 'The server accepted the linked native context');
 			await toggle.click();
 			// Request an ordinary cross-window refresh instead of depending on a background poll.
@@ -408,7 +423,7 @@ try {
 					new URL(response.url()).pathname.endsWith('/attention'),
 				{ timeout: 20000 }
 			);
-			await page.evaluate(company => {
+			await page.evaluate((company) => {
 				const channel = new BroadcastChannel('restless-attention');
 				channel.postMessage(company);
 				channel.close();

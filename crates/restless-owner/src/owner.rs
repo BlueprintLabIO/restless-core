@@ -35,6 +35,8 @@ mod documents_api;
 mod event_transport;
 #[path = "owner_for_you.rs"]
 mod for_you_api;
+#[path = "owner_handoff_decisions.rs"]
+mod handoff_decisions_api;
 #[path = "owner_library.rs"]
 mod library_api;
 #[path = "owner_machines.rs"]
@@ -1970,6 +1972,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/actors/{actor}/activity",
             get(agent_activity_live),
         )
+        .merge(handoff_decisions_api::routes())
         .route(
             "/companies/{company}/handoffs/{handoff}/review",
             post(review_outcome),
@@ -2274,7 +2277,9 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     // A separate origin is load-bearing. Reviewed company code may run
     // JavaScript and use root-relative assets, but it never shares the owner
     // cockpit origin or its authority boundary.
-    let preview = Router::new().fallback(any(review_proxy)).with_state(state);
+    let preview = Router::new()
+        .fallback(any(review_proxy))
+        .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(address)
         .await
@@ -2288,7 +2293,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     restless_engine::app_catalogue::start_refresh_loop();
     tokio::try_join!(
         axum::serve(listener, app),
-        axum::serve(preview_listener, preview)
+        axum::serve(preview_listener, preview),
+        handoff_decisions_api::run(state)
     )
     .map(|_| ())
     .context("owner gateways")
@@ -2695,6 +2701,7 @@ fn membership_boundary_violation(
         || is_company_library_read(method, path)
         // A person answers what is assigned to them; OrgIntel checks the assignment.
         || is_handoff_answer(method, path)
+        || handoff_decisions_api::is_own_route(method,path)
         // Each person's Inbox: the handler projects only what is assigned to them. Exactly the
         // read: the owner's set-aside list and dismissals stay the owner's.
         || is_own_attention_read(method, path)
@@ -7302,10 +7309,45 @@ async fn attention_view(
     };
     match projected {
         Ok(mut view) => {
+            let mut pending_ids = Vec::new();
+            if let Some(org) = org.as_ref() {
+                match org.handoff_decisions_for_actor(principal.actor_id()).await {
+                    Ok(decisions) => {
+                        let pending: Vec<_> = decisions
+                            .iter()
+                            .filter(|decision| {
+                                decision.state == "pending"
+                                    && decision.principal == *principal.handoff_decision_principal()
+                            })
+                            .collect();
+                        view.items.retain(|item| {
+                            let hidden = pending.iter().any(|decision| {
+                                item.source.kind == "owner_handoff"
+                                    && item.source.reference == decision.handoff_id.to_string()
+                                    && item.review_version.as_ref()
+                                        == Some(&decision.expected_version)
+                            });
+                            if hidden {
+                                pending_ids.push(item.id.clone());
+                            }
+                            !hidden
+                        });
+                    }
+                    Err(error) => {
+                        return api_error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "handoff_decision",
+                            error.plain_message(),
+                        )
+                    }
+                }
+            }
             if !query.include_work_graph {
                 view.work_graph = None;
             }
-            Json(view).into_response()
+            let mut output = serde_json::json!(view);
+            output["pending_handoff_decisions"] = serde_json::json!(pending_ids);
+            Json(output).into_response()
         }
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,

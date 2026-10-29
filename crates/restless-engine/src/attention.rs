@@ -2804,7 +2804,7 @@ async fn project_queue(
             .flatten();
         let outcome_review = brief
             .is_some_and(|brief| brief.kind == restless_orgintel::OwnerBriefKind::OutcomeReview);
-        let review_version = outcome_review.then(|| restless_orgintel::OwnerReviewVersion {
+        let review_version = Some(restless_orgintel::OwnerReviewVersion {
             handoff: handoff.conversation_input(),
             work_revision: item.revision,
             artifact_id: review_artifact.as_ref().map(|artifact| artifact.id),

@@ -10,6 +10,7 @@
 	 * a note that reaches the company with the decision. Files the item points
 	 * at open alongside the decision in Inbox. Context and the rest of the evidence are folded
 	 * away until asked for. */
+	import { queueHandoffDecision } from '$lib/model/handoff-decisions';
 	import { askExecAboutItem } from '$lib/model/ask-exec';
 	import { decideEmailMandateProposal } from '$lib/model/company-actions';
 	import { decidePayee } from '$lib/model/company';
@@ -114,6 +115,7 @@
 			href?: string;
 			/** Where the change just made lives, named in the receipt. */
 			home?: SettingHome;
+			pending?: boolean;
 		}) => void;
 		/** Skipping what is not a request owed to this person is the owner's: it answers for the
 		 * whole company queue. */
@@ -227,12 +229,17 @@
 		if (decision === 'request_changes' && !reviewFeedback.trim()) return;
 		return run(
 			async () => {
-				await reviewAction(companyId, item.source.reference, decision, reviewFeedback.trim(), item.reviewVersion);
-				await refreshAttention(client, companyId);
+				if (decision === 'accept') {
+					await queueHandoffDecision(client, companyId, item, { kind: 'accept_review', feedback: reviewFeedback.trim() });
+				} else {
+					await reviewAction(companyId, item.source.reference, decision, reviewFeedback.trim(), item.reviewVersion);
+					await refreshAttention(client, companyId);
+				}
 			},
 			decision === 'accept' ? 'Accepted' : 'Changes sent to ' + recipient,
 			'The review decision was not recorded.',
-			recipientHref
+			recipientHref,
+			decision === 'accept'
 		);
 	}
 	const humanStep = $derived(action('complete-human-step'));
@@ -386,14 +393,15 @@
 		work: () => Promise<unknown>,
 		sent: string,
 		fallback: string,
-		href = conversationHref
+		href = conversationHref,
+		pending = false
 	) {
 		if (acting) return;
 		acting = true;
 		error = '';
 		try {
 			await work();
-			onresolved?.({ text: sent, href });
+			onresolved?.({ text: sent, href, pending });
 		} catch (cause) {
 			error = failureSentence(cause, fallback);
 		} finally {
@@ -410,8 +418,10 @@
 	async function skip() {
 		if (acting) return;
 		if (byHandoff) {
-			onleave?.();
-			await skipHandoffSoon(client, companyId, item.source.reference, skipWho);
+			acting = true;
+			try {
+				await skipHandoffSoon(client, companyId, item);
+			} finally { acting = false; }
 			return;
 		}
 		acting = true;
@@ -536,8 +546,8 @@
 		if (acting || markingDone) return;
 		markingDone = true;
 		try {
-			if (await markDoneSoon(client, companyId, item.source.reference))
-				onresolved?.({ text: 'Marked done. The work resumes.', href: conversationHref });
+			if (await markDoneSoon(client, companyId, item))
+				onresolved?.({ text: 'Marked done', href: conversationHref, pending: true });
 		} finally {
 			markingDone = false;
 		}

@@ -24,6 +24,7 @@
 	import { conversationAsked } from '$lib/model/embedded-conversations.svelte';
 	import { linkPreference } from '$lib/model/link-preference.svelte';
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
+	import PendingHandoffDecisions from '$lib/components/PendingHandoffDecisions.svelte';
 	import { referenceOptions } from '$lib/model/composer-options.svelte';
 	import type ExecutiveRailView from '$lib/components/ExecutiveRail.svelte';
 	import { presence } from '$lib/model/presence.svelte';
@@ -1738,6 +1739,7 @@
 </script>
 
 <CompanyQueryPersistence {companyId} />
+<PendingHandoffDecisions {companyId} />
 
 {#snippet executiveRail(wide = false, header?: Snippet<[Snippet, Snippet]>)}
 	{#if ExecutiveRail}

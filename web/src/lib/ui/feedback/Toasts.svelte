@@ -7,6 +7,7 @@
 	import X from '@lucide/svelte/icons/x';
 	import {
 		dismissToast,
+		closeToast,
 		holdToast,
 		toastClearance,
 		toasts,
@@ -75,7 +76,7 @@
 					class="close"
 					aria-label="Dismiss"
 					title="Dismiss"
-					onclick={() => dismissToast(item.id)}><X size={14} aria-hidden="true" /></button
+					onclick={() => closeToast(item.id)}><X size={14} aria-hidden="true" /></button
 				>
 			</div>
 		{/each}
