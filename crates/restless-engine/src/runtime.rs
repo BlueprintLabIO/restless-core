@@ -1747,7 +1747,7 @@ const DESKTOP_PROGRAMS: &[&str] = &[
 /// wins, else what the owner's own browser reported. Unset keeps the browser as it was.
 fn browser_environment() -> Vec<String> {
     let reported = load_browser_locale();
-    [
+    let mut settings: Vec<String> = [
         ("RESTLESS_BROWSER_TIMEZONE", reported.timezone),
         ("RESTLESS_BROWSER_LANG", reported.language),
     ]
@@ -1759,7 +1759,15 @@ fn browser_environment() -> Vec<String> {
             .or(reported.filter(|value| valid_browser_locale(value)))?;
         Some(format!("{name}={}", value.trim()))
     })
-    .collect()
+    .collect();
+    // Keep the broker's documented idle policy configurable in the split computer too.
+    // Forward a numeric value only; zero intentionally disables automatic sleeping.
+    if let Ok(value) = std::env::var("RESTLESS_BROWSER_IDLE_MS") {
+        if let Ok(milliseconds) = value.trim().parse::<u32>() {
+            settings.push(format!("RESTLESS_BROWSER_IDLE_MS={milliseconds}"));
+        }
+    }
+    settings
 }
 
 pub fn container_name(company: &str) -> String {
@@ -3233,6 +3241,9 @@ pub async fn open_browser_url(company: &str, value: &str) -> Result<()> {
         bail!("company browser links must use HTTP or HTTPS");
     }
 
+    // Cold browser startup has its own readiness window; the tab-opening request
+    // must not time out halfway through it and leave an ambiguous duplicate on retry.
+    wake_company_browser(company).await;
     let container = container_name(company);
     // A leading `=` tells curl to encode the entire value as an unnamed query
     // field. Without it, the first `=` inside an OAuth-style destination
@@ -4007,6 +4018,7 @@ impl AsyncWrite for DesktopStream {
 }
 
 pub async fn desktop_stream(company: &str) -> Result<DesktopStream> {
+    wake_company_browser(company).await;
     private_tcp_stream(company, 6080).await
 }
 
@@ -4020,8 +4032,12 @@ pub async fn devtools_stream(company: &str) -> Result<DesktopStream> {
 /// port. Core and apps that use Chrome's port directly call this first; the broker wakes it for
 /// agents. Best effort: a browser that will not start is reported by whatever uses it next.
 pub async fn wake_company_browser(company: &str) {
+    // Let the broker record real activity too. Direct supervisor startup alone
+    // leaves lastUse stale and can immediately sleep the just-opened browser.
+    // Owner control refuses broker discovery; its live lease protects the fallback.
     let wake = format!(
         "[ -f /company/run/browser-asleep ] || exit 0; \
+        curl -fsS -m 40 http://127.0.0.1:9223/json/version >/dev/null 2>&1 && exit 0; \
         supervisorctl -c {} start chromium >/dev/null 2>&1; \
         i=0; while [ $i -lt 60 ]; do curl -fsS -m 1 http://127.0.0.1:9222/json/version >/dev/null 2>&1 && break; i=$((i+1)); sleep 0.5; done; \
         rm -f /company/run/browser-asleep",
@@ -5383,6 +5399,83 @@ mission = "Choose intelligence"
         assert_eq!(statuses.get("alpha"), Some(&ContainerStatus::Running));
         assert_eq!(statuses.get("alpha_two"), Some(&ContainerStatus::Stopped));
         assert_eq!(statuses.get("missing"), Some(&ContainerStatus::Absent));
+    }
+
+    /// Run against a disposable company from scripts/restless-dev with
+    /// RESTLESS_BROWSER_IDLE_MS=1500. Tests the real Runtime entry points.
+    #[tokio::test]
+    #[ignore = "requires an isolated RESTLESS_COMPUTE_SMOKE_COMPANY and a short browser idle timeout"]
+    async fn cold_browser_opens_for_owner_and_survives_broker_restart() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let company = std::env::var("RESTLESS_COMPUTE_SMOKE_COMPANY").unwrap();
+        assert!(company.ends_with("_test"));
+        super::validate_company_name(&company).unwrap();
+        assert!(!std::env::var("RESTLESS_RESOURCE_NAMESPACE")
+            .unwrap_or_default()
+            .is_empty());
+        let container = super::container_name(&company);
+        async fn probe(container: &str) -> serde_json::Value {
+            let output = super::docker_bounded(
+                &[
+                    "exec",
+                    container,
+                    "curl",
+                    "-fsS",
+                    "-m",
+                    "5",
+                    "-H",
+                    "x-restless-probe: 1",
+                    "http://127.0.0.1:9223/json/version",
+                ],
+                std::time::Duration::from_secs(8),
+            )
+            .await
+            .unwrap();
+            assert!(output.status.success());
+            serde_json::from_slice(&output.stdout).unwrap()
+        }
+        assert_eq!(probe(&container).await["asleep"], true);
+        // The viewer path must wake Chrome before returning a useful transport.
+        let mut stream = super::desktop_stream(&company).await.unwrap();
+        stream.write_all(b"GET /websockify HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").await.unwrap();
+        let mut bytes = [0; 16];
+        let count =
+            tokio::time::timeout(std::time::Duration::from_secs(5), stream.read(&mut bytes))
+                .await
+                .unwrap()
+                .unwrap();
+        assert!(count > 0 && bytes.starts_with(b"HTTP/"));
+        assert_ne!(probe(&container).await["asleep"], true);
+        drop(stream);
+        tokio::time::sleep(std::time::Duration::from_secs(12)).await;
+        assert_eq!(probe(&container).await["asleep"], true);
+        // Opening a link has a distinct cold-start readiness window.
+        super::open_browser_url(&company, "https://example.com/?restless-resource-smoke=1")
+            .await
+            .unwrap();
+        assert_ne!(probe(&container).await["asleep"], true);
+        let restarted = super::docker_bounded(
+            &[
+                "exec",
+                "-u",
+                "company",
+                &container,
+                "supervisorctl",
+                "-c",
+                "/etc/supervisor/conf.d/computer.conf",
+                "restart",
+                "browser-broker",
+            ],
+            std::time::Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+        assert!(restarted.status.success());
+        assert_ne!(
+            probe(&container).await["asleep"],
+            true,
+            "broker-only restart must recognize an already running browser"
+        );
     }
 
     #[test]

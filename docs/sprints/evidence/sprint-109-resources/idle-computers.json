@@ -1,0 +1,161 @@
+{
+  "before": {
+    "companies": [
+      {
+        "company": "resource1_test",
+        "initiallyAsleep": true,
+        "finallyAsleep": false,
+        "supervisor": "chromium                         RUNNING   pid 276, uptime 0:00:17"
+      },
+      {
+        "company": "resource2_test",
+        "initiallyAsleep": true,
+        "finallyAsleep": false,
+        "supervisor": "chromium                         RUNNING   pid 296, uptime 0:00:17"
+      },
+      {
+        "company": "resource3_test",
+        "initiallyAsleep": true,
+        "finallyAsleep": false,
+        "supervisor": "chromium                         RUNNING   pid 304, uptime 0:00:17"
+      },
+      {
+        "company": "resource4_test",
+        "initiallyAsleep": true,
+        "finallyAsleep": false,
+        "supervisor": "chromium                         RUNNING   pid 321, uptime 0:00:17"
+      },
+      {
+        "company": "resource5_test",
+        "initiallyAsleep": true,
+        "finallyAsleep": false,
+        "supervisor": "chromium                         RUNNING   pid 298, uptime 0:00:17"
+      },
+      {
+        "company": "resource6_test",
+        "initiallyAsleep": true,
+        "finallyAsleep": false,
+        "supervisor": "chromium                         RUNNING   pid 293, uptime 0:00:17"
+      }
+    ],
+    "computers": [
+      {
+        "Name": "restless-s109resbefore-pc-resource6_test",
+        "MemUsage": "317.7MiB / 1GiB",
+        "CPUPerc": "2.56%",
+        "PIDs": "177"
+      },
+      {
+        "Name": "restless-s109resbefore-pc-resource5_test",
+        "MemUsage": "319.1MiB / 1GiB",
+        "CPUPerc": "0.97%",
+        "PIDs": "184"
+      },
+      {
+        "Name": "restless-s109resbefore-pc-resource4_test",
+        "MemUsage": "318.9MiB / 1GiB",
+        "CPUPerc": "0.67%",
+        "PIDs": "186"
+      },
+      {
+        "Name": "restless-s109resbefore-pc-resource3_test",
+        "MemUsage": "317.6MiB / 1GiB",
+        "CPUPerc": "0.79%",
+        "PIDs": "184"
+      },
+      {
+        "Name": "restless-s109resbefore-pc-resource2_test",
+        "MemUsage": "355.1MiB / 1GiB",
+        "CPUPerc": "0.84%",
+        "PIDs": "180"
+      },
+      {
+        "Name": "restless-s109resbefore-pc-resource1_test",
+        "MemUsage": "740.2MiB / 1GiB",
+        "CPUPerc": "0.99%",
+        "PIDs": "181"
+      }
+    ],
+    "model_calls_during_idle": 0
+  },
+  "after": {
+    "companies": [
+      {
+        "company": "resource1_test",
+        "initiallyAsleep": true,
+        "finallyAsleep": true,
+        "supervisor": "chromium                         STOPPED   Oct 29 04:57 AM"
+      },
+      {
+        "company": "resource2_test",
+        "initiallyAsleep": true,
+        "finallyAsleep": true,
+        "supervisor": "chromium                         STOPPED   Oct 29 04:57 AM"
+      },
+      {
+        "company": "resource3_test",
+        "initiallyAsleep": true,
+        "finallyAsleep": true,
+        "supervisor": "chromium                         STOPPED   Oct 29 04:57 AM"
+      },
+      {
+        "company": "resource4_test",
+        "initiallyAsleep": true,
+        "finallyAsleep": true,
+        "supervisor": "chromium                         STOPPED   Oct 29 04:57 AM"
+      },
+      {
+        "company": "resource5_test",
+        "initiallyAsleep": true,
+        "finallyAsleep": true,
+        "supervisor": "chromium                         STOPPED   Oct 29 04:57 AM"
+      },
+      {
+        "company": "resource6_test",
+        "initiallyAsleep": true,
+        "finallyAsleep": true,
+        "supervisor": "chromium                         STOPPED   Oct 29 04:57 AM"
+      }
+    ],
+    "computers": [
+      {
+        "Name": "restless-s109resafter-pc-resource1_test",
+        "MemUsage": "134.7MiB / 1GiB",
+        "CPUPerc": "0.15%",
+        "PIDs": "14"
+      },
+      {
+        "Name": "restless-s109resafter-pc-resource2_test",
+        "MemUsage": "127.5MiB / 1GiB",
+        "CPUPerc": "0.14%",
+        "PIDs": "14"
+      },
+      {
+        "Name": "restless-s109resafter-pc-resource3_test",
+        "MemUsage": "92.16MiB / 1GiB",
+        "CPUPerc": "0.15%",
+        "PIDs": "14"
+      },
+      {
+        "Name": "restless-s109resafter-pc-resource4_test",
+        "MemUsage": "85.16MiB / 1GiB",
+        "CPUPerc": "0.17%",
+        "PIDs": "14"
+      },
+      {
+        "Name": "restless-s109resafter-pc-resource5_test",
+        "MemUsage": "84.87MiB / 1GiB",
+        "CPUPerc": "0.16%",
+        "PIDs": "14"
+      },
+      {
+        "Name": "restless-s109resafter-pc-resource6_test",
+        "MemUsage": "84.42MiB / 1GiB",
+        "CPUPerc": "0.15%",
+        "PIDs": "14"
+      }
+    ],
+    "model_calls_during_idle": 0,
+    "mock_logging_control": "pass"
+  }
+}
