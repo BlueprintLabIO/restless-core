@@ -26,6 +26,11 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use uuid::Uuid;
 
+mod compute_limits;
+pub use compute_limits::{
+    apply_compute_limits, compute_limits_view, CompanyComputeLimits, ComputeTarget, ContainerLimits,
+};
+
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
 const COMPANY_IMAGE_ENV: &str = "RESTLESS_COMPANY_IMAGE";
 const SOURCE_DIGEST_LABEL: &str = "io.restless.source-digest";
@@ -462,12 +467,26 @@ pub async fn actor_capacity(company: &str) -> Result<Option<ActorCapacity>> {
         } else {
             actor_cgroup_capacity(&path)?
         };
+    let current_config = CompanyConfig::load(&state_root(), company)?;
+    let applied_memory = std::fs::read_to_string(path.join("memory.max"))?;
+    let limits_pending = current_config
+        .compute_limits
+        .as_ref()
+        .and_then(|_| compute_limits::bounds(&current_config, ComputeTarget::Runtime).1)
+        .and_then(|value| memory_bytes(&value))
+        .is_some_and(|wanted| {
+            applied_memory.trim() == "max"
+                || applied_memory
+                    .trim()
+                    .parse::<u64>()
+                    .map_or(true, |applied| wanted < applied)
+        });
     Ok(Some(ActorCapacity {
         company_slots: company_slots.min(shared_slots),
         shared_slots: Some(shared_slots),
         company_memory_slots,
         shared_memory_slots: Some(shared_memory_slots),
-        waiting_for_memory: shared_waiting || company_waiting,
+        waiting_for_memory: shared_waiting || company_waiting || limits_pending,
     }))
 }
 
@@ -903,8 +922,10 @@ fn fit_cpus(bound: Option<String>, host_cpus: usize) -> Option<String> {
 
 /// A stopped container keeps the CPU bound it was created with. Refit it
 /// before starting, so a container made on a larger host still starts.
-async fn refit_container_cpus(name: &str) {
-    let Some(cpus) = company_cpus() else { return };
+async fn refit_container_cpus(name: &str, config: &CompanyConfig) {
+    let Some(cpus) = compute_limits::bounds(config, ComputeTarget::Runtime).0 else {
+        return;
+    };
     let Ok(output) = docker(&["inspect", "-f", "{{.HostConfig.NanoCpus}}", name]).await else {
         return;
     };
@@ -1181,6 +1202,9 @@ pub fn account_intelligence_route(connection: &str) -> Option<(&str, &str, Agent
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompanyConfig {
+    /// Owner ceilings for the Runtime and browser, within operator-provided capacity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute_limits: Option<CompanyComputeLimits>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub agent_intelligence: std::collections::BTreeMap<String, AgentIntelligence>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -1576,6 +1600,11 @@ impl CompanyConfig {
     }
 
     fn validate_resource_policies(&self) -> Result<()> {
+        if let Some(limits) = &self.compute_limits {
+            for value in [limits.runtime, limits.computer].into_iter().flatten() {
+                value.validate_values()?;
+            }
+        }
         if self
             .monthly_runtime_cap_hours
             .is_some_and(|hours| !(1..=744).contains(&hours))
@@ -2191,6 +2220,9 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
     match attached.as_deref() {
         Some(id) if id == runtime_id && sites_current && parent_current => {
             if container_state(&name).await? != ContainerStatus::Running {
+                if config.compute_limits.is_some() {
+                    compute_limits::apply_locked(config, ComputeTarget::Computer).await?;
+                }
                 run_ok(&["start", &name]).await?;
             }
             return Ok(());
@@ -2209,8 +2241,7 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
     );
     let company_env = format!("RESTLESS_COMPANY={company}");
     let volume_mount = format!("{}:/company", volume_name(company));
-    let cpus = company_cpus();
-    let memory = computer_memory();
+    let (cpus, memory) = compute_limits::bounds(config, ComputeTarget::Computer);
     let pids = resource_bound("RESTLESS_COMPANY_PIDS_LIMIT", DEFAULT_PIDS_LIMIT);
     let mut browser_env = browser_environment();
     // Home sites (S99 step 2): the browser reaches the plane's home egress proxy at the Runtime's
@@ -3050,6 +3081,11 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
 async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let company = &config.name;
     let _start = company_start_guard(company).await;
+    let mut current = config.clone();
+    if let Ok(latest) = CompanyConfig::load(&state_root(), company) {
+        current.compute_limits = latest.compute_limits;
+    }
+    let config = &current;
     let internal_network = if config.internal_network {
         Some(ensure_company_internal_network(company).await?)
     } else {
@@ -3105,7 +3141,10 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             }
             // A running company made under an older, larger bound gets this host's now; Docker
             // applies it live.
-            refit_container_cpus(&container_name(company)).await;
+            refit_container_cpus(&container_name(company), config).await;
+            if config.compute_limits.is_some() {
+                let _ = compute_limits::apply_locked(config, ComputeTarget::Runtime).await;
+            }
         }
         ContainerStatus::Stopped => {
             if !replaced {
@@ -3115,7 +3154,10 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             if let Some(network) = internal_network.as_deref() {
                 ensure_container_on_network(company, network).await?;
             }
-            refit_container_cpus(&name).await;
+            refit_container_cpus(&name, config).await;
+            if config.compute_limits.is_some() {
+                compute_limits::apply_locked(config, ComputeTarget::Runtime).await?;
+            }
             run_ok(&["start", &name]).await?;
         }
         ContainerStatus::Absent => {
@@ -3138,8 +3180,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             ])
             .await?;
             let name = container_name(company);
-            let cpus = company_cpus();
-            let memory = company_memory();
+            let (cpus, memory) = compute_limits::bounds(config, ComputeTarget::Runtime);
             let pids = resource_bound("RESTLESS_COMPANY_PIDS_LIMIT", DEFAULT_PIDS_LIMIT);
             // Keep one noisy company from filling the shared host disk. The
             // local driver also supports `docker logs` for diagnosis.
@@ -7300,6 +7341,7 @@ worker_harness = "claude_agent"
         ));
         std::fs::create_dir_all(root.join("companies")).unwrap();
         let config = CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,

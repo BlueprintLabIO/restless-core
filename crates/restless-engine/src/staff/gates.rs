@@ -1242,6 +1242,7 @@ mod tests {
             .strip_prefix("restless-co-")
             .expect("fixture container follows the Company Runtime name contract");
         let config = CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,

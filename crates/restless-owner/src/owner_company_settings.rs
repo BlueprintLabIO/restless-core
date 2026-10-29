@@ -332,9 +332,7 @@ pub(super) async fn read_compute_usage(
         )
         .into_response();
     }
-    if !principal.permits_company(&company)
-        || runtime::CompanyConfig::load(&state.daemon.root, &company).is_err()
-    {
+    if !principal.permits_company(&company) {
         return api_error(
             StatusCode::NOT_FOUND,
             "compute",
@@ -342,9 +340,26 @@ pub(super) async fn read_compute_usage(
         )
         .into_response();
     }
-    let (usage, actor_capacity) = tokio::join!(
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "compute",
+                "This company is unavailable.",
+            )
+        }
+    };
+    let (usage, actor_capacity, limits) = tokio::join!(
         runtime::compute_usage(&company),
         runtime::actor_capacity(&company),
+        async {
+            if state.daemon.runtime_bridges.is_hosted() {
+                None
+            } else {
+                Some(runtime::compute_limits_view(&config).await)
+            }
+        },
     );
     let counts = state.daemon.staff.resource_counts(&company);
     let actor_capacity = actor_capacity.ok().flatten().map(|limits| serde_json::json!({
@@ -352,7 +367,7 @@ pub(super) async fn read_compute_usage(
         "waiting_for_memory": counts.map_or(limits.waiting_for_memory, |(own, shared)| limits.waits_for_memory(own, shared)),
         "company_active": counts.map(|value| value.0), "shared_active": counts.map(|value| value.1),
     }));
-    let body = match usage {
+    let mut body = match usage {
         Ok(Some(sample)) => {
             serde_json::json!({"status":"available", "sample": sample, "actor_capacity":actor_capacity})
         }
@@ -362,7 +377,125 @@ pub(super) async fn read_compute_usage(
             serde_json::json!({"status":"unavailable", "detail":"Resource readings are temporarily unavailable."})
         }
     };
+    body["limits"] = serde_json::to_value(limits).expect("integer compute limits serialize");
     Json(body).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ComputeLimitsInput {
+    limits: Option<runtime::ContainerLimits>,
+    expected: Option<runtime::ContainerLimits>,
+}
+
+pub(super) async fn save_compute_limits(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, target)): AxumPath<(String, String)>,
+    Json(input): Json<ComputeLimitsInput>,
+) -> axum::response::Response {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "compute_limits",
+            "Only the owner can change compute limits.",
+        );
+    }
+    if !principal.permits_company(&company) {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "compute_limits",
+            "This company is unavailable.",
+        );
+    }
+    if state.daemon.runtime_bridges.is_hosted() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "compute_limits",
+            "These compute limits are managed on the paired host.",
+        );
+    }
+    let target = match runtime::ComputeTarget::parse(&target) {
+        Ok(target) => target,
+        Err(error) => {
+            return api_error(StatusCode::BAD_REQUEST, "compute_limits", error.to_string())
+        }
+    };
+    if let Some(limits) = input.limits {
+        if let Err(error) = target.validate(limits) {
+            return api_error(StatusCode::BAD_REQUEST, "compute_limits", error.to_string());
+        }
+    }
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                "This company is unavailable.",
+            )
+        }
+    };
+    if target.saved(&config) != input.expected {
+        return api_error(
+            StatusCode::CONFLICT,
+            "compute_limits",
+            "Compute limits changed. Refresh before saving.",
+        );
+    }
+    let change =
+        serde_json::json!({"target": format!("{target:?}").to_lowercase(), "limits": input.limits});
+    if target.saved(&config) != input.limits {
+        if let Err(error) = state
+            .daemon
+            .authority
+            .emit(
+                &company,
+                "company_compute_limits_requested",
+                Some(principal.actor_id()),
+                change.clone(),
+            )
+            .await
+        {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority",
+                format!("The change could not be recorded: {error:#}"),
+            );
+        }
+        target.set(&mut config, input.limits);
+        if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "compute_limits",
+                format!("Limits were not saved: {error:#}"),
+            );
+        }
+        if let Err(error) = state
+            .daemon
+            .authority
+            .emit(
+                &company,
+                "company_compute_limits_changed",
+                Some(principal.actor_id()),
+                change,
+            )
+            .await
+        {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority",
+                format!("Limits were saved; refresh to check confirmation: {error:#}"),
+            );
+        }
+    }
+    // Persisted desired values survive daemon/container replacement. A failed
+    // live update is visible as pending, retried by existing local maintenance.
+    if let Err(error) = runtime::apply_compute_limits(&config, target).await {
+        tracing::debug!(company, %error, "saved compute limits await application");
+    }
+    Json(runtime::compute_limits_view(&config).await).into_response()
 }
 
 pub(super) async fn save_runtime_policy(

@@ -5314,6 +5314,7 @@ mission = "Choose native intelligence"
         CompanyConfig::save(
             &root,
             &CompanyConfig {
+                compute_limits: None,
                 agent_intelligence: Default::default(),
                 native_harnesses: Default::default(),
                 display_name: None,
@@ -5705,6 +5706,7 @@ mission = "Choose native intelligence"
     #[test]
     fn exact_readiness_is_reserved_for_runtime_pinned_catalogues() {
         let config = CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,
@@ -5744,6 +5746,7 @@ mission = "Choose native intelligence"
     #[test]
     fn one_companys_unroutable_model_does_not_stop_the_others() {
         let company = |name: &str, model: &str, failover: Vec<String>| CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,
@@ -5883,6 +5886,7 @@ mission = "Choose native intelligence"
     #[test]
     fn claude_agent_admission_accepts_an_account_sign_in_or_api_key() {
         let config = CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,
@@ -6794,6 +6798,7 @@ mission = "Choose native intelligence"
     #[test]
     fn one_cooldown_read_drives_exec_and_staff_candidate_order() {
         let config = CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,
@@ -6923,6 +6928,7 @@ mission = "Choose native intelligence"
     #[test]
     fn explicit_staff_model_never_inherits_the_exec_fallback_chain() {
         let config = CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,

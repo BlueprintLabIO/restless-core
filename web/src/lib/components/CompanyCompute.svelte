@@ -1,14 +1,18 @@
 <script lang="ts">
 	import { Section, Row } from '$lib/ui/page';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
+	import ComputeLimitControl from './ComputeLimitControl.svelte';
 	import { companyComputeQuery } from '$lib/model/queries.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	import type { RuntimeDoctor, ComputeSample } from '$lib/model/company';
+	import type { RuntimeDoctor, ComputeSample, ComputeLimitsView } from '$lib/model/company';
 	import { formatMoment } from '$lib/ui/time';
 	let { companyId, runtime }: { companyId: string; runtime?: RuntimeDoctor } = $props();
 	const source = $derived(companyComputeQuery(companyId));
 	holdQueries(() => [source]);
 	const reading = $derived(source.view);
+	async function acceptLimits(limits: ComputeLimitsView) {
+		if (source.view) await source.accept({ ...source.view, limits });
+	}
 	const sample = $derived(reading?.sample);
 	const pool = $derived(sample?.pool);
 	const actors = $derived(reading?.actor_capacity);
@@ -64,7 +68,7 @@
 			: !reading
 				? 'Reading…'
 				: reading.status === 'not_configured'
-					? 'Shared limits not enabled'
+					? 'Account limits not enabled'
 					: reading.status === 'unavailable'
 						? 'Readings unavailable'
 						: !sample?.placement_current
@@ -76,18 +80,18 @@
 <Section
 	id="compute"
 	title="Compute"
-	info="The shared work pool limits company workloads together. The app, database and operating system keep capacity outside it."
+	info="All company workloads in your account share this budget. The app, database and operating system keep reserved capacity outside it."
 >
 	{#snippet actions()}<button
 			class="btn small"
 			onclick={() => source.refresh()}
 			aria-label="Refresh resource readings">Refresh</button
 		>{/snippet}
-	<div class="metrics" aria-label="Shared host resource usage">
+	<div class="metrics" aria-label="Account workload resource usage">
 		<div class="metric">
 			<h3>
 				CPU <InfoTip
-					text="Cores in use across the shared work pool, sampled from the host. Individual company ceilings share this pool."
+					text="Cores in use across all company workloads in your account. Individual computer ceilings share this account pool."
 				/>
 			</h3>
 			<div class="value">
@@ -132,9 +136,23 @@
 		info="This company's browser and desktop. Chrome sleeps when unused; opening the computer wakes it."
 		><span class="numbers">{usage(sample?.computer)}</span></Row
 	>
+	<ComputeLimitControl
+		{companyId}
+		target="runtime"
+		unavailable={!!source.failure || (!!reading && !reading.limits)}
+		view={reading?.limits?.runtime}
+		onsaved={acceptLimits}
+	/>
+	<ComputeLimitControl
+		{companyId}
+		target="computer"
+		unavailable={!!source.failure || (!!reading && !reading.limits)}
+		view={reading?.limits?.computer}
+		onsaved={acceptLimits}
+	/>
 	<Row
 		label="AI turns"
-		info="Turns running or starting, against this company's limit and the shared limit. Exec, teammates and Work share the available CPU and RAM."
+		info="Turns running or starting, against this company's limit and the account limit. Exec, teammates and Work across your companies share the available CPU and RAM."
 	>
 		<span class="numbers"
 			>{actors
@@ -171,7 +189,7 @@
 	<Row
 		label="Readings"
 		info={reading?.status === 'not_configured'
-			? 'Shared host limits have not been enabled here. Individual company limits still apply.'
+			? 'Account workload limits have not been enabled here. Individual computer limits still apply.'
 			: sample
 				? `Compute observed ${formatMoment(sample.observed_at)}. Storage follows the company's computer checks. Companies still updating join the pool when their normal update completes.`
 				: 'Unavailable readings are shown as unknown, never as zero usage.'}

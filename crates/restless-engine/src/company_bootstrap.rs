@@ -1056,6 +1056,7 @@ fn desired_company_config(
     company_handle: &str,
 ) -> runtime::CompanyConfig {
     runtime::CompanyConfig {
+        compute_limits: None,
         agent_intelligence: Default::default(),
         native_harnesses: Default::default(),
         display_name: None,

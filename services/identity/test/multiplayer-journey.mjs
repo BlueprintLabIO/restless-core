@@ -1005,12 +1005,28 @@ try {
   // Resources uses the real verified accounts. Shared host observations are owner-only.
   const computeReading = await coreApi(owner, `${base}/company/compute`);
   assert.equal(computeReading.status, process.env.RESTLESS_WORKLOAD_CGROUP_PARENT ? "available" : "not_configured");
+  const ownerLimits = { cpu_millis: 500, memory_mib: 768 };
+  for (const target of ["runtime", "computer"]) {
+    const original = computeReading.limits[target].saved;
+    const changed = await coreApi(owner, `${base}/company/compute-limits/${target}`, {
+      method: "POST", body: {limits: ownerLimits, expected: original},
+    });
+    assert.deepEqual(changed[target].saved, ownerLimits);
+    await coreApi(owner, `${base}/company/compute-limits/${target}`, {
+      method: "POST", body: {limits: original, expected: ownerLimits},
+    });
+  }
   await owner.page.goto(`${core}/${company}/company/resources`);
   await owner.page.locator("#compute").waitFor();
   await owner.page.locator("#ai-usage").waitFor();
   await shot(owner, "resources");
   for (const who of [alice, bob]) {
     await coreApi(who, `${base}/company/compute`, { expected: 403 });
+    for (const target of ["runtime", "computer"]) {
+      await coreApi(who, `${base}/company/compute-limits/${target}`, {
+        method: "POST", body: {limits: ownerLimits, expected: null}, expected: 403,
+      });
+    }
     const requests = [];
     const observe = request => { if (new URL(request.url()).pathname === `${base}/company/compute`) requests.push(request.url()); };
     who.page.on("request", observe);
@@ -1023,7 +1039,7 @@ try {
     who.page.off("request", observe);
     await shot(who, "resources");
   }
-  pass("Resources shows live compute and AI usage to the owner; verified admin and member accounts are refused host readings without leaking requests from their page");
+  pass("Resources shows compute and AI usage; the verified owner edits both compute limits while admin and member accounts cannot read or edit host resources");
   // A company key is the owner's Authority operation, including the new Rename path.
   for (const who of [alice, bob]) {
     const reference = `infisical:/companies/${company}/s109-never-created`;

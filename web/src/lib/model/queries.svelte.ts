@@ -447,6 +447,7 @@ export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 
 /** Owner-only host counters, observed while Resources is visible. */
 export function companyComputeQuery(companyId: string, enabled: QueryEnabled = true) {
+	const client = useQueryClient();
 	const query = createQuery(() => ({
 		queryKey: ['company-compute', companyId],
 		queryFn: ({ signal }: { signal: AbortSignal }) => getCompanyCompute(companyId, signal),
@@ -467,7 +468,11 @@ export function companyComputeQuery(companyId: string, enabled: QueryEnabled = t
 		get failure() {
 			return (query.error as Error | null) ?? null;
 		},
-		refresh: () => refresh(query)
+		refresh: () => refresh(query),
+		async accept(view: ComputeReading) {
+			await client.cancelQueries({ queryKey: ['company-compute', companyId] });
+			client.setQueryData(['company-compute', companyId], view);
+		}
 	};
 }
 
