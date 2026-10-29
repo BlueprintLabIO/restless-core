@@ -11,7 +11,9 @@ test('the production container is pinned, compiled, non-root, healthchecked, and
     readFile(new URL('package.json', serviceRoot), 'utf8'),
     readFile(new URL('package-lock.json', serviceRoot), 'utf8'),
   ]);
-  assert.equal((dockerfile.match(/FROM node:24-bookworm-slim/g) ?? []).length, 2);
+  assert.match(dockerfile, /FROM node:24\.\d+\.\d+-trixie-slim@sha256:[a-f0-9]{64} AS build/u);
+  assert.match(dockerfile, /FROM ubuntu:24\.04@sha256:[a-f0-9]{64} AS runtime/u);
+  assert.match(dockerfile, /COPY --from=build \/usr\/local\/bin\/node \/usr\/local\/bin\/node/u);
   assert.match(dockerfile, /RUN npm ci --ignore-scripts/u);
   assert.match(dockerfile, /RUN npm run build/u);
   assert.match(dockerfile, /npm prune --omit=dev --ignore-scripts/u);
