@@ -1,0 +1,21 @@
+{"case":"charter","variant":"before","ms":5636,"words":18,"usage":{"input":1746,"output":161,"cacheRead":0,"cacheWrite":0,"totalTokens":1907,"reasoningTokens":90,"cost":{"input":0.006984,"output":0.00322,"cacheRead":0,"cacheWrite":0,"total":0.010204},"premiumRequests":0}}
+{"case":"charter","variant":"after","ms":4884,"words":41,"usage":{"input":886,"output":123,"cacheRead":0,"cacheWrite":0,"totalTokens":1009,"reasoningTokens":31,"cost":{"input":0.003544,"output":0.0024600000000000004,"cacheRead":0,"cacheWrite":0,"total":0.006004000000000001},"premiumRequests":0}}
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: archive/after: exactly one routing marker
+
+0 !== 1
+
+    at run (file:///home/yail/code/work/slot-3/docs/sprints/sprint-109/reply-comparison.mjs:63:9)
+    at async file:///home/yail/code/work/slot-3/docs/sprints/sprint-109/reply-comparison.mjs:76:73 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 0,
+  expected: 1,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.21.0

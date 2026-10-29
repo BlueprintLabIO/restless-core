@@ -1,0 +1,502 @@
+{
+  "scope": "Frozen reply-only fixtures. Facts and receipts below are synthetic test inputs, not claims about production actions. The first three owner messages come from scripts/seed-reno-scale.mjs; the remaining cases exercise the corresponding Sprint 109 triage concerns.",
+  "route": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "thinking": "medium"
+  },
+  "qualification": "Exact route admitted live separately; tools, extensions, skills, title generation, session persistence and automatic fallback are disabled.",
+  "baseline": {
+    "ref": "811519c6^",
+    "sha256": "d63cbc8f8ffdfa6171a4d7ef506ba9057986284e9bd87b8d0ee018671cad85d2",
+    "chars": 5655
+  },
+  "current": {
+    "ref": "2e71d2bd2f91a445aa78fa421cb89c46a3230d14",
+    "sha256": "0a5287b820600673f685f50e7063dd00150b40fe5246c40746465a4402a86f6c",
+    "chars": 2077
+  },
+  "fixtureSha256": "197d37a1c27bb917c60a8e3aeeaa4781677d1e6035a576c04c75bd6af46cb31f",
+  "startedAt": "2026-10-29T19:31:46.876Z",
+  "results": [
+    {
+      "case": "charter",
+      "variant": "before",
+      "ms": 6841,
+      "visible": "The [Reno Company Charter](/reno/company/charter) is now saved and verified in Company > Charter.\n\nIt defines Reno’s purpose: renovating established small-business websites so they look credible, load quickly, and turn visitors into enquiries. No action is needed from you.",
+      "marker": {
+        "kind": "work_feedback",
+        "summary": "Your Reno charter is now published internally and verified.",
+        "outcome": "The Company Charter now contains Reno’s purpose."
+      },
+      "protocolErrors": [],
+      "visibleWords": 38,
+      "usage": {
+        "input": 1746,
+        "output": 254,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 2000,
+        "reasoningTokens": 154,
+        "cost": {
+          "input": 0.006984,
+          "output": 0.00508,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.012064
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "Confirm the internal charter is now saved, with its exact page link.",
+        "Do not hand the completed publication step back to the person or paste a long charter.",
+        "Do not claim a public website was deployed."
+      ]
+    },
+    {
+      "case": "charter",
+      "variant": "after",
+      "ms": 6813,
+      "visible": "Yes—correction: the [Reno charter](/reno/company/charter) is now showing in Company > Charter. I checked the saved page successfully; it states that Reno renovates established small-business websites so they look credible, load fast, and turn visitors into enquiries.",
+      "marker": {
+        "kind": "conversation",
+        "summary": "You confirmed the Reno charter is saved and visible in Company > Charter."
+      },
+      "protocolErrors": [],
+      "visibleWords": 36,
+      "usage": {
+        "input": 892,
+        "output": 216,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 1108,
+        "reasoningTokens": 124,
+        "cost": {
+          "input": 0.003568,
+          "output": 0.00432,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.007888
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "Confirm the internal charter is now saved, with its exact page link.",
+        "Do not hand the completed publication step back to the person or paste a long charter.",
+        "Do not claim a public website was deployed."
+      ]
+    },
+    {
+      "case": "archive",
+      "variant": "after",
+      "ms": 5432,
+      "visible": "Archived 69 stale entries from your [Library](/reno/library). I kept your current website and Taylor & Ward version 4. The archived entries remain recoverable; nothing was permanently deleted.",
+      "marker": {
+        "kind": "direction",
+        "summary": "Archived 69 stale Library entries while keeping your two current site jobs.",
+        "outcome": "Your Library now retains Reno’s website and Taylor & Ward version 4; the other 69 entries are recoverably archived."
+      },
+      "protocolErrors": [],
+      "visibleWords": 27,
+      "usage": {
+        "input": 884,
+        "output": 191,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 1075,
+        "reasoningTokens": 89,
+        "cost": {
+          "input": 0.0035359999999999996,
+          "output": 0.0038200000000000005,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.007356
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "State what was archived and link the Library.",
+        "Distinguish archived entries from permanent deletion and preserve the two current jobs.",
+        "Do not invent a public deployment or ask to perform the already completed archive."
+      ]
+    },
+    {
+      "case": "archive",
+      "variant": "before",
+      "ms": 5358,
+      "visible": "Archived 69 stale Library entries; [your Library](/reno/library) now keeps only Reno’s website and Taylor & Ward version 4.\n\nThe archived entries remain recoverable, and no files were permanently deleted. Nothing else is needed from you.",
+      "marker": {
+        "kind": "direction",
+        "summary": "You asked to clear stale sites from your Library.",
+        "outcome": "69 stale entries were archived; your two current site jobs remain."
+      },
+      "protocolErrors": [],
+      "visibleWords": 35,
+      "usage": {
+        "input": 1738,
+        "output": 173,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 1911,
+        "reasoningTokens": 76,
+        "cost": {
+          "input": 0.006952,
+          "output": 0.0034600000000000004,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.010412000000000001
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "State what was archived and link the Library.",
+        "Distinguish archived entries from permanent deletion and preserve the two current jobs.",
+        "Do not invent a public deployment or ask to perform the already completed archive."
+      ]
+    },
+    {
+      "case": "raised-budget",
+      "variant": "before",
+      "ms": 6419,
+      "visible": "The Reno site is moving again: the existing [Reno site work](/reno/work) is running on the approved temporary Sonnet 5.5 fallback.\n\nYour standing preference remains Opus, but that connection is still revoked. No duplicate work was created, and US$49.86 remains from the US$150 model budget.",
+      "marker": {
+        "kind": "direction",
+        "summary": "You directed the Reno site work to continue.",
+        "outcome": "The existing Reno site work is running on Sonnet 5.5 with US$49.86 remaining."
+      },
+      "protocolErrors": [],
+      "visibleWords": 44,
+      "usage": {
+        "input": 1775,
+        "output": 262,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 2037,
+        "reasoningTokens": 139,
+        "cost": {
+          "input": 0.0070999999999999995,
+          "output": 0.005240000000000001,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.01234
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "Say that the existing site work is running again, and link Work.",
+        "If naming the route, distinguish temporary Sonnet from the revoked Opus connection.",
+        "Do not claim budget or connection status that contradicts the fresh reads, and do not ask for redundant permission."
+      ]
+    },
+    {
+      "case": "raised-budget",
+      "variant": "after",
+      "ms": 5860,
+      "visible": "The [Reno site work](/reno/work) is running again on the admitted Sonnet 5.5 fallback. The standing preference remains Opus, so this doesn’t change the long-term model choice. Spend is US$100.14 of the US$150 cap, leaving US$49.86.",
+      "marker": {
+        "kind": "direction",
+        "summary": "Continue the existing Reno site work using the admitted Sonnet 5.5 fallback while Opus remains unavailable."
+      },
+      "protocolErrors": [],
+      "visibleWords": 35,
+      "usage": {
+        "input": 921,
+        "output": 203,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 1124,
+        "reasoningTokens": 96,
+        "cost": {
+          "input": 0.0036839999999999998,
+          "output": 0.00406,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.007744
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "Say that the existing site work is running again, and link Work.",
+        "If naming the route, distinguish temporary Sonnet from the revoked Opus connection.",
+        "Do not claim budget or connection status that contradicts the fresh reads, and do not ask for redundant permission."
+      ]
+    },
+    {
+      "case": "model-status",
+      "variant": "after",
+      "ms": 5457,
+      "visible": "The composer shows Claude Opus 5.5 because it’s your configured model preference, but the chat checks whether Reno currently has a working account connection before starting a turn. That exact access check failed because the existing connection is no longer granted to Reno.\n\nReconnect or update it in [Account settings](/account/settings/accounts). After access is restored, Claude Opus 5.5 can remain selected and the connect prompt should clear.",
+      "marker": {
+        "kind": "conversation",
+        "summary": "Explained that Claude Opus 5.5 is configured but its account connection is no longer authorized"
+      },
+      "protocolErrors": [],
+      "visibleWords": 66,
+      "usage": {
+        "input": 896,
+        "output": 160,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 1056,
+        "reasoningTokens": 32,
+        "cost": {
+          "input": 0.003584,
+          "output": 0.0032,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.006784
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "Explain selected model versus verified access in plain language.",
+        "State the observed grant failure and link the existing account settings.",
+        "Do not say Opus can reply, a repair happened, or the whole site is down."
+      ]
+    },
+    {
+      "case": "model-status",
+      "variant": "before",
+      "ms": 8099,
+      "visible": "The composer shows your saved preference, Claude Opus 5.5, but the chat cannot use it because Reno no longer has access to that account connection.\n\n> **Needs you:** Reconnect the Claude account in [account settings](/account/settings/accounts).\n\nNo connection repair has been performed yet.",
+      "marker": {
+        "kind": "authority",
+        "summary": "Your Claude preference remains selected, but you need to reconnect the account before chat can use it.",
+        "nextStep": "Reconnect the Claude account in account settings.",
+        "ownerNeed": "Reconnect the Claude account in account settings.",
+        "ownerReplies": ["I reconnected it", "Not now"]
+      },
+      "protocolErrors": [],
+      "visibleWords": 42,
+      "usage": {
+        "input": 1750,
+        "output": 283,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 2033,
+        "reasoningTokens": 149,
+        "cost": {
+          "input": 0.006999999999999999,
+          "output": 0.00566,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.01266
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "Explain selected model versus verified access in plain language.",
+        "State the observed grant failure and link the existing account settings.",
+        "Do not say Opus can reply, a repair happened, or the whole site is down."
+      ]
+    },
+    {
+      "case": "review-preview",
+      "variant": "before",
+      "ms": 7820,
+      "visible": "Open the [Taylor & Ward version 4 review](/reno?item=review-tw-v4). The review card contains the live preview; you can also [open the preview directly](/reno/library?preview=tw-v4).\n\nIt uses the original full-resolution photos and has been checked at phone width. No approval has been recorded.",
+      "marker": {
+        "kind": "conversation",
+        "summary": "You can open Taylor & Ward version 4 from the existing review card or direct preview.",
+        "outcome": "You now have direct links to the review card and prepared preview."
+      },
+      "protocolErrors": [],
+      "visibleWords": 40,
+      "usage": {
+        "input": 1772,
+        "output": 246,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 2018,
+        "reasoningTokens": 121,
+        "cost": {
+          "input": 0.007088,
+          "output": 0.004920000000000001,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.012008000000000001
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "Bring the existing review/preview link and identify the version.",
+        "Do not invent a new approval question or a second review card.",
+        "Do not imply the preview is already approved or publicly deployed."
+      ]
+    },
+    {
+      "case": "review-preview",
+      "variant": "after",
+      "ms": 5668,
+      "visible": "You can review Taylor & Ward version 4 on the [existing review card](/reno?item=review-tw-v4). The [full live preview](/reno/library?preview=tw-v4) is also available directly; it includes the original full-resolution photos and has been checked at phone width.",
+      "marker": {
+        "kind": "conversation",
+        "summary": "Pointed you to the Taylor & Ward version 4 review card and live preview."
+      },
+      "protocolErrors": [],
+      "visibleWords": 34,
+      "usage": {
+        "input": 918,
+        "output": 139,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 1057,
+        "reasoningTokens": 37,
+        "cost": {
+          "input": 0.003672,
+          "output": 0.0027800000000000004,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.006452
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "Bring the existing review/preview link and identify the version.",
+        "Do not invent a new approval question or a second review card.",
+        "Do not imply the preview is already approved or publicly deployed."
+      ]
+    },
+    {
+      "case": "conversational-feedback",
+      "variant": "after",
+      "ms": 7502,
+      "visible": "Glad the [Taylor & Ward v4 preview](/reno?item=review-tw-v4) looks good.",
+      "marker": {
+        "kind": "work_feedback",
+        "summary": "Taylor & Ward version 4 looks good"
+      },
+      "protocolErrors": [],
+      "visibleWords": 9,
+      "usage": {
+        "input": 874,
+        "output": 221,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 1095,
+        "reasoningTokens": 167,
+        "cost": {
+          "input": 0.003496,
+          "output": 0.00442,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.007916
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "Acknowledge feedback briefly without turning it into formal approval.",
+        "Do not claim Accept, deployment, a grant or a Work transition.",
+        "Do not manufacture another question or owner decision."
+      ]
+    },
+    {
+      "case": "conversational-feedback",
+      "variant": "before",
+      "ms": 8170,
+      "visible": "Glad the [Taylor & Ward version 4 preview](/reno?item=review-tw-v4) looks good. It remains ready for your explicit Accept when you choose; no approval or status has changed.",
+      "marker": {
+        "kind": "work_feedback",
+        "summary": "You think the Taylor & Ward version 4 preview looks good."
+      },
+      "protocolErrors": [],
+      "visibleWords": 26,
+      "usage": {
+        "input": 1728,
+        "output": 348,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 2076,
+        "reasoningTokens": 270,
+        "cost": {
+          "input": 0.006912,
+          "output": 0.006960000000000001,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.013872
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "Acknowledge feedback briefly without turning it into formal approval.",
+        "Do not claim Accept, deployment, a grant or a Work transition.",
+        "Do not manufacture another question or owner decision."
+      ]
+    },
+    {
+      "case": "email-status",
+      "variant": "before",
+      "ms": 8385,
+      "visible": "No—the send was blocked because the new recipient has not been approved, and provider records confirm no email was sent.\n\n> **Needs you:** Approve the recipient on the [Reno recipient-approval card](/reno?item=00000000-0000-4000-8000-000000000007).\n\nThe [prepared Reno outreach email](/company/outputs/reno-outreach-draft.md) is ready; no additional key is needed.",
+      "marker": {
+        "kind": "authority",
+        "summary": "You need to approve the new recipient before the Reno outreach email can be sent.",
+        "outcome": "No email was sent.",
+        "nextStep": "Approve the recipient on the Reno recipient-approval card.",
+        "ownerNeed": "Will you approve the new recipient on the Reno recipient-approval card?",
+        "ownerNeedHandoff": "00000000-0000-4000-8000-000000000007"
+      },
+      "protocolErrors": [],
+      "visibleWords": 43,
+      "usage": {
+        "input": 1798,
+        "output": 444,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 2242,
+        "reasoningTokens": 252,
+        "cost": {
+          "input": 0.007192,
+          "output": 0.00888,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.016072
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "Clearly say it has not been sent, because this question asks about sending.",
+        "Link the ready draft and existing recipient approval, without asking for a duplicate key.",
+        "Distinguish working email capability from missing authority and do not claim delivery."
+      ]
+    },
+    {
+      "case": "email-status",
+      "variant": "after",
+      "ms": 7065,
+      "visible": "Not yet. The send was blocked because the new recipient hasn’t been approved, and provider records confirm nothing was sent. The [email draft](/company/outputs/reno-outreach-draft.md) is ready; approve the recipient on the [existing approval card](/reno?item=00000000-0000-4000-8000-000000000007). Resend is connected and its key is valid, so that approval is the only missing step.",
+      "marker": {
+        "kind": "authority",
+        "summary": "The outreach email remains unsent pending new-recipient approval.",
+        "outcome": "The send boundary refused delivery and provider records show no send.",
+        "nextStep": "Send the prepared email after recipient approval.",
+        "ownerNeed": "Approve the new recipient on the existing approval card.",
+        "ownerNeedHandoff": "00000000-0000-4000-8000-000000000007"
+      },
+      "protocolErrors": [],
+      "visibleWords": 49,
+      "usage": {
+        "input": 944,
+        "output": 300,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 1244,
+        "reasoningTokens": 110,
+        "cost": {
+          "input": 0.003776,
+          "output": 0.006,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.009776
+        },
+        "premiumRequests": 0
+      },
+      "qualityRubric": [
+        "Clearly say it has not been sent, because this question asks about sending.",
+        "Link the ready draft and existing recipient approval, without asking for a duplicate key.",
+        "Distinguish working email capability from missing authority and do not claim delivery."
+      ]
+    }
+  ],
+  "finishedAt": "2026-10-29T19:33:21.776Z"
+}
