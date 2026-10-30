@@ -270,8 +270,14 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   health, principal, Inbox and Work endpoints remained reachable; both scans returned their saved
   file after pressure was released and the daemon restarted. The full workload lifecycle test
   passed, with no fixture cleanup problems and its temporary pool removed. Evidence:
-  `/tmp/s109-library-real-pressure.log`. This is not a separate-owner isolation, CPU-pressure,
-  production or browser-level failure-state test; those remain open. Scratch notes also remain visible in the default Library. Evidence:
+  `/tmp/s109-library-real-pressure.log`. A separate test used two isolated account planes and
+  workload pools on the same host. With the first pool under memory admission pressure, its fresh
+  scan returned 503, the other account's scan returned its file, and all eight health, principal,
+  Inbox and Work checks succeeded. The first scan recovered without restarting its daemon once
+  pressure was released and its safety backoff elapsed. Both planes and pools were removed without
+  cleanup errors. Evidence: `/tmp/s109-library-owner-isolation.log` and the reusable
+  `scripts/verify-library-owner-isolation.py`. This synthetic two-plane test is not production,
+  a CPU-pressure test or a browser-level failure-state test; those remain open. Scratch notes also remain visible in the default Library. Evidence:
   `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 
 
