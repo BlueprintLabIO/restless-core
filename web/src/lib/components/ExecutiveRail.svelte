@@ -598,6 +598,20 @@
 		);
 		return () => clearTimeout(timer);
 	});
+	// Notices must not change the space available to the conversation or composer.
+	$effect(() => {
+		const notice = askNotice;
+		const undoable = noticeUndo?.notice === notice;
+		const waiting = notice === leftForLater;
+		if (!notice) return;
+		const id = untrack(() =>
+			toast(notice, {
+				persist: waiting,
+				...(undoable ? { undo: () => void undoCommand(), expiresAt: Date.now() + 20_000 } : {})
+			})
+		);
+		return () => untrack(() => dismissToast(id));
+	});
 	const commandLogKey = $derived(`restless:exec-commands:${companyId}`);
 	let commandLog = $state<CommandRecord[]>([]);
 	$effect(() => {
@@ -1891,14 +1905,6 @@
 							{/if}
 						{/snippet}
 					</Composer>
-					{#if askNotice}
-						<p class="exr-notice" role="status">
-							{askNotice}{#if noticeUndo?.notice === askNotice}
-								<button type="button" class="exr-undo" onclick={() => void undoCommand()}
-									>Undo</button
-								>{/if}
-						</p>
-					{/if}
 				</form>
 			</div>
 		</div>
@@ -1939,17 +1945,6 @@
 		flex: none;
 		color: var(--text-secondary);
 		font-family: var(--font-mono);
-	}
-	.exr-undo {
-		margin-left: 6px;
-		padding: 0;
-		border: 0;
-		background: none;
-		color: var(--ink);
-		font: inherit;
-		font-weight: 600;
-		text-decoration: underline;
-		cursor: pointer;
 	}
 	.jump-anchor {
 		position: relative;
