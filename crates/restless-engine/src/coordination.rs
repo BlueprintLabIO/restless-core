@@ -1996,9 +1996,17 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         ) {
             (Ok(Some(id)), Some(actor), Some(reason)) => match daemon.orgintel.get(company).await {
                 Ok(org) => match org.escalate_handoff(id, actor, reason).await {
-                    Ok(()) => Response::ok(serde_json::json!({
+                    Ok(restless_orgintel::HandoffEscalation::Escalated) => Response::ok(serde_json::json!({
                         "handoff_id": id, "escalated_from": actor,
                         "now_owed_by": if actor == "exec" { "owner" } else { "exec" },
+                    })),
+                    Ok(restless_orgintel::HandoffEscalation::DeferredUntilAttemptFinishes) => Response::ok(serde_json::json!({
+                        "handoff_id": id, "waiting_for_attempt": true,
+                        "reason": "The work is still running. The review will be checked when it finishes.",
+                    })),
+                    Ok(restless_orgintel::HandoffEscalation::ReturnedForPreparation) => Response::ok(serde_json::json!({
+                        "handoff_id": id, "returned_for_preparation": true,
+                        "reason": "The outcome needs a linked preview before review. The work was returned to its author.",
                     })),
                     Err(error) => Response::err(format!("{error:#}")),
                 },
@@ -2638,6 +2646,11 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 else {
                     return Response::err("work-artifact needs UUID work and attempt");
                 };
+                if kind == restless_orgintel::REVIEW_TARGET_ARTIFACT_KIND
+                    && !supported_review_target(uri)
+                {
+                    return Response::err("A review target must be a viewable file inside /company or an uncredentialed local HTTP preview. Prepare the actual outcome, then link it for review.");
+                }
                 match daemon.orgintel.get(company).await {
                     Ok(org) => {
                         // Runtime generation is host-observed provenance. A
@@ -5304,8 +5317,30 @@ async fn schedule_exists(daemon: &Daemon, company: &str, schedule_id: &str) -> b
     matches!(org.get_schedule(id).await, Ok(Some(row)) if row.cancelled_at.is_none())
 }
 
+/// Use the same target shapes as the owner review renderer. Existence and
+/// runtime availability are checked separately when the prepared item opens.
+fn supported_review_target(uri: &str) -> bool {
+    runtime::runtime_http_target(uri).is_ok()
+        || runtime::is_runtime_review_text_target(uri)
+        || (runtime::is_runtime_review_file_target(uri)
+            && runtime::runtime_review_file_root(uri).is_ok())
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn review_target_requires_a_supported_owner_view() {
+        assert!(super::supported_review_target("/company/output/brief.md"));
+        assert!(super::supported_review_target("/company/output/site.html"));
+        assert!(super::supported_review_target(
+            "http://127.0.0.1:4173/index.html"
+        ));
+        assert!(!super::supported_review_target("/company/output"));
+        assert!(super::supported_review_target("/company/site.html"));
+        assert!(!super::supported_review_target("https://example.com/page"));
+        assert!(!super::supported_review_target("http://localhost:9222/"));
+        assert!(!super::supported_review_target("/company/../secret.txt"));
+    }
     #[test]
     fn only_local_peers_reach_the_coordinator() {
         for local in [

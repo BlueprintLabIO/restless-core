@@ -1093,6 +1093,82 @@ impl OrgIntel {
             WorkAttemptState::Superseded => {}
             WorkAttemptState::Running => unreachable!(),
         }
+        // A review requested while this Attempt was running was durably deferred.
+        // Once the Attempt has actually stopped, return a still-missing candidate to
+        // its author in the same transaction. A newly linked candidate is sent back
+        // to the reviewer for inspection instead of being escalated automatically.
+        {
+            // A reassigned or closed handoff must not keep a stale deferred request.
+            sqlx::query("UPDATE owner_handoffs SET deferred_review_attempt_id=NULL, deferred_review_by=NULL, deferred_review_fingerprint=NULL \
+                WHERE work_id=$1 AND deferred_review_attempt_id=$2 \
+                  AND (state <> 'pending' OR deferred_review_by IS DISTINCT FROM assigned_to)")
+                .bind(work_id).bind(attempt_id).execute(&mut *tx).await?;
+            let deferred = sqlx::query(
+                "SELECT h.id,h.assigned_to,w.owner_id,h.category,h.requested_action,h.prepared_state,h.resume_condition, \
+                        h.deferred_review_fingerprint,h.brief_source_fingerprint, \
+                        COALESCE(h.owner_brief->>'kind'='outcome_review',false) AS is_review \
+                 FROM owner_handoffs h \
+                 JOIN work w ON w.id=h.work_id \
+                 WHERE h.work_id=$1 AND h.attempt_id=$2 AND h.state='pending' \
+                   AND h.deferred_review_attempt_id=$2 AND h.deferred_review_by=h.assigned_to \
+                 ORDER BY h.created_at,h.id FOR UPDATE OF h",
+            )
+            .bind(work_id)
+            .bind(attempt_id)
+            .fetch_all(&mut *tx)
+            .await?;
+            for handoff in deferred {
+                let handoff_id: Uuid = handoff.get("id");
+                let assigned: String = handoff.get("assigned_to");
+                let author: String = handoff.get("owner_id");
+                let fingerprint = crate::types::owner_handoff_source_fingerprint(
+                    work_id,
+                    Some(attempt_id),
+                    handoff.get("category"),
+                    handoff.get::<String, _>("requested_action").as_str(),
+                    handoff.get::<String, _>("prepared_state").as_str(),
+                    handoff.get::<String, _>("resume_condition").as_str(),
+                    work_revision,
+                );
+                let recorded: Option<String> = handoff.get("brief_source_fingerprint");
+                let deferred_fingerprint: Option<String> =
+                    handoff.get("deferred_review_fingerprint");
+                let snapshot_current = handoff.get::<bool, _>("is_review")
+                    && recorded.as_deref() == Some(fingerprint.as_str())
+                    && deferred_fingerprint.as_deref() == Some(fingerprint.as_str());
+                let candidate: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM artifact_refs WHERE work_id=$1 AND attempt_id=$2 \
+                     AND kind='review_target' AND state='available')",
+                )
+                .bind(work_id)
+                .bind(attempt_id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if !candidate
+                    && effective == WorkAttemptState::Blocked
+                    && pending_named_document_review.is_none()
+                    && attempt_revision == work_revision
+                    && snapshot_current
+                {
+                    crate::review::return_unprepared_review_in_tx(
+                        &mut tx, handoff_id, work_id, &assigned, &author,
+                    )
+                    .await?;
+                } else {
+                    sqlx::query("UPDATE owner_handoffs SET delivered_at=NULL, deferred_review_attempt_id=NULL, deferred_review_by=NULL, deferred_review_fingerprint=NULL WHERE id=$1")
+                        .bind(handoff_id)
+                        .execute(&mut *tx)
+                        .await?;
+                    let room =
+                        ensure_direct_message_room_in_tx(&mut tx, &attempt_actor, Some(&assigned))
+                            .await?;
+                    sqlx::query("INSERT INTO messages(room_id,from_actor,to_actor,body) VALUES ($1,$2,$3,$4)")
+                        .bind(room).bind(&attempt_actor).bind(&assigned)
+                        .bind(format!("Attempt {attempt_id} finished. Inspect the current outcome and review handoff {handoff_id} before proceeding."))
+                        .execute(&mut *tx).await?;
+                }
+            }
+        }
         tx.commit().await?;
         Ok(effective)
     }

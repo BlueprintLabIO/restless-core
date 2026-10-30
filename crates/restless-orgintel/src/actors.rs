@@ -1188,7 +1188,12 @@ impl OrgIntel {
     /// remit. Leads and unassigned specialists go to the Exec; the Exec passes
     /// prepared judgement to the person who owns the Work's team, or to the
     /// owner when nobody does; that person may pass it on to the owner.
-    pub async fn escalate_handoff(&self, id: Uuid, from_actor: &str, reason: &str) -> Result<()> {
+    pub async fn escalate_handoff(
+        &self,
+        id: Uuid,
+        from_actor: &str,
+        reason: &str,
+    ) -> Result<HandoffEscalation> {
         if reason.trim().is_empty() {
             return Err(OrgIntelError::InvalidWork(
                 "escalating to the owner needs a reason: the owner is being asked for time, and \
@@ -1269,9 +1274,64 @@ impl OrgIntel {
                 }
             }
         }
+        // Owner-facing outcome reviews must carry the exact linked candidate.
+        // Return incomplete work to its author before it enters a human Inbox.
+        let human_destination =
+            next.is_none() || next.as_deref() == accountability.responsible_actor_id.as_deref();
+        let brief = row
+            .get::<Option<serde_json::Value>, _>("owner_brief")
+            .and_then(|value| serde_json::from_value::<OwnerBrief>(value).ok());
+        if human_destination
+            && brief.is_some_and(|brief| brief.kind == OwnerBriefKind::OutcomeReview)
+        {
+            let candidate: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM artifact_refs WHERE work_id=$1 AND state='available' \
+                 AND kind='review_target' AND ($2::uuid IS NULL OR attempt_id=$2))",
+            )
+            .bind(candidate_work_id)
+            .bind(row.get::<Option<Uuid>, _>("attempt_id"))
+            .fetch_one(&mut *tx)
+            .await?;
+            if !candidate {
+                let running: Option<Uuid> = sqlx::query_scalar(
+                    "SELECT id FROM work_attempts WHERE work_id=$1 AND state='running' LIMIT 1",
+                )
+                .bind(candidate_work_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if let Some(attempt_id) = running {
+                    if row.get::<Option<Uuid>, _>("attempt_id") != Some(attempt_id) {
+                        return Err(OrgIntelError::InvalidWork(
+                            "The running Attempt no longer matches this review.".into(),
+                        ));
+                    }
+                    let fingerprint: Option<String> = row.get("brief_source_fingerprint");
+                    let fingerprint = fingerprint.ok_or_else(|| {
+                        OrgIntelError::InvalidWork(
+                            "The review brief has no current source fingerprint.".into(),
+                        )
+                    })?;
+                    sqlx::query("UPDATE owner_handoffs SET deferred_review_attempt_id=$2, deferred_review_by=$3, deferred_review_fingerprint=$4 WHERE id=$1")
+                        .bind(id).bind(attempt_id).bind(from_actor).bind(fingerprint).execute(&mut *tx).await?;
+                    tx.commit().await?;
+                    return Ok(HandoffEscalation::DeferredUntilAttemptFinishes);
+                }
+                crate::review::return_unprepared_review_in_tx(
+                    &mut tx,
+                    id,
+                    candidate_work_id,
+                    from_actor,
+                    &accountability.owner_id,
+                )
+                .await?;
+                tx.commit().await?;
+                return Ok(HandoffEscalation::ReturnedForPreparation);
+            }
+        }
         let changed = sqlx::query(
             "UPDATE owner_handoffs SET assigned_to=$3, escalated_from=$2, escalated_at=now(), \
-             resolution=$4, delivered_at=NULL \
+             resolution=$4, delivered_at=NULL, deferred_review_attempt_id=NULL, \
+             deferred_review_by=NULL, deferred_review_fingerprint=NULL \
              WHERE id=$1 AND state='pending' AND assigned_to=$2",
         )
         .bind(id)
@@ -1286,7 +1346,7 @@ impl OrgIntel {
             ));
         }
         tx.commit().await?;
-        Ok(())
+        Ok(HandoffEscalation::Escalated)
     }
 
     /// The owner hands a pending owner handoff to a member or admin of the company: it leaves the

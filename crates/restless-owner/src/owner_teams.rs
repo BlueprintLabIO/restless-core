@@ -289,8 +289,16 @@ pub(super) async fn pass_handoff_to_owner(
         .escalate_handoff(handoff, principal.actor_id(), input.reason.trim())
         .await
     {
-        Ok(()) => {
+        Ok(restless_orgintel::HandoffEscalation::Escalated) => {
             Json(serde_json::json!({ "handoff_id": handoff, "passed_to": "owner" })).into_response()
+        }
+        Ok(restless_orgintel::HandoffEscalation::DeferredUntilAttemptFinishes) => {
+            Json(serde_json::json!({ "handoff_id": handoff, "waiting_for_attempt": true }))
+                .into_response()
+        }
+        Ok(restless_orgintel::HandoffEscalation::ReturnedForPreparation) => {
+            Json(serde_json::json!({ "handoff_id": handoff, "returned_for_preparation": true }))
+                .into_response()
         }
         Err(error) => refused("handoff", error),
     }
