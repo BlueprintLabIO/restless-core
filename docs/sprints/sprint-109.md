@@ -96,6 +96,10 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   edit and rename on vault rows.
 - [ ] **A3 Card titles say the action [27].** Steps titled "Confirm your identity" were a GoDaddy
   record and a Cloudflare record. The title comes from what the step asks, not its kind.
+  Ready human-step handoffs now project the current requested action ahead of a generic brief
+  headline. Payment titles and preparing/review states retain their own behavior. Focused engine
+  checks cover distinct DNS actions, blank actions and those existing states; full real-item and
+  production verification remain open.
 - [ ] **A4 A review card carries its work or doesn't ship [8, 30, 31].** Review cards render the
   output inline (doc, page preview, result). A card with no linked preview is refused at creation
   and goes back to its author, instead of showing "No prepared preview was linked" and a Try again
