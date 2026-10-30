@@ -48,7 +48,8 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import CopyButton from '$lib/ui/controls/CopyButton.svelte';
 	import Check from '@lucide/svelte/icons/check';
-	import { failureSentence } from '$lib/model/failure';
+	import { describeFailure, failureSentence } from '$lib/model/failure';
+	import { connection } from '$lib/model/connection.svelte';
 	import {
 		coordinationFailure,
 		judgementHolders,
@@ -69,7 +70,7 @@
 		setGoalDetails,
 		setGoalTeam
 	} from '$lib/model/work-actions';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
 	import { celebrate } from '$lib/ui/celebrate';
 
 	const companyId = $derived(page.params.companyId ?? '');
@@ -154,6 +155,41 @@
 	const graph = $derived(
 		ownerAccess ? (attention?.workGraph ?? null) : (collaboration?.work_graph ?? null)
 	);
+	// A stale board stays in place when its refresh fails. A persistent toast
+	// provides retry; the reserved header control can reopen it if dismissed.
+	const workWarning = $derived.by(() => {
+		const error = graph ? (failure ?? coordination) : null;
+		if (!error) return null;
+		const kind = describeFailure(error, 'Work').kind;
+		if (
+			(kind === 'unreachable' && connection.lost) ||
+			(kind === 'offline' && typeof navigator !== 'undefined' && !navigator.onLine)
+		)
+			return null;
+		return error;
+	});
+	let workWarningToast: number | undefined;
+	function showWorkWarning(error: unknown, company: string) {
+		if (workWarningToast !== undefined) dismissToast(workWarningToast);
+		const view = describeFailure(error, 'Work');
+		const text = `${view.title}. ${view.detail} Showing the last update.`;
+		workWarningToast = toast(text, {
+			tone: 'failure',
+			dedupeKey: `work-refresh:${company}`,
+			...(view.retryable ? { action: { label: 'Retry', run: retryWork } } : {})
+		});
+	}
+	$effect(() => {
+		const error = workWarning;
+		const company = companyId;
+		if (!error) return;
+		untrack(() => showWorkWarning(error, company));
+		return () =>
+			untrack(() => {
+				if (workWarningToast !== undefined) dismissToast(workWarningToast);
+				workWarningToast = undefined;
+			});
+	});
 	const goals = $derived(ownerAccess ? (cockpit?.goals ?? []) : (collaboration?.goals ?? []));
 	const openGoals = $derived(goals.filter((goal) => !goal.closed_at));
 	const closedGoals = $derived(goals.filter((goal) => goal.closed_at));
@@ -933,6 +969,15 @@
 					{#if selectedGoal}<Target size={15} strokeWidth={1.8} aria-hidden="true" />{/if}
 					<h1>{title}</h1>
 					<span class="count" title="Open work">{loaded && openCount ? openCount : ''}</span>
+					<span class="work-warning-slot">
+						{#if workWarning}<button
+								class="work-warning"
+								type="button"
+								aria-label="Show Work refresh problem"
+								title="Work could not refresh"
+								onclick={() => showWorkWarning(workWarning, companyId)}>!</button
+							>{/if}
+					</span>
 					{#if selectedGoal}<button
 							class="clear"
 							type="button"
@@ -1087,15 +1132,6 @@
 
 			<!-- Board padding only for the board itself: empty, loading and failure sit where List puts them. -->
 			<div class="body" class:board={view === 'board' && loaded && !!graph && !noWorkYet}>
-				{#if failure && graph}<FailureNotice
-						error={failure}
-						subject="Work"
-						stale
-						onretry={retryWork}
-					/>{:else if coordination && graph}<FailureNotice
-						error={coordination}
-						onretry={retryWork}
-					/>{/if}
 				{#if selectedGoalRow && loaded && graph}
 					{@const progress = goalProgress(selectedGoalRow.id)}
 					<section class="goal-head" aria-label="About this goal">
@@ -1217,6 +1253,25 @@
 {/if}
 
 <style>
+	.work-warning-slot {
+		width: 24px;
+		height: 24px;
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.work-warning {
+		width: 22px;
+		height: 22px;
+		border: 1px solid var(--border-strong);
+		border-radius: 50%;
+		background: var(--surface-raised);
+		color: var(--state-danger);
+		font-weight: 700;
+		cursor: pointer;
+	}
+
 	/* Filters are controls like the buttons beside them: same height, corners and type, with a
 	 * chevron saying they open a menu. Full-round pills read as out of place (21 October). */
 	.goal-picker :global(summary) {

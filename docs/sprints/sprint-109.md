@@ -305,6 +305,8 @@ entry are required before the next production rollout.
 
 ## Implementation evidence
 
+30 October: the Work stale-refresh warning uses the shared toast rather than inserting a banner above the board. A reserved header control reopens a dismissed warning, and retry and automatic recovery clear it. Against an isolated seeded company, browser checks at 1440px and 390px observed zero board movement during an injected API failure, plus dismissal, rediscovery, retry and automatic-recovery cleanup. The fixture reported no cleanup problems. Chat reconnect/send warnings, broader layout-shift checks, role coverage and an authenticated production walkthrough remain open; C5 and C7 are not complete.
+
 The full checklist above remains the completion target, including deployment and production smoke.
 Do not check an item from compilation or source inspection alone. Each completed ticket records
 its observed scenario, affected layer, removed machinery, and local/production evidence here.
