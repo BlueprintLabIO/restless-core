@@ -1421,15 +1421,27 @@ async fn termination_decision(
     cancellation: &CancellationToken,
     native_accounting: Option<&NativePromptAccounting>,
 ) -> TerminationDecision {
+    // Once polled, the provider may have accepted the request even if the
+    // owner interrupts before a transcript arrives. Do not treat that usage
+    // as zero; a configured token cap must wait for accountable usage.
+    let started = std::sync::atomic::AtomicBool::new(false);
     let prompted = tokio::select! {
+        biased;
         () = cancellation.cancelled() => {
             let _ = session.cancel().await;
+            if started.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Some(accounting) = native_accounting {
+                    if let Err(error) = accounting.unknown() {
+                        tracing::error!(%error, "interrupted native Exec completion usage could not be recorded");
+                    }
+                }
+            }
             return owner_interruption();
         }
-        prompted = tokio::time::timeout(
-            TERMINATION_TIMEOUT,
-            session.prompt_once(TERMINATION_PROMPT),
-        ) => prompted,
+        prompted = tokio::time::timeout(TERMINATION_TIMEOUT, async {
+            started.store(true, std::sync::atomic::Ordering::Relaxed);
+            session.prompt_once(TERMINATION_PROMPT).await
+        }) => prompted,
     };
     let Ok(prompted) = prompted else {
         let _ = session.cancel().await;
@@ -2390,6 +2402,53 @@ mod tests {
         ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
             Box::pin(async { Ok(()) })
         }
+    }
+
+    #[tokio::test]
+    async fn interrupted_native_postflight_records_only_started_usage() {
+        let root =
+            std::env::temp_dir().join(format!("restless-exec-cancel-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let company = "exec_cancel_test";
+        std::fs::write(
+            root.join("companies").join(format!("{company}.toml")),
+            format!("name = \"{company}\"\nnative_monthly_token_limit = 1000\n"),
+        )
+        .unwrap();
+        let spend = crate::spend::SpendLedger::open(&root).unwrap();
+        let accounting = NativePromptAccounting {
+            spend: spend.clone(),
+            auth: acp::AgentAuth {
+                model: "native-codex-oauth/test".into(),
+                effort: "medium".into(),
+                company: company.into(),
+                session_id: "test".into(),
+                coordination_token_env: String::new(),
+                coordination_token: String::new(),
+                gateway_token_env: String::new(),
+                gateway_token: String::new(),
+                gateway_url: String::new(),
+                billing: crate::model_gateway::ModelBilling::Subscription,
+            },
+            responsibility: "test".into(),
+        };
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        termination_decision(&StoppableSession, &cancelled, Some(&accounting)).await;
+        assert_eq!(spend.native_usage(company, chrono::Utc::now()).turns, 0);
+        let cancellation = CancellationToken::new();
+        let (decision, ()) = tokio::join!(
+            termination_decision(&StoppableSession, &cancellation, Some(&accounting)),
+            async {
+                tokio::task::yield_now().await;
+                cancellation.cancel();
+            }
+        );
+        assert_eq!(decision.termination, Termination::Continue);
+        let usage = spend.native_usage(company, chrono::Utc::now());
+        assert_eq!((usage.turns, usage.turns_without_tokens), (1, 1));
+        assert!(accounting.refusal().is_some());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// Stop must stay stopped and Interrupt must not cost an extra turn: an
