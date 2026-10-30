@@ -24,7 +24,9 @@ company = namespace
 slice_name = 'restless-s109pid' + nonce + '.slice'
 unit = Path('/run/systemd/system') / slice_name
 assert not unit.exists(), 'refusing to alter an existing slice'
-image = os.environ.get('RESTLESS_COMPANY_IMAGE', 'restless-company-image:release-connections')
+original_image = os.environ.get('RESTLESS_COMPANY_IMAGE', 'restless-company-image:release-connections')
+alternate_image = os.environ.get('RESTLESS_TEST_ALTERNATE_IMAGE')
+image = 'restless-pidfixture:' + nonce if alternate_image else original_image
 with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
     root = Path(folder)
     for name in ['home', 'plane', 'bin']:
@@ -42,6 +44,11 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
     job = None
     try:
         own_path = str(root / 'bin') + ':' + os.environ['PATH']
+        if alternate_image:
+            original_id = run('docker', 'image', 'inspect', '-f', '{{.Id}}', original_image).stdout.strip()
+            alternate_id = run('docker', 'image', 'inspect', '-f', '{{.Id}}', alternate_image).stdout.strip()
+            assert original_id != alternate_id, 'alternate image must have a different identity'
+            run('docker', 'tag', original_image, image)
         owned_unit = True
         run('sudo', '-n', 'env', 'PATH=' + own_path, 'RESTLESS_HOST_MEMINFO=' + str(root / 'meminfo'),
             'RESTLESS_WORKLOAD_UNIT_DIR=/run/systemd/system', 'bash', str(setup))
@@ -65,6 +72,27 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
             status, _ = plane.owner(company, path)
             assert status == 200, (path, status)
         container = plane.container(company)
+        if alternate_image:
+            browser = f'restless-{namespace}-pc-{company}'
+            before_runtime = run('docker', 'inspect', '-f', '{{.Id}} {{.State.Status}}', container).stdout.strip()
+            before_browser = run('docker', 'inspect', '-f', '{{.Id}} {{.State.Status}}', browser).stdout.strip()
+            assert before_runtime.endswith(' running') and before_browser.endswith(' running')
+            # A changed image would ordinarily cause replacement; while under
+            # pressure the old Runtime must remain exactly where it is.
+            run('docker', 'tag', alternate_image, image)
+            try:
+                plane.raw(company, {'cmd': 'up', 'reconcile': True}, timeout=120)
+                raise AssertionError('replacement was not refused under process pressure')
+            except RuntimeError as error:
+                assert 'process capacity is busy' in str(error), str(error)
+            assert run('docker', 'inspect', '-f', '{{.Id}} {{.State.Status}}', container).stdout.strip() == before_runtime
+            run('docker', 'tag', original_image, image)
+            # A changed home-site list ordinarily replaces the browser. Saving
+            # remains available while the existing browser must stay intact.
+            site_status, _ = plane.owner(company, '/machines/home-sites', {'sites': ['example.test']}, method='PUT')
+            assert site_status == 200, site_status
+            assert run('docker', 'inspect', '-f', '{{.Id}} {{.State.Status}}', browser).stdout.strip() == before_browser
+            print('running Runtime and browser preserved during process pressure', flush=True)
         marker = '/company/run/s109-pid-capacity-marker'
         output = run('docker', 'exec', '-u', 'company', container, 'restless', 'job', 'run',
                      '--cpus', '0.2', '--memory', '128m', '--timeout', '30', '--', 'printf x >> ' + marker).stdout
@@ -119,4 +147,6 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
             run('sudo', '-n', 'rm', '-rf', '--', str(unit) + '.d')
             run('sudo', '-n', 'systemctl', 'daemon-reload')
             print('temporary slice removed:', not unit.exists(), flush=True)
+        if alternate_image:
+            run('docker', 'image', 'rm', image, check=False)
         if problems: raise RuntimeError('temporary plane cleanup failed')

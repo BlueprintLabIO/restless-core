@@ -63,3 +63,15 @@ kernel process rejection in this scenario. Cleanup reported `[]` and the test
 slice was removed. No model provider was called. The owner API used a stub
 cockpit, and this is one job rather than a simultaneous agent/browser, multi-owner
 or production test. The full resource release gate and rollback proof remain open.
+
+An expanded local smoke against the same daemon and isolated owner pool used a
+second existing local image to force Runtime reconciliation, then saved a changed
+browser site list while process admission was busy. The previous Runtime and
+browser container IDs both remained running and unchanged; owner APIs remained
+available, the queued job later ran once, `pids.events` stayed `max 0`, and the
+fixture reported clean plane and slice removal. No paid model was called.
+This proves preservation at the instant of pressure, not automatic application
+afterward. The settings route saves the site list even if browser refresh fails;
+its current code only logs that failure, and a dedicated safe retry and visible
+pending state have not been established. The automatic release roll-forward,
+concurrent actor starts and rollback after pressure changes remain open.
