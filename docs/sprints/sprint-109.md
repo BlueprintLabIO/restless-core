@@ -230,6 +230,102 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
 - [ ] **G5 Scratch out of sight [48].** Agents' working notes leave the owner's default Library
   view. Check the "Folders 2000" count, which looks like a cap.
 
+  The Folders list was capped at the 2,000 newest files. The local change reports when more
+  exist and loads older files in bounded pages, with a timestamp-and-path cursor. Folders is also
+  reachable on a phone, and a search with no loaded matches says older files remain. An isolated
+  owner company with 4,001 same-timestamp files passed three API pages without duplicates and
+  desktop/phone browser checks, including loading the older file. A simulated hidden-tab check
+  verified that visibility changes do not trigger a scan while hidden and do refresh on return.
+  The temporary company and containers were removed. Earlier browser runs had test timing or
+  tooltip expectations wrong and cleaned up. The scanner now keeps at most one page plus one
+  candidate while scanning, preserves Unicode names with tabs/newlines and keeps readable files available if a
+  name cannot be represented as UTF-8. The desktop and phone views warn about omitted names and
+  mark the count incomplete. A repeat isolated 4,004-file run recovered every readable path
+  across three pages with an unsupported name present; its temporary company was removed.
+  Evidence: `/tmp/s109-library-skipped-smoke.log`. An isolated 4,004-file API/browser run covered those names,
+  cursor round trips, hidden files, symlinks and invalid UTF-8; cleanup succeeded. Each page still
+  scans the tree and may retain pending directory paths. An isolated multiplayer journey verified
+  the owner can see an output, while member and admin requests for either page receive 403 and
+  their Library screens do not request or display owner-only paths. The complete journey passed
+  and removed its company, containers, databases and roles; the first two attempts failed because
+  of test-selector and expected-status mistakes and also cleaned up. A repeat of the complete journey verified member and admin Library behavior at
+  desktop and phone widths, including denial of both direct output-page requests; its resources
+  were removed. Evidence: `/tmp/restless-identity-core-evidence-vuelZN/journey.log`. Concurrent
+  production remains to be qualified. A mutation test found that combining a refreshed first page
+  with an earlier cursor could skip a displaced file (`/tmp/s109-library-concurrent-smoke2.log`).
+  The local follow-up fingerprints the scanned listing, rejects an outdated cursor, and offers a
+  refresh without silently merging pages. After a delete, edit and addition, a fresh traversal
+  recovered all 4,004 current files; desktop and phone browsers exercised the warning and refresh.
+  The isolated fixture cleaned up. Evidence: `/tmp/s109-library-revision-smoke4.log`. Earlier
+  browser attempts exposed notices covering controls and a reactive refresh loop; those attempts
+  also cleaned up. A scan is not an atomic filesystem snapshot, and the extra fingerprint work,
+  mutation during a scan and production remain to be checked. The complete isolated multiplayer
+  journey was rerun after this change: owner access and member/admin denial passed at desktop and
+  phone widths, and the test company, containers, databases and roles were removed. Evidence:
+  `/tmp/restless-identity-core-evidence-26Cra8/journey.log` and `/tmp/s109-library-role-revision.log`.
+  A warm-cache local host microbenchmark scanned 20,000 files four times per version, alternating
+  runs: median CPU was 106.60 ms before fingerprinting and 145.75 ms after; median elapsed was
+  112.44 and 153.72 ms. Both returned the same 2,001 records. This approximately 37% CPU increase
+  is per scan on that synthetic filesystem, not a production capacity estimate; each page still
+  scans the tree. The temporary files were removed. Full samples are in
+  `C:/Users/yaoke/AppData/Local/Temp/s109-scan-cost.json`. Larger trees, cold storage, concurrent
+  users, account-pressure effects and peak memory still need measurement before a resource claim.
+  The local scanner now uses the existing per-company diagnostic admission: same-company Python
+  observations serialize, memory pressure defers them, and a Runtime-side deadline limits processes
+  if the host request ends. Eight simultaneous fresh requests returned consistent pages in the
+  isolated 4,004-file browser/API smoke. A focused concurrent-slot test saw a peak of one execution;
+  the existing cancellation/backoff test passed. Evidence: `/tmp/s109-library-bounded-smoke.log`,
+  `/tmp/s109-library-bounded-unit.log` and `/tmp/s109-library-cancel-unit.log`. This does not yet
+  prove the Library behavior under real account or host pressure, or across multiple owners.
+  A subsequent isolated real-cgroup test used two companies in one constrained account pool. Their
+  fresh Library scans returned 503 while the account was under memory admission pressure, while
+  health, principal, Inbox and Work endpoints remained reachable; both scans returned their saved
+  file after pressure was released and the daemon restarted. The full workload lifecycle test
+  passed, with no fixture cleanup problems and its temporary pool removed. Evidence:
+  `/tmp/s109-library-real-pressure.log`. A separate test used two isolated account planes and
+  workload pools on the same host. With the first pool under memory admission pressure, its fresh
+  scan returned 503, the other account's scan returned its file, and all eight health, principal,
+  Inbox and Work checks succeeded. The first scan recovered without restarting its daemon once
+  pressure was released and its safety backoff elapsed. Both planes and pools were removed without
+  cleanup errors. Evidence: `/tmp/s109-library-owner-isolation.log` and the reusable
+  `scripts/verify-library-owner-isolation.py`. This synthetic two-plane test is not production,
+  a CPU-pressure test or a browser-level failure-state test under real pressure; those remain open.
+  The browser now retains a Folders entry with an unknown count and a retry action when the initial
+  file read fails. A local browser test injected two 503 responses at both desktop and phone widths,
+  then verified retry recovered the real 2,000-file listing. The full paging/mutation fixture passed
+  and cleaned up. Evidence: `/tmp/s109-library-unavailable-smoke.log`. The server now marks an
+  expired cached listing stale when a new scan fails; the browser retains saved files with an unknown
+  count and retry notice. Real two-account memory-pressure tests verified that behavior and recovery
+  on desktop and phone while the other account remained readable; both pools were cleaned up.
+  Evidence: `/tmp/s109-library-stale-pressure.log` and `/tmp/s109-library-stale-smoke.log`. The
+  ordinary 30-second first-page cache may serve a recent result before trying a scan; it is not a
+  real-time pressure indicator. CPU pressure, mutation during scanning and production remain open.
+  After merging current main into this branch, the owner crate and web checks and builds passed.
+  A fresh two-account local pressure test (daemon SHA-256 `712c605c7358e94d0bcbd9e4a7339fa95c730715e1e48015298a3523bd6a8a00`)
+  confirmed the pressured listing returned 503, its peer returned 200, all eight entry checks
+  passed, and the pressured listing recovered without restart. Desktop and phone retained
+  cached files, displayed the pressure warning and retried successfully; cleanup reported no
+  problems. This is not a production test or a CPU-pressure test.
+  On the same combined version, the 4,004-file traversal, concurrent reads, unusual names,
+  stale-cursor refresh, and desktop/phone unavailable states passed in a disposable company.
+  A fresh multiplayer journey also passed owner output access and member/admin denial, then
+  removed its test resources; evidence is `/tmp/restless-identity-core-evidence-iO1x09/journey.log`.
+  Its first run stopped before Library checks because this checkout lacked native Sheets worker
+  dependencies; those were installed locally before the passing rerun.
+  A separate two-account local CPU test limited one workload pool to 25% of a core,
+  observed 62 throttled periods while a busy process ran, and successfully read a fresh
+  one-file Library listing plus health, principal, Inbox and Work in each account.
+  All checks took 5.93 seconds and cleanup succeeded. This does not test a large tree
+  under CPU pressure, prolonged load or production. The reusable test is
+  `scripts/verify-library-cpu-isolation.py`.
+  The CPU test was then extended to 4,001 files in the pressured account: all unique
+  files returned across pages while 90 throttled periods were recorded, both accounts passed
+  eight entry checks, the measured checks took 8.76 seconds, and cleanup succeeded.
+  This short local run does not establish sustained load, cold storage or production behavior.
+  Scratch notes also remain visible in the default Library. Evidence:
+  `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
+
+
 ## Track H: new surfaces (design first, build after review)
 
 The owner approved the Resources, Email and map preview layouts on 29 October. Build may proceed;

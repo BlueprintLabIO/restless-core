@@ -82,8 +82,10 @@ async function inspectPlatform(reference: string, platform: string, oras: Contai
 
 /** Exercise the pinned ORAS commands against a real isolated image registry. */
 export async function verifyImageInspection(): Promise<void> {
-  const registry = dag.container().from('registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e')
-    .withExposedPort(5000).asService();
+  // Publishing only starts the registry for the push. Keep the same instance
+  // alive until both reads finish, or its in-memory contents can disappear.
+  const registry = await dag.container().from('registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e')
+    .withExposedPort(5000).asService().start();
   try {
     const image = dag.container().from(NODE_IMAGE);
     // Loopback discovery permits HTTP for this isolated test service. Clients

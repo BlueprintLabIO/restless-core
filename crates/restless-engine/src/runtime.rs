@@ -2972,7 +2972,7 @@ pub async fn docker_observe(args: &[&str]) -> Result<std::process::Output> {
 
 /// Read-only health checks may defer under memory pressure. Lifecycle and
 /// user operations retain their own existing deadlines and admission rules.
-async fn docker_diagnostic(args: &[&str]) -> Result<std::process::Output> {
+pub(crate) async fn docker_diagnostic(args: &[&str]) -> Result<std::process::Output> {
     if STARTUP_RECOVERY_ACTIVE.load(Ordering::SeqCst) {
         bail!("Runtime observation is deferred while startup recovery owns Docker");
     }
@@ -6732,6 +6732,33 @@ mission = "Choose intelligence"
         println!(
             "30 deferred probes: no process growth or child OOM; actual exec recovered after backoff; remote timeout left no process"
         );
+    }
+
+    #[tokio::test]
+    async fn diagnostics_share_one_exec_slot() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let slot = std::sync::Arc::new(tokio::sync::Mutex::new(None));
+        let active = std::sync::Arc::new(AtomicUsize::new(0));
+        let peak = std::sync::Arc::new(AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            let (slot, active, peak) = (slot.clone(), active.clone(), peak.clone());
+            tasks.push(tokio::spawn(async move {
+                super::observe_exec(&slot, async {
+                    let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(now, Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    Ok(())
+                })
+                .await
+                .unwrap();
+            }));
+        }
+        for task in tasks {
+            task.await.unwrap();
+        }
+        assert_eq!(peak.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

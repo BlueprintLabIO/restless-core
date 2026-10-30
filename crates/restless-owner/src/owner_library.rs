@@ -368,9 +368,18 @@ pub(super) async fn archive_work_file(
 /// made (20 October). Owner only; read at most every 30 seconds per company.
 /// Every file under /company/outputs, for the Library's Folders view. Owner only; read from the
 /// company computer, so a sleeping company answers with its last listing (or none).
+#[derive(Debug, Deserialize)]
+pub(super) struct LibraryOutputQuery {
+    modified: Option<i64>,
+    path: Option<String>,
+    revision: Option<String>,
+    fresh: Option<bool>,
+}
+
 pub(super) async fn library_outputs(
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
+    Query(query): Query<LibraryOutputQuery>,
 ) -> Response<Body> {
     static LAST: std::sync::LazyLock<
         std::sync::Mutex<
@@ -380,37 +389,96 @@ pub(super) async fn library_outputs(
     if principal.membership_role() != "owner" || !principal.permits_company(&company) {
         return Json(serde_json::json!({ "files": [] })).into_response();
     }
-    if let Some((at, body)) = LAST
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(&company).cloned())
-    {
-        if at.elapsed() < std::time::Duration::from_secs(30) {
-            return Json(body).into_response();
+    let cursor = match (query.modified, query.path) {
+        (Some(modified), Some(path)) => Some(restless_engine::runtime_files::OutputCursor {
+            modified,
+            path,
+            revision: query.revision,
+        }),
+        (None, None) => None,
+        _ => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "library",
+                "The file page is invalid.",
+            )
         }
-    }
-    let files = restless_engine::runtime_files::output_files(&company)
-        .await
-        .unwrap_or_default();
-    if files.is_empty() {
-        // Asleep or unreachable: keep showing what was there.
-        if let Some((_, body)) = LAST
+    };
+    if cursor.is_none() && !query.fresh.unwrap_or(false) {
+        if let Some((at, body)) = LAST
             .lock()
             .ok()
             .and_then(|cache| cache.get(&company).cloned())
         {
-            return Json(body).into_response();
+            if at.elapsed() < std::time::Duration::from_secs(30) {
+                return Json(body).into_response();
+            }
         }
     }
+    let page = match restless_engine::runtime_files::output_files(&company, cursor.as_ref()).await {
+        Ok(page) => page,
+        Err(_) => {
+            // A sleeping Runtime may use its last first page; never substitute
+            // that page for a failed request for older files.
+            if cursor.is_none() && !query.fresh.unwrap_or(false) {
+                if let Some((_, mut body)) = LAST
+                    .lock()
+                    .ok()
+                    .and_then(|cache| cache.get(&company).cloned())
+                {
+                    // Preserve cached files, while making the failed fresh read explicit.
+                    body["stale"] = serde_json::Value::Bool(true);
+                    return Json(body).into_response();
+                }
+            }
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "library",
+                "Files could not be read. Try again.",
+            );
+        }
+    };
+    if cursor
+        .as_ref()
+        .and_then(|c| c.revision.as_ref())
+        .is_some_and(|revision| revision != &page.revision)
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "library",
+            "Files changed. Refresh the list to continue.",
+        );
+    }
+    let mut files = page.files;
+    let truncated = cap_library_outputs(&mut files);
+    let next_cursor = truncated
+        .then(|| {
+            files
+                .last()
+                .map(|file| restless_engine::runtime_files::OutputCursor {
+                    modified: file.modified,
+                    path: file.path.clone(),
+                    revision: Some(page.revision.clone()),
+                })
+        })
+        .flatten();
     let body = serde_json::json!({
+        "truncated": truncated,
+        "stale": false,
+        "checked_at": chrono::Utc::now().to_rfc3339(),
+        "skipped_names": page.skipped_names,
+        "revision": page.revision,
+        "next_cursor": next_cursor,
         "files": files.iter().map(|file| serde_json::json!({
             "path": file.path,
             "bytes": file.bytes,
             "modified": chrono::DateTime::from_timestamp(file.modified, 0).map(|at| at.to_rfc3339()),
         })).collect::<Vec<_>>(),
     });
-    if let Ok(mut cache) = LAST.lock() {
-        cache.insert(company, (std::time::Instant::now(), body.clone()));
+    if cursor.is_none() {
+        if let Ok(mut cache) = LAST.lock() {
+            cache.insert(company, (std::time::Instant::now(), body.clone()));
+        }
     }
     Json(body).into_response()
 }
@@ -632,5 +700,33 @@ pub(super) async fn remove_archived_work_file(
             "orgintel",
             format!("{error:#}"),
         ),
+    }
+}
+
+// The additional entry proves there are older files without counting the whole tree.
+fn cap_library_outputs(files: &mut Vec<restless_engine::runtime_files::OutputFile>) -> bool {
+    let truncated = files.len() > restless_engine::runtime_files::OUTPUT_LIST_LIMIT;
+    files.truncate(restless_engine::runtime_files::OUTPUT_LIST_LIMIT);
+    truncated
+}
+
+#[cfg(test)]
+mod output_limit_tests {
+    use super::cap_library_outputs;
+    use restless_engine::runtime_files::{OutputFile, OUTPUT_LIST_LIMIT};
+
+    #[test]
+    fn only_reports_more_when_an_extra_file_exists() {
+        let file = OutputFile {
+            path: "/company/outputs/example".into(),
+            bytes: 0,
+            modified: 0,
+        };
+        let mut exact = vec![file.clone(); OUTPUT_LIST_LIMIT];
+        assert!(!cap_library_outputs(&mut exact));
+        assert_eq!(exact.len(), OUTPUT_LIST_LIMIT);
+        let mut more = vec![file; OUTPUT_LIST_LIMIT + 1];
+        assert!(cap_library_outputs(&mut more));
+        assert_eq!(more.len(), OUTPUT_LIST_LIMIT);
     }
 }
