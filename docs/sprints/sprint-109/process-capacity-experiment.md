@@ -110,3 +110,13 @@ After that smoke, code review found that a stopped Runtime cannot answer the
 browser-control probe. The local change skips that probe for an already-stopped
 Runtime; the owner crate compiled, but this stopped-Runtime path needs its own
 live test before release.
+
+The previously untested stopped-Runtime path now passed a disposable local
+smoke against Core `1cde1ea55c5da8478205bfcd93805b6296b5e576` (daemon
+SHA-256 `3442a32f7e78ebd7cf072d5e43f839a9951b202e82ada763c12dea3d49039c39`).
+A stopped company reconciled to a distinct existing local image, retained a
+file in its company volume, and returned a healthy owner principal response.
+The test used no model provider and removed its plane, slice and temporary image
+tag. This checks a single stopped company with available capacity; it does not
+prove pressured upgrades, active owner attachment, simultaneous agents, full
+Cloud rollout or production.
