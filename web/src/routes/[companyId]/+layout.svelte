@@ -1858,7 +1858,7 @@
 		execUnread={!!execUnreadRow && !(execRailOpen && railActorId === 'exec')}
 		execWorking={railActorId === 'exec' &&
 			(railConversation.working || !!railConversation.ambientTurn)}
-		execUnavailable={!!providerIssue}
+		execUnavailable={railConnectionStatus === 'unavailable'}
 		railOpen={execRailOpen}
 		immersive={immersiveComputer}
 		blocked={startupBlocking}
