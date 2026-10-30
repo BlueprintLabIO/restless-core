@@ -219,8 +219,12 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   view. Check the "Folders 2000" count, which looks like a cap.
 
   The Folders list really is capped at the 2,000 newest files. The local count change probes one
-  extra file and shows `2000+` only when older files were omitted; it does not yet provide a way
-  to browse those older files or remove scratch notes from the default view.
+  extra file and shows `2000+` only when older files were omitted; the Folders view now has the
+  right heading and is reachable on a phone. An isolated owner company with exactly 2,000 and
+  then 2,001 files passed the API and desktop/phone browser checks after daemon restart; its
+  containers and data were removed. The earlier browser run had a test URL error and cleaned up.
+  This does not yet let you browse older files or remove scratch notes from the default view;
+  admin/member and production checks remain open. Evidence: `/tmp/s109-library-browser-smoke-final.log`.
 
 ## Track H: new surfaces (design first, build after review)
 

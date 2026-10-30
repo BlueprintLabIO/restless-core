@@ -1241,7 +1241,9 @@
 	const filterLabel = (key: Filter) =>
 		collectionParam && key === 'all'
 			? collectionParam
-			: key === 'pinned'
+			: key === 'folders'
+				? 'Folders'
+				: key === 'pinned'
 				? 'Pinned'
 				: key === 'yours'
 					? 'From you'
@@ -1556,9 +1558,10 @@
 				aria-label="Library"
 				hidden={!!(openFileId || openUploadId || openPath)}
 			>
-				{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
+				{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && folderEntries.length ? [{ key: 'folders' as Filter, label: `Folders ${folderEntries.length}${outputFilesTruncated ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
 					<a
 						href={filterHref(item.key)}
+						title={item.key === 'folders' && outputFilesTruncated ? 'Showing the newest 2,000 files; older files are not listed' : undefined}
 						class:active={filter === item.key && !collectionParam}
 						aria-current={filter === item.key && !collectionParam ? 'page' : undefined}
 						>{item.label}</a
@@ -1660,11 +1663,14 @@
 				<header class="head">
 					<h1>{filterLabel(filter)}</h1>
 					<span class="head-count"
-						>{(!query && !collectionParam && !byParam && !sinceParam && filter === 'docs'
-							? counts.docs
-							: !query && !collectionParam && !byParam && !sinceParam && filter === 'all'
-								? counts.all
-								: shown.length) || ''}</span
+						title={filter === 'folders' && outputFilesTruncated ? 'Showing the newest 2,000 files; older files are not listed' : undefined}
+						>{filter === 'folders' && outputFilesTruncated && !query && !byParam && !sinceParam
+							? `${shown.length}+`
+							: ((!query && !collectionParam && !byParam && !sinceParam && filter === 'docs'
+								? counts.docs
+								: !query && !collectionParam && !byParam && !sinceParam && filter === 'all'
+									? counts.all
+									: shown.length) || '')}</span
 					>
 					{#if filter === 'yours' && keptUsage}<span
 							class="usage"
