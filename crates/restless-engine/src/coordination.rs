@@ -1996,9 +1996,13 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         ) {
             (Ok(Some(id)), Some(actor), Some(reason)) => match daemon.orgintel.get(company).await {
                 Ok(org) => match org.escalate_handoff(id, actor, reason).await {
-                    Ok(()) => Response::ok(serde_json::json!({
+                    Ok(restless_orgintel::HandoffEscalation::Escalated) => Response::ok(serde_json::json!({
                         "handoff_id": id, "escalated_from": actor,
                         "now_owed_by": if actor == "exec" { "owner" } else { "exec" },
+                    })),
+                    Ok(restless_orgintel::HandoffEscalation::ReturnedForPreparation) => Response::ok(serde_json::json!({
+                        "handoff_id": id, "returned_for_preparation": true,
+                        "reason": "The outcome needs a linked preview before review. The work was returned to its author.",
                     })),
                     Err(error) => Response::err(format!("{error:#}")),
                 },

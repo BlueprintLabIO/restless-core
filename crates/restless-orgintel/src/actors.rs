@@ -1188,7 +1188,12 @@ impl OrgIntel {
     /// remit. Leads and unassigned specialists go to the Exec; the Exec passes
     /// prepared judgement to the person who owns the Work's team, or to the
     /// owner when nobody does; that person may pass it on to the owner.
-    pub async fn escalate_handoff(&self, id: Uuid, from_actor: &str, reason: &str) -> Result<()> {
+    pub async fn escalate_handoff(
+        &self,
+        id: Uuid,
+        from_actor: &str,
+        reason: &str,
+    ) -> Result<HandoffEscalation> {
         if reason.trim().is_empty() {
             return Err(OrgIntelError::InvalidWork(
                 "escalating to the owner needs a reason: the owner is being asked for time, and \
@@ -1269,6 +1274,65 @@ impl OrgIntel {
                 }
             }
         }
+        // Owner-facing outcome reviews must carry the exact linked candidate.
+        // Return incomplete work to its author before it enters a human Inbox.
+        let human_destination =
+            next.is_none() || next.as_deref() == accountability.responsible_actor_id.as_deref();
+        let brief = row
+            .get::<Option<serde_json::Value>, _>("owner_brief")
+            .and_then(|value| serde_json::from_value::<OwnerBrief>(value).ok());
+        if human_destination
+            && brief.is_some_and(|brief| brief.kind == OwnerBriefKind::OutcomeReview)
+        {
+            let candidate: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM artifact_refs WHERE work_id=$1 AND state='available' \
+                 AND kind='review_target' AND ($2::uuid IS NULL OR attempt_id=$2))",
+            )
+            .bind(candidate_work_id)
+            .bind(row.get::<Option<Uuid>, _>("attempt_id"))
+            .fetch_one(&mut *tx)
+            .await?;
+            if !candidate {
+                let running: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM work_attempts WHERE work_id=$1 AND state='running')",
+                ).bind(candidate_work_id).fetch_one(&mut *tx).await?;
+                if running {
+                    return Err(OrgIntelError::InvalidWork(
+                        "The outcome has no linked preview and its Attempt is still running. Let it finish preparing before requesting review again.".into(),
+                    ));
+                }
+                let feedback = "The review has no linked prepared preview. Prepare and link the actual outcome before requesting review again.";
+                sqlx::query("UPDATE owner_handoffs SET state='resolved', resolution=$2, resolved_at=now() WHERE id=$1")
+                    .bind(id).bind(feedback).execute(&mut *tx).await?;
+                let room = ensure_direct_message_room_in_tx(
+                    &mut tx,
+                    from_actor,
+                    Some(&accountability.owner_id),
+                )
+                .await?;
+                let message: i64 = sqlx::query_scalar(
+                    "INSERT INTO messages (room_id,from_actor,to_actor,body) VALUES ($1,$2,$3,$4) RETURNING id",
+                ).bind(room).bind(from_actor).bind(&accountability.owner_id).bind(feedback)
+                    .fetch_one(&mut *tx).await?;
+                sqlx::query(
+                    "INSERT INTO work_feedback (work_id,message_id,linked_by) VALUES ($1,$2,$3)",
+                )
+                .bind(candidate_work_id)
+                .bind(message)
+                .bind(from_actor)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query("UPDATE work SET status='active', resolution=$2, \
+                    attempt_limit=CASE WHEN attempt_limit IS NOT NULL \
+                      AND NOT EXISTS (SELECT 1 FROM work_attempts a WHERE a.work_id=work.id AND a.state='running') \
+                      AND (SELECT count(*) FROM work_attempts a WHERE a.work_id=work.id AND a.revision=work.revision AND a.state <> 'superseded') >= attempt_limit \
+                      AND attempt_limit < 2147483647 THEN attempt_limit + 1 ELSE attempt_limit END \
+                    WHERE id=$1")
+                    .bind(candidate_work_id).bind(feedback).execute(&mut *tx).await?;
+                tx.commit().await?;
+                return Ok(HandoffEscalation::ReturnedForPreparation);
+            }
+        }
         let changed = sqlx::query(
             "UPDATE owner_handoffs SET assigned_to=$3, escalated_from=$2, escalated_at=now(), \
              resolution=$4, delivered_at=NULL \
@@ -1286,7 +1350,7 @@ impl OrgIntel {
             ));
         }
         tx.commit().await?;
-        Ok(())
+        Ok(HandoffEscalation::Escalated)
     }
 
     /// The owner hands a pending owner handoff to a member or admin of the company: it leaves the

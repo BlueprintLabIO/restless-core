@@ -25,20 +25,6 @@ async fn work_for(org: &OrgIntel, owner: &str, title: &str) -> uuid::Uuid {
     .unwrap()
 }
 
-async fn judgement(org: &OrgIntel, by: &str, work: uuid::Uuid) -> uuid::Uuid {
-    org.request_owner_handoff(NewOwnerHandoff {
-        work_id: work,
-        attempt_id: None,
-        requested_by: by,
-        category: OwnerHandoffCategory::OwnerJudgement,
-        requested_action: "choose the offer price",
-        prepared_state: "two priced options are ready",
-        resume_condition: "a price is chosen",
-    })
-    .await
-    .unwrap()
-}
-
 fn review_brief() -> OwnerBrief {
     OwnerBrief {
         kind: OwnerBriefKind::OutcomeReview,
@@ -69,8 +55,58 @@ async fn to_person(
     lead: &str,
     title: &str,
 ) -> (uuid::Uuid, uuid::Uuid) {
-    let work = work_for(org, staff, title).await;
-    let handoff = judgement(org, staff, work).await;
+    let work = org
+        .add_work(NewWork {
+            owner_id: staff,
+            title,
+            outcome: "an outcome that needs a judgement",
+            goal_id: None,
+            priority: 100,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    let attempt = org
+        .claim_ready_work("prepare team review")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(attempt.work.id, work);
+    let handoff = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: work,
+            attempt_id: Some(attempt.attempt_id),
+            requested_by: staff,
+            category: OwnerHandoffCategory::OwnerJudgement,
+            requested_action: "Review the offer",
+            prepared_state: "The offer is prepared",
+            resume_condition: "A decision is recorded",
+        })
+        .await
+        .unwrap();
+    org.link_work_artifact(restless_orgintel::NewArtifactRef {
+        kind: "review_target",
+        uri: "/company/output/offer.md",
+        note: "Prepared offer",
+        created_by: staff,
+        work_id: Some(work),
+        attempt_id: Some(attempt.attempt_id),
+        digest: None,
+        source_commit: None,
+        runtime_generation: None,
+        label: "Offer",
+    })
+    .await
+    .unwrap();
+    org.finish_work_attempt(
+        attempt.attempt_id,
+        restless_orgintel::WorkAttemptState::Blocked,
+        "awaiting review",
+    )
+    .await
+    .unwrap();
     assert_eq!(assigned(org, handoff).await.as_deref(), Some(lead));
     org.escalate_handoff(handoff, lead, "the price is the team's person's call")
         .await

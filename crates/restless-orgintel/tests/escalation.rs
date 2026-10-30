@@ -299,7 +299,24 @@ async fn concurrent_owner_review_decisions_serialize_at_the_outer_work_lock() {
     .await
     .unwrap();
     let work_id = work_for(&org, "review-builder", "Review one exact outcome").await;
-    let handoff_id = judgement(&org, "review-builder", work_id).await;
+    let attempt = org
+        .claim_ready_work("prepare review fixture")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(attempt.work.id, work_id);
+    let handoff_id = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id,
+            attempt_id: Some(attempt.attempt_id),
+            requested_by: "review-builder",
+            category: OwnerHandoffCategory::OwnerJudgement,
+            requested_action: "decide",
+            prepared_state: "prepared",
+            resume_condition: "a decision is recorded",
+        })
+        .await
+        .unwrap();
     org.escalate_handoff(
         handoff_id,
         "review-direction",
@@ -311,6 +328,27 @@ async fn concurrent_owner_review_decisions_serialize_at_the_outer_work_lock() {
         handoff_id,
         "exec",
         owner_brief(OwnerBriefKind::OutcomeReview, "Review the exact outcome"),
+    )
+    .await
+    .unwrap();
+    org.link_work_artifact(restless_orgintel::NewArtifactRef {
+        kind: "review_target",
+        uri: "/company/output/review.md",
+        note: "Prepared",
+        created_by: "review-builder",
+        work_id: Some(work_id),
+        attempt_id: Some(attempt.attempt_id),
+        digest: None,
+        source_commit: None,
+        runtime_generation: None,
+        label: "Prepared",
+    })
+    .await
+    .unwrap();
+    org.finish_work_attempt(
+        attempt.attempt_id,
+        restless_orgintel::WorkAttemptState::Blocked,
+        "awaiting review",
     )
     .await
     .unwrap();
@@ -405,9 +443,6 @@ async fn displayed_review_version_refuses_refreshed_briefs_and_replaced_candidat
     )
     .await
     .unwrap();
-    org.escalate_handoff(handoff, "exec", "The owner reviews the candidate")
-        .await
-        .unwrap();
     let first = org
         .link_work_artifact(NewArtifactRef {
             kind: "review_target",
@@ -421,6 +456,9 @@ async fn displayed_review_version_refuses_refreshed_briefs_and_replaced_candidat
             runtime_generation: None,
             label: "First candidate",
         })
+        .await
+        .unwrap();
+    org.escalate_handoff(handoff, "exec", "The owner reviews the candidate")
         .await
         .unwrap();
     org.finish_work_attempt(
@@ -596,8 +634,33 @@ async fn displayed_review_version_refuses_refreshed_briefs_and_replaced_candidat
         WorkStatus::Completed
     );
 
-    let missing_work = work_for(&org, "exec", "Return an outcome without a candidate").await;
-    let missing_handoff = judgement(&org, "exec", missing_work).await;
+    let missing_work = work_for(
+        &org,
+        "review-producer",
+        "Return an outcome without a candidate",
+    )
+    .await;
+    let missing_attempt = org
+        .claim_ready_work("prepare missing review fixture")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(missing_attempt.work.id, missing_work);
+    let missing_handoff = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: missing_work,
+            attempt_id: Some(missing_attempt.attempt_id),
+            requested_by: "exec",
+            category: OwnerHandoffCategory::OwnerJudgement,
+            requested_action: "decide",
+            prepared_state: "prepared",
+            resume_condition: "a decision is recorded",
+        })
+        .await
+        .unwrap();
+    org.escalate_handoff(missing_handoff, "review-producer", "Needs Exec review")
+        .await
+        .unwrap();
     org.prepare_owner_brief(
         missing_handoff,
         "exec",
@@ -631,6 +694,28 @@ async fn displayed_review_version_refuses_refreshed_briefs_and_replaced_candidat
         WorkStatus::Blocked
     );
 
+    let temporary = org
+        .link_work_artifact(NewArtifactRef {
+            kind: "review_target",
+            uri: "/company/output/temporary.md",
+            note: "Prepared",
+            created_by: "review-producer",
+            work_id: Some(missing_work),
+            attempt_id: Some(missing_attempt.attempt_id),
+            digest: None,
+            source_commit: None,
+            runtime_generation: None,
+            label: "Prepared",
+        })
+        .await
+        .unwrap();
+    org.finish_work_attempt(
+        missing_attempt.attempt_id,
+        WorkAttemptState::Blocked,
+        "awaiting review",
+    )
+    .await
+    .unwrap();
     org.escalate_handoff(
         missing_handoff,
         "exec",
@@ -638,6 +723,10 @@ async fn displayed_review_version_refuses_refreshed_briefs_and_replaced_candidat
     )
     .await
     .unwrap();
+    assert!(org
+        .retire_work_artifact(temporary, "exec", "No longer available")
+        .await
+        .unwrap());
     let graph = org.work_graph_snapshot().await.unwrap();
     let missing = OwnerReviewVersion {
         handoff: graph
@@ -675,6 +764,112 @@ async fn displayed_review_version_refuses_refreshed_briefs_and_replaced_candidat
     )
     .await
     .unwrap();
+    let incomplete_work = work_for(&org, "review-producer", "Prepare a missing review").await;
+    let incomplete_attempt = org
+        .claim_ready_work("prepare incomplete fixture")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(incomplete_attempt.work.id, incomplete_work);
+    let incomplete = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: incomplete_work,
+            attempt_id: Some(incomplete_attempt.attempt_id),
+            requested_by: "review-producer",
+            category: OwnerHandoffCategory::OwnerJudgement,
+            requested_action: "Review the outcome",
+            prepared_state: "Ready for review",
+            resume_condition: "A decision is recorded",
+        })
+        .await
+        .unwrap();
+    org.prepare_owner_brief(
+        incomplete,
+        "exec",
+        owner_brief(OwnerBriefKind::OutcomeReview, "Missing preview"),
+    )
+    .await
+    .unwrap();
+    let running_error = org
+        .escalate_handoff(incomplete, "exec", "Ready to review")
+        .await
+        .unwrap_err();
+    assert!(running_error.to_string().contains("still running"));
+    let running_graph = org.work_graph_snapshot().await.unwrap();
+    assert_eq!(
+        running_graph
+            .handoffs
+            .iter()
+            .find(|row| row.id == incomplete)
+            .unwrap()
+            .state,
+        OwnerHandoffState::Pending
+    );
+    assert!(!owner_queue(&org).await.contains(&incomplete));
+    org.finish_work_attempt(
+        incomplete_attempt.attempt_id,
+        WorkAttemptState::Blocked,
+        "awaiting review",
+    )
+    .await
+    .unwrap();
+    let first_sender = org.clone();
+    let second_sender = org.clone();
+    let (first, second) = tokio::join!(
+        first_sender.escalate_handoff(incomplete, "exec", "Ready to review"),
+        second_sender.escalate_handoff(incomplete, "exec", "Ready to review"),
+    );
+    assert_eq!(
+        [first.as_ref().ok(), second.as_ref().ok()]
+            .into_iter()
+            .filter(|result| *result
+                == Some(&restless_orgintel::HandoffEscalation::ReturnedForPreparation))
+            .count(),
+        1
+    );
+    let graph = org.work_graph_snapshot().await.unwrap();
+    let handoff = graph
+        .handoffs
+        .iter()
+        .find(|row| row.id == incomplete)
+        .unwrap();
+    assert_eq!(handoff.state, OwnerHandoffState::Resolved);
+    assert!(handoff.resolution.contains("preview"));
+    assert_eq!(
+        graph
+            .work
+            .iter()
+            .find(|row| row.id == incomplete_work)
+            .unwrap()
+            .status,
+        WorkStatus::Active
+    );
+    assert!(!owner_queue(&org).await.contains(&incomplete));
+    let feedback = org.work_feedback(incomplete_work).await.unwrap();
+    assert_eq!(
+        feedback
+            .iter()
+            .filter(
+                |message| message.to_actor.as_deref() == Some("review-producer")
+                    && message.body.contains("preview")
+            )
+            .count(),
+        1
+    );
+    assert!(org
+        .escalate_handoff(incomplete, "exec", "Retry")
+        .await
+        .is_err());
+    let retry = org
+        .claim_ready_work("repair returned review")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(retry.work.id, incomplete_work);
+    assert!(retry
+        .feedback
+        .iter()
+        .any(|message| message.body.contains("preview")));
     org.drop_schema().await.unwrap();
 }
 
