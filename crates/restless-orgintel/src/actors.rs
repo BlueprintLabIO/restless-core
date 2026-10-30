@@ -288,6 +288,26 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Hold an active actor's row while a previously admitted local job starts.
+    /// Retirement locks the same row, so it cannot cross that start boundary.
+    /// This transaction carries no changes and may be rolled back after launch.
+    pub async fn lock_active_actor_for_job(
+        &self,
+        actor_id: &str,
+    ) -> Result<Option<sqlx::Transaction<'_, sqlx::Postgres>>> {
+        let mut tx = self.pool.begin().await?;
+        let active: Option<bool> = sqlx::query_scalar(
+            "SELECT true FROM actors WHERE id=$1 AND retired_at IS NULL FOR UPDATE",
+        )
+        .bind(actor_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if active.is_none() {
+            return Ok(None);
+        }
+        Ok(Some(tx))
+    }
+
     /// Retire a durable actor without erasing attribution. Historical Work,
     /// messages and effects continue to name the same actor; only future
     /// assignment and owner surfaces stop treating it as available.

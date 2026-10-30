@@ -21,6 +21,11 @@ use sqlx::PgPool;
 /// The longest a job may run.
 const MAX_TIMEOUT_SECS: u64 = 6 * 60 * 60;
 const DEFAULT_TIMEOUT_SECS: u64 = 60 * 60;
+/// Bound durable pending containers per account; running jobs are capacity-limited separately.
+const MAX_WAITING_LOCAL_JOBS: usize = 64;
+// Avoid holding one authority DB connection per concurrent submitter while
+// the cross-generation advisory lock and Docker creation are in progress.
+static LOCAL_JOB_SUBMISSION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -458,6 +463,41 @@ async fn machine_status(
     Ok(None)
 }
 
+/// Parse Docker's byte notation without accepting overflow or non-finite values.
+fn job_memory_bytes(value: &str) -> Option<u64> {
+    let value = value.trim().to_ascii_lowercase();
+    let split = value
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(value.len());
+    let (number, suffix) = value.split_at(split);
+    let scale: u64 = match suffix.trim_end_matches('b') {
+        "" => 1,
+        "k" => 1024,
+        "m" => 1024 * 1024,
+        "g" => 1024 * 1024 * 1024,
+        _ => return None,
+    };
+    let mut parts = number.split('.');
+    let whole: u64 = parts.next()?.parse().ok()?;
+    let mut result = whole.checked_mul(scale)?;
+    if let Some(fraction) = parts.next() {
+        if fraction.is_empty()
+            || fraction.len() > 9
+            || !fraction.bytes().all(|b| b.is_ascii_digit())
+        {
+            return None;
+        }
+        let fraction: u64 = fraction.parse().ok()?;
+        let denominator = 10u64.checked_pow(number.split('.').nth(1)?.len() as u32)?;
+        let scaled = fraction.checked_mul(scale)?;
+        result = result.checked_add(scaled.div_ceil(denominator))?;
+    }
+    if parts.next().is_some() || result == 0 {
+        return None;
+    }
+    Some(result)
+}
+
 fn job_container(company: &str, id: &str) -> String {
     format!("{}-job-{id}", crate::runtime::container_name(company))
 }
@@ -472,6 +512,7 @@ pub async fn run(
     company: &str,
     actor: &str,
     request: &JobRequest,
+    wake: &tokio::sync::Notify,
 ) -> Result<serde_json::Value> {
     if request.on.is_some() || request.repo.is_some() {
         return run_on_machine(pool, company, actor, request).await;
@@ -491,8 +532,76 @@ pub async fn run(
     let host_cpus = std::thread::available_parallelism().map_or(1, usize::from) as f64;
     let cpus = request.cpus.unwrap_or(host_cpus).clamp(0.1, host_cpus);
     let memory = crate::runtime::fit_job_memory(request.memory.as_deref());
+    let memory_bytes = memory
+        .as_deref()
+        .and_then(job_memory_bytes)
+        .context("give the job a finite memory limit, such as 512m or 2g")?;
+    if let Some(ceiling) = crate::runtime::shared_job_hard_ceiling()? {
+        if memory_bytes > ceiling {
+            bail!("This job requests more memory than the account can admit. Request at most {} MiB or increase the account limit; no job was started.", ceiling / (1024 * 1024));
+        }
+    }
+    let _submission = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        LOCAL_JOB_SUBMISSION.lock(),
+    )
+    .await
+    .context("The account job queue is busy. Try again shortly.")?;
+    // Do not create a saved job after this company has been destroyed. The
+    // lifecycle lock also makes an in-flight create finish before destruction
+    // removes the company's job containers and volume.
+    let _company_guard = crate::runtime::company_start_guard(company).await;
+    crate::runtime::CompanyConfig::load(&crate::runtime::state_root(), company)
+        .context("The company is no longer available; no job was started")?;
+    // Multiple daemon generations may overlap during an upgrade. Serialize
+    // the inventory-and-create boundary in the existing shared authority DB.
+    let scope = format!(
+        "namespace:{}",
+        std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default()
+    );
+    let mut queue_lock = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))")
+        .bind("restless.local-job-queue")
+        .bind(&scope)
+        .execute(&mut *queue_lock)
+        .await?;
+    let scope_filter = format!("label=restless.job.scope={scope}");
+    let waiting = crate::runtime::docker_bounded(
+        &[
+            "ps",
+            "-a",
+            "--filter",
+            "label=restless.job.queue=1",
+            "--filter",
+            &scope_filter,
+            "--filter",
+            "status=created",
+            "--format",
+            "{{.Names}}",
+        ],
+        std::time::Duration::from_secs(10),
+    )
+    .await?;
+    anyhow::ensure!(
+        waiting.status.success(),
+        "the account job queue is temporarily unavailable"
+    );
+    anyhow::ensure!(
+        String::from_utf8_lossy(&waiting.stdout)
+            .lines()
+            .filter(|name| name
+                .rsplit_once("-job-")
+                .is_some_and(|(_, id)| valid_id(id.strip_suffix("-preparing").unwrap_or(id))))
+            .count()
+            < MAX_WAITING_LOCAL_JOBS,
+        "The account job queue is full. Wait for a queued job to start before submitting another."
+    );
     let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
     let name = job_container(company, &id);
+    // A preparation is not executable by the scheduler until a successful
+    // rename marks it accepted. If Docker accepted create but its response
+    // times out, an orphan cannot later run behind a caller's retry.
+    let preparing = format!("{name}-preparing");
     let log = format!("/company/run/jobs/{id}.log");
     // The command runs under `timeout`, its output to the log, so an agent reads it with ordinary
     // file tools and a runaway job ends by itself.
@@ -504,14 +613,18 @@ pub async fn run(
     let command_env = format!("RESTLESS_JOB_COMMAND={command}");
     let company_label = format!("restless.company={company}");
     let actor_label = format!("restless.job.actor={actor}");
+    let scope_label = format!("restless.job.scope={scope}");
     let image = crate::runtime::company_image();
     let mut args: Vec<&str> = vec![
-        "run",
-        "-d",
+        "create",
         "--name",
-        &name,
+        &preparing,
         "--label",
         "restless.job=1",
+        "--label",
+        "restless.job.queue=1",
+        "--label",
+        &scope_label,
         "--label",
         &company_label,
         "--label",
@@ -541,22 +654,317 @@ pub async fn run(
         args.extend(["--cgroup-parent", parent]);
     }
     args.extend([image.as_str(), "-c", script.as_str()]);
-    let output = crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(60)).await?;
+    let output = match crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(60))
+        .await
+    {
+        Ok(output) => output,
+        Err(error) => {
+            wake.notify_one();
+            return Err(error.context("Job preparation was not confirmed; the job was not started"));
+        }
+    };
     if !output.status.success() {
+        wake.notify_one();
         bail!(
-            "the job could not start: {}",
+            "Job preparation failed; the job was not started: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
+    let renamed = crate::runtime::docker_bounded(
+        &["rename", &preparing, &name],
+        std::time::Duration::from_secs(15),
+    )
+    .await;
+    let confirmed = renamed.is_ok_and(|output| output.status.success());
+    wake.notify_one();
+    // The transaction holds only an advisory lock. Once Docker has accepted
+    // the durable intent, a lost lock-release acknowledgement must not turn
+    // the successful submission into an error and invite a duplicate.
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), queue_lock.rollback()).await;
     Ok(serde_json::json!({
         "job": id,
-        "status": "running",
+        "status": if confirmed { "waiting_for_capacity" } else { "confirmation_unknown" },
+        "reason": if confirmed { "Waiting for account capacity and a running company computer; starts when both are available." } else { "Job confirmation is uncertain. Check its status before submitting another." },
         "log": log,
         "cpus": cpus,
         "memory": memory,
         "timeout_secs": timeout,
         "check": format!("restless job status {id}"),
     }))
+}
+
+/// Reconcile the Docker-owned pending jobs from the existing schedule loop.
+/// Created containers retain the exact job across a daemon restart without
+/// starting its command; only this loop starts them. Unknown resource readings
+/// leave the intent pending. Returns whether another retry is needed.
+pub async fn reconcile_pending(daemon: &crate::Daemon, companies: &[String]) -> Result<bool> {
+    let output = crate::runtime::docker_bounded(
+        &[
+            "ps",
+            "-a",
+            "--filter",
+            "label=restless.job=1",
+            "--filter",
+            "status=created",
+            "--filter",
+            "status=running",
+            "--filter",
+            "status=paused",
+            "--filter",
+            "status=restarting",
+            "--format",
+            "{{.Names}}",
+        ],
+        std::time::Duration::from_secs(10),
+    )
+    .await?;
+    anyhow::ensure!(output.status.success(), "job inventory unavailable");
+    let names: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|name| {
+            companies.iter().any(|company| {
+                name.strip_prefix(&job_container(company, ""))
+                    .is_some_and(|suffix| {
+                        valid_id(suffix.strip_suffix("-preparing").unwrap_or(suffix))
+                    })
+            })
+        })
+        .map(str::to_owned)
+        .collect();
+    if names.is_empty() {
+        return Ok(false);
+    }
+    // One bounded Docker inspection for the whole pool avoids one process per
+    // queued job during each pressure retry.
+    let mut args = vec![
+        "inspect",
+        "-f",
+        r#"{"name":{{json .Name}},"state":{{json .State.Status}},"memory":{{.HostConfig.Memory}},"created":{{json .Created}},"queued":{{json (index .Config.Labels "restless.job.queue")}},"actor":{{json (index .Config.Labels "restless.job.actor")}}}"#,
+    ];
+    args.extend(names.iter().map(String::as_str));
+    let info = crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(10)).await?;
+    anyhow::ensure!(info.status.success(), "job resource inventory unavailable");
+    let text = String::from_utf8_lossy(&info.stdout);
+    let mut jobs = Vec::new();
+    for line in text.lines() {
+        let row: serde_json::Value = serde_json::from_str(line)?;
+        let name = row["name"]
+            .as_str()
+            .context("missing job name")?
+            .trim_start_matches('/');
+        let company = companies
+            .iter()
+            .find(|company| {
+                name.strip_prefix(&job_container(company, ""))
+                    .is_some_and(|suffix| {
+                        valid_id(suffix.strip_suffix("-preparing").unwrap_or(suffix))
+                    })
+            })
+            .context("job inventory did not match its company")?;
+        let state = row["state"]
+            .as_str()
+            .context("missing job state")?
+            .to_string();
+        let memory = row["memory"].as_u64().context("missing job memory")?;
+        let created = row["created"]
+            .as_str()
+            .context("missing job creation time")?
+            .to_string();
+        let queued = row["queued"].as_str() == Some("1");
+        let actor = row["actor"].as_str().map(str::to_owned);
+        jobs.push((
+            created,
+            name.to_string(),
+            company.clone(),
+            state,
+            memory,
+            queued,
+            actor,
+        ));
+    }
+    anyhow::ensure!(
+        jobs.len() == names.len(),
+        "incomplete job resource inventory"
+    );
+    jobs.sort_by(|a, b| a.0.cmp(&b.0));
+    let pending = jobs.iter().any(|job| job.3 == "created" && job.5);
+    if !pending {
+        return Ok(false);
+    }
+    // Reap old inert preparations only while no submission holds this same
+    // account lock. A late rename and removal cannot both win Docker's name
+    // transition; preparations are never started directly.
+    if jobs.iter().any(|job| {
+        job.3 == "created"
+            && job.5
+            && job.1.ends_with("-preparing")
+            && chrono::DateTime::parse_from_rfc3339(&job.0).is_ok_and(|created| {
+                chrono::Utc::now()
+                    .signed_duration_since(created)
+                    .num_seconds()
+                    >= 120
+            })
+    }) {
+        let scope = format!(
+            "namespace:{}",
+            std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default()
+        );
+        let mut lock = daemon.authority.pool().begin().await?;
+        let acquired: bool =
+            sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtext($1), hashtext($2))")
+                .bind("restless.local-job-queue")
+                .bind(&scope)
+                .fetch_one(&mut *lock)
+                .await?;
+        if acquired {
+            for job in jobs
+                .iter()
+                .filter(|job| job.3 == "created" && job.5 && job.1.ends_with("-preparing"))
+            {
+                let old_enough =
+                    chrono::DateTime::parse_from_rfc3339(&job.0).is_ok_and(|created| {
+                        chrono::Utc::now()
+                            .signed_duration_since(created)
+                            .num_seconds()
+                            >= 120
+                    });
+                if old_enough {
+                    let _ = crate::runtime::docker_bounded(
+                        &["rm", &job.1],
+                        std::time::Duration::from_secs(15),
+                    )
+                    .await;
+                }
+            }
+        }
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), lock.rollback()).await;
+    }
+    let shared = crate::runtime::shared_workload_admission()?;
+    let reserved = jobs
+        .iter()
+        .filter(|job| matches!(job.3.as_str(), "running" | "paused" | "restarting"))
+        .fold(0u64, |sum, job| {
+            if job.4 == 0 {
+                u64::MAX
+            } else {
+                sum.saturating_add(job.4)
+            }
+        });
+    for (_, name, company, _state, memory, _queued, actor) in jobs
+        .iter()
+        .filter(|job| job.3 == "created" && job.5 && !job.1.ends_with("-preparing"))
+    {
+        if let Some(admission) = &shared {
+            if admission.waiting_for_memory
+                || memory == &0
+                || admission
+                    .working_set_bytes
+                    .saturating_add(reserved)
+                    .saturating_add(*memory)
+                    > admission.resume_below_bytes
+            {
+                continue;
+            }
+        }
+        // Serialize with owner stop, sleep and destruction through the same
+        // per-company lifecycle lock used by those operations.
+        let _company_guard = crate::runtime::company_start_guard(company).await;
+        // A stopped or removed Runtime must not be woken by a queued job.
+        if !matches!(
+            crate::runtime::status(company).await,
+            Ok(crate::runtime::ContainerStatus::Running)
+        ) {
+            continue;
+        }
+        match crate::runtime::workload_admission(company).await {
+            Ok(Some(admission)) if admission.waiting_for_memory => continue,
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(company, %error, "waiting job could not read company capacity");
+                continue;
+            }
+        }
+        // A queued command is still attributed to its requester. Serialize
+        // the launch boundary with actor retirement in the source cell.
+        let org = match daemon.orgintel.get(company).await {
+            Ok(org) => org,
+            Err(error) => {
+                tracing::warn!(company, %error, "waiting job cannot read its actor");
+                continue;
+            }
+        };
+        let lease = match actor {
+            Some(actor) => match org.lock_active_actor_for_job(actor).await {
+                Ok(lease) => lease,
+                Err(error) => {
+                    tracing::warn!(company, %error, "waiting job cannot validate its actor");
+                    continue;
+                }
+            },
+            None => None,
+        };
+        let Some(lease) = lease else {
+            // Keep a durable, inspectable refusal; never run the old command.
+            let refused = format!("{name}-refused");
+            let output = crate::runtime::docker_bounded(
+                &["rename", name, &refused],
+                std::time::Duration::from_secs(15),
+            )
+            .await?;
+            anyhow::ensure!(
+                output.status.success(),
+                "could not record a refused waiting job"
+            );
+            continue;
+        };
+        let output =
+            crate::runtime::docker_bounded(&["start", name], std::time::Duration::from_secs(30))
+                .await?;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), lease.rollback()).await;
+        anyhow::ensure!(output.status.success(), "could not start a waiting job");
+        // One start per pass lets live counters settle before admitting another.
+        break;
+    }
+    Ok(true)
+}
+
+/// Remove this company's local jobs before its volume is destroyed. Both the
+/// label and exact namespace-derived name are required to protect other planes.
+pub async fn remove_company_jobs(company: &str) -> Result<()> {
+    let label = format!("label=restless.company={company}");
+    let output = crate::runtime::docker_bounded(
+        &[
+            "ps",
+            "-a",
+            "--filter",
+            "label=restless.job=1",
+            "--filter",
+            &label,
+            "--format",
+            "{{.Names}}",
+        ],
+        std::time::Duration::from_secs(10),
+    )
+    .await?;
+    anyhow::ensure!(output.status.success(), "company job inventory unavailable");
+    let prefix = job_container(company, "");
+    for name in String::from_utf8_lossy(&output.stdout).lines() {
+        if !name.strip_prefix(&prefix).is_some_and(|suffix| {
+            valid_id(
+                suffix
+                    .strip_suffix("-refused")
+                    .or_else(|| suffix.strip_suffix("-preparing"))
+                    .unwrap_or(suffix),
+            )
+        }) {
+            continue;
+        }
+        let removed =
+            crate::runtime::docker_bounded(&["rm", "-f", name], std::time::Duration::from_secs(30))
+                .await?;
+        anyhow::ensure!(removed.status.success(), "company job could not be removed");
+    }
+    Ok(())
 }
 
 /// How a job is doing: running, or finished with its exit code (124 means it ran out of time).
@@ -573,7 +981,7 @@ pub async fn status(pool: &PgPool, company: &str, id: &str) -> Result<serde_json
         &[
             "inspect",
             "-f",
-            "{{.State.Status}} {{.State.ExitCode}} {{.State.StartedAt}} {{.State.FinishedAt}}",
+            r#"{{.State.Status}} {{.State.ExitCode}} {{.State.StartedAt}} {{.State.FinishedAt}} {{json (index .Config.Labels "restless.job.queue")}}"#,
             &name,
         ],
         std::time::Duration::from_secs(10),
@@ -581,6 +989,53 @@ pub async fn status(pool: &PgPool, company: &str, id: &str) -> Result<serde_json
     .await?;
     let log = format!("/company/run/jobs/{id}.log");
     if !output.status.success() {
+        let refused = format!("{name}-refused");
+        let found = crate::runtime::docker_bounded(
+            &["inspect", "-f", "{{.State.Status}}", &refused],
+            std::time::Duration::from_secs(10),
+        )
+        .await?;
+        if found.status.success() {
+            let _ = crate::runtime::docker_bounded(
+                &["rm", &refused],
+                std::time::Duration::from_secs(20),
+            )
+            .await;
+            return Ok(
+                serde_json::json!({ "job": id, "status": "failed", "reason": "The requesting agent is no longer active; this job did not run.", "log": log }),
+            );
+        }
+        let preparing = format!("{name}-preparing");
+        let preparation = crate::runtime::docker_bounded(
+            &["inspect", "-f", "{{.State.Status}}", &preparing],
+            std::time::Duration::from_secs(10),
+        )
+        .await?;
+        if preparation.status.success() {
+            return Ok(
+                serde_json::json!({ "job": id, "status": "confirmation_unknown", "reason": "Job confirmation is uncertain. Check its status before submitting another.", "log": log }),
+            );
+        }
+        // A failed inspect can be a Docker outage or a transient read error,
+        // not evidence the job disappeared. Confirm absence from a successful
+        // inventory before telling a caller it is gone.
+        let filter = format!("name={name}");
+        let inventory = crate::runtime::docker_bounded(
+            &["ps", "-a", "--filter", &filter, "--format", "{{.Names}}"],
+            std::time::Duration::from_secs(10),
+        )
+        .await?;
+        anyhow::ensure!(
+            inventory.status.success(),
+            "Job status is temporarily unavailable. Try again."
+        );
+        let names = String::from_utf8_lossy(&inventory.stdout);
+        anyhow::ensure!(
+            !names
+                .lines()
+                .any(|item| item == name || item == refused || item == preparing),
+            "Job status is temporarily unavailable. Try again."
+        );
         return Ok(serde_json::json!({ "job": id, "status": "gone", "log": log,
             "detail": "No such job is running; a finished job is reported once, then its log remains." }));
     }
@@ -593,6 +1048,12 @@ pub async fn status(pool: &PgPool, company: &str, id: &str) -> Result<serde_json
         .unwrap_or(-1);
     let started = fields.next().unwrap_or_default().to_string();
     let finished = fields.next().unwrap_or_default().to_string();
+    let queued = fields.next() == Some(r#""1""#);
+    if state == "created" && queued {
+        return Ok(
+            serde_json::json!({ "job": id, "status": "waiting_for_capacity", "reason": "Waiting for account capacity and a running company computer; starts when both are available.", "log": log }),
+        );
+    }
     if state == "running" || state == "created" {
         return Ok(
             serde_json::json!({ "job": id, "status": "running", "started_at": started, "log": log }),
@@ -617,6 +1078,22 @@ pub fn request(value: Option<&serde_json::Value>) -> Result<JobRequest> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn job_memory_parsing_is_finite_and_checked() {
+        assert_eq!(super::job_memory_bytes("512m"), Some(512 * 1024 * 1024));
+        assert_eq!(super::job_memory_bytes("1.5g"), Some(1536 * 1024 * 1024));
+        assert_eq!(super::job_memory_bytes("0.1k"), Some(103));
+        assert_eq!(super::job_memory_bytes("0"), None);
+        assert_eq!(super::job_memory_bytes("NaN"), None);
+        assert_eq!(super::job_memory_bytes("18446744073709551615g"), None);
+        // The host fitting step must not panic before job validation rejects it.
+        assert_eq!(
+            crate::runtime::fit_job_memory(Some("18446744073709551615g")).as_deref(),
+            Some("18446744073709551615g")
+        );
+        assert_eq!(super::job_memory_bytes("1.2.3g"), None);
+    }
+
     #[test]
     fn job_ids_are_twelve_hex_characters() {
         assert!(super::valid_id("0123456789ab"));

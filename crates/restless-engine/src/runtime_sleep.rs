@@ -404,8 +404,10 @@ async fn wake(daemon: &Daemon, config: &CompanyConfig, reason: &str) -> bool {
         tracing::warn!(company, reason, "{message}");
         false
     };
-    if let Err(error) = runtime::up(config, false).await {
-        return failed(format!("could not wake the company computer: {error:#}"));
+    match runtime::up_automatically(config).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return false,
+        Err(error) => return failed(format!("could not wake the company computer: {error:#}")),
     }
     if !matches!(runtime::status(company).await, Ok(ContainerStatus::Running)) {
         return failed("the company computer did not come up after waking".into());
