@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentRouteState } from './intelligence-route.ts';
+import { agentPickerSelection, agentRouteState } from './intelligence-route.ts';
 import type { IntelligenceView } from './intelligence.svelte';
 
 const connected: IntelligenceView = {
@@ -61,4 +61,16 @@ test('an agent without an explicit assignment uses its actual model provider, no
 		),
 		'ready'
 	);
+	const eames = view.agents.find((agent) => agent.id === 'eames')!;
+	assert.equal(agentPickerSelection(view, eames), null);
+	const withOpenAI: IntelligenceView = {
+		...view,
+		connections: [
+			{ id: 'account:openai@fixture', provider: 'openai', kind: 'direct', loaded: true }
+		]
+	};
+	assert.deepEqual(agentPickerSelection(withOpenAI, eames), {
+		connection: 'account:openai@fixture',
+		model: 'gpt-example'
+	});
 });
