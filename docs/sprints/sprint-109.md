@@ -247,7 +247,17 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   The isolated fixture cleaned up. Evidence: `/tmp/s109-library-revision-smoke4.log`. Earlier
   browser attempts exposed notices covering controls and a reactive refresh loop; those attempts
   also cleaned up. A scan is not an atomic filesystem snapshot, and the extra fingerprint work,
-  mutation during a scan, role regression on this latest change and production remain to be checked. Scratch notes also remain visible in the default Library. Evidence:
+  mutation during a scan and production remain to be checked. The complete isolated multiplayer
+  journey was rerun after this change: owner access and member/admin denial passed at desktop and
+  phone widths, and the test company, containers, databases and roles were removed. Evidence:
+  `/tmp/restless-identity-core-evidence-26Cra8/journey.log` and `/tmp/s109-library-role-revision.log`.
+  A warm-cache local host microbenchmark scanned 20,000 files four times per version, alternating
+  runs: median CPU was 106.60 ms before fingerprinting and 145.75 ms after; median elapsed was
+  112.44 and 153.72 ms. Both returned the same 2,001 records. This approximately 37% CPU increase
+  is per scan on that synthetic filesystem, not a production capacity estimate; each page still
+  scans the tree. The temporary files were removed. Full samples are in
+  `C:/Users/yaoke/AppData/Local/Temp/s109-scan-cost.json`. Larger trees, cold storage, concurrent
+  users, account-pressure effects and peak memory still need measurement before a resource claim. Scratch notes also remain visible in the default Library. Evidence:
   `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 
 
