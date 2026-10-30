@@ -5313,11 +5313,11 @@ mod tests {
             handoff.id, "owner", restless_orgintel::OwnerReviewDecision::Accepted,
             "", &displayed_version,
         ).await;
-        assert!(decision.is_err(), "a missing preview must not be accepted");
-
+        // Clean up even when the regression is still present and the assertion fails.
         if std::env::var("RESTLESS_S17_REVIEW_TEST_PRESERVE_STATE").as_deref() != Ok("1") {
             org.drop_schema().await.unwrap();
         }
+        assert!(decision.is_err(), "a missing preview must not be accepted");
     }
 
     #[test]
