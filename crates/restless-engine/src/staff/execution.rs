@@ -998,11 +998,25 @@ enum CompletionRepairOutcome {
 }
 
 impl StaffDrive {
+    fn record_prompt(&self, transcript: &acp::TurnTranscript) -> Result<()> {
+        self.spend.record_native_transcript(
+            &self.auth,
+            &self.actor,
+            &self.responsibility,
+            self.work_id,
+            self.attempt_id,
+            transcript,
+        )
+    }
+
     async fn repair_completion_envelope(&self, malformed: &str) -> CompletionRepairOutcome {
         use restless_orgintel::{
             CompletionRepairDecision, ModelInvocationAdmissionDecision, ModelInvocationOutcome,
             ModelInvocationSettlement, NewModelInvocationAdmission,
         };
+        if let Some(reason) = self.spend.native_turn_refusal(&self.company, &self.model) {
+            return CompletionRepairOutcome::Blocked(reason, None);
+        }
         let (Some(work_id), Some(attempt_id)) = (self.work_id, self.attempt_id) else {
             return CompletionRepairOutcome::Blocked(
                 "completion protocol is malformed; there is no claimed Work Attempt to repair"
@@ -1281,6 +1295,29 @@ impl StaffDrive {
             acp::required_readiness_text(&readiness, "model").unwrap_or(&self.model);
         let session_id = acp::required_readiness_text(&readiness, "session_id").unwrap_or_default();
         let usage = transcript.usage;
+        if let Err(error) = self.spend.record_native_transcript(
+            &repair_auth,
+            &self.actor,
+            &responsibility,
+            Some(work_id),
+            Some(attempt_id),
+            &transcript,
+        ) {
+            tracing::error!(company = %self.company, %error, "native completion correction usage could not be recorded");
+            if let Err(settlement_error) = self.org.settle_model_invocation(
+                &admission,
+                ModelInvocationSettlement {
+                    outcome: ModelInvocationOutcome::Blocked,
+                    evidence: serde_json::json!({"phase":"completion_repair", "reason":"native_usage_unavailable"}),
+                },
+            ).await {
+                tracing::warn!(%settlement_error, "could not settle completion correction after usage failure");
+            }
+            return CompletionRepairOutcome::Blocked(
+                "[budget] Completion correction usage could not be recorded. This session has stopped.".into(),
+                usage,
+            );
+        }
         let mut session_recorded = false;
         if let Ok(launch_id) = acp::required_readiness_text(&readiness, "launch_id") {
             if let (
@@ -1456,6 +1493,9 @@ impl StaffDrive {
         let mut repeats = 0u32;
         let mut continues = 0u32;
         loop {
+            if let Some(reason) = self.spend.native_turn_refusal(&self.company, &self.model) {
+                return Ok((Termination::Blocked, reason, spent, None));
+            }
             session.set_live_observer_enabled(true);
             // A person's direct message steers a running Work turn: the turn
             // stops at once and the message is handed to the same session as
@@ -1491,6 +1531,16 @@ impl StaffDrive {
                 .await;
             if let Some(steer) = steer {
                 steer.abort();
+            }
+            if let Err(error) = self.record_prompt(end.transcript()) {
+                tracing::error!(company = %self.company, %error, "native turn usage could not be recorded");
+                return Ok((
+                    Termination::Blocked,
+                    "[budget] Native turn usage could not be recorded. This session has stopped."
+                        .into(),
+                    spent,
+                    None,
+                ));
             }
             if let Some(usage) = end.usage() {
                 spent.push(usage);
@@ -1594,6 +1644,9 @@ impl StaffDrive {
                 continue;
             }
 
+            if let Some(reason) = self.spend.native_turn_refusal(&self.company, &self.model) {
+                return Ok((Termination::Blocked, reason, spent, None));
+            }
             session.set_live_observer_enabled(false);
             let end = tokio::time::timeout(
                 STAFF_TERMINATION_TIMEOUT,
@@ -1607,6 +1660,12 @@ impl StaffDrive {
             .await;
             let Ok(end) = end else {
                 let _ = session.cancel().await;
+                // The request may have reached the harness even though its
+                // result did not return. Preserve unknown native usage so a
+                // configured token cap cannot silently admit another turn.
+                if let Err(error) = self.record_prompt(&acp::TurnTranscript::default()) {
+                    tracing::error!(company = %self.company, %error, "timed-out native completion usage could not be recorded");
+                }
                 return Ok((
                     Termination::Blocked,
                     format!(
@@ -1617,6 +1676,15 @@ impl StaffDrive {
                     None,
                 ));
             };
+            if let Err(error) = self.record_prompt(end.transcript()) {
+                tracing::error!(company = %self.company, %error, "native completion usage could not be recorded");
+                return Ok((
+                    Termination::Blocked,
+                    "[budget] Native completion usage could not be recorded. This session has stopped.".into(),
+                    spent,
+                    None,
+                ));
+            }
             if let Some(usage) = end.usage() {
                 spent.push(usage);
             }
@@ -1902,6 +1970,168 @@ mod loop_detection_tests {
             turn("Checking the page", &["browser"]),
             turn("Checking the page", &["browser", "shell"])
         );
+    }
+}
+
+#[cfg(test)]
+mod native_staff_cap_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct FakeNativeSession {
+        calls: AtomicUsize,
+        missing_usage: bool,
+        malformed_completion: bool,
+    }
+    impl CognitiveSession for FakeNativeSession {
+        fn readiness_observation(&self) -> serde_json::Value {
+            serde_json::json!({"launch_id": uuid::Uuid::new_v4().to_string(), "harness":"test", "harness_build":"test", "transport":"test", "model":"native-codex-oauth/test", "configured_effort":"medium", "session_id":"test", "resumed":false, "reconstructed":false})
+        }
+        fn set_live_observer_enabled(&self, _: bool) {}
+        fn cancel<'a>(
+            &'a self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn prompt_staff<'a>(
+            &'a self,
+            _: &'a str,
+            _: bool,
+            _: f64,
+            _: &'a CancellationToken,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>>
+        {
+            Box::pin(async move {
+                let call = self.calls.fetch_add(1, Ordering::SeqCst);
+                let mut transcript = acp::TurnTranscript::default();
+                transcript.text = if call == 0 {
+                    "Productive work completed".into()
+                } else if self.malformed_completion {
+                    "not a completion decision".into()
+                } else {
+                    r#"{"decision":"outcome_met","reason":"Done"}"#.into()
+                };
+                transcript.last_message_text = transcript.text.clone();
+                if !self.missing_usage {
+                    transcript.usage = Some(acp::TurnUsage {
+                        turn_id: transcript.turn_id(),
+                        used: 10,
+                        size: 1000,
+                        turn_tokens: Some(50),
+                        ..Default::default()
+                    });
+                }
+                acp::TurnEnd::Completed { transcript }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn native_staff_rechecks_before_completion_and_records_unknown_turns() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping native Staff cap scenario");
+            return;
+        };
+        let root = std::path::PathBuf::from(
+            std::env::var("RESTLESS_NATIVE_TEST_ROOT").expect("set an isolated test root"),
+        );
+        for (limits, missing, malformed, expected_calls, blocked) in [
+            ("native_monthly_turn_limit = 1", false, false, 1, true),
+            ("native_monthly_token_limit = 40", false, false, 1, true),
+            ("native_monthly_token_limit = 100", true, false, 1, true),
+            ("native_monthly_turn_limit = 2", false, true, 2, true),
+            ("native_monthly_turn_limit = 2", false, false, 2, false),
+            ("", false, false, 2, false),
+        ] {
+            let company = format!(
+                "staffcap_{}_test",
+                &uuid::Uuid::new_v4().simple().to_string()[..10]
+            );
+            let work_root = root.join(&company);
+            std::fs::create_dir_all(work_root.join("companies")).unwrap();
+            std::fs::write(
+                work_root.join("companies").join(format!("{company}.toml")),
+                format!("name = \"{company}\"\n{limits}\n"),
+            )
+            .unwrap();
+            let org = restless_orgintel::OrgIntel::ensure(&url, &company)
+                .await
+                .unwrap();
+            org.ensure_actor("exec", "exec", "exec", "Exec")
+                .await
+                .unwrap();
+            let model = "native-codex-oauth/test";
+            let auth = AgentAuth {
+                model: model.into(),
+                effort: "medium".into(),
+                company: company.clone(),
+                session_id: "test".into(),
+                coordination_token_env: String::new(),
+                coordination_token: String::new(),
+                gateway_token_env: String::new(),
+                gateway_token: String::new(),
+                gateway_url: String::new(),
+                billing: crate::model_gateway::ModelBilling::Subscription,
+            };
+            let ledger = SpendLedger::open(&work_root).unwrap();
+            let session = FakeNativeSession {
+                calls: AtomicUsize::new(0),
+                missing_usage: missing,
+                malformed_completion: malformed,
+            };
+            let drive = StaffDrive {
+                event_actor: "exec".into(),
+                org: org.clone(),
+                work_id: None,
+                responsibility: "test".into(),
+                turn_prompt: "Do the work".into(),
+                attempt_id: None,
+                remaining_budget_usd: 0.0,
+                enforce_spend_budget: false,
+                turn_kind: StaffTurnKind::Work,
+                container: String::new(),
+                workdir: String::new(),
+                company: company.clone(),
+                actor: "exec".into(),
+                model: model.into(),
+                auth,
+                worker_harness: crate::runtime::AgentHarness::Codex,
+                runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+                hosted_identity: None,
+                capabilities: crate::capability::CapabilityIssuer::open(&work_root).unwrap(),
+                spend: ledger.clone(),
+                spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(0),
+                task: "Deliver".into(),
+                productive_invocation_id: uuid::Uuid::new_v4(),
+                termination_prompt: SPECIALIST_TERMINATION_PROMPT,
+                cancellation: CancellationToken::new(),
+            };
+            let result = drive.run(&session).await.unwrap();
+            assert_eq!(
+                session.calls.load(Ordering::SeqCst),
+                expected_calls,
+                "{limits} missing={missing}"
+            );
+            assert_eq!(
+                matches!(result.0, Termination::Blocked),
+                blocked,
+                "{limits} missing={missing}: {}",
+                result.1
+            );
+            if malformed {
+                assert!(
+                    result.1.starts_with("[budget]"),
+                    "the correction must respect the native limit: {}",
+                    result.1
+                );
+            }
+            let recorded = ledger.native_usage(&company, chrono::Utc::now());
+            assert_eq!(recorded.turns, expected_calls as u64);
+            if missing {
+                assert_eq!(recorded.turns_without_tokens, 1);
+            }
+            org.drop_schema().await.unwrap();
+        }
     }
 }
 

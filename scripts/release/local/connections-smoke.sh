@@ -2,7 +2,7 @@
 # The connections smoke on the exact release candidate, as the GitHub release workflow ran it before
 # ADR 0010 (restless-cloud): build restlessd, restless and the company image from this checkout,
 # then drive the daemon, CLI, company image and host tools end to end. Live CPU/RAM controls
-# and normal-scheduler idle checks follow using the same built daemon and company image.
+# normal-scheduler idle checks and native Staff cap checks follow on isolated fixtures.
 #
 # Fast lane: the smoke never touches the cockpit or the docs, so when nothing else changed since a
 # run that passed on this computer it would test identical bytes again; it says so and skips.
@@ -43,5 +43,6 @@ RESTLESSD_BIN="$CARGO_TARGET_DIR/debug/restlessd" \
   python3 scripts/verify-compute-limits.py --image "$image" --output "$evidence/compute-limits"
 RESTLESSD_BIN="$CARGO_TARGET_DIR/debug/restlessd" \
   python3 scripts/verify-ai-idle.py --image "$image" --output "$evidence/ai-idle"
+python3 scripts/verify-native-staff-cap.py
 mkdir -p "$passed" && printf '%s\n' "$revision" >"$passed/$inputs"
 find "$passed" -type f -printf '%T@ %p\n' | sort -rn | tail -n +41 | cut -d' ' -f2- | xargs -r rm -f
