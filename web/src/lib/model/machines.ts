@@ -59,6 +59,7 @@ export interface CompanyMachines {
 	move: MoveProgress | null;
 	/** Sites this company reaches through the owner's own computer, from a home IP. */
 	home_sites?: string[];
+	computer_refresh_pending?: boolean | null;
 }
 
 export async function listMachines(): Promise<Machine[]> {

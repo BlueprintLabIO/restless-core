@@ -170,6 +170,11 @@ try {
 		);
 		sample.work_admission.scope = 'shared';
 		sample.work_admission.waiting_for_memory = false;
+		sample.work_admission.waiting_for_processes = true;
+		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
+		await compute.getByText('Waiting for process capacity', { exact: true }).waitFor();
+		assert(Math.abs((await bounds()).top - after.top) <= 1, 'Process capacity wait must not move the next section');
+		sample.work_admission.waiting_for_processes = false;
 		await compute.getByRole('button', { name: 'Refresh resource readings' }).click();
 		await compute.getByText('Memory available', { exact: true }).waitFor();
 		actorCapacity.waiting_for_memory = true;

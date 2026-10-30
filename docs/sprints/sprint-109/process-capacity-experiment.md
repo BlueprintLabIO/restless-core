@@ -120,3 +120,12 @@ The test used no model provider and removed its plane, slice and temporary image
 tag. This checks a single stopped company with available capacity; it does not
 prove pressured upgrades, active owner attachment, simultaneous agents, full
 Cloud rollout or production.
+
+The owner machines API now exposes whether a saved home-site change is still
+waiting to be applied, so the status survives a page reload. A local smoke with
+daemon SHA-256 `1ab3c1fb0374668215365d74cf8d2b4f401486e68a240b8831ee710d2ad8d77a` observed the pending status before and after a plane
+restart and its clearance after application. It also preserved the browser
+through a synthetic owner lease and resumed a queued job exactly once; cleanup
+reported no problems and removed the temporary slice. Frontend static checks
+passed. The owner-facing status has not yet been visually tested, and this does
+not establish the production resource guarantees listed above.

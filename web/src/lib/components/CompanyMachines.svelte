@@ -144,9 +144,14 @@
 			{/if}
 			{#if helperChoices.length}
 				<h3>Sites through your computer</h3>
-				<p class="hint">
-					Marketplaces block cloud addresses. These sites go out from your computer's home
-					connection; everything else keeps running here.
+				<p class="hint sites-hint" role="status">
+					<span class:hidden={view.computer_refresh_pending === true}>
+						Marketplaces block cloud addresses. These sites go out from your computer's home
+						connection; everything else keeps running here.
+					</span>
+					<span class:hidden={view.computer_refresh_pending !== true}>
+						Sites are saved and will take effect when the company computer is available and no one is using it.
+					</span>
 				</p>
 				<EditorForm>
 					<HomeSitesEditor
@@ -217,6 +222,15 @@
 		margin: 0;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
+	}
+	.sites-hint {
+		display: grid;
+	}
+	.sites-hint span {
+		grid-area: 1 / 1;
+	}
+	.sites-hint .hidden {
+		visibility: hidden;
 	}
 	.lend {
 		display: grid;

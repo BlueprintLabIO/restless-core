@@ -280,6 +280,9 @@ pub(super) async fn company(
         "can_manage": principal.is_account_owner(),
         "move": restless_engine::machine_move::progress(&company),
         "home_sites": home_sites,
+        "computer_refresh_pending": if principal.is_account_owner() {
+            runtime::computer_refresh_pending(&state.daemon.root, &company).ok()
+        } else { None },
     }))
     .into_response()
 }
