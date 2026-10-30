@@ -12,7 +12,10 @@ export function agentRouteState(view: IntelligenceView | null, actorId: string):
 	if (view.has_connections === null) return 'checking';
 	const agent = view.agents.find((row) => row.id === actorId);
 	if (!agent) return 'checking';
-	const selected = agent.assignment ?? view.default ?? view.base_default ?? null;
+	// With no explicit assignment/default, the agent's saved preference may
+	// use a different provider from the company's base model. The daemon uses
+	// that effective model for this agent, so resolve its provider below.
+	const selected = agent.assignment ?? view.default ?? null;
 	let connection = selected
 		? view.connections.find((row) => row.id === selected.connection)
 		: undefined;
