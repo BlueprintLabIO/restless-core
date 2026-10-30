@@ -2298,6 +2298,7 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
     match attached.as_deref() {
         Some(id) if id == runtime_id && sites_current && parent_current => {
             if container_state(&name).await? != ContainerStatus::Running {
+                let _account_start = account_lifecycle_guard().await;
                 require_shared_process_start_headroom()?;
                 if config.compute_limits.is_some() {
                     compute_limits::apply_locked(config, ComputeTarget::Computer).await?;
@@ -2306,15 +2307,16 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
             }
             return Ok(());
         }
-        Some(_) => {
-            // Check before retiring an existing desktop so pressure cannot
-            // replace a working computer with an unstartable one.
-            require_shared_process_start_headroom()?;
-            remove_computer(company).await;
-        }
-        None => {
-            require_shared_process_start_headroom()?;
-        }
+        _ => {}
+    }
+    // A running, already-correct computer returns above without waiting for
+    // another company's startup. Hold the shared guard only when changing it.
+    let _account_start = account_lifecycle_guard().await;
+    require_shared_process_start_headroom()?;
+    if attached.is_some() {
+        // Check before retiring an existing desktop so pressure cannot
+        // replace a working computer with an unstartable one.
+        remove_computer(company).await;
     }
     let network = format!("container:{runtime}");
     let computer_of = format!("{COMPUTER_OF_LABEL}={runtime_id}");
@@ -2403,7 +2405,6 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
 /// Give a running company its computer as the config now says (home sites changed).
 pub async fn refresh_computer(config: &CompanyConfig) -> Result<()> {
     let _start = company_start_guard(&config.name).await;
-    let _account_start = account_lifecycle_guard().await;
     ensure_computer(config).await
 }
 
@@ -3174,7 +3175,7 @@ pub async fn up_automatically(config: &CompanyConfig) -> Result<Option<String>> 
 }
 
 async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
-    let _account_start = account_lifecycle_guard().await;
+    let mut account_start = None;
     let company = &config.name;
     let mut current = config.clone();
     if let Ok(latest) = CompanyConfig::load(&state_root(), company) {
@@ -3201,6 +3202,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                 || !container_uses_workload_parent(&container_name(company)).await?)
         {
             // Preserve the old shell if process capacity cannot admit its replacement.
+            account_start = Some(account_lifecycle_guard().await);
             require_shared_process_start_headroom()?;
             // Reconciliation replaces the shell. A configured monthly hours
             // cap must gate that replacement before it stops live work.
@@ -3245,6 +3247,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
         }
         ContainerStatus::Stopped => {
             if !replaced {
+                account_start = Some(account_lifecycle_guard().await);
                 require_shared_process_start_headroom()?;
                 crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
             }
@@ -3260,6 +3263,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
         }
         ContainerStatus::Absent => {
             if !replaced {
+                account_start = Some(account_lifecycle_guard().await);
                 require_shared_process_start_headroom()?;
                 crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
             }
@@ -3411,6 +3415,8 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             }
         }
     }
+    // Browser creation takes the same guard separately; never hold it twice.
+    drop(account_start);
     // The company computer beside its Runtime (S104 F2). A computer that fails to start leaves the
     // agents working; the doctor reports the missing desktop.
     if let Err(error) = ensure_computer(config).await {

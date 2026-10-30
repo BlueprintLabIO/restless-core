@@ -42,3 +42,11 @@ crate compiles with this change. This does not yet coordinate independent agent
 starts, guarantee a Docker start cancelled after timeout, or establish that a
 replacement can always roll back. The real-pressure fixture remains unrun and
 this is not a production isolation claim.
+
+The account lifecycle lock is now taken only for an actual Runtime or browser
+start/replacement, not for the already-running no-op path; the browser acquires
+it separately after Runtime startup to avoid recursive locking. This reduces
+head-of-line blocking but has only passed an owner-crate build check. It has not
+yet passed live concurrency, cancellation, upgrade or user-interface tests.
+Independent ACP agent startups remain outside the boundary, and replacing a live
+container still needs a proved rollback when capacity changes after admission.
