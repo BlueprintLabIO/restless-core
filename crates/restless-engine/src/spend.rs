@@ -306,6 +306,12 @@ pub fn native_limit_reason(config: &CompanyConfig, usage: &NativeUsage) -> Optio
                 config.name, usage.tokens
             ));
         }
+        if usage.turns_without_tokens > 0 {
+            return Some(format!(
+                "[budget] {} has native turns without reported token usage this month, so its token limit cannot be checked. Native work is paused until the limit is cleared or usage can be accounted for.",
+                config.name
+            ));
+        }
     }
     None
 }
@@ -903,7 +909,22 @@ impl SpendLedger {
                 ))
             }
         };
-        native_limit_reason(&config, &self.native_usage(company, Utc::now()))
+        if config.native_monthly_turn_limit.is_none() && config.native_monthly_token_limit.is_none()
+        {
+            return None;
+        }
+        let usage = self.store(company).and_then(|store| {
+            store
+                .native_usage_since_checked(company, month_start(Utc::now()))
+                .map_err(|error| anyhow::anyhow!("native usage unavailable: {error}"))
+        });
+        match usage {
+            Ok(usage) => native_limit_reason(&config, &usage),
+            Err(error) => {
+                tracing::warn!(company, %error, "native usage could not be checked");
+                Some(format!("[budget] {company}'s native usage could not be checked, so no native turn starts while a limit is set."))
+            }
+        }
     }
 
     /// S04-T1. Drop a destroyed company's accounted spend.
@@ -1165,6 +1186,76 @@ mod tests {
         write_limits("");
         assert_eq!(ledger.native_turn_refusal(company, model), None);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn native_token_cap_refuses_when_recorded_usage_is_unknown() {
+        let root = std::env::temp_dir().join(format!("restless-native-unknown-{}", Uuid::new_v4()));
+        let company = "native_unknown_test";
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        std::fs::write(
+            root.join("companies").join(format!("{company}.toml")),
+            format!("name = \"{company}\"\nnative_monthly_token_limit = 100\n"),
+        )
+        .unwrap();
+        let ledger = SpendLedger::open(&root).unwrap();
+        let auth = native_auth(company, "native-codex-oauth/test", "session");
+        let mut turn = native_turn(1);
+        turn.turn_tokens = None;
+        ledger.record_native_turns(&auth, "exec", "exec", None, None, &[turn]);
+        assert_eq!(
+            ledger
+                .native_usage(company, Utc::now())
+                .turns_without_tokens,
+            1
+        );
+        let refusal = ledger.native_turn_refusal(company, &auth.model);
+        assert!(
+            refusal.is_some(),
+            "unknown token use must not pass an owner token cap"
+        );
+        drop(ledger);
+        let ledger = SpendLedger::open(&root).unwrap();
+        assert!(
+            ledger.native_turn_refusal(company, &auth.model).is_some(),
+            "unknown usage survives restart"
+        );
+        std::fs::write(
+            root.join("companies").join(format!("{company}.toml")),
+            format!("name = \"{company}\"\nnative_monthly_turn_limit = 2\n"),
+        )
+        .unwrap();
+        assert_eq!(
+            ledger.native_turn_refusal(company, &auth.model),
+            None,
+            "missing tokens do not block a turn-only cap"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn native_cap_refuses_when_its_usage_store_cannot_open() {
+        let root = std::env::temp_dir().join(format!("restless-native-store-{}", Uuid::new_v4()));
+        let company = "native_store_test";
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        std::fs::write(
+            root.join("companies").join(format!("{company}.toml")),
+            format!("name = \"{company}\"\nnative_monthly_turn_limit = 2\n"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("cells").join(company)).unwrap();
+        std::fs::write(
+            root.join("cells").join(company).join("spend"),
+            "not a directory",
+        )
+        .unwrap();
+        let ledger = SpendLedger::open(&root).unwrap();
+        let refusal = ledger.native_turn_refusal(company, "native-codex-oauth/test");
+        assert!(
+            refusal.is_some(),
+            "an unreadable usage store must not pass an owner cap"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// The relay's exact charge for one supervised model session.
