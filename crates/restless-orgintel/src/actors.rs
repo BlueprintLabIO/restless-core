@@ -1293,49 +1293,45 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !candidate {
-                let running: bool = sqlx::query_scalar(
-                    "SELECT EXISTS(SELECT 1 FROM work_attempts WHERE work_id=$1 AND state='running')",
-                ).bind(candidate_work_id).fetch_one(&mut *tx).await?;
-                if running {
-                    return Err(OrgIntelError::InvalidWork(
-                        "The outcome has no linked preview and its Attempt is still running. Let it finish preparing before requesting review again.".into(),
-                    ));
-                }
-                let feedback = "The review has no linked prepared preview. Prepare and link the actual outcome before requesting review again.";
-                sqlx::query("UPDATE owner_handoffs SET state='resolved', resolution=$2, resolved_at=now() WHERE id=$1")
-                    .bind(id).bind(feedback).execute(&mut *tx).await?;
-                let room = ensure_direct_message_room_in_tx(
-                    &mut tx,
-                    from_actor,
-                    Some(&accountability.owner_id),
-                )
-                .await?;
-                let message: i64 = sqlx::query_scalar(
-                    "INSERT INTO messages (room_id,from_actor,to_actor,body) VALUES ($1,$2,$3,$4) RETURNING id",
-                ).bind(room).bind(from_actor).bind(&accountability.owner_id).bind(feedback)
-                    .fetch_one(&mut *tx).await?;
-                sqlx::query(
-                    "INSERT INTO work_feedback (work_id,message_id,linked_by) VALUES ($1,$2,$3)",
+                let running: Option<Uuid> = sqlx::query_scalar(
+                    "SELECT id FROM work_attempts WHERE work_id=$1 AND state='running' LIMIT 1",
                 )
                 .bind(candidate_work_id)
-                .bind(message)
-                .bind(from_actor)
-                .execute(&mut *tx)
+                .fetch_optional(&mut *tx)
                 .await?;
-                sqlx::query("UPDATE work SET status='active', resolution=$2, \
-                    attempt_limit=CASE WHEN attempt_limit IS NOT NULL \
-                      AND NOT EXISTS (SELECT 1 FROM work_attempts a WHERE a.work_id=work.id AND a.state='running') \
-                      AND (SELECT count(*) FROM work_attempts a WHERE a.work_id=work.id AND a.revision=work.revision AND a.state <> 'superseded') >= attempt_limit \
-                      AND attempt_limit < 2147483647 THEN attempt_limit + 1 ELSE attempt_limit END \
-                    WHERE id=$1")
-                    .bind(candidate_work_id).bind(feedback).execute(&mut *tx).await?;
+                if let Some(attempt_id) = running {
+                    if row.get::<Option<Uuid>, _>("attempt_id") != Some(attempt_id) {
+                        return Err(OrgIntelError::InvalidWork(
+                            "The running Attempt no longer matches this review.".into(),
+                        ));
+                    }
+                    let fingerprint: Option<String> = row.get("brief_source_fingerprint");
+                    let fingerprint = fingerprint.ok_or_else(|| {
+                        OrgIntelError::InvalidWork(
+                            "The review brief has no current source fingerprint.".into(),
+                        )
+                    })?;
+                    sqlx::query("UPDATE owner_handoffs SET deferred_review_attempt_id=$2, deferred_review_by=$3, deferred_review_fingerprint=$4 WHERE id=$1")
+                        .bind(id).bind(attempt_id).bind(from_actor).bind(fingerprint).execute(&mut *tx).await?;
+                    tx.commit().await?;
+                    return Ok(HandoffEscalation::DeferredUntilAttemptFinishes);
+                }
+                crate::review::return_unprepared_review_in_tx(
+                    &mut tx,
+                    id,
+                    candidate_work_id,
+                    from_actor,
+                    &accountability.owner_id,
+                )
+                .await?;
                 tx.commit().await?;
                 return Ok(HandoffEscalation::ReturnedForPreparation);
             }
         }
         let changed = sqlx::query(
             "UPDATE owner_handoffs SET assigned_to=$3, escalated_from=$2, escalated_at=now(), \
-             resolution=$4, delivered_at=NULL \
+             resolution=$4, delivered_at=NULL, deferred_review_attempt_id=NULL, \
+             deferred_review_by=NULL, deferred_review_fingerprint=NULL \
              WHERE id=$1 AND state='pending' AND assigned_to=$2",
         )
         .bind(id)

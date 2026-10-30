@@ -6,6 +6,48 @@ use sqlx::FromRow as _;
 
 const MAX_HANDOFF_CONTEXT_BYTES: usize = 64 * 1024;
 
+/// Return an incomplete review and its exact feedback atomically under the Work and handoff locks.
+pub(super) async fn return_unprepared_review_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    handoff_id: Uuid,
+    work_id: Uuid,
+    sender: &str,
+    author: &str,
+) -> Result<()> {
+    let feedback = "The review has no linked prepared preview. Prepare and link the actual outcome before requesting review again.";
+    sqlx::query(
+        "UPDATE owner_handoffs SET state='resolved', resolution=$2, resolved_at=now(), deferred_review_attempt_id=NULL, deferred_review_by=NULL, deferred_review_fingerprint=NULL WHERE id=$1",
+    )
+    .bind(handoff_id)
+    .bind(feedback)
+    .execute(&mut **tx)
+    .await?;
+    let room = ensure_direct_message_room_in_tx(tx, sender, Some(author)).await?;
+    let message: i64 = sqlx::query_scalar(
+        "INSERT INTO messages (room_id,from_actor,to_actor,body) VALUES ($1,$2,$3,$4) RETURNING id",
+    )
+    .bind(room)
+    .bind(sender)
+    .bind(author)
+    .bind(feedback)
+    .fetch_one(&mut **tx)
+    .await?;
+    sqlx::query("INSERT INTO work_feedback (work_id,message_id,linked_by) VALUES ($1,$2,$3)")
+        .bind(work_id)
+        .bind(message)
+        .bind(sender)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("UPDATE work SET status='active', resolution=$2, \
+        attempt_limit=CASE WHEN attempt_limit IS NOT NULL \
+          AND NOT EXISTS (SELECT 1 FROM work_attempts a WHERE a.work_id=work.id AND a.state='running') \
+          AND (SELECT count(*) FROM work_attempts a WHERE a.work_id=work.id AND a.revision=work.revision AND a.state <> 'superseded') >= attempt_limit \
+          AND attempt_limit < 2147483647 THEN attempt_limit + 1 ELSE attempt_limit END \
+        WHERE id=$1")
+        .bind(work_id).bind(feedback).execute(&mut **tx).await?;
+    Ok(())
+}
+
 fn validate_handoff_context(
     requested_action: &str,
     prepared_state: &str,
@@ -802,7 +844,7 @@ impl OrgIntel {
             .await?;
         }
         sqlx::query(
-            "UPDATE owner_handoffs SET state=$2, resolution=$3, resolved_at=now() WHERE id=$1",
+            "UPDATE owner_handoffs SET state=$2, resolution=$3, resolved_at=now(), deferred_review_attempt_id=NULL, deferred_review_by=NULL, deferred_review_fingerprint=NULL WHERE id=$1",
         )
         .bind(id)
         .bind(state)
@@ -1119,7 +1161,7 @@ impl OrgIntel {
             ),
         };
         sqlx::query(
-            "UPDATE owner_handoffs SET state=$2,resolution=$3,resolved_at=now() WHERE id=$1",
+            "UPDATE owner_handoffs SET state=$2,resolution=$3,resolved_at=now(),deferred_review_attempt_id=NULL,deferred_review_by=NULL,deferred_review_fingerprint=NULL WHERE id=$1",
         )
         .bind(id)
         .bind(handoff_state)

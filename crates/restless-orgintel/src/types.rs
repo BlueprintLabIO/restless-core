@@ -188,6 +188,7 @@ pub enum OwnerReviewDecision {
 pub enum HandoffEscalation {
     Escalated,
     ReturnedForPreparation,
+    DeferredUntilAttemptFinishes,
 }
 
 /// What the owner's cited conversation message said about one handoff.

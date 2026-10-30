@@ -2000,6 +2000,10 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                         "handoff_id": id, "escalated_from": actor,
                         "now_owed_by": if actor == "exec" { "owner" } else { "exec" },
                     })),
+                    Ok(restless_orgintel::HandoffEscalation::DeferredUntilAttemptFinishes) => Response::ok(serde_json::json!({
+                        "handoff_id": id, "waiting_for_attempt": true,
+                        "reason": "The work is still running. The review will be checked when it finishes.",
+                    })),
                     Ok(restless_orgintel::HandoffEscalation::ReturnedForPreparation) => Response::ok(serde_json::json!({
                         "handoff_id": id, "returned_for_preparation": true,
                         "reason": "The outcome needs a linked preview before review. The work was returned to its author.",
