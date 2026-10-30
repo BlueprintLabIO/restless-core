@@ -1203,6 +1203,43 @@ async fn run_turn(
     // finished, went silent, hit the ceiling, or the transport broke — never a
     // guess about whether the model is "stuck or just thinking", which is
     // judgement and not the daemon's.
+    let prompt_permit = if let Some(accounting) = native_accounting {
+        let admitted = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => None,
+            admission = accounting.spend.admit_native_prompt(company, model) => Some(admission),
+        };
+        match admitted {
+            Some(Ok(permit)) => permit,
+            other => {
+                let (termination, reason) = match other {
+                    Some(Err(reason)) => (Termination::Blocked, reason),
+                    None => (
+                        Termination::Continue,
+                        "the owner interrupted the turn".into(),
+                    ),
+                    Some(Ok(_)) => unreachable!(),
+                };
+                return Ok((
+                    WakeReport {
+                        company: company.into(),
+                        model: model.into(),
+                        failovers: Vec::new(),
+                        termination,
+                        reason,
+                        retry_after_seconds: None,
+                        tool_calls: Vec::new(),
+                        said: String::new(),
+                        owner_reply: None,
+                        reply_complete: false,
+                    },
+                    None,
+                ));
+            }
+        }
+    } else {
+        None
+    };
     let end = session
         .prompt_exec(
             context,
@@ -1226,6 +1263,8 @@ async fn run_turn(
         accounting.refusal()
     });
 
+    drop(prompt_permit);
+
     // The one and only place a turn is classified. Everything below reads the
     // verdict; nothing below re-derives it from the transcript.
     let verdict = health::classify(&end);
@@ -1240,6 +1279,26 @@ async fn run_turn(
                  Rewrite the reply so it names the page and the button (\"Company › Charter, Publish\"), \
                  or does the step yourself if you may. Reply with the rewritten message only."
             );
+            let rewrite_permit = if native_block.is_none() {
+                if let Some(accounting) = native_accounting {
+                    let admission = tokio::select! {
+                        biased;
+                        () = cancellation.cancelled() => Err("[resumable] the owner interrupted the turn".to_string()),
+                        admission = accounting.spend.admit_native_prompt(company, model) => admission,
+                    };
+                    match admission {
+                        Ok(permit) => permit,
+                        Err(reason) => {
+                            native_block = Some(reason);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             let rewritten = if native_block.is_none() {
                 Some(tokio::time::timeout(TERMINATION_TIMEOUT, session.prompt_once(&ask)).await)
             } else {
@@ -1257,6 +1316,7 @@ async fn run_turn(
                     native_block = accounting.refusal();
                 }
             }
+            drop(rewrite_permit);
             match rewritten {
                 Some(Ok(Ok(rewritten)))
                     if !rewritten.text.trim().is_empty()
@@ -1421,6 +1481,25 @@ async fn termination_decision(
     cancellation: &CancellationToken,
     native_accounting: Option<&NativePromptAccounting>,
 ) -> TerminationDecision {
+    let prompt_permit = if let Some(accounting) = native_accounting {
+        let admitted = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => return owner_interruption(),
+            admission = accounting.spend.admit_native_prompt(&accounting.auth.company, &accounting.auth.model) => admission,
+        };
+        match admitted {
+            Ok(permit) => permit,
+            Err(reason) => {
+                return TerminationDecision {
+                    termination: Termination::Blocked,
+                    reason,
+                    retry_after_seconds: None,
+                }
+            }
+        }
+    } else {
+        None
+    };
     // Once polled, the provider may have accepted the request even if the
     // owner interrupts before a transcript arrives. Do not treat that usage
     // as zero; a configured token cap must wait for accountable usage.
@@ -1481,6 +1560,7 @@ async fn termination_decision(
             );
         }
     }
+    drop(prompt_permit);
     if let Some(parsed) = parse_termination(&transcript.text) {
         return parsed;
     }
@@ -2169,6 +2249,157 @@ mod tests {
         fn cancel<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
             Box::pin(async { Ok(()) })
         }
+    }
+
+    struct ConcurrentNativeExec {
+        calls: std::sync::atomic::AtomicUsize,
+        started: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+    }
+    impl ExecutiveSession for ConcurrentNativeExec {
+        fn readiness_observation(&self) -> serde_json::Value {
+            serde_json::Value::Null
+        }
+        fn set_live_observer_enabled(&self, _: bool) {}
+        fn prompt_exec<'a>(
+            &'a self,
+            _: &'a str,
+            _: bool,
+            _: f64,
+            _: &'a CancellationToken,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>>
+        {
+            Box::pin(async move {
+                self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.started.notify_one();
+                self.release.notified().await;
+                let mut transcript = acp::TurnTranscript::default();
+                transcript.text = "Your answer is ready.".into();
+                transcript.last_message_text = transcript.text.clone();
+                transcript.usage = Some(acp::TurnUsage {
+                    turn_id: transcript.turn_id(),
+                    turn_tokens: Some(5),
+                    used: 10,
+                    size: 1000,
+                    ..Default::default()
+                });
+                acp::TurnEnd::Completed { transcript }
+            })
+        }
+        fn prompt_once<'a>(
+            &'a self,
+            _: &'a str,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<acp::TurnTranscript>> + Send + 'a>,
+        > {
+            Box::pin(async { panic!("a one-turn cap must stop followups") })
+        }
+        fn cancel<'a>(
+            &'a self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_native_exec_requests_cannot_share_one_remaining_turn() {
+        let root =
+            std::env::temp_dir().join(format!("restless-exec-concurrent-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let company = "exec_concurrent_test";
+        std::fs::write(
+            root.join("companies").join(format!("{company}.toml")),
+            format!("name = \"{company}\"\nnative_monthly_turn_limit = 1\n"),
+        )
+        .unwrap();
+        let spend = crate::spend::SpendLedger::open(&root).unwrap();
+        let accounting = NativePromptAccounting {
+            spend: spend.clone(),
+            auth: acp::AgentAuth {
+                model: "native-codex-oauth/test".into(),
+                effort: "medium".into(),
+                company: company.into(),
+                session_id: "test".into(),
+                coordination_token_env: String::new(),
+                coordination_token: String::new(),
+                gateway_token_env: String::new(),
+                gateway_token: String::new(),
+                gateway_url: String::new(),
+                billing: crate::model_gateway::ModelBilling::Subscription,
+            },
+            responsibility: "test".into(),
+        };
+        let session = Arc::new(ConcurrentNativeExec {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            started: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+        });
+        let launch = || {
+            let session = Arc::clone(&session);
+            let accounting = accounting.clone();
+            tokio::spawn(async move {
+                run_turn(
+                    session.as_ref(),
+                    "work",
+                    company,
+                    "native-codex-oauth/test",
+                    0.0,
+                    false,
+                    false,
+                    None,
+                    &CancellationToken::new(),
+                    Some(&accounting),
+                )
+                .await
+                .unwrap()
+                .0
+            })
+        };
+        let first = launch();
+        session.started.notified().await;
+        let stopped = CancellationToken::new();
+        let stop_task = {
+            let session = Arc::clone(&session);
+            let accounting = accounting.clone();
+            let stopped = stopped.clone();
+            tokio::spawn(async move {
+                run_turn(
+                    session.as_ref(),
+                    "work",
+                    company,
+                    "native-codex-oauth/test",
+                    0.0,
+                    false,
+                    false,
+                    None,
+                    &stopped,
+                    Some(&accounting),
+                )
+                .await
+                .unwrap()
+                .0
+            })
+        };
+        tokio::task::yield_now().await;
+        stopped.cancel();
+        let stopped_report = tokio::time::timeout(std::time::Duration::from_secs(1), stop_task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stopped_report.termination, Termination::Continue);
+        assert!(!stopped_report.reply_complete);
+        let second = launch();
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        assert_eq!(session.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        session.release.notify_one();
+        let first = first.await.unwrap();
+        let second = second.await.unwrap();
+        assert!(first.reply_complete, "first report: {}", first.reason);
+        assert_eq!(second.termination, Termination::Blocked);
+        assert!(!second.reply_complete);
+        assert_eq!(session.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(spend.native_usage(company, chrono::Utc::now()).turns, 1);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

@@ -1204,6 +1204,21 @@ impl StaffDrive {
                 );
             }
         };
+        let repair_admission = tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => Err(resumable_staff_summary("the owner interrupted the turn")),
+            admission = self.spend.admit_native_prompt(&self.company, &repair_auth.model) => admission,
+        };
+        let prompt_permit = match repair_admission {
+            Ok(permit) => permit,
+            Err(reason) => {
+                let _ = self.org.settle_model_invocation(&admission, ModelInvocationSettlement {
+                    outcome: ModelInvocationOutcome::Blocked,
+                    evidence: serde_json::json!({"phase":"completion_repair", "reason":"native_budget_unavailable"}),
+                }).await;
+                return CompletionRepairOutcome::Blocked(reason, None);
+            }
+        };
         let prompt_started = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let launch_prompt_started = std::sync::Arc::clone(&prompt_started);
         let launch = async {
@@ -1364,6 +1379,7 @@ impl StaffDrive {
                 usage,
             );
         }
+        drop(prompt_permit);
         let mut session_recorded = false;
         if let Ok(launch_id) = acp::required_readiness_text(&readiness, "launch_id") {
             if let (
@@ -1539,9 +1555,17 @@ impl StaffDrive {
         let mut repeats = 0u32;
         let mut continues = 0u32;
         loop {
-            if let Some(reason) = self.spend.native_turn_refusal(&self.company, &self.model) {
-                return Ok((Termination::Blocked, reason, spent, None));
-            }
+            let admission = tokio::select! {
+                biased;
+                () = self.cancellation.cancelled() => return Ok((
+                    Termination::Blocked, resumable_staff_summary("the owner interrupted the turn"), spent, None,
+                )),
+                admission = self.spend.admit_native_prompt(&self.company, &self.model) => admission,
+            };
+            let prompt_permit = match admission {
+                Ok(permit) => permit,
+                Err(reason) => return Ok((Termination::Blocked, reason, spent, None)),
+            };
             session.set_live_observer_enabled(true);
             // A person's direct message steers a running Work turn: the turn
             // stops at once and the message is handed to the same session as
@@ -1588,6 +1612,7 @@ impl StaffDrive {
                     None,
                 ));
             }
+            drop(prompt_permit);
             if let Some(usage) = end.usage() {
                 spent.push(usage);
             }
@@ -1690,9 +1715,17 @@ impl StaffDrive {
                 continue;
             }
 
-            if let Some(reason) = self.spend.native_turn_refusal(&self.company, &self.model) {
-                return Ok((Termination::Blocked, reason, spent, None));
-            }
+            let admission = tokio::select! {
+                biased;
+                () = self.cancellation.cancelled() => return Ok((
+                    Termination::Blocked, resumable_staff_summary("the owner interrupted the turn"), spent, None,
+                )),
+                admission = self.spend.admit_native_prompt(&self.company, &self.model) => admission,
+            };
+            let prompt_permit = match admission {
+                Ok(permit) => permit,
+                Err(reason) => return Ok((Termination::Blocked, reason, spent, None)),
+            };
             session.set_live_observer_enabled(false);
             let end = tokio::time::timeout(
                 STAFF_TERMINATION_TIMEOUT,
@@ -1731,6 +1764,7 @@ impl StaffDrive {
                     None,
                 ));
             }
+            drop(prompt_permit);
             if let Some(usage) = end.usage() {
                 spent.push(usage);
             }
@@ -2149,13 +2183,42 @@ mod native_staff_cap_tests {
         let root = std::path::PathBuf::from(
             std::env::var("RESTLESS_NATIVE_TEST_ROOT").expect("set an isolated test root"),
         );
-        for (limits, missing, malformed, expected_calls, blocked) in [
-            ("native_monthly_turn_limit = 1", false, false, 1, true),
-            ("native_monthly_token_limit = 40", false, false, 1, true),
-            ("native_monthly_token_limit = 100", true, false, 1, true),
-            ("native_monthly_turn_limit = 2", false, true, 2, true),
-            ("native_monthly_turn_limit = 2", false, false, 2, false),
-            ("", false, false, 2, false),
+        for (limits, missing, malformed, expected_calls, blocked, concurrent_exec) in [
+            (
+                "native_monthly_turn_limit = 1",
+                false,
+                false,
+                1,
+                true,
+                false,
+            ),
+            (
+                "native_monthly_token_limit = 40",
+                false,
+                false,
+                1,
+                true,
+                false,
+            ),
+            (
+                "native_monthly_token_limit = 100",
+                true,
+                false,
+                1,
+                true,
+                false,
+            ),
+            ("native_monthly_turn_limit = 2", false, true, 2, true, false),
+            (
+                "native_monthly_turn_limit = 2",
+                false,
+                false,
+                2,
+                false,
+                false,
+            ),
+            ("", false, false, 2, false, false),
+            ("native_monthly_turn_limit = 1", false, false, 0, true, true),
         ] {
             let company = format!(
                 "staffcap_{}_test",
@@ -2220,7 +2283,30 @@ mod native_staff_cap_tests {
                 termination_prompt: SPECIALIST_TERMINATION_PROMPT,
                 cancellation: CancellationToken::new(),
             };
-            let result = drive.run(&session).await.unwrap();
+            let result = if concurrent_exec {
+                let permit = ledger.admit_native_prompt(&company, model).await.unwrap();
+                let other_auth = drive.auth.clone();
+                let run = drive.run(&session);
+                tokio::pin!(run);
+                assert!(
+                    tokio::time::timeout(std::time::Duration::from_millis(50), &mut run)
+                        .await
+                        .is_err()
+                );
+                let mut transcript = acp::TurnTranscript::default();
+                transcript.usage = Some(acp::TurnUsage {
+                    turn_id: transcript.turn_id(),
+                    turn_tokens: Some(5),
+                    ..Default::default()
+                });
+                ledger
+                    .record_native_transcript(&other_auth, "exec", "test", None, None, &transcript)
+                    .unwrap();
+                drop(permit);
+                run.await.unwrap()
+            } else {
+                drive.run(&session).await.unwrap()
+            };
             assert_eq!(
                 session.calls.load(Ordering::SeqCst),
                 expected_calls,
@@ -2240,7 +2326,10 @@ mod native_staff_cap_tests {
                 );
             }
             let recorded = ledger.native_usage(&company, chrono::Utc::now());
-            assert_eq!(recorded.turns, expected_calls as u64);
+            assert_eq!(
+                recorded.turns,
+                expected_calls as u64 + u64::from(concurrent_exec)
+            );
             if missing {
                 assert_eq!(recorded.turns_without_tokens, 1);
             }

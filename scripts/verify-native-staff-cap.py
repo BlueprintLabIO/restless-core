@@ -35,9 +35,14 @@ with tempfile.TemporaryDirectory(prefix='restless-native-staff-cap-') as folder:
         env = os.environ.copy()
         env.update(RESTLESS_TEST_DATABASE_URL=plane.admin_url,
                    RESTLESS_NATIVE_TEST_ROOT=str(root / 'runs'))
-        subprocess.run([str(repo / 'scripts/restless-cargo'), 'test', '-p', 'restless-engine',
-                        '--lib', 'native_staff_rechecks_before_completion_and_records_unknown_turns',
-                        '--', '--nocapture'], cwd=repo, env=env, check=True, timeout=600)
+        for scenario in (
+            'native_staff_rechecks_before_completion_and_records_unknown_turns',
+            'native_prompt_admission_coordinates_caps_without_blocking_peers',
+            'concurrent_native_exec_requests_cannot_share_one_remaining_turn',
+        ):
+            subprocess.run([str(repo / 'scripts/restless-cargo'), 'test', '-p', 'restless-engine',
+                            '--lib', scenario, '--', '--nocapture'],
+                           cwd=repo, env=env, check=True, timeout=600)
     finally:
         problems = plane.close()
         print('fixture cleanup problems:', problems, flush=True)
