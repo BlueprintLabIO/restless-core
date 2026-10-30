@@ -152,7 +152,7 @@ pub async fn modified_times(
 }
 
 /// One file under /company/outputs, as the Library lists it.
-#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct OutputFile {
     /// Its full path, /company/outputs/...
     pub path: String,
@@ -161,39 +161,89 @@ pub struct OutputFile {
     pub modified: i64,
 }
 
-/// Every file agents wrote under /company/outputs (up to 2,000, newest first), so the Library
-/// shows work an agent made but never linked as an output (21 October: Calcifer's card site).
-/// Hidden files and dependency folders are left out.
-pub async fn output_files(company: &str) -> Result<Vec<OutputFile>> {
-    validate_company_name(company)?;
-    let container = container_name(company);
-    // Agents' outputs and what the company browser downloaded (S104 F2) are the Library's folders.
-    let script = "find /company/outputs /company/downloads -type d \\( -name node_modules -o -name '.*' \\) -prune -o -type f ! -name '.*' -printf '%T@\\t%s\\t%p\\n' 2>/dev/null | sort -rn | head -2000; exit 0";
-    let output =
-        runtime::docker_observe(&["exec", "-u", "company", &container, "sh", "-c", script]).await?;
-    if !output.status.success() {
-        return Ok(Vec::new());
-    }
-    Ok(parse_output_files(&String::from_utf8_lossy(&output.stdout)))
+#[derive(Debug, serde::Deserialize)]
+pub struct OutputPage {
+    pub files: Vec<OutputFile>,
+    pub skipped_names: u64,
+    pub revision: String,
 }
 
-fn parse_output_files(listing: &str) -> Vec<OutputFile> {
-    listing
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.splitn(3, '\t');
-            let modified = parts.next()?.split('.').next()?.parse().ok()?;
-            let bytes = parts.next()?.parse().ok()?;
-            let path = parts.next()?;
-            (path.starts_with("/company/outputs/") || path.starts_with("/company/downloads/")).then(
-                || OutputFile {
-                    path: path.to_string(),
-                    bytes,
-                    modified,
-                },
-            )
-        })
-        .collect()
+/// A bounded Library page; the extra record tells the caller whether another exists.
+pub const OUTPUT_LIST_LIMIT: usize = 2_000;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct OutputCursor {
+    pub modified: i64,
+    pub path: String,
+    pub revision: Option<String>,
+}
+
+/// List a page in descending whole-second modification time and path order.
+/// The path tie-breaker keeps paging deterministic when files share a timestamp.
+pub async fn output_files(company: &str, cursor: Option<&OutputCursor>) -> Result<OutputPage> {
+    validate_company_name(company)?;
+    if let Some(cursor) = cursor {
+        anyhow::ensure!(
+            (cursor.path.starts_with("/company/outputs/")
+                || cursor.path.starts_with("/company/downloads/"))
+                && cursor.path.len() <= 4096
+                && !cursor.path.contains('\0'),
+            "invalid output cursor"
+        );
+    }
+    let container = container_name(company);
+    let time = format!(
+        "RESTLESS_CURSOR_TIME={}",
+        cursor.map(|c| c.modified.to_string()).unwrap_or_default()
+    );
+    let path = format!(
+        "RESTLESS_CURSOR_PATH={}",
+        cursor.map(|c| c.path.as_str()).unwrap_or_default()
+    );
+    let limit = format!("RESTLESS_OUTPUT_LIMIT={}", OUTPUT_LIST_LIMIT + 1);
+    // Cursor data goes through Docker's environment arguments, never into code.
+    // The shared diagnostic path serializes same-company Python observations,
+    // defers under memory pressure and puts a deadline inside the Runtime as
+    // well as on the host CLI. A dropped request must not leave a scan running.
+    let output = runtime::docker_diagnostic(&[
+        "exec",
+        "-u",
+        "company",
+        "-e",
+        &time,
+        "-e",
+        &path,
+        "-e",
+        &limit,
+        &container,
+        "python3",
+        "-c",
+        include_str!("runtime/output_scan.py"),
+    ])
+    .await?;
+    anyhow::ensure!(
+        output.status.success(),
+        "could not list company output files"
+    );
+    let page: OutputPage =
+        serde_json::from_slice(&output.stdout).context("decode company output listing")?;
+    anyhow::ensure!(
+        page.revision.len() == 64 && page.revision.bytes().all(|c| c.is_ascii_hexdigit()),
+        "invalid output revision"
+    );
+    let files = &page.files;
+    anyhow::ensure!(
+        files.len() <= OUTPUT_LIST_LIMIT + 1,
+        "oversized output listing"
+    );
+    anyhow::ensure!(
+        files
+            .iter()
+            .all(|file| file.path.starts_with("/company/outputs/")
+                || file.path.starts_with("/company/downloads/")),
+        "invalid output listing path"
+    );
+    Ok(page)
 }
 
 /// The canonical path of one regular file inside the owner places, for a download.
@@ -263,22 +313,4 @@ pub async fn drop_in_downloads(company: &str, name: &str, bytes: &[u8]) -> Resul
         );
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn output_listing_keeps_only_files_under_outputs_and_downloads() {
-        let files = super::parse_output_files(
-            "1729500000.123\t2048\t/company/outputs/site/index.html\n\
-             garbage line\n\
-             1729400000.5\t10\t/etc/passwd\n\
-             1729300000.0\t99\t/company/downloads/invoice.pdf\n",
-        );
-        assert_eq!(files.len(), 2);
-        assert_eq!(files[1].path, "/company/downloads/invoice.pdf");
-        assert_eq!(files[0].path, "/company/outputs/site/index.html");
-        assert_eq!(files[0].bytes, 2048);
-        assert_eq!(files[0].modified, 1_729_500_000);
-    }
 }
