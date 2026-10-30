@@ -305,6 +305,8 @@ entry are required before the next production rollout.
 
 ## Implementation evidence
 
+30 October: reconnect and send failures in the Exec rail now use shared notices rather than inserting lines into the transcript or under the composer. A reserved header control reopens dismissed notices; reconnect retains Try again, and failed sends retain their draft and existing safe retry identity. Browser tests of the real rail with simulated delivery and connection outcomes at 1440px and 390px observed zero transcript and composer movement, draft preservation, retry, rediscovery and cleanup on recovery. Full end-to-end role and production checks remain open; this does not complete C5 or the zero-jank gate.
+
 30 October: the Work stale-refresh warning uses the shared toast rather than inserting a banner above the board. A reserved header control reopens a dismissed warning, and retry and automatic recovery clear it. Against an isolated seeded company, browser checks at 1440px and 390px observed zero board movement during an injected API failure, plus dismissal, rediscovery, retry and automatic-recovery cleanup. The fixture reported no cleanup problems. Chat reconnect/send warnings, broader layout-shift checks, role coverage and an authenticated production walkthrough remain open; C5 and C7 are not complete.
 
 The full checklist above remains the completion target, including deployment and production smoke.
