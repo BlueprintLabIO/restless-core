@@ -63,6 +63,8 @@ with tempfile.TemporaryDirectory(prefix="s109-library-limit-") as directory:
         plane.wait_for_port(plane.offset + 7788, 120)
         status, page = plane.owner(company, "/library/outputs")
         assert status == 200
+        first_cursor = page["next_cursor"]
+        first_paths = {entry["path"] for entry in page["files"]}
         pages, paths, timestamps = [], set(), {}
         while True:
             pages.append(len(page["files"]))
@@ -88,6 +90,48 @@ with tempfile.TemporaryDirectory(prefix="s109-library-limit-") as directory:
         expected_after = sorted((path for path in paths if (timestamps[path], path.encode("utf-8")) < (special_time, special_path.encode("utf-8"))),
                                 key=lambda path: (timestamps[path], path.encode("utf-8")), reverse=True)
         assert [entry["path"] for entry in after_special["files"]] == expected_after[:2000]
+        # Mutations can move files across a cursor: a fresh first page and cursor
+        # are needed to obtain a complete current listing, not a mixed snapshot.
+        removed = sorted(first_paths)[0]
+        updated = sorted(paths - first_paths)[0]
+        added = "/company/outputs/limit-test/new-during-browse.txt"
+        mutate = ("import os,sys; removed,updated,added=sys.argv[1:]; os.unlink(removed); "
+                  "os.utime(updated,(2000000000,2000000000)); open(added,'w').close(); "
+                  "os.utime(added,(2000000001,2000000001))")
+        docker("exec", "-u", "company", plane.container(company), "python3", "-c", mutate, removed, updated, added)
+        expected_current = (paths - {removed}) | {added}
+        plane.stop()
+        plane.start()
+        plane.wait_for_port(plane.offset + 7788, 120)
+        status, refreshed = plane.owner(company, "/library/outputs")
+        assert status == 200
+        refreshed_paths = {entry["path"] for entry in refreshed["files"]}
+        assert {updated, added} <= refreshed_paths and removed not in refreshed_paths
+        status, stale_tail = plane.owner(company, "/library/outputs?" + urllib.parse.urlencode(first_cursor))
+        assert status == 200
+        # The old boundary skips files displaced by additions. Do not mistake a
+        # cursor from an earlier listing for a complete snapshot of the new one.
+        mixed = set(refreshed_paths)
+        while True:
+            mixed.update(entry["path"] for entry in stale_tail["files"])
+            if not stale_tail["truncated"]:
+                break
+            status, stale_tail = plane.owner(company, "/library/outputs?" + urllib.parse.urlencode(stale_tail["next_cursor"]))
+            assert status == 200
+        assert mixed < expected_current, "the test must expose a gap from reusing the old cursor"
+        current = set()
+        page = refreshed
+        while True:
+            for entry in page["files"]:
+                assert entry["path"] not in current
+                current.add(entry["path"])
+            if not page["truncated"]:
+                break
+            status, page = plane.owner(company, "/library/outputs?" + urllib.parse.urlencode(page["next_cursor"]))
+            assert status == 200
+        assert current == expected_current
+        print(json.dumps({"concurrentCursorGapConfirmed": True, "missingWithOldCursor": len(expected_current - mixed), "freshTraversalFiles": len(current)}), flush=True)
+        paths = expected_current
         # An invalid UTF-8 filename must not become a false empty or complete listing.
         docker("exec", "-u", "company", plane.container(company), "python3", "-c",
                "import os; p=b'/company/outputs/limit-test/invalid-\\xff'; fd=os.open(p,os.O_CREAT|os.O_WRONLY,0o600); os.close(fd)")
