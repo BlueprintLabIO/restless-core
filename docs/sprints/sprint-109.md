@@ -306,6 +306,12 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   passed, and the pressured listing recovered without restart. Desktop and phone retained
   cached files, displayed the pressure warning and retried successfully; cleanup reported no
   problems. This is not a production test or a CPU-pressure test.
+  On the same combined version, the 4,004-file traversal, concurrent reads, unusual names,
+  stale-cursor refresh, and desktop/phone unavailable states passed in a disposable company.
+  A fresh multiplayer journey also passed owner output access and member/admin denial, then
+  removed its test resources; evidence is `/tmp/restless-identity-core-evidence-iO1x09/journey.log`.
+  Its first run stopped before Library checks because this checkout lacked native Sheets worker
+  dependencies; those were installed locally before the passing rerun.
   Scratch notes also remain visible in the default Library. Evidence:
   `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 
