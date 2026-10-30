@@ -244,3 +244,5 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 
 | US-370 | core | New Work waits visibly when compute is full, resumes once capacity returns, and still completes its useful outcome. | S109 A0.3/A0.5 | verified locally and deployed: individual/shared admission, useful artifact recovery and shared Exec/teammate/Work limits; wider A0 remains open |
 | US-371 | core | I can open Resources and recover my company when its computer is overloaded, without health checks consuming the remaining capacity. | S109 A0.6/C7 | verified locally and deployed: pressure probe lifecycle, desktop/phone entry and owner-only readings; production images/pool checked, authenticated Reno journey unavailable |
+
+| US-372 | core | When a room connection drops, my loaded messages stay in place and my draft stays available; I can see that the room is offline. | S109 C5, room reconnect slice | Isolated real owner/member/admin journey checks desktop message position and draft while offline; owner repeats at phone width. Built-in browser visual review and full zero-jank gate remain open. |
