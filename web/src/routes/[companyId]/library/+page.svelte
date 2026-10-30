@@ -808,6 +808,7 @@
 	/* Everything agents wrote under /company/outputs, linked as an output or not: Calcifer's card
 	 * site was on disk but missing from the Library because nothing linked it (21 October). */
 	let outputFiles = $state<OutputFile[]>([]);
+	let outputFilesTruncated = $state(false);
 	$effect(() => {
 		const company = companyId;
 		const controller = new AbortController();
@@ -816,8 +817,11 @@
 				if (!controller.signal.aborted) fileModified = times;
 			});
 			if (owner)
-				void readLibraryOutputs(company, controller.signal).then((rows) => {
-					if (!controller.signal.aborted) outputFiles = rows;
+				void readLibraryOutputs(company, controller.signal).then((result) => {
+					if (!controller.signal.aborted) {
+						outputFiles = result.files;
+						outputFilesTruncated = result.truncated;
+					}
 				});
 		};
 		read();
@@ -1488,8 +1492,12 @@
 						label="Folders"
 						icon={FolderOpen}
 						active={filter === 'folders' && !fileOpen && !uploadFile}
-						count={folderEntries.length}
-						title="Every file agents wrote to the outputs folder, linked or not"
+						count={outputFilesTruncated ? null : folderEntries.length}
+						reading={outputFilesTruncated ? `${folderEntries.length}+` : undefined}
+						readingTitle={outputFilesTruncated ? 'Showing the newest 2,000 files; older files are not listed' : undefined}
+						title={outputFilesTruncated
+							? 'Showing the newest 2,000 files; older files are not listed'
+							: 'Every file agents wrote to the outputs folder, linked or not'}
 					/>{/if}
 				<SidebarRow
 					href={filterHref('yours')}

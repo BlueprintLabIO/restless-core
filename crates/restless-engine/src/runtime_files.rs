@@ -161,16 +161,20 @@ pub struct OutputFile {
     pub modified: i64,
 }
 
-/// Every file agents wrote under /company/outputs (up to 2,000, newest first), so the Library
+/// Maximum files shown by the Library; one extra detects a truncated listing.
+pub const OUTPUT_LIST_LIMIT: usize = 2_000;
+
+/// Files agents wrote under /company/outputs (up to 2,001, newest first), so the Library
 /// shows work an agent made but never linked as an output (21 October: Calcifer's card site).
 /// Hidden files and dependency folders are left out.
 pub async fn output_files(company: &str) -> Result<Vec<OutputFile>> {
     validate_company_name(company)?;
     let container = container_name(company);
     // Agents' outputs and what the company browser downloaded (S104 F2) are the Library's folders.
-    let script = "find /company/outputs /company/downloads -type d \\( -name node_modules -o -name '.*' \\) -prune -o -type f ! -name '.*' -printf '%T@\\t%s\\t%p\\n' 2>/dev/null | sort -rn | head -2000; exit 0";
+    let script = format!("find /company/outputs /company/downloads -type d \\( -name node_modules -o -name '.*' \\) -prune -o -type f ! -name '.*' -printf '%T@\\t%s\\t%p\\n' 2>/dev/null | sort -rn | head -{}; exit 0", OUTPUT_LIST_LIMIT + 1);
     let output =
-        runtime::docker_observe(&["exec", "-u", "company", &container, "sh", "-c", script]).await?;
+        runtime::docker_observe(&["exec", "-u", "company", &container, "sh", "-c", &script])
+            .await?;
     if !output.status.success() {
         return Ok(Vec::new());
     }

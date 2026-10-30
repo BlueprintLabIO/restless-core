@@ -218,6 +218,10 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
 - [ ] **G5 Scratch out of sight [48].** Agents' working notes leave the owner's default Library
   view. Check the "Folders 2000" count, which looks like a cap.
 
+  The Folders list really is capped at the 2,000 newest files. The local count change probes one
+  extra file and shows `2000+` only when older files were omitted; it does not yet provide a way
+  to browse those older files or remove scratch notes from the default view.
+
 ## Track H: new surfaces (design first, build after review)
 
 The owner approved the Resources, Email and map preview layouts on 29 October. Build may proceed;

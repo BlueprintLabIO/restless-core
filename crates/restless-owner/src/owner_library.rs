@@ -389,7 +389,7 @@ pub(super) async fn library_outputs(
             return Json(body).into_response();
         }
     }
-    let files = restless_engine::runtime_files::output_files(&company)
+    let mut files = restless_engine::runtime_files::output_files(&company)
         .await
         .unwrap_or_default();
     if files.is_empty() {
@@ -402,7 +402,9 @@ pub(super) async fn library_outputs(
             return Json(body).into_response();
         }
     }
+    let truncated = cap_library_outputs(&mut files);
     let body = serde_json::json!({
+        "truncated": truncated,
         "files": files.iter().map(|file| serde_json::json!({
             "path": file.path,
             "bytes": file.bytes,
@@ -632,5 +634,33 @@ pub(super) async fn remove_archived_work_file(
             "orgintel",
             format!("{error:#}"),
         ),
+    }
+}
+
+// The additional entry proves there are older files without counting the whole tree.
+fn cap_library_outputs(files: &mut Vec<restless_engine::runtime_files::OutputFile>) -> bool {
+    let truncated = files.len() > restless_engine::runtime_files::OUTPUT_LIST_LIMIT;
+    files.truncate(restless_engine::runtime_files::OUTPUT_LIST_LIMIT);
+    truncated
+}
+
+#[cfg(test)]
+mod output_limit_tests {
+    use super::cap_library_outputs;
+    use restless_engine::runtime_files::{OutputFile, OUTPUT_LIST_LIMIT};
+
+    #[test]
+    fn only_reports_more_when_an_extra_file_exists() {
+        let file = OutputFile {
+            path: "/company/outputs/example".into(),
+            bytes: 0,
+            modified: 0,
+        };
+        let mut exact = vec![file.clone(); OUTPUT_LIST_LIMIT];
+        assert!(!cap_library_outputs(&mut exact));
+        assert_eq!(exact.len(), OUTPUT_LIST_LIMIT);
+        let mut more = vec![file; OUTPUT_LIST_LIMIT + 1];
+        assert!(cap_library_outputs(&mut more));
+        assert_eq!(more.len(), OUTPUT_LIST_LIMIT);
     }
 }

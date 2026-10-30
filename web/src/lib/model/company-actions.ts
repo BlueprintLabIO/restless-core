@@ -129,11 +129,11 @@ export interface OutputFile {
 export async function readLibraryOutputs(
 	company: string,
 	signal?: AbortSignal
-): Promise<OutputFile[]> {
-	const body = await ownerRequest<{ files?: OutputFile[] }>(`${api(company)}/library/outputs`, {
+): Promise<{ files: OutputFile[]; truncated: boolean }> {
+	const body = await ownerRequest<{ files?: OutputFile[]; truncated?: boolean }>(`${api(company)}/library/outputs`, {
 		signal
 	}).catch(() => null);
-	return body?.files ?? [];
+	return { files: body?.files ?? [], truncated: body?.truncated === true };
 }
 
 export async function readLibraryModified(
