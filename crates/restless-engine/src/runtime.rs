@@ -2462,15 +2462,21 @@ pub async fn save_home_sites(root: &Path, company: &str, sites: Vec<String>) -> 
 }
 
 pub fn computer_refresh_pending(root: &Path, company: &str) -> Result<bool> {
-    Ok(computer_refresh_marker(root, company)?.is_file())
+    let marker = computer_refresh_marker(root, company)?;
+    match std::fs::metadata(&marker) {
+        Ok(metadata) if metadata.is_file() => Ok(true),
+        Ok(_) => anyhow::bail!("computer refresh marker is not a file"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Maintenance never wakes a stopped computer, and reloads the latest desired
 /// config after acquiring the same lock used by the settings save.
 pub async fn retry_pending_computer_refresh(root: &Path, company: &str) -> Result<bool> {
-    if !computer_refresh_marker(root, company)?.is_file() { return Ok(false); }
+    if !computer_refresh_pending(root, company)? { return Ok(false); }
     let _start = company_start_guard(company).await;
-    if !computer_refresh_marker(root, company)?.is_file() { return Ok(false); }
+    if !computer_refresh_pending(root, company)? { return Ok(false); }
     if status(company).await? != ContainerStatus::Running { return Ok(true); }
     let config = CompanyConfig::load(root, company)?;
     ensure_computer(&config).await?;
@@ -6140,6 +6146,20 @@ mod kept_files_e2e {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn computer_refresh_marker_reports_invalid_state() {
+        let root = std::env::temp_dir().join(format!("restless-refresh-test-{}", uuid::Uuid::new_v4()));
+        let company = "pending_test";
+        assert!(!super::computer_refresh_pending(&root, company).unwrap());
+        super::mark_computer_refresh_pending(&root, company).unwrap();
+        assert!(super::computer_refresh_pending(&root, company).unwrap());
+        super::clear_computer_refresh_pending(&root, company).unwrap();
+        let marker = super::computer_refresh_marker(&root, company).unwrap();
+        std::fs::create_dir(&marker).unwrap();
+        assert!(super::computer_refresh_pending(&root, company).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn clean_mapped_cache_does_not_strand_an_idle_actor() {
         let root = std::env::temp_dir().join(format!(
