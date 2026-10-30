@@ -2070,6 +2070,11 @@ async fn relay_pi_stream(
         }
     }
 
+    // Concrete Runtime tool objects carry local execution state, which is not
+    // part of pi-ai's Tool contract and is never consumed by the gateway.
+    // Remove it before the recursive model-id rewrite and upstream JSON parse.
+    let trimmed = trim_pi_tool_execution_state(&mut request);
+    let restored = restore_runtime_model_ids(&mut request, &grant.model);
     let mut upstream_request = state
         .http
         .post(format!(
@@ -2078,7 +2083,7 @@ async fn relay_pi_stream(
         ))
         .bearer_auth(state.upstream_for(&grant.company, provider).1)
         .header(CONTENT_TYPE, "application/json")
-        .body(if restore_runtime_model_ids(&mut request, &grant.model) {
+        .body(if trimmed || restored {
             Bytes::from(serde_json::to_vec(&request).expect("re-encode model request"))
         } else {
             body
@@ -2948,6 +2953,33 @@ pub fn runtime_model_id(model: &str) -> String {
 
 /// Replace every Runtime alias of the granted model, qualified or
 /// provider-local, with the exact id. Returns whether anything changed.
+/// Keep declared tool fields, including provider-specific extensions, intact.
+/// Only these Runtime execution objects are outside pi-ai 18.8.6's Tool type.
+fn trim_pi_tool_execution_state(request: &mut serde_json::Value) -> bool {
+    let Some(context) = request
+        .get_mut("context")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return false;
+    };
+    let mut changed = false;
+    for key in ["tools", "inactiveTools"] {
+        if let Some(tools) = context
+            .get_mut(key)
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for tool in tools {
+                if let Some(tool) = tool.as_object_mut() {
+                    for field in ["tool", "runner", "session"] {
+                        changed |= tool.remove(field).is_some();
+                    }
+                }
+            }
+        }
+    }
+    changed
+}
+
 fn restore_runtime_model_ids(value: &mut serde_json::Value, exact: &str) -> bool {
     let local = split_model(exact).map(|(_, id)| id).unwrap_or(exact);
     let (alias, local_alias) = (runtime_model_id(exact), runtime_model_id(local));
@@ -5966,6 +5998,83 @@ mission = "Choose native intelligence"
                 attempt_id: Some(attempt_id),
             }
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn pi_relay_removes_execution_objects_but_preserves_tool_contract() {
+        let root = test_root();
+        let (issuer, _spend, mut state) = test_relay_state(&root);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        state.upstream_url = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<serde_json::Value>(1);
+        let app = Router::new().route(
+            "/v1/pi/stream",
+            post(move |body: Bytes| {
+                let tx = tx.clone();
+                async move {
+                    tx.send(serde_json::from_slice(&body).unwrap())
+                        .await
+                        .unwrap();
+                    (StatusCode::BAD_REQUEST, "synthetic refusal")
+                }
+            }),
+        );
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let token = issuer
+            .issue_model_session(
+                "acme_test",
+                "delivery-lead",
+                "session_123",
+                "moonshot",
+                "moonshot/kimi-k3",
+                "metered_api",
+                "work:delivery",
+                None,
+                None,
+            )
+            .unwrap();
+        let declaration = serde_json::json!({
+            "name":"lookup", "description":"Search", "parameters":{"type":"object"},
+            "namespace":"alpha", "namespaceDescription":"Examples", "strict":true,
+            "deferLoading":true, "customFormat":{"syntax":"lark", "definition":"start: /x/"},
+            "customWireName":"search", "native":{"type":"example"}, "examples":[{"text":"test"}],
+            "futureExtension":{"session":"keep this"}
+        });
+        let mut tool = declaration.clone();
+        for field in ["tool", "runner", "session"] {
+            tool[field] = serde_json::json!({"secret":"synthetic", "large":"x".repeat(80_000)});
+        }
+        let request = serde_json::json!({
+            "modelId":"moonshot/kimi-k3", "stream":true, "options":{"sessionId":"keep"},
+            "context":{"systemPrompt":["Keep"], "messages":[{"role":"user", "content":"hello", "session":"keep"}],
+                "tools":[tool.clone()], "inactiveTools":[tool]}
+        });
+        let original_len = serde_json::to_vec(&request).unwrap().len();
+        let response = relay_pi_stream(
+            State(state),
+            bearer_headers(&token),
+            Bytes::from(serde_json::to_vec(&request).unwrap()),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let forwarded = rx.recv().await.unwrap();
+        assert_eq!(
+            forwarded["context"]["tools"],
+            serde_json::json!([declaration.clone()])
+        );
+        assert_eq!(
+            forwarded["context"]["inactiveTools"],
+            serde_json::json!([declaration])
+        );
+        assert_eq!(
+            forwarded["context"]["messages"],
+            request["context"]["messages"]
+        );
+        assert_eq!(forwarded["options"], request["options"]);
+        assert_eq!(forwarded["modelId"], request["modelId"]);
+        assert!(serde_json::to_vec(&forwarded).unwrap().len() < original_len / 20);
+        server.abort();
         std::fs::remove_dir_all(root).unwrap();
     }
 
