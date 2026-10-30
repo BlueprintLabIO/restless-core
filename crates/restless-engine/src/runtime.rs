@@ -48,6 +48,10 @@ static COMPANY_START_LOCKS: LazyLock<
     tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 > = LazyLock::new(Default::default);
 
+// Serialize Runtime and browser lifecycle starts across this account. This is
+// not yet a reservation for independently launched agents or heavy jobs.
+static ACCOUNT_LIFECYCLE_START: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 // Browser control is one small, reconstructable Runtime file. Keep its
 // read-modify-write transitions serial per company so two owner tabs cannot
 // both observe an available lease and then each publish a successor.
@@ -618,6 +622,22 @@ fn process_pressure(root: &std::path::Path) -> Result<bool> {
     // Experimental startup headroom; validate against real browser and agent starts.
     let reserve = (maximum / 10).max(32).min(maximum / 2);
     Ok(current >= maximum.saturating_sub(reserve))
+}
+
+fn require_process_start_headroom(root: &Path) -> Result<()> {
+    anyhow::ensure!(
+        !process_pressure(root)?,
+        "Account process capacity is busy. Try again when running work has freed capacity."
+    );
+    Ok(())
+}
+
+fn require_shared_process_start_headroom() -> Result<()> {
+    if workload_cgroup_parent()?.is_some() {
+        let root = PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
+        require_process_start_headroom(&root)?;
+    }
+    Ok(())
 }
 
 fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
@@ -2274,6 +2294,7 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
     match attached.as_deref() {
         Some(id) if id == runtime_id && sites_current && parent_current => {
             if container_state(&name).await? != ContainerStatus::Running {
+                require_shared_process_start_headroom()?;
                 if config.compute_limits.is_some() {
                     compute_limits::apply_locked(config, ComputeTarget::Computer).await?;
                 }
@@ -2282,9 +2303,14 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
             return Ok(());
         }
         Some(_) => {
+            // Check before retiring an existing desktop so pressure cannot
+            // replace a working computer with an unstartable one.
+            require_shared_process_start_headroom()?;
             remove_computer(company).await;
         }
-        None => {}
+        None => {
+            require_shared_process_start_headroom()?;
+        }
     }
     let network = format!("container:{runtime}");
     let computer_of = format!("{COMPUTER_OF_LABEL}={runtime_id}");
@@ -2373,6 +2399,7 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
 /// Give a running company its computer as the config now says (home sites changed).
 pub async fn refresh_computer(config: &CompanyConfig) -> Result<()> {
     let _start = company_start_guard(&config.name).await;
+    let _account_start = ACCOUNT_LIFECYCLE_START.lock().await;
     ensure_computer(config).await
 }
 
@@ -2885,11 +2912,11 @@ async fn docker_diagnostic(args: &[&str]) -> Result<std::process::Output> {
                     if let Some(path) = workload_container_scope(name).await? {
                         anyhow::ensure!(
                             !shared_workload_admission()?.is_some_and(|sample| sample.waiting()),
-                            "shared diagnostics are waiting for memory"
+                            "shared diagnostics are waiting for capacity"
                         );
                         anyhow::ensure!(
                             !container_admission(&path)?.is_some_and(|sample| sample.waiting()),
-                            "company diagnostics are waiting for memory"
+                            "company diagnostics are waiting for capacity"
                         );
                     }
                     if name.starts_with(&container_name("")) {
@@ -3143,6 +3170,7 @@ pub async fn up_automatically(config: &CompanyConfig) -> Result<Option<String>> 
 }
 
 async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
+    let _account_start = ACCOUNT_LIFECYCLE_START.lock().await;
     let company = &config.name;
     let mut current = config.clone();
     if let Ok(latest) = CompanyConfig::load(&state_root(), company) {
@@ -3168,6 +3196,8 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                 || !container_mounts_attachments(company).await?
                 || !container_uses_workload_parent(&container_name(company)).await?)
         {
+            // Preserve the old shell if process capacity cannot admit its replacement.
+            require_shared_process_start_headroom()?;
             // Reconciliation replaces the shell. A configured monthly hours
             // cap must gate that replacement before it stops live work.
             crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
@@ -3211,6 +3241,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
         }
         ContainerStatus::Stopped => {
             if !replaced {
+                require_shared_process_start_headroom()?;
                 crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
             }
             let name = container_name(company);
@@ -3225,6 +3256,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
         }
         ContainerStatus::Absent => {
             if !replaced {
+                require_shared_process_start_headroom()?;
                 crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
             }
             let volume = volume_name(company);
@@ -6657,7 +6689,9 @@ mission = "Choose intelligence"
         assert!(!super::process_pressure(&root).unwrap());
         std::fs::write(root.join("pids.current"), "68").unwrap();
         assert!(super::process_pressure(&root).unwrap());
+        assert!(super::require_process_start_headroom(&root).is_err());
         std::fs::write(root.join("pids.current"), "20").unwrap();
+        super::require_process_start_headroom(&root).unwrap();
         assert!(!super::process_pressure(&root).unwrap());
         std::fs::write(root.join("pids.max"), "0").unwrap();
         assert!(super::process_pressure(&root).is_err());

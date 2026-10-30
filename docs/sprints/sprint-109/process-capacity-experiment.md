@@ -26,3 +26,12 @@ companies; otherwise a resource shortage can turn a healthy workload into an
 outage. The prepared real-pressure job fixture remains unrun; it now restores its
 own temporary cap before cleanup and uses an append-only marker to detect a
 repeated effect. WSL swap was nearly full while the daemon build was stopped.
+
+The local branch now refuses a Runtime or browser start when the shared process
+reading is already busy, and checks before retiring the existing Runtime or
+browser during replacement. Runtime/browser lifecycle starts use one account
+mutex. This does not reserve headroom against independent agent or heavy-job
+starts, and a change in pressure after the check can still make replacement
+fail. The new startup guard has compiled but has not yet passed the prepared
+live pressure smoke or a concurrency/rollback test. Retain the old runtime under
+all failed replacements and prove safe recovery before release.
