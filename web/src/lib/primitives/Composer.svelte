@@ -562,8 +562,8 @@
 			}}></textarea>
 		<div class="hc-toolbar">
 			{#if allowAttachments}<AttachmentPicker bind:files {disabled} />{/if}
-			{#if triggerGuide.length && !disabled}
-				<span class="hc-guide"
+			{#if triggerGuide.length}
+				<span class="hc-guide" class:disabled
 					><ActionMenu label="Commands, skills, Work and people"
 						>{#snippet trigger()}<SquareSlash
 								size={15}

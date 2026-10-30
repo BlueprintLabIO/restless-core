@@ -2098,7 +2098,6 @@
 			>
 				{composerFiles.length} file{composerFiles.length === 1 ? '' : 's'} ready to send.
 			</p>{/if}
-		{#if !online}<p class="room-draft-state">Draft kept locally until you reconnect.</p>{/if}
 	</form>
 {/snippet}
 

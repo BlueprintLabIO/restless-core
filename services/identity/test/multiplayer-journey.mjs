@@ -70,14 +70,18 @@ async function verifyRoomDisconnect(who, messageText) {
   const message = who.page.getByText(messageText).first();
   const composer = who.page.getByRole("textbox", { name: "Conversation message" });
   await composer.fill("Draft held while offline");
+  await who.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const before = await message.boundingBox();
-  assert(before, `${who.key}: loaded message has a position`);
+  const composerBefore = await composer.boundingBox();
+  assert(before && composerBefore, `${who.key}: loaded message and composer have positions`);
   try {
     await who.context.setOffline(true);
     await who.page.getByText("Showing the last loaded messages. Your draft stays on this device.").waitFor({ timeout: 10000 });
     assert.equal(await composer.inputValue(), "Draft held while offline");
     const after = await message.boundingBox();
     assert(after && Math.abs(after.y - before.y) < 1, `${who.key}: reconnect must not move the message`);
+    const composerAfter = await composer.boundingBox();
+    assert(composerAfter && Math.abs(composerAfter.y - composerBefore.y) < 1, `${who.key}: reconnect moved the composer from ${composerBefore.y} to ${composerAfter?.y}`);
     assert.equal(await who.page.locator(".degraded-strip").count(), 0);
   } finally {
     await who.context.setOffline(false);
