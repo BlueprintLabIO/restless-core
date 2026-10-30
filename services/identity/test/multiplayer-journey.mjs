@@ -591,7 +591,13 @@ try {
   }
   // A lost connection must not move loaded messages or discard a local draft.
   for (const who of [owner, alice]) await verifyRoomDisconnect(who, chat[0]);
-  pass("owner and member keep their message positions and drafts when their room goes offline");
+  await owner.page.setViewportSize({ width: 390, height: 844 });
+  try {
+    await verifyRoomDisconnect(owner, chat[0]);
+  } finally {
+    await owner.page.setViewportSize({ width: 1280, height: 900 });
+  }
+  pass("owner and member keep their message positions and drafts when their room goes offline, including phone width");
   for (const [who, trace] of tracers) who.page.off("response", trace);
   for (const who of editors) await shot(who, "room");
   pass("room chat typed by owner and a member appears live for all three people");
