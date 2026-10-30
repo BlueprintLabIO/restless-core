@@ -196,13 +196,13 @@ The fixture does not reproduce the stale-memory interleaving or test agent
 launches, multiple owners, or production.
 
 Restart inspection found a second admission boundary that must be addressed
-with the launch race:  invokes ,
+with the launch race: `staff::sweep_orphans` invokes `reap_orphan_sessions`,
 which returns zero both when no marked sessions exist and when the Docker
-inspection fails.  also ignores kill failures; the sweep removes
+inspection fails. `reap_session` also ignores kill failures; the sweep removes
 markers without verifying process disappearance, and startup proceeds after
 the sweep. Thus an incomplete observation or a delayed accepted Docker exec
 can be mistaken for a clean recovery before new work is admitted. The existing
- helper verifies absence for ordinary turn cleanup but
+`verify_session_reaped` helper verifies absence for ordinary turn cleanup but
 is not used by this startup sweep. Fixing this requires a retryable, observed
 per-owner recovery boundary and a test that injects inspection/kill failures
 and late process creation; a global permanent pause would not satisfy owner
