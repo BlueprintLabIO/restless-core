@@ -318,6 +318,10 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   All checks took 5.93 seconds and cleanup succeeded. This does not test a large tree
   under CPU pressure, prolonged load or production. The reusable test is
   `scripts/verify-library-cpu-isolation.py`.
+  The CPU test was then extended to 4,001 files in the pressured account: all unique
+  files returned across pages while 90 throttled periods were recorded, both accounts passed
+  eight entry checks, the measured checks took 8.76 seconds, and cleanup succeeded.
+  This short local run does not establish sustained load, cold storage or production behavior.
   Scratch notes also remain visible in the default Library. Evidence:
   `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Exercise Library and owner entry with one disposable account CPU-throttled."""
-import json, os, secrets, signal, subprocess, sys, tempfile, time, urllib.request
+import json, os, secrets, signal, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 from pathlib import Path
 
 repo = Path(__file__).resolve().parents[1]
@@ -61,6 +61,9 @@ with tempfile.TemporaryDirectory(prefix="s109-library-isolation-") as folder:
             assert status == 200 and any(f["path"].endswith("/isolation/visible.txt") for f in body["files"])
         pressured, name, pool, slice_name = planes[0]
         peer, peer_name, _, _ = planes[1]
+        # Exercise multiple pages of real output while the first account is busy.
+        docker("exec", "-u", "company", pressured.container(name), "sh", "-c",
+               'n=1; while [ "$n" -le 4000 ]; do : > "/company/outputs/isolation/$n.txt"; n=$((n+1)); done')
         # Generate work in this account's actual workload cgroup. Its quota is
         # one quarter of one CPU, leaving both owner APIs outside the pool.
         subprocess.run(["sudo", "-n", "systemctl", "set-property", "--runtime", slice_name, "CPUQuota=25%"], check=True, timeout=30)
@@ -68,7 +71,7 @@ with tempfile.TemporaryDirectory(prefix="s109-library-isolation-") as folder:
             return int(dict(line.split() for line in (pool / "cpu.stat").read_text().splitlines())["nr_throttled"])
         before = throttled()
         load = subprocess.Popen(["docker", "exec", "-u", "company", pressured.container(name),
-                                 "timeout", "90", "sh", "-c", "while :; do :; done"],
+                                 "timeout", "180", "sh", "-c", "while :; do :; done"],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(40):
             if load.poll() is not None: raise RuntimeError("CPU load exited before pressure was observed")
@@ -78,7 +81,17 @@ with tempfile.TemporaryDirectory(prefix="s109-library-isolation-") as folder:
         started = time.monotonic()
         for plane, company in ((pressured, name), (peer, peer_name)):
             status, body = plane.owner(company, "/library/outputs?fresh=true")
-            assert status == 200 and any(f["path"].endswith("/isolation/visible.txt") for f in body["files"]), (company, status)
+            assert status == 200, (company, status, body)
+            if plane is pressured:
+                paths = [f["path"] for f in body["files"]]
+                while body["truncated"]:
+                    status, body = plane.owner(company, "/library/outputs?" + urllib.parse.urlencode(body["next_cursor"]))
+                    assert status == 200, (company, status, body)
+                    paths.extend(f["path"] for f in body["files"])
+                assert len(paths) == 4001 and len(set(paths)) == 4001, len(paths)
+                assert any(path.endswith("/isolation/visible.txt") for path in paths)
+            else:
+                assert any(f["path"].endswith("/isolation/visible.txt") for f in body["files"])
             with urllib.request.urlopen(plane.owner_origin + "/health", timeout=10) as response:
                 assert response.status == 200
             for path in ("/principal", "/attention", "/work-graph"):
@@ -88,7 +101,7 @@ with tempfile.TemporaryDirectory(prefix="s109-library-isolation-") as folder:
         after = throttled()
         assert after > before
         print(json.dumps({"accounts": 2, "cpuQuotaPercent": 25, "throttledPeriods": after-before,
-                          "freshListings": 2, "entryChecks": 8,
+                          "freshListings": 2, "pressuredFiles": 4001, "entryChecks": 8,
                           "elapsedSeconds": round(time.monotonic()-started, 2)}), flush=True)
     finally:
         if load and load.poll() is None:
