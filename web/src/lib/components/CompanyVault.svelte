@@ -101,10 +101,13 @@
 		event.preventDefault();
 		if (!view || !secret || (!replacing && !binding)) return;
 		const name = binding.trim();
+		// The email integration stores this ordinary name under its canonical binding.
+		const lookupName = name === 'resend' ? 'resend.production' : name;
 		/* A new name that is already taken would silently replace that secret's value. */
 		const taken =
 			!replacing &&
-			(view.secrets?.some((s) => s.name === name) || view.references.some((r) => r.name === name));
+			(view.secrets?.some((s) => s.name === lookupName) ||
+				view.references.some((r) => r.name === lookupName));
 		if (
 			taken &&
 			!(await confirmAction({

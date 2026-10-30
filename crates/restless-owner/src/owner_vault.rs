@@ -149,6 +149,25 @@ pub(super) async fn store_secret(
     }
 
     if new_binding {
+        // The secret may already exist in the Vault without a company binding.
+        // Do not turn a stale list or an unbound secret into an unconfirmed overwrite.
+        match credential::probe_reference(&reference).await.status {
+            credential::ProbeStatus::Present if !input.replace => {
+                return api_error(
+                    StatusCode::CONFLICT,
+                    "vault_exists",
+                    "A secret with that name already exists. Refresh the Vault before replacing it.",
+                );
+            }
+            credential::ProbeStatus::Invalid => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "vault",
+                    "Could not check whether that secret already exists. Try again.",
+                );
+            }
+            _ => {}
+        }
         // The binding is saved only once the value is confirmed below; a failed store leaves the
         // company as it was.
         let stored = store_and_confirm(&reference, &input.secret, Some(binding)).await;
