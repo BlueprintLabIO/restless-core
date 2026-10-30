@@ -1,0 +1,25 @@
+{
+  "checkedAt": "2026-10-30T02:41:25Z",
+  "coreRevision": "f911f24755c85c14ba12307f48a1c525230c09e6",
+  "cloudRelease": "cloud-923bb52129d55e7eb719260a33478e297c5d57a0",
+  "desiredRevision": 129,
+  "appliedRevision": 129,
+  "healthy": true,
+  "platformImageMatches": {
+    "account-plane": true,
+    "cockpit": true
+  },
+  "workloadPool": {
+    "memory.current": "3446743040",
+    "memory.max": "5974450176",
+    "memory.high": "5377003520",
+    "memory.swap.max": "0",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "cpu.max": "300000 100000",
+    "cpu.stat": "usage_usec 7510934744\nuser_usec 5441953467\nsystem_usec 2068981277\ncore_sched.force_idle_usec 0\nnr_periods 511541\nnr_throttled 68\nthrottled_usec 1086115\nnr_bursts 0\nburst_usec 0"
+  },
+  "observedRunningWorkloads": 6,
+  "updaterMatchesExpected": true,
+  "temporaryOperatorFirewallRemoved": true,
+  "limitations": "Read-only placement sample; no authenticated Reno walkthrough or production pressure test."
+}
