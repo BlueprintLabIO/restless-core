@@ -236,9 +236,10 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   the owner can see an output, while member and admin requests for either page receive 403 and
   their Library screens do not request or display owner-only paths. The complete journey passed
   and removed its company, containers, databases and roles; the first two attempts failed because
-  of test-selector and expected-status mistakes and also cleaned up. These role checks used a
-  desktop viewport. Concurrent filesystem changes, mobile member/admin behavior and production
-  remain to be qualified. Scratch notes also remain visible in the default Library. Evidence:
+  of test-selector and expected-status mistakes and also cleaned up. A repeat of the complete journey verified member and admin Library behavior at
+  desktop and phone widths, including denial of both direct output-page requests; its resources
+  were removed. Evidence: `/tmp/restless-identity-core-evidence-vuelZN/journey.log`. Concurrent
+  filesystem changes and production remain to be qualified. Scratch notes also remain visible in the default Library. Evidence:
   `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 
 

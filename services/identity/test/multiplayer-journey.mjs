@@ -1021,10 +1021,14 @@ try {
     const requests = [];
     const observe = request => { if (new URL(request.url()).pathname === `${base}/library/outputs`) requests.push(request.url()); };
     who.page.on("request", observe);
-    await who.page.goto(`${core}/${company}/library`);
-    await who.page.getByRole("heading", { name: "All files", exact: true }).waitFor({ timeout: 30000 });
-    assert.equal(await who.page.getByText("role-check/owner-only.txt", { exact: true }).count(), 0);
-    assert.equal(await who.page.getByRole("link", { name: /^Folders/ }).count(), 0);
+    for (const width of [1280, 390]) {
+      await who.page.setViewportSize({ width, height: 900 });
+      await who.page.goto(`${core}/${company}/library`);
+      await who.page.getByRole("heading", { name: "All files", exact: true }).waitFor({ timeout: 30000 });
+      assert.equal(await who.page.getByText("role-check/owner-only.txt", { exact: true }).count(), 0);
+      assert.equal(await who.page.getByRole("link", { name: /^Folders/ }).count(), 0);
+    }
+    await who.page.setViewportSize({ width: 1280, height: 900 });
     who.page.off("request", observe);
     assert.deepEqual(requests, [], `${who.key}'s Library does not request owner output paths`);
   }
