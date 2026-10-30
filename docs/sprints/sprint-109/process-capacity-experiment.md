@@ -181,3 +181,16 @@ entry remained healthy. The kernel reported zero process-cap rejections; the
 disposable plane and slice were removed without reported cleanup errors. This
 is the same bounded single-company heavy-job scenario, not a test of agent
 launches, multiple owners, or the full resource gate.
+
+Queued heavy-job admission now samples shared pressure after acquiring the
+account lifecycle start guard, rather than using a sample taken before waiting
+for it. This prevents a Runtime or browser start guarded by the same daemon
+lock from making that memory observation stale before the job start. Actor
+launches still do not share this guard, and Docker operations surviving daemon
+exit still need reconciliation; this is not a complete account admission gate.
+The daemon built successfully and verify-process-pressure.py passed with binary
+SHA-256 b978287f9fac056e69b7563c6181137ee452cdb6c48900c24156a50cf3ded46c:
+two jobs waited under process pressure and resumed once, owner entry was
+healthy, the kernel reported zero task-cap rejections, and cleanup succeeded.
+The fixture does not reproduce the stale-memory interleaving or test agent
+launches, multiple owners, or production.

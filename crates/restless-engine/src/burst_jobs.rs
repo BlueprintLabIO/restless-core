@@ -844,7 +844,6 @@ pub async fn reconcile_pending(daemon: &crate::Daemon, companies: &[String]) -> 
         }
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), lock.rollback()).await;
     }
-    let shared = crate::runtime::shared_workload_admission()?;
     let reserved = jobs
         .iter()
         .filter(|job| matches!(job.3.as_str(), "running" | "paused" | "restarting"))
@@ -859,7 +858,16 @@ pub async fn reconcile_pending(daemon: &crate::Daemon, companies: &[String]) -> 
         .iter()
         .filter(|job| job.3 == "created" && job.5 && !job.1.ends_with("-preparing"))
     {
-        if let Some(admission) = &shared {
+        // Serialize with owner stop, sleep and destruction through the same
+        // per-company lifecycle lock used by those operations.
+        let _company_guard = crate::runtime::company_start_guard(company).await;
+        // Recheck capacity while serialized with Runtime/browser lifecycle starts.
+        // The guard covers Docker's start response so the next observation can
+        // see the new job. A timed-out Docker start still needs reconciliation.
+        let _account_start = crate::runtime::account_lifecycle_guard().await;
+        // Observe shared pressure under the start guard: another Runtime or
+        // browser can consume headroom while this job waits for the lock.
+        if let Some(admission) = crate::runtime::shared_workload_admission()? {
             if admission.waiting()
                 || memory == &0
                 || admission
@@ -871,13 +879,6 @@ pub async fn reconcile_pending(daemon: &crate::Daemon, companies: &[String]) -> 
                 continue;
             }
         }
-        // Serialize with owner stop, sleep and destruction through the same
-        // per-company lifecycle lock used by those operations.
-        let _company_guard = crate::runtime::company_start_guard(company).await;
-        // Recheck capacity while serialized with Runtime/browser lifecycle starts.
-        // The guard covers Docker's start response so the next observation can
-        // see the new job. A timed-out Docker start still needs reconciliation.
-        let _account_start = crate::runtime::account_lifecycle_guard().await;
         // A stopped or removed Runtime must not be woken by a queued job.
         if !matches!(
             crate::runtime::status(company).await,
