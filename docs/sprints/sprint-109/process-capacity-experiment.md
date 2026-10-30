@@ -129,3 +129,15 @@ through a synthetic owner lease and resumed a queued job exactly once; cleanup
 reported no problems and removed the temporary slice. Frontend static checks
 passed. The owner-facing status has not yet been visually tested, and this does
 not establish the production resource guarantees listed above.
+
+A further launch-boundary inspection confirms why this prototype is not yet a
+release gate: actor capacity is observed and reserved in `staff.rs` before
+Work, conversation and Exec start their asynchronous turns, but the actual
+local ACP process is spawned later in `acp.rs` without the lifecycle lock.
+Two agent starts, or an agent and a browser/job start, can therefore both pass
+a headroom observation before their process counts are visible. The lock is
+in-process and does not coordinate overlapping daemon generations either. A
+fix must preserve each existing Work/turn retry path when admission is deferred
+and cover cancellation and daemon replacement; simply returning an error after
+a Work Attempt has been claimed could falsely fail work. This is source
+inspection, not a reproduced concurrency test.

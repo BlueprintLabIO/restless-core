@@ -48,8 +48,8 @@ static COMPANY_START_LOCKS: LazyLock<
     tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 > = LazyLock::new(Default::default);
 
-// Serialize Runtime and browser lifecycle starts across this account. This is
-// not yet a reservation for independently launched agents or heavy jobs.
+// Serialize Runtime, browser and queued heavy-job starts in this daemon.
+// Independently launched agents and overlapping daemon generations are not covered.
 static ACCOUNT_LIFECYCLE_START: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub(crate) async fn account_lifecycle_guard() -> tokio::sync::MutexGuard<'static, ()> {
