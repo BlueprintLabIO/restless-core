@@ -5300,6 +5300,21 @@ mod tests {
             .is_some_and(|body| body.contains("UNSENT")));
         println!("{}", serde_json::to_string_pretty(item).unwrap());
 
+        // The displayed version must not become an approval of vanished work.
+        let displayed_version = item.review_version.clone().expect("displayed review version");
+        let removed = tokio::process::Command::new("docker")
+            .args(["exec", &container, "rm", "-f", output_path])
+            .output().await.unwrap();
+        assert!(removed.status.success());
+        let missing = project(&config, &authority, Some(&org)).await.unwrap();
+        let item = missing.items.iter().find(|item| item.work_id == Some(work_id)).unwrap();
+        assert_ne!(item.review_target.as_ref().unwrap().status, "available");
+        let decision = org.decide_review_as_seen(
+            handoff.id, "owner", restless_orgintel::OwnerReviewDecision::Accepted,
+            "", &displayed_version,
+        ).await;
+        assert!(decision.is_err(), "a missing preview must not be accepted");
+
         if std::env::var("RESTLESS_S17_REVIEW_TEST_PRESERVE_STATE").as_deref() != Ok("1") {
             org.drop_schema().await.unwrap();
         }
