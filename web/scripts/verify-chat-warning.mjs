@@ -49,13 +49,20 @@ try {
 		}
 	}
 	assert(ready, 'Fixture server did not start');
-	browser = await chromium.launch();
+	browser = await chromium.launch(
+		process.env.RESTLESS_BROWSER_EXECUTABLE
+			? { executablePath: process.env.RESTLESS_BROWSER_EXECUTABLE }
+			: {}
+	);
 	for (const width of [1440, 390]) {
 		const page = await browser.newPage({ viewport: { width, height: 900 } });
 		const errors = [];
 		page.on('pageerror', (e) => errors.push(e.message));
 		await page.goto(`${origin}/s109-chat-warning-fixture`);
-		await page.waitForTimeout(1500); // Let client hydration attach the fixture controls.
+		await page.locator('.fixture-controls[data-ready="true"]').waitFor({ timeout: 60000 });
+		await page.waitForLoadState('networkidle');
+		await page.waitForTimeout(3000); // Let the dev server finish dependency optimization.
+		await page.locator('.fixture-controls[data-ready="true"]').waitFor({ timeout: 60000 });
 		const messages = page.locator('.exr-msgs');
 		await messages.waitFor({ timeout: 60000 });
 		const input = page.locator('.exr-inner textarea').first();
@@ -63,8 +70,9 @@ try {
 		const before = await messages.boundingBox(),
 			fieldBefore = await input.boundingBox();
 		await page.getByRole('button', { name: 'Break conversation' }).click();
+		await page.locator('.fixture-controls[data-broken="true"]').waitFor({ timeout: 10000 });
 		const warning = page.locator('.toast.failure').filter({ hasText: 'Reconnecting.' });
-		await warning.waitFor({ timeout: 15000 });
+		await warning.waitFor({ timeout: 30000 });
 		const during = await messages.boundingBox(),
 			fieldDuring = await input.boundingBox();
 		assert(

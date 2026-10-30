@@ -289,6 +289,7 @@ export class RestlessCore {
       timed(timings, 'cockpit check and build', () => cockpit(source).sync()),
       timed(timings, 'cockpit unit tests', () => project(source, 'web').withExec(['npm', 'test']).sync()),
       timed(timings, 'browser overlays', () => this.verifyOverlays(source).sync()),
+      timed(timings, 'chat warning motion', () => this.verifyChatWarning(source).sync()),
       timed(timings, 'ui artifact consumer', () => this.verifyUiArtifact(source).sync()),
       timed(timings, 'native documents check and build', () => project(source, 'services/native-documents-collaboration')
         .withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']).sync()),
@@ -296,7 +297,7 @@ export class RestlessCore {
       timed(timings, 'issuer artifact', () => this.issuer(source).sync()),
       timed(timings, 'release contracts', () => this.verifyRelease(source)),
     ]);
-    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build and browser overlays, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports and versioned release contracts\n'
+    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build, browser overlays and chat warning motion, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports and versioned release contracts\n'
       + `timings ${JSON.stringify(timings)}`;
   }
 
@@ -340,6 +341,19 @@ export class RestlessCore {
         + '|| { tail -60 /tmp/restless-overlay-vite.log; exit 1; }; '
         + 'node scripts/verify-overlays.mjs',
       ]);
+  }
+
+  /** Check that reconnect and send failures do not move the real chat component. */
+  @func()
+  verifyChatWarning(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
+    source: Directory,
+  ): Container {
+    const browser = dag.container().from(NODE_IMAGE).withExec(['/bin/sh', '-c',
+      'for i in 1 2 3; do timeout 300 apk add --no-cache chromium && exit 0; sleep 5; done; exit 1']);
+    return project(source, 'web', browser)
+      .withEnvVariable('RESTLESS_BROWSER_EXECUTABLE', '/usr/bin/chromium')
+      .withExec(['node', 'scripts/verify-chat-warning.mjs']);
   }
 
   /** Exercise the versioned release contracts before any registry mutation. */
