@@ -3133,6 +3133,8 @@ async fn project_queue(
             title: projected_handoff_title(
                 preparing,
                 payment_title.as_deref(),
+                (handoff.category != restless_orgintel::OwnerHandoffCategory::OwnerJudgement)
+                    .then_some(handoff.requested_action.as_str()),
                 brief.map(|brief| brief.headline.as_str()),
                 fallback_title,
             ),
@@ -4700,14 +4702,18 @@ fn is_runtime_local_url(value: &str) -> bool {
 fn projected_handoff_title(
     preparing: bool,
     payment_title: Option<&str>,
+    human_action: Option<&str>,
     brief_title: Option<&str>,
     fallback_title: &str,
 ) -> String {
     if preparing {
         return "Preparing your next step".into();
     }
+    let action =
+        human_action.and_then(|action| action.lines().map(str::trim).find(|line| !line.is_empty()));
     payment_title
-        .or(brief_title)
+        .or(action)
+        .or(brief_title.filter(|title| !title.trim().is_empty()))
         .unwrap_or(fallback_title)
         .into()
 }
@@ -5421,10 +5427,54 @@ mod tests {
             projected_handoff_title(
                 true,
                 None,
+                Some("Use the current sign-in prompt"),
                 Some("Expired device-code instructions"),
                 "Confirm your identity",
             ),
             "Preparing your next step"
+        );
+    }
+
+    #[test]
+    fn human_step_title_uses_the_actual_requested_action() {
+        for action in [
+            "Add the GoDaddy DNS record",
+            "Add the Cloudflare DNS record",
+        ] {
+            assert_eq!(
+                projected_handoff_title(
+                    false,
+                    None,
+                    Some(action),
+                    Some("Confirm your identity"),
+                    "Fallback"
+                ),
+                action
+            );
+        }
+        assert_eq!(
+            projected_handoff_title(
+                false,
+                Some("Approve 5 AUD"),
+                Some("Open payment"),
+                Some("Generic"),
+                "Fallback"
+            ),
+            "Approve 5 AUD"
+        );
+        assert_eq!(
+            projected_handoff_title(
+                false,
+                None,
+                Some("   "),
+                Some("Review the outcome"),
+                "Fallback"
+            ),
+            "Review the outcome"
+        );
+        assert_eq!(
+            projected_handoff_title(false, None, None, Some("Review the outcome"), "Fallback"),
+            "Review the outcome"
         );
     }
 

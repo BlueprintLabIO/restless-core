@@ -96,6 +96,10 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   edit and rename on vault rows.
 - [ ] **A3 Card titles say the action [27].** Steps titled "Confirm your identity" were a GoDaddy
   record and a Cloudflare record. The title comes from what the step asks, not its kind.
+  Ready human-step handoffs now project the current requested action ahead of a generic brief
+  headline. Payment titles and preparing/review states retain their own behavior. Focused engine
+  checks cover distinct DNS actions, blank actions and those existing states; full real-item and
+  production verification remain open.
 - [ ] **A4 A review card carries its work or doesn't ship [8, 30, 31].** Review cards render the
   output inline (doc, page preview, result). A card with no linked preview is refused at creation
   and goes back to its author, instead of showing "No prepared preview was linked" and a Try again
@@ -191,6 +195,14 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   are localStorage per company and area).
 - [ ] **F3 Chat spacing [24].** One spacing scale for paragraphs, lists, Work details and footers.
 - [ ] **F4 Chat header [25, 39].** Fixed row heights; no tooltip over "About: …".
+  In a local owner role journey, resizing from desktop to 390px with Exec chat open left its
+  composer over the Resources page's Edit limit button, preventing a normal click. The local fix
+  closes that desktop rail as the viewport enters the compact layout. A subsequent owner/member/admin
+  journey verified the rail was open at desktop size, then closed on transition to 390px and the owner
+  could use the budget editor; the permission checks and cleanup passed. Evidence:
+  `/tmp/restless-identity-core-evidence-eJRnEj/journey.log` (failed before the fix),
+  `/tmp/restless-identity-core-evidence-QEJ4dm/journey.log` and `/tmp/s109-budget-resize-roles.log`.
+  This is local verification, not production or full F4/F9 acceptance.
 - [ ] **F5 Clipping [29, 49].** The stray chip in the card footer and Library's cut-off "Archived".
 - [ ] **F6 Compact entry and concise copy.** Make the sign-in button proportionate to the surrounding
   controls at desktop and phone sizes. Remove unnecessary eyebrows and explanatory footer copy,

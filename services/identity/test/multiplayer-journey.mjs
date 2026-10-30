@@ -1051,6 +1051,17 @@ try {
   await owner.page.goto(`${core}/${company}/company/resources`);
   await owner.page.locator("#compute").waitFor();
   await owner.page.locator("#ai-usage").waitFor();
+  for (const width of [1280, 390]) {
+    await owner.page.setViewportSize({ width, height: 900 });
+    if (width === 1280) await owner.page.locator("#bridge-exrail.open").waitFor({ state: "visible", timeout: 10000 });
+    if (width === 390) await owner.page.locator("#bridge-exrail.open").waitFor({ state: "hidden", timeout: 10000 });
+    const spend = owner.page.locator("#spend").first();
+    await spend.getByRole("button", { name: /Requests already in progress can add charges beyond the limit/ }).waitFor();
+    await spend.getByRole("button", { name: "Edit limit" }).click();
+    await owner.page.getByRole("button", { name: "Requests already in progress can add charges beyond this limit." }).waitFor();
+    await owner.page.getByRole("button", { name: "Cancel", exact: true }).click();
+  }
+  await owner.page.setViewportSize({ width: 1280, height: 900 });
   await shot(owner, "resources");
   for (const who of [alice, bob]) {
     await coreApi(who, `${base}/company/compute`, { expected: 403 });

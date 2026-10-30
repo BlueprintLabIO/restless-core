@@ -233,6 +233,17 @@
 		return stored === null || stored === 'open';
 	}
 	let execRailOpen = $state(initialRail(page.params.companyId ?? ''));
+	// A desktop rail becomes a full-screen overlay at the compact breakpoint.
+	// Close it on that transition so it does not suddenly cover the current page;
+	// the person can still open the conversation explicitly on the phone.
+	onMount(() => {
+		const compact = window.matchMedia('(max-width: 980px)');
+		const changed = (event: MediaQueryListEvent) => {
+			if (event.matches) execRailOpen = false;
+		};
+		compact.addEventListener('change', changed);
+		return () => compact.removeEventListener('change', changed);
+	});
 	let railCompany = page.params.companyId ?? '';
 	let focusRailRestore = $state<boolean | null>(null);
 	let startupStalled = $state(false);
