@@ -3149,6 +3149,22 @@ async fn refusal_message(status: StatusCode, upstream: reqwest::Response, model:
             "404 model {model} not found at the host model gateway; choose another model"
         );
     }
+    if status == StatusCode::SERVICE_UNAVAILABLE {
+        let Ok(bytes) = upstream.bytes().await else {
+            return PLAIN.into();
+        };
+        let body =
+            serde_json::from_slice::<serde_json::Value>(&bytes[..bytes.len().min(8192)]).ok();
+        if body
+            .as_ref()
+            .and_then(|value| value.pointer("/error/code"))
+            .and_then(|value| value.as_str())
+            == Some("ai_credit_check_unavailable")
+        {
+            return "503 ai_credit_check_unavailable: AI is waiting for the credit service to reconnect.".into();
+        }
+        return PLAIN.into();
+    }
     if status != StatusCode::PAYMENT_REQUIRED {
         return PLAIN.into();
     }
@@ -6947,6 +6963,31 @@ mission = "Choose native intelligence"
         )
         .unwrap();
         assert_eq!(available, ["anthropic/claude-sonnet-4-5"]);
+    }
+
+    #[tokio::test]
+    async fn a_credit_service_outage_is_a_temporary_connection_problem() {
+        let response = reqwest::Response::from(
+            axum::http::Response::builder().status(503)
+                .body(r#"{"error":{"code":"ai_credit_check_unavailable","message":"AI is waiting for the credit service."}}"#.to_owned())
+                .unwrap(),
+        );
+        let message =
+            refusal_message(StatusCode::SERVICE_UNAVAILABLE, response, "test/model").await;
+        let blocked = crate::health::classify_provider_error(&message).expect("classified");
+        assert_eq!(blocked.kind, crate::health::BlockKind::Transport);
+        assert!(blocked.message().contains("credit service"));
+        assert!(!blocked.message().contains("owner action required"));
+        // The Runtime receives the gateway's JSON envelope, not this Rust string.
+        let forwarded = relay_error(StatusCode::SERVICE_UNAVAILABLE, &message);
+        let body = axum::body::to_bytes(forwarded.into_body(), 8192)
+            .await
+            .unwrap();
+        let received = std::str::from_utf8(&body).unwrap();
+        let from_content = crate::health::classify_provider_error_content(received)
+            .expect("the forwarded error is classified");
+        assert_eq!(from_content.kind, crate::health::BlockKind::Transport);
+        assert!(from_content.message().contains("credit service"));
     }
 
     #[tokio::test]
