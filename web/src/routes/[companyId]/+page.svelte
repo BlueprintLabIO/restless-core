@@ -752,7 +752,7 @@
 			label: 'Resize attention panes',
 			target: '.attention-index',
 			variable: '--attention-index-w',
-			min: 260,
+			min: 160,
 			minOther: 320,
 			defaultSize: 340,
 			enabled: !queueClear

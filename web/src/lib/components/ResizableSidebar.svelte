@@ -16,7 +16,7 @@
 		label,
 		target: '.sidebar-nav',
 		variable: '--sidebar-width',
-		min: 200,
+		min: 160,
 		minOther: 420,
 		defaultSize: 264
 	}}
