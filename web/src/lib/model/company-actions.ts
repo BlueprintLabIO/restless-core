@@ -134,13 +134,13 @@ export async function readLibraryOutputs(
 	signal?: AbortSignal,
 	cursor?: OutputCursor,
 	fresh = false
-): Promise<{ files: OutputFile[]; truncated: boolean; next: OutputCursor | null; skippedNames: number; revision: string | null }> {
+): Promise<{ files: OutputFile[]; truncated: boolean; next: OutputCursor | null; skippedNames: number; revision: string | null; stale: boolean }> {
 	const params = cursor ? new URLSearchParams({ modified: String(cursor.modified), path: cursor.path, ...(cursor.revision ? { revision: cursor.revision } : {}) }) : new URLSearchParams(fresh ? { fresh: 'true' } : {});
 	const query = params.size ? `?${params}` : '';
-	const body = await ownerRequest<{ files?: OutputFile[]; truncated?: boolean; next_cursor?: OutputCursor | null; skipped_names?: number; revision?: string }>(
+	const body = await ownerRequest<{ files?: OutputFile[]; truncated?: boolean; next_cursor?: OutputCursor | null; skipped_names?: number; revision?: string; stale?: boolean }>(
 		`${api(company)}/library/outputs${query}`, { signal }
 	);
-	return { files: body?.files ?? [], truncated: body?.truncated === true, next: body?.next_cursor ?? null, skippedNames: Number.isSafeInteger(body?.skipped_names) && (body?.skipped_names ?? 0) > 0 ? body!.skipped_names! : 0, revision: body?.revision ?? null };
+	return { files: body?.files ?? [], truncated: body?.truncated === true, next: body?.next_cursor ?? null, skippedNames: Number.isSafeInteger(body?.skipped_names) && (body?.skipped_names ?? 0) > 0 ? body!.skipped_names! : 0, revision: body?.revision ?? null, stale: body?.stale === true };
 }
 
 export async function readLibraryModified(

@@ -20,6 +20,7 @@ source = (cloud / "services/vm-provider/agent/restless-agent.sh").read_text()
 start = source.index("install_workload_budget() {")
 end = source.index("\nupdate_agent()", start)
 planes, pools, old_high = [], [], {}
+browser = None
 cleanup_errors = []
 with tempfile.TemporaryDirectory(prefix="s109-library-isolation-") as folder:
     root = Path(folder)
@@ -46,6 +47,7 @@ with tempfile.TemporaryDirectory(prefix="s109-library-isolation-") as folder:
             base.mkdir(); (base / "home").mkdir(); (base / "plane").mkdir()
             plane = Plane(base / "plane", company, daemon, image, {
                 "HOME": str(base / "home"), "RESTLESS_SOURCE_ROOT": str(repo),
+                "RESTLESS_COCKPIT_DIR": str(repo / "web/build"),
                 "RESTLESS_COMPANY_CPUS": "1", "RESTLESS_COMPANY_MEMORY": "1024m",
                 "RESTLESS_COMPUTER_MEMORY": "512m", "RESTLESS_WORKLOAD_CGROUP_PARENT": slice_name,
                 "RESTLESS_WORKLOAD_CGROUP_ROOT": str(pool), "RESTLESS_TEST_DISABLE_SCHEDULER": "1"})
@@ -71,6 +73,20 @@ with tempfile.TemporaryDirectory(prefix="s109-library-isolation-") as folder:
         assert status == 200 and sample["sample"]["work_admission"]["waiting_for_memory"]
         status, _ = pressured.owner(name, "/library/outputs?fresh=true")
         assert status == 503, "pressured account must defer its scan"
+        # Let the normal 30-second first-page cache age out, then prove the
+        # failed fresh scan returns explicitly stale saved files.
+        time.sleep(31)
+        status, saved = pressured.owner(name, "/library/outputs")
+        assert status == 200 and saved["stale"] is True
+        assert any(f["path"].endswith("/isolation/visible.txt") for f in saved["files"])
+        ready, released = root / "browser-ready", root / "browser-recovered"
+        browser = subprocess.Popen(["node", str(repo / "web/scripts/verify-library-pressure.mjs"),
+                                    pressured.owner_origin, name, str(ready), str(released)])
+        for _ in range(120):
+            if ready.exists(): break
+            if browser.poll() is not None: raise RuntimeError("pressure browser stopped before ready")
+            time.sleep(0.5)
+        else: raise RuntimeError("pressure browser did not become ready")
         status, body = peer.owner(peer_name, "/library/outputs?fresh=true")
         assert status == 200 and any(f["path"].endswith("/isolation/visible.txt") for f in body["files"])
         for plane, company in ((pressured, name), (peer, peer_name)):
@@ -89,9 +105,16 @@ with tempfile.TemporaryDirectory(prefix="s109-library-isolation-") as folder:
                 break
             time.sleep(1)
         assert recovered, "the deferred listing must recover without restarting the daemon"
+        released.write_text("ready")
+        assert browser.wait(timeout=90) == 0, "browser did not recover"
         print(json.dumps({"accounts": 2, "pressuredListing": 503, "peerListing": 200,
                           "entryChecks": 8, "recoveredWithoutRestart": True}), flush=True)
     finally:
+        if browser and browser.poll() is None:
+            browser.terminate()
+            try: browser.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                browser.kill(); browser.wait()
         for name, value in old_high.items():
             subprocess.run(["sudo", "-n", "systemctl", "set-property", "--runtime", name, "MemoryHigh=" + value], check=False, timeout=30)
         for plane, _, _, _ in reversed(planes):

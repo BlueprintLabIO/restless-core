@@ -421,11 +421,13 @@ pub(super) async fn library_outputs(
             // A sleeping Runtime may use its last first page; never substitute
             // that page for a failed request for older files.
             if cursor.is_none() && !query.fresh.unwrap_or(false) {
-                if let Some((_, body)) = LAST
+                if let Some((_, mut body)) = LAST
                     .lock()
                     .ok()
                     .and_then(|cache| cache.get(&company).cloned())
                 {
+                    // Preserve cached files, while making the failed fresh read explicit.
+                    body["stale"] = serde_json::Value::Bool(true);
                     return Json(body).into_response();
                 }
             }
@@ -462,6 +464,8 @@ pub(super) async fn library_outputs(
         .flatten();
     let body = serde_json::json!({
         "truncated": truncated,
+        "stale": false,
+        "checked_at": chrono::Utc::now().to_rfc3339(),
         "skipped_names": page.skipped_names,
         "revision": page.revision,
         "next_cursor": next_cursor,

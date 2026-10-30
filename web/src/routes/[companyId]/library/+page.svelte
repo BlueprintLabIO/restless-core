@@ -881,7 +881,7 @@
 		}
 	}
 	async function loadMoreOutputs() {
-		if (!outputCursor || outputLoadingMore || outputStale) return;
+		if (!outputCursor || outputLoadingMore || outputStale || outputReadFailed) return;
 		const company = companyId;
 		const cursor = outputCursor;
 		const epoch = ++outputEpoch;
@@ -933,6 +933,17 @@
 			if (owner && !untrack(() => outputLoadingMore))
 				void readLibraryOutputs(company, controller.signal).then((result) => {
 					if (!controller.signal.aborted && epoch === outputEpoch) {
+						if (result.stale) {
+							if (!outputPagesLoaded) {
+								outputFiles = result.files;
+								outputFilesTruncated = result.truncated;
+								outputCursor = result.next;
+								outputRevision = result.revision;
+								reportSkippedNames(result.skippedNames);
+							}
+							if (!outputReadFailed) reportOutputFailure();
+							return;
+						}
 						clearOutputFailure();
 						if (outputPagesLoaded && outputRevision && result.revision && outputRevision !== result.revision) {
 							markOutputsStale();
