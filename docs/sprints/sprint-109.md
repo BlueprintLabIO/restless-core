@@ -305,6 +305,8 @@ entry are required before the next production rollout.
 
 ## Implementation evidence
 
+30 October: Core release qualification now includes the isolated real-chat movement regression at desktop and phone widths. It injects reconnect and send failures, checks zero transcript/composer movement, preserves the draft, and verifies retry, rediscovery and recovery. The Dagger release-environment check passed at both widths. This is one targeted part of C7, not the full six-surface, role and loading-state zero-jank gate.
+
 30 October: Inbox and the shared Work, Library, Apps and Company sidebars can now be reduced to 160px. Browser tests on a seeded isolated company verified that each reached that width, its header controls remained within the sidebar, and the preference restored after reload in the same browser; the Inbox filter also opened. The fixture cleaned up. Account-wide, cross-device preference syncing and the role/production walkthrough remain open, so F2 and F9 are not complete.
 
 30 October: reconnect and send failures in the Exec rail now use shared notices rather than inserting lines into the transcript or under the composer. A reserved header control reopens dismissed notices; reconnect retains Try again, and failed sends retain their draft and existing safe retry identity. Browser tests of the real rail with simulated delivery and connection outcomes at 1440px and 390px observed zero transcript and composer movement, draft preservation, retry, rediscovery and cleanup on recovery. Full end-to-end role and production checks remain open; this does not complete C5 or the zero-jank gate.
