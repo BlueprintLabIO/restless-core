@@ -12,7 +12,7 @@ use std::sync::{Arc, LazyLock};
 use std::task::{Context as TaskContext, Poll};
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use http_body_util::Empty;
 use hyper::body::{Bytes, Incoming};
@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 mod compute_limits;
 pub use compute_limits::{
-    apply_compute_limits, compute_limits_view, CompanyComputeLimits, ComputeTarget, ContainerLimits,
+    CompanyComputeLimits, ComputeTarget, ContainerLimits, apply_compute_limits, compute_limits_view,
 };
 
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
@@ -390,8 +390,15 @@ pub struct ComputeSample {
 pub struct WorkloadAdmission {
     pub scope: &'static str,
     pub waiting_for_memory: bool,
+    pub waiting_for_processes: bool,
     pub working_set_bytes: u64,
     pub resume_below_bytes: u64,
+}
+
+impl WorkloadAdmission {
+    pub fn waiting(&self) -> bool {
+        self.waiting_for_memory || self.waiting_for_processes
+    }
 }
 
 /// Process-start capacity, shared by Exec, addressed conversations and Work.
@@ -403,6 +410,7 @@ pub struct ActorCapacity {
     pub company_memory_slots: usize,
     pub shared_memory_slots: Option<usize>,
     pub waiting_for_memory: bool,
+    pub waiting_for_processes: bool,
 }
 
 impl ActorCapacity {
@@ -458,6 +466,7 @@ pub async fn actor_capacity(company: &str) -> Result<Option<ActorCapacity>> {
     }
     let root = PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
     let (shared_slots, shared_memory_slots, shared_waiting) = actor_cgroup_capacity(&root)?;
+    let shared_process_waiting = process_pressure(&root)?;
     let path = workload_container_scope(&container_name(company))
         .await?
         .context("company Runtime has not joined its workload pool")?;
@@ -487,6 +496,7 @@ pub async fn actor_capacity(company: &str) -> Result<Option<ActorCapacity>> {
         company_memory_slots,
         shared_memory_slots: Some(shared_memory_slots),
         waiting_for_memory: shared_waiting || company_waiting || limits_pending,
+        waiting_for_processes: shared_process_waiting || process_pressure(&path)?,
     }))
 }
 
@@ -551,7 +561,7 @@ pub async fn workload_admission(company: &str) -> Result<Option<WorkloadAdmissio
     let Some(shared) = shared_workload_admission()? else {
         return Ok(None);
     };
-    if shared.waiting_for_memory {
+    if shared.waiting() {
         return Ok(Some(shared));
     }
     let path = workload_container_scope(&container_name(company))
@@ -563,7 +573,14 @@ pub async fn workload_admission(company: &str) -> Result<Option<WorkloadAdmissio
 fn container_admission(path: &Path) -> Result<Option<WorkloadAdmission>> {
     // An explicitly uncapped local Runtime still shares its finite parent.
     if std::fs::read_to_string(path.join("memory.max"))?.trim() == "max" {
-        return Ok(None);
+        let waiting_for_processes = process_pressure(path)?;
+        return Ok(waiting_for_processes.then_some(WorkloadAdmission {
+            scope: "company",
+            waiting_for_memory: false,
+            waiting_for_processes,
+            working_set_bytes: 0,
+            resume_below_bytes: u64::MAX,
+        }));
     }
     admission_from_cgroup(path).map(Some)
 }
@@ -572,13 +589,35 @@ fn combine_admission(
     shared: WorkloadAdmission,
     own: Option<WorkloadAdmission>,
 ) -> WorkloadAdmission {
-    if !shared.waiting_for_memory {
-        if let Some(mut own) = own.filter(|own| own.waiting_for_memory) {
+    if !shared.waiting() {
+        if let Some(mut own) = own.filter(|own| own.waiting()) {
             own.scope = "company";
             return own;
         }
     }
     shared
+}
+
+// Keep process-start room below a finite kernel task limit. "max" means the
+// older host has not installed an aggregate task cap; malformed readings fail closed.
+fn process_pressure(root: &std::path::Path) -> Result<bool> {
+    let maximum = std::fs::read_to_string(root.join("pids.max"))
+        .context("workload task limit is unavailable")?;
+    if maximum.trim() == "max" {
+        return Ok(false);
+    }
+    let maximum: u64 = maximum
+        .trim()
+        .parse()
+        .context("invalid workload task limit")?;
+    anyhow::ensure!(maximum > 0, "workload task limit must be positive");
+    let current: u64 = std::fs::read_to_string(root.join("pids.current"))?
+        .trim()
+        .parse()
+        .context("invalid workload task count")?;
+    // Experimental startup headroom; validate against real browser and agent starts.
+    let reserve = (maximum / 10).max(32).min(maximum / 2);
+    Ok(current >= maximum.saturating_sub(reserve))
 }
 
 fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
@@ -626,6 +665,7 @@ fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
     Ok(WorkloadAdmission {
         scope: "shared",
         waiting_for_memory: working_set_bytes >= resume_below_bytes,
+        waiting_for_processes: process_pressure(root)?,
         working_set_bytes,
         resume_below_bytes,
     })
@@ -2844,13 +2884,11 @@ async fn docker_diagnostic(args: &[&str]) -> Result<std::process::Output> {
                 observe_exec(&slot, async {
                     if let Some(path) = workload_container_scope(name).await? {
                         anyhow::ensure!(
-                            !shared_workload_admission()?
-                                .is_some_and(|sample| sample.waiting_for_memory),
+                            !shared_workload_admission()?.is_some_and(|sample| sample.waiting()),
                             "shared diagnostics are waiting for memory"
                         );
                         anyhow::ensure!(
-                            !container_admission(&path)?
-                                .is_some_and(|sample| sample.waiting_for_memory),
+                            !container_admission(&path)?.is_some_and(|sample| sample.waiting()),
                             "company diagnostics are waiting for memory"
                         );
                     }
@@ -2897,7 +2935,7 @@ fn observation_exec_index(args: &[&str]) -> Result<Option<usize>> {
                 return args
                     .get(index + 1)
                     .map(|_| Some(index + 1))
-                    .context("Docker exec target is missing")
+                    .context("Docker exec target is missing");
             }
             "-u" | "--user" | "-w" | "--workdir" | "-e" | "--env" | "--env-file"
             | "--detach-keys" => index += 2,
@@ -3427,7 +3465,9 @@ async fn ensure_company_internal_network(company: &str) -> Result<String> {
         || namespace != Some(expected_namespace.as_str())
         || actual_profile != Some(profile.as_str())
     {
-        bail!("configured Docker network {network} is not the labeled internal network for company {company}");
+        bail!(
+            "configured Docker network {network} is not the labeled internal network for company {company}"
+        );
     }
     Ok(network)
 }
@@ -3447,7 +3487,9 @@ async fn ensure_container_on_network(company: &str, network: &str) -> Result<()>
         .filter(|attached| !attached.is_empty())
         .collect::<Vec<_>>();
     if attached.len() != 1 || attached[0] != network {
-        bail!("company Runtime {name} must be attached only to its configured internal network {network}; observed {attached:?}");
+        bail!(
+            "company Runtime {name} must be attached only to its configured internal network {network}; observed {attached:?}"
+        );
     }
     Ok(())
 }
@@ -5981,6 +6023,7 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         for (name, value) in [
             ("memory.max", "805306368"),
+            ("pids.max", "max"),
             ("memory.high", "max"),
             ("memory.current", "358072320"),
             ("cpu.max", "50000 100000"),
@@ -6044,6 +6087,7 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         for (name, value) in [
             ("memory.max", "805306368"),
+            ("pids.max", "max"),
             ("memory.high", "max"),
             ("memory.current", "314572800"),
             (
@@ -6122,12 +6166,12 @@ mod tests {
     }
 
     use super::{
-        bound_docker_call, company_statuses, container_name, docker_observe,
-        is_immutable_image_digest, is_runtime_review_download, owner_attachment_alias,
-        read_owner_attachment, remove_owner_attachment, resolve_company_image,
-        resolve_resource_bound, running_company_names, sort_source_files, store_owner_attachment,
-        AgentIntelligence, ContainerStatus, NativeHarnessConfig, COMPANY_IMAGE, DEFAULT_CPUS,
-        DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT,
+        AgentIntelligence, COMPANY_IMAGE, ContainerStatus, DEFAULT_CPUS, DEFAULT_MEMORY,
+        DEFAULT_PIDS_LIMIT, NativeHarnessConfig, bound_docker_call, company_statuses,
+        container_name, docker_observe, is_immutable_image_digest, is_runtime_review_download,
+        owner_attachment_alias, read_owner_attachment, remove_owner_attachment,
+        resolve_company_image, resolve_resource_bound, running_company_names, sort_source_files,
+        store_owner_attachment,
     };
 
     #[test]
@@ -6236,10 +6280,12 @@ mission = "Choose intelligence"
             std::time::Duration::from_millis(1),
         )
         .await;
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("docker command exceeded"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("docker command exceeded")
+        );
     }
 
     #[tokio::test]
@@ -6325,9 +6371,11 @@ mission = "Choose intelligence"
         let company = std::env::var("RESTLESS_COMPUTE_SMOKE_COMPANY").unwrap();
         assert!(company.ends_with("_test"));
         super::validate_company_name(&company).unwrap();
-        assert!(!std::env::var("RESTLESS_RESOURCE_NAMESPACE")
-            .unwrap_or_default()
-            .is_empty());
+        assert!(
+            !std::env::var("RESTLESS_RESOURCE_NAMESPACE")
+                .unwrap_or_default()
+                .is_empty()
+        );
         let container = super::container_name(&company);
         async fn probe(container: &str) -> serde_json::Value {
             let output = super::docker_bounded(
@@ -6434,7 +6482,9 @@ mission = "Choose intelligence"
         assert!(super::resource_doctor("guard_test").await.is_none());
         assert_eq!(procs(), before);
         assert_eq!(events(), before_events);
-        println!("30 probes deferred by the busy shared pool while individual Runtime still had headroom; no OCI growth");
+        println!(
+            "30 probes deferred by the busy shared pool while individual Runtime still had headroom; no OCI growth"
+        );
     }
 
     #[tokio::test]
@@ -6533,7 +6583,9 @@ mission = "Choose intelligence"
             before,
             "a timed-out probe must not leave its remote process"
         );
-        println!("30 deferred probes: no process growth or child OOM; actual exec recovered after backoff; remote timeout left no process");
+        println!(
+            "30 deferred probes: no process growth or child OOM; actual exec recovered after backoff; remote timeout left no process"
+        );
     }
 
     #[tokio::test]
@@ -6592,6 +6644,27 @@ mission = "Choose intelligence"
     }
 
     #[test]
+    fn process_capacity_waits_before_a_finite_limit_and_recovers() {
+        let root =
+            std::env::temp_dir().join(format!("task_pressure_{}_test", Uuid::new_v4().simple()));
+        std::fs::create_dir(&root).unwrap();
+        assert!(super::process_pressure(&root).is_err());
+        std::fs::write(root.join("pids.max"), "max").unwrap();
+        assert!(!super::process_pressure(&root).unwrap());
+        std::fs::write(root.join("pids.max"), "100").unwrap();
+        assert!(super::process_pressure(&root).is_err());
+        std::fs::write(root.join("pids.current"), "67").unwrap();
+        assert!(!super::process_pressure(&root).unwrap());
+        std::fs::write(root.join("pids.current"), "68").unwrap();
+        assert!(super::process_pressure(&root).unwrap());
+        std::fs::write(root.join("pids.current"), "20").unwrap();
+        assert!(!super::process_pressure(&root).unwrap());
+        std::fs::write(root.join("pids.max"), "0").unwrap();
+        assert!(super::process_pressure(&root).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn individual_runtime_waits_even_when_shared_memory_is_available() {
         let root = std::env::temp_dir().join(format!(
             "runtime_admission_{}_test",
@@ -6599,6 +6672,7 @@ mission = "Choose intelligence"
         ));
         std::fs::create_dir(&root).unwrap();
         let write = |name: &str, value: &str| std::fs::write(root.join(name), value).unwrap();
+        write("pids.max", "max");
         write("memory.max", "805306368");
         write("memory.high", "max");
         write("memory.current", "629145600");
@@ -6609,6 +6683,7 @@ mission = "Choose intelligence"
         let shared = || super::WorkloadAdmission {
             scope: "shared",
             waiting_for_memory: false,
+            waiting_for_processes: false,
             working_set_bytes: 100,
             resume_below_bytes: 1000,
         };
@@ -6637,6 +6712,7 @@ mission = "Choose intelligence"
         ));
         std::fs::create_dir(&root).unwrap();
         let write = |name: &str, value: &str| std::fs::write(root.join(name), value).unwrap();
+        write("pids.max", "max");
         write("memory.max", "1000");
         write("memory.high", "900");
         write("memory.current", "950");
@@ -6831,9 +6907,11 @@ mission = "Choose intelligence"
             cpu: 1,
             cpu_limit: Some(1.0),
         };
-        assert!(super::compute_sample(&before, reset, 0.2)
-            .cpu_used_cores
-            .is_none());
+        assert!(
+            super::compute_sample(&before, reset, 0.2)
+                .cpu_used_cores
+                .is_none()
+        );
     }
 
     #[test]
@@ -7039,11 +7117,11 @@ mission = "Choose intelligence"
     use std::path::Path;
 
     use super::{
+        AgentHarness, CANONICAL_COMPANY_FILE, CompanyConfig, SpendCeiling,
         is_runtime_review_file_target, move_active_config_to_archive,
         move_archived_config_to_active, normalize_expired_browser_control, resolve_review_file,
         review_file_media_type, runtime_http_target, runtime_review_file_root,
-        runtime_review_text_path, AgentHarness, CompanyConfig, SpendCeiling,
-        CANONICAL_COMPANY_FILE,
+        runtime_review_text_path,
     };
 
     #[test]
@@ -7086,9 +7164,11 @@ outcome_standard = "frontier"
 "#,
         )
         .unwrap();
-        assert!(!toml::to_string(&config)
-            .unwrap()
-            .contains("outcome_standard"));
+        assert!(
+            !toml::to_string(&config)
+                .unwrap()
+                .contains("outcome_standard")
+        );
     }
 
     #[test]
@@ -7316,11 +7396,13 @@ reasoning_effort = "high"
 
         let mut unknown_codex_tariff = codex.clone();
         unknown_codex_tariff.model = "litellm/gpt-5.7-unpriced".into();
-        assert!(unknown_codex_tariff
-            .validate_harness_models()
-            .unwrap_err()
-            .to_string()
-            .contains("no pinned metering tariff"));
+        assert!(
+            unknown_codex_tariff
+                .validate_harness_models()
+                .unwrap_err()
+                .to_string()
+                .contains("no pinned metering tariff")
+        );
 
         let mut claude: CompanyConfig = toml::from_str(
             r#"name = "claude_test"
@@ -7335,18 +7417,22 @@ worker_harness = "claude_agent"
         claude.validate_harness_models().unwrap();
 
         claude.model = "anthropic/claude-sonnet-future".into();
-        assert!(claude
-            .validate_harness_models()
-            .unwrap_err()
-            .to_string()
-            .contains("no pinned metering tariff"));
+        assert!(
+            claude
+                .validate_harness_models()
+                .unwrap_err()
+                .to_string()
+                .contains("no pinned metering tariff")
+        );
         claude.model = "anthropic/claude-sonnet-4-6".into();
         claude.reasoning_effort = "xhigh".into();
-        assert!(claude
-            .validate_harness_models()
-            .unwrap_err()
-            .to_string()
-            .contains("reasoning_effort"));
+        assert!(
+            claude
+                .validate_harness_models()
+                .unwrap_err()
+                .to_string()
+                .contains("reasoning_effort")
+        );
     }
 
     #[test]

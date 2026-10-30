@@ -57,7 +57,7 @@ pub(super) async fn save_identity(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "identity",
                 format!("{e:#}"),
-            )
+            );
         }
     };
     let statements: Vec<OwnerIdentityStatement<'_>> = input
@@ -89,14 +89,14 @@ pub(super) async fn save_identity(
     {
         Ok(id) => id,
         Err(restless_orgintel::OrgIntelError::InvalidWork(message)) => {
-            return api_error(StatusCode::CONFLICT, "identity", message)
+            return api_error(StatusCode::CONFLICT, "identity", message);
         }
         Err(e) => {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "identity",
                 format!("The identity could not be saved: {e:#}"),
-            )
+            );
         }
     };
     // The staged proposal remains reviewable if Authority is unavailable.
@@ -347,7 +347,7 @@ pub(super) async fn read_compute_usage(
                 StatusCode::NOT_FOUND,
                 "compute",
                 "This company is unavailable.",
-            )
+            );
         }
     };
     let (usage, actor_capacity, limits) = tokio::join!(
@@ -365,6 +365,7 @@ pub(super) async fn read_compute_usage(
     let actor_capacity = actor_capacity.ok().flatten().map(|limits| serde_json::json!({
         "company_slots": limits.company_slots, "shared_slots": limits.shared_slots,
         "waiting_for_memory": counts.map_or(limits.waiting_for_memory, |(own, shared)| limits.waits_for_memory(own, shared)),
+        "waiting_for_processes": limits.waiting_for_processes,
         "company_active": counts.map(|value| value.0), "shared_active": counts.map(|value| value.1),
     }));
     let mut body = match usage {
@@ -418,7 +419,7 @@ pub(super) async fn save_compute_limits(
     let target = match runtime::ComputeTarget::parse(&target) {
         Ok(target) => target,
         Err(error) => {
-            return api_error(StatusCode::BAD_REQUEST, "compute_limits", error.to_string())
+            return api_error(StatusCode::BAD_REQUEST, "compute_limits", error.to_string());
         }
     };
     if let Some(limits) = input.limits {
@@ -434,7 +435,7 @@ pub(super) async fn save_compute_limits(
                 StatusCode::NOT_FOUND,
                 "company",
                 "This company is unavailable.",
-            )
+            );
         }
     };
     if target.saved(&config) != input.expected {
@@ -584,7 +585,13 @@ pub(super) async fn save_runtime_policy(
             )
             .await
         {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", format!("Runtime limits were saved but confirmation could not be recorded. Refresh to check them: {error:#}"));
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority",
+                format!(
+                    "Runtime limits were saved but confirmation could not be recorded. Refresh to check them: {error:#}"
+                ),
+            );
         }
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
@@ -678,7 +685,13 @@ pub(super) async fn save_native_limit(
             )
             .await
         {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", format!("Native usage limits were saved but confirmation could not be recorded. Refresh to check them: {error:#}"));
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority",
+                format!(
+                    "Native usage limits were saved but confirmation could not be recorded. Refresh to check them: {error:#}"
+                ),
+            );
         }
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
@@ -729,14 +742,14 @@ pub(super) async fn logo(
     let bytes = match tokio::fs::read(&logo.path).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return api_error(StatusCode::NOT_FOUND, "logo", "This company has no logo.")
+            return api_error(StatusCode::NOT_FOUND, "logo", "This company has no logo.");
         }
         Err(error) => {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "logo",
                 format!("The logo could not be read: {error}"),
-            )
+            );
         }
     };
     let cache = if query.get("v") == Some(&logo.version) {
@@ -802,7 +815,7 @@ pub(super) async fn save_logo(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "logo",
                     format!("The logo was not saved: {error:#}"),
-                )
+                );
             }
         };
         let previous = config.logo.replace(name.clone());
@@ -1105,7 +1118,7 @@ pub(super) async fn save_payment_allowance(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
                 format!("{e:#}"),
-            )
+            );
         }
     };
     let Some(current) = current else {
@@ -1309,7 +1322,7 @@ pub(super) async fn export_company(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "export",
                 format!("The export could not be made: {e:#}"),
-            )
+            );
         }
     };
     let file = match tokio::fs::File::open(&path).await {
@@ -1319,7 +1332,7 @@ pub(super) async fn export_company(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "export",
                 format!("The export could not be read: {e}"),
-            )
+            );
         }
     };
     let length = file.metadata().await.map(|meta| meta.len()).ok();
@@ -1425,7 +1438,7 @@ pub(super) async fn archived_company(
                 StatusCode::NOT_FOUND,
                 "company",
                 "No archived company of that name.",
-            )
+            );
         }
     };
     let archived_at = state
@@ -1814,7 +1827,7 @@ pub(super) async fn start_away(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{e:#}"),
-            )
+            );
         }
     };
     match restless_engine::away::start(
@@ -1853,7 +1866,7 @@ pub(super) async fn end_away(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{e:#}"),
-            )
+            );
         }
     };
     match restless_engine::away::end(

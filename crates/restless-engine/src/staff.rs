@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{bail, Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use restless_orgintel::ClaimedWork;
 use sha2::Digest as _;
 use tokio_util::sync::CancellationToken;
@@ -23,15 +23,15 @@ mod workspace;
 use crate::runtime::{self, CompanyConfig};
 use crate::spend::SpendLedger;
 use context::{bound_attempt_context, shared_spine};
-pub use conversation::{dispatch_actor_conversation, ConversationRuntime};
-use execution::{run_staff_with_failover, StaffRun, StaffTurnKind};
+pub use conversation::{ConversationRuntime, dispatch_actor_conversation};
+use execution::{StaffRun, StaffTurnKind, run_staff_with_failover};
 pub use recovery::reconcile_execution_substrate;
 use recovery::{
-    record_hosted_staff_outcome, record_staff_outcome, record_unknown_recovery, StaffAttemptContext,
+    StaffAttemptContext, record_hosted_staff_outcome, record_staff_outcome, record_unknown_recovery,
 };
 use workspace::{
-    cleanup_attempt_runtime, ensure_hosted_worktree, ensure_worktree, observe_workspace,
-    recorded_start_observation, valid_slug, workdir_for, WorkspaceObservation,
+    WorkspaceObservation, cleanup_attempt_runtime, ensure_hosted_worktree, ensure_worktree,
+    observe_workspace, recorded_start_observation, valid_slug, workdir_for,
 };
 
 #[cfg(test)]
@@ -279,6 +279,7 @@ impl StaffRegistry {
                 company_memory_slots: usize::MAX,
                 shared_memory_slots: None,
                 waiting_for_memory: false,
+                waiting_for_processes: false,
             }
         } else {
             match runtime::actor_capacity(company).await {
@@ -290,6 +291,7 @@ impl StaffRegistry {
                     company_memory_slots: usize::MAX,
                     shared_memory_slots: None,
                     waiting_for_memory: false,
+                    waiting_for_processes: false,
                 },
                 Err(error) => {
                     self.resource_retry.store(true, Ordering::SeqCst);
@@ -316,7 +318,8 @@ impl StaffRegistry {
             .map_err(|_| anyhow::anyhow!("actor resource guard"))?;
         let company_active = claims.values().filter(|(name, _)| name == company).count();
         let shared_active = claims.values().filter(|(_, shared)| *shared).count();
-        if capacity.waits_for_memory(company_active, shared_active)
+        if capacity.waiting_for_processes
+            || capacity.waits_for_memory(company_active, shared_active)
             || company_active >= capacity.company_slots
             || capacity
                 .shared_slots
@@ -378,6 +381,7 @@ impl StaffRegistry {
         self.resource_counts(company).is_some_and(|(own, shared)| {
             own < limits.company_slots
                 && limits.shared_slots.is_none_or(|slots| shared < slots)
+                && !limits.waiting_for_processes
                 && !limits.waits_for_memory(own, shared)
         })
     }
@@ -1183,6 +1187,7 @@ mod tests {
             company_memory_slots: 10,
             shared_memory_slots: Some(10),
             waiting_for_memory: false,
+            waiting_for_processes: false,
         };
         let mut tasks = tokio::task::JoinSet::new();
         for index in 0..30 {
@@ -1212,16 +1217,20 @@ mod tests {
             shared_slots: Some(1),
             ..capacity
         };
-        assert!(registry
-            .try_reserve_actor_capacity("later_test", smaller, &wake)
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .try_reserve_actor_capacity("later_test", smaller, &wake)
+                .unwrap()
+                .is_none()
+        );
         permits.pop();
         permits.pop();
-        assert!(registry
-            .try_reserve_actor_capacity("later_test", smaller, &wake)
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .try_reserve_actor_capacity("later_test", smaller, &wake)
+                .unwrap()
+                .is_none()
+        );
         permits.pop();
         // An unused Work reservation must not create a scheduler wake loop.
         assert!(
@@ -1233,10 +1242,12 @@ mod tests {
             .try_reserve_actor_capacity("later_test", smaller, &wake)
             .unwrap()
             .unwrap();
-        assert!(registry
-            .try_reserve_actor_capacity("later_test", capacity, &wake)
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .try_reserve_actor_capacity("later_test", capacity, &wake)
+                .unwrap()
+                .is_none()
+        );
         permit.activate();
         drop(permit);
         assert!(
@@ -1270,21 +1281,41 @@ mod tests {
             "another company shares the same startup RAM allowance"
         );
         drop(held);
-        let busy = crate::runtime::ActorCapacity {
-            waiting_for_memory: true,
+        let process_busy = crate::runtime::ActorCapacity {
+            waiting_for_processes: true,
             ..capacity
         };
-        assert!(registry
-            .try_reserve_actor_capacity("later_test", busy, &wake)
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .try_reserve_actor_capacity("process_test", process_busy, &wake)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            registry
+                .try_reserve_actor_capacity("process_test", capacity, &wake)
+                .unwrap()
+                .is_some()
+        );
+        let busy = crate::runtime::ActorCapacity {
+            waiting_for_memory: true,
+            waiting_for_processes: false,
+            ..capacity
+        };
+        assert!(
+            registry
+                .try_reserve_actor_capacity("later_test", busy, &wake)
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(registry.resource_counts("later_test"), Some((0, 0)));
     }
 
     use super::{
-        actor_posture, bound_attempt_context, conversation_turn_prompt, final_staff_usage,
-        gate_cwd, internal_message_context, staff_spend_limit_reached, team_capacity_context,
-        termination_prompt, workspace_instruction, StaffRegistry, WorkspaceObservation,
+        StaffRegistry, WorkspaceObservation, actor_posture, bound_attempt_context,
+        conversation_turn_prompt, final_staff_usage, gate_cwd, internal_message_context,
+        staff_spend_limit_reached, team_capacity_context, termination_prompt,
+        workspace_instruction,
     };
     use crate::acp::TurnUsage;
     use crate::model_gateway::ModelBilling;
@@ -1525,8 +1556,11 @@ mod tests {
         assert!(!context.contains("the active team charter and roster when present"));
         assert!(context.contains("Runtime binds this Attempt's clean terminal commit and tree"));
         assert!(context.contains("may materialize that evidence themselves"));
-        assert!(context
-            .contains("declare `outcome_met` even if gate-generated evidence does not exist yet"));
+        assert!(
+            context.contains(
+                "declare `outcome_met` even if gate-generated evidence does not exist yet"
+            )
+        );
         assert!(!context.contains(&format!(
             "restless work artifact --work {work_id} --attempt {}",
             claimed.attempt_id
@@ -1541,9 +1575,11 @@ mod tests {
             accounting["retrieved_depth"]["at_launch"],
             serde_json::json!([])
         );
-        assert!(accounting["automatically_attached"]["system_context"]
-            .get("active_team_capacity")
-            .is_none());
+        assert!(
+            accounting["automatically_attached"]["system_context"]
+                .get("active_team_capacity")
+                .is_none()
+        );
 
         claimed.inputs.push(ArtifactRefRow {
             id: uuid::Uuid::new_v4(),
@@ -1605,7 +1641,9 @@ mod tests {
         )));
         assert!(review_context.contains("/company/outputs/playable-room.html"));
         assert!(review_context.contains(restless_orgintel::REVIEW_TARGET_LIVE_PROBE_GATE));
-        assert!(!review_context.contains("--kind output --uri /company/outputs/playable-room.html"));
+        assert!(
+            !review_context.contains("--kind output --uri /company/outputs/playable-room.html")
+        );
 
         claimed.review_targets = vec![uuid::Uuid::new_v4()];
         let (critic_context, critic_accounting) = bound_attempt_context(
@@ -1616,8 +1654,10 @@ mod tests {
             false,
         );
         assert!(critic_context.contains("# Critic posture [independent judgement]"));
-        assert!(critic_context
-            .contains("Judge the customer-facing outcome before policing constraints"));
+        assert!(
+            critic_context
+                .contains("Judge the customer-facing outcome before policing constraints")
+        );
         assert!(critic_context.contains("Quality comes first"));
         assert!(!critic_context.contains("# Producer posture [creative ownership]"));
         assert_eq!(
@@ -1639,12 +1679,18 @@ mod tests {
         assert!(rules.contains("prove that another actor contributed"));
         assert!(rules.contains("not the lead's plan, reasoning, checklist"));
         assert!(rules.contains("do not commission promotion-only Work"));
-        assert!(crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
-            .contains("Never let a stale report decide a repaired candidate"));
-        assert!(crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
-            .contains("evidence, not owner delivery"));
-        assert!(crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
-            .contains("exactly one current available ReviewTarget"));
+        assert!(
+            crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
+                .contains("Never let a stale report decide a repaired candidate")
+        );
+        assert!(
+            crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
+                .contains("evidence, not owner delivery")
+        );
+        assert!(
+            crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
+                .contains("exactly one current available ReviewTarget")
+        );
 
         let lead = actor_posture(true);
         assert!(lead.contains("ACCOUNTABLE LEAD"));
@@ -1742,9 +1788,11 @@ mod tests {
                 .expect("a Work Attempt within the bound");
         }
         assert!(!registry.has_work_capacity("company_test"));
-        assert!(registry
-            .try_claim("company_test", "one-more", Some(uuid::Uuid::new_v4()))
-            .is_err());
+        assert!(
+            registry
+                .try_claim("company_test", "one-more", Some(uuid::Uuid::new_v4()))
+                .is_err()
+        );
         // Another company, and a conversation turn here, still start.
         assert!(registry.has_work_capacity("company_other"));
         registry
@@ -1876,16 +1924,19 @@ mod tests {
             .expect("recovery evidence reaches the accountable coordinator");
         assert_eq!(notice.from_actor, "daemon");
         assert!(notice.body.contains("productive outcome is UNKNOWN"));
-        assert!(!inbox
-            .iter()
-            .any(|message| message.body.contains(&live_attempt.to_string())));
+        assert!(
+            !inbox
+                .iter()
+                .any(|message| message.body.contains(&live_attempt.to_string()))
+        );
         org.abandon_work(lost_work, "exec", "superseded")
             .await
             .expect("an unsupervised Attempt no longer blocks abandonment");
-        assert!(org
-            .abandon_work(live_work, "exec", "superseded")
-            .await
-            .is_err());
+        assert!(
+            org.abandon_work(live_work, "exec", "superseded")
+                .await
+                .is_err()
+        );
         org.drop_schema().await.expect("drop scratch schema");
     }
 }

@@ -14,7 +14,7 @@
 //! clone of the repository made with a read-only token for that one repository, and a per-company
 //! cache volume as its home so toolchains and build output survive between jobs.
 
-use anyhow::{bail, Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 use sqlx::PgPool;
 
@@ -214,7 +214,9 @@ async fn run_on_machine(
         bail!("give the job a command (up to 8,000 characters)");
     }
     if request.workdir.is_some() {
-        bail!("a job on another computer runs in its own checkout, not under /company; drop --workdir");
+        bail!(
+            "a job on another computer runs in its own checkout, not under /company; drop --workdir"
+        );
     }
     let repo = request
         .repo
@@ -538,7 +540,10 @@ pub async fn run(
         .context("give the job a finite memory limit, such as 512m or 2g")?;
     if let Some(ceiling) = crate::runtime::shared_job_hard_ceiling()? {
         if memory_bytes > ceiling {
-            bail!("This job requests more memory than the account can admit. Request at most {} MiB or increase the account limit; no job was started.", ceiling / (1024 * 1024));
+            bail!(
+                "This job requests more memory than the account can admit. Request at most {} MiB or increase the account limit; no job was started.",
+                ceiling / (1024 * 1024)
+            );
         }
     }
     let _submission = tokio::time::timeout(
@@ -855,7 +860,7 @@ pub async fn reconcile_pending(daemon: &crate::Daemon, companies: &[String]) -> 
         .filter(|job| job.3 == "created" && job.5 && !job.1.ends_with("-preparing"))
     {
         if let Some(admission) = &shared {
-            if admission.waiting_for_memory
+            if admission.waiting()
                 || memory == &0
                 || admission
                     .working_set_bytes
@@ -877,7 +882,7 @@ pub async fn reconcile_pending(daemon: &crate::Daemon, companies: &[String]) -> 
             continue;
         }
         match crate::runtime::workload_admission(company).await {
-            Ok(Some(admission)) if admission.waiting_for_memory => continue,
+            Ok(Some(admission)) if admission.waiting() => continue,
             Ok(_) => {}
             Err(error) => {
                 tracing::warn!(company, %error, "waiting job could not read company capacity");
@@ -1144,10 +1149,12 @@ mod tests {
         let ok =
             super::request(Some(&serde_json::json!({"command": "make", "cpus": 2.0}))).unwrap();
         assert_eq!(ok.command, "make");
-        assert!(super::request(Some(
-            &serde_json::json!({"command": "x", "privileged": true})
-        ))
-        .is_err());
+        assert!(
+            super::request(Some(
+                &serde_json::json!({"command": "x", "privileged": true})
+            ))
+            .is_err()
+        );
         assert!(super::request(None).is_err());
         let on = super::request(Some(&serde_json::json!({
             "command": "cargo test", "on": "Yail's PC", "repo": "a/b", "ref": "main"

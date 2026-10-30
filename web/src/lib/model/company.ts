@@ -370,6 +370,7 @@ export interface ComputeReading {
 		company_active: number | null;
 		shared_active: number | null;
 		waiting_for_memory: boolean;
+		waiting_for_processes?: boolean;
 	} | null;
 	sample?: {
 		observed_at: string;
@@ -382,6 +383,7 @@ export interface ComputeReading {
 		work_admission: {
 			scope: 'shared' | 'company';
 			waiting_for_memory: boolean;
+			waiting_for_processes?: boolean;
 			working_set_bytes: number;
 			resume_below_bytes: number;
 		};
