@@ -39,7 +39,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum JobCommand {
-    /// Start a job. Everything after `--` is the shell command.
+    /// Submit a job. It waits for account capacity before starting. Everything after `--` is the shell command.
     Run {
         /// CPUs for the job (default: all of this machine's).
         #[arg(long)]
@@ -67,7 +67,7 @@ enum JobCommand {
         #[arg(last = true, required = true)]
         command: Vec<String>,
     },
-    /// Whether a job is running, succeeded, failed or timed out.
+    /// Whether a job is waiting for capacity, running, succeeded, failed or timed out.
     Status { id: String },
 }
 
@@ -253,8 +253,9 @@ enum Command {
     },
     /// Run heavy work, such as a simulation or a large build, as a burst job instead of inside your
     /// own session: `restless job run --cpus 2 --timeout 3600 -- python sim.py` returns a job id at
-    /// once, and `restless job status <id>` says whether it is running, succeeded, failed or timed
-    /// out. Output goes to /company/run/jobs/<id>.log; the job sees the same /company files.
+    /// once. It waits for account capacity if needed; `restless job status <id>` shows the wait,
+    /// running state or outcome. Output goes to /company/run/jobs/<id>.log; the job sees the same
+    /// /company files.
     /// On one of the owner's computers: `restless job run --on "Yail's PC" --repo owner/name --ref
     /// <commit> -- cargo test` clones the repository fresh there and returns its log tail in
     /// `restless job status <id>`; toolchains and build output are cached between jobs.

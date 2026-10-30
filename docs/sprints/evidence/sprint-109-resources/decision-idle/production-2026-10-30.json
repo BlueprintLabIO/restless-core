@@ -1,0 +1,145 @@
+{
+  "status": {
+    "checkedAt": "2026-10-30T00:49:38.824Z",
+    "heartbeat": "2026-10-30T00:49:41.361Z",
+    "desired": 127,
+    "applied": 127,
+    "healthy": true,
+    "hasError": false,
+    "appliedBundle": "451fba0f61e03054bc60402219de09fe514933fc35509da986c8e0934311eb81",
+    "memory": {
+      "total": 8121933824,
+      "available": 5153837056,
+      "swapUsed": 290328576
+    }
+  },
+  "placement": {
+    "workloads": [
+      {
+        "kind": "documents",
+        "protected": true,
+        "memoryLimit": 536870912,
+        "cpuLimit": 1,
+        "dockerHealthcheckDisabled": true,
+        "memoryEvents": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      {
+        "kind": "documents",
+        "protected": true,
+        "memoryLimit": 536870912,
+        "cpuLimit": 1,
+        "dockerHealthcheckDisabled": true,
+        "memoryEvents": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      {
+        "kind": "documents",
+        "protected": true,
+        "memoryLimit": 536870912,
+        "cpuLimit": 1,
+        "dockerHealthcheckDisabled": true,
+        "memoryEvents": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      {
+        "kind": "documents",
+        "protected": true,
+        "memoryLimit": 536870912,
+        "cpuLimit": 1,
+        "dockerHealthcheckDisabled": true,
+        "memoryEvents": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      {
+        "kind": "documents",
+        "protected": true,
+        "memoryLimit": 536870912,
+        "cpuLimit": 1,
+        "dockerHealthcheckDisabled": true,
+        "memoryEvents": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      {
+        "kind": "documents",
+        "protected": true,
+        "memoryLimit": 536870912,
+        "cpuLimit": 1,
+        "dockerHealthcheckDisabled": true,
+        "memoryEvents": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      }
+    ],
+    "stoppedWorkloads": [],
+    "platformContainers": 3,
+    "platformCounterMountReadOnly": true,
+    "platformImages": [
+      {
+        "kind": "account-plane",
+        "image": "registry.restless.run/blueprintlabio/restless-account-plane@sha256:1fe9a223ccbd24c70d709000ba682b986d0885ba830a2aff5978a97318a80080"
+      },
+      {
+        "kind": "cockpit",
+        "image": "registry.restless.run/blueprintlabio/restless-cockpit@sha256:a9770e961230bc0429f5cecfe7782e04fee9d172a4e1a2bf7e52bda882262199"
+      }
+    ],
+    "pool": {
+      "memory.current": "3402121216",
+      "memory.max": "5974450176",
+      "memory.high": "5377003520",
+      "memory.swap.max": "0",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "cpu.max": "300000 100000",
+      "cpu.stat": "usage_usec 6603890414\nuser_usec 4790895721\nsystem_usec 1812994692\ncore_sched.force_idle_usec 0\nnr_periods 448579\nnr_throttled 65\nthrottled_usec 1060036\nnr_bursts 0\nburst_usec 0"
+    },
+    "host": {
+      "memoryBytes": 8121933824,
+      "availableBytes": 5169274880,
+      "swapUsedBytes": 290328576,
+      "cpus": 4
+    },
+    "swapActivityKiBPerSecond": {
+      "in": 0,
+      "out": 0
+    },
+    "updaterMatchesExpected": true
+  },
+  "platformImagesMatchRelease": true,
+  "temporaryFirewallRemoved": true
+}

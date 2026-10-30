@@ -287,7 +287,9 @@ pub async fn startup_doctor(
                 return Ok(());
             }
             async {
-                runtime::up(&config, false).await?;
+                if runtime::up_automatically(&config).await?.is_none() {
+                    return Ok(());
+                }
                 let bridge = capabilities.issue_runtime_bridge(&config.name)?;
                 runtime::install_runtime_bridge_capability(&config.name, &bridge).await
             }

@@ -503,7 +503,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             };
             let pool = daemon.authority.pool();
             let outcome = if request.cmd == "job-run" {
-                crate::burst_jobs::run(pool, company, actor, &job).await
+                crate::burst_jobs::run(pool, company, actor, &job, &daemon.schedule_wake).await
             } else {
                 crate::burst_jobs::status(pool, company, job.id.as_deref().unwrap_or_default()).await
             };

@@ -237,8 +237,13 @@ pub async fn run(daemon: Arc<Daemon>) {
     let mut inbox = daemon.cell_wakes.subscribe();
     ensure_cell_listeners(&daemon).await;
     scan_all_companies(&daemon, &in_flight).await;
+    let mut waiting_jobs = reconcile_waiting_jobs(&daemon).await;
     loop {
-        let next_due = next_due_delay(&daemon).await;
+        let next_due = if waiting_jobs {
+            next_due_delay(&daemon).await.min(OVERDUE_RETRY_INTERVAL)
+        } else {
+            next_due_delay(&daemon).await
+        };
         tokio::select! {
             _ = tokio::time::sleep(next_due) => {
                 // A company created since boot needs its own listener; this is
@@ -246,12 +251,14 @@ pub async fn run(daemon: Arc<Daemon>) {
                 ensure_cell_listeners(&daemon).await;
                 fire_pending(&daemon, &in_flight).await;
                 scan_all_companies(&daemon, &in_flight).await;
+                waiting_jobs = reconcile_waiting_jobs(&daemon).await;
             }
             _ = daemon.schedule_wake.notified() => {
                 tracing::info!("native schedule wake observed; reconciling durable due state");
                 ensure_cell_listeners(&daemon).await;
                 fire_pending(&daemon, &in_flight).await;
                 scan_all_companies(&daemon, &in_flight).await;
+                waiting_jobs = reconcile_waiting_jobs(&daemon).await;
             }
             wake = inbox.recv() => {
                 match wake {
@@ -272,6 +279,22 @@ pub async fn run(daemon: Arc<Daemon>) {
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
                 }
             }
+        }
+    }
+}
+
+async fn reconcile_waiting_jobs(daemon: &Arc<Daemon>) -> bool {
+    let Some(_lease) = daemon.lifecycle.try_enter() else {
+        return true;
+    };
+    let Some(companies) = configured_companies(daemon) else {
+        return true;
+    };
+    match crate::burst_jobs::reconcile_pending(daemon, &companies).await {
+        Ok(waiting) => waiting,
+        Err(error) => {
+            tracing::warn!(%error, "waiting jobs could not be reconciled");
+            true
         }
     }
 }

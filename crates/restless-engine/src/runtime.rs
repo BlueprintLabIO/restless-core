@@ -88,7 +88,7 @@ async fn invalidate_cockpit_health(company: &str) {
     crate::native_harness::forget_status(company).await;
 }
 
-async fn company_start_guard(company: &str) -> tokio::sync::OwnedMutexGuard<()> {
+pub(crate) async fn company_start_guard(company: &str) -> tokio::sync::OwnedMutexGuard<()> {
     let lock = COMPANY_START_LOCKS
         .lock()
         .await
@@ -488,6 +488,20 @@ pub async fn actor_capacity(company: &str) -> Result<Option<ActorCapacity>> {
         shared_memory_slots: Some(shared_memory_slots),
         waiting_for_memory: shared_waiting || company_waiting || limits_pending,
     }))
+}
+
+/// The most memory a single job could ever be admitted to under the current
+/// hard account limit, even if its soft threshold were raised to that limit.
+pub fn shared_job_hard_ceiling() -> Result<Option<u64>> {
+    if workload_cgroup_parent()?.is_none() {
+        return Ok(None);
+    }
+    let root = std::path::PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
+    let maximum: u64 = std::fs::read_to_string(root.join("memory.max"))?
+        .trim()
+        .parse()?;
+    let reserve = (maximum / 10).max(256 * 1024 * 1024).min(maximum / 2);
+    Ok(Some(maximum.saturating_sub(reserve)))
 }
 
 pub fn shared_workload_admission() -> Result<Option<WorkloadAdmission>> {
@@ -901,7 +915,7 @@ fn memory_bytes(value: &str) -> Option<u64> {
         "g" => 1024 * 1024 * 1024,
         _ => return None,
     };
-    Some(number * scale)
+    number.checked_mul(scale)
 }
 
 fn fit_cpus(bound: Option<String>, host_cpus: usize) -> Option<String> {
@@ -3071,16 +3085,27 @@ pub async fn retire_stale_stopped(config: &CompanyConfig) -> Result<bool> {
 }
 
 pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
-    let outcome = up_locked(config, reconcile).await;
-    if outcome.is_ok() {
-        clear_sleeping(&config.name);
+    let _start = company_start_guard(&config.name).await;
+    let outcome = up_locked(config, reconcile).await?;
+    clear_explicit_stop(&config.name)?;
+    clear_sleeping(&config.name);
+    Ok(outcome)
+}
+
+/// Automatic startup and demand wake must respect an owner stop, including
+/// when that stop races with the automatic start.
+pub async fn up_automatically(config: &CompanyConfig) -> Result<Option<String>> {
+    let _start = company_start_guard(&config.name).await;
+    if explicitly_stopped(&config.name)? {
+        return Ok(None);
     }
-    outcome
+    let outcome = up_locked(config, false).await?;
+    clear_sleeping(&config.name);
+    Ok(Some(outcome))
 }
 
 async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let company = &config.name;
-    let _start = company_start_guard(company).await;
     let mut current = config.clone();
     if let Ok(latest) = CompanyConfig::load(&state_root(), company) {
         current.compute_limits = latest.compute_limits;
@@ -5252,6 +5277,7 @@ fn collect_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 /// restart a computer somebody deliberately turned off.
 pub async fn down(company: &str) -> Result<String> {
     let _start = company_start_guard(company).await;
+    mark_explicit_stop(company)?;
     let result = down_locked(company).await;
     clear_sleeping(company);
     result
@@ -5278,6 +5304,34 @@ where
     }
     invalidate_cockpit_health(company).await;
     Ok(true)
+}
+
+fn explicit_stop_marker(company: &str) -> PathBuf {
+    state_root().join("runtime-stopped").join(company)
+}
+
+fn explicitly_stopped(company: &str) -> Result<bool> {
+    let marker = explicit_stop_marker(company);
+    marker
+        .try_exists()
+        .with_context(|| format!("inspect {}", marker.display()))
+}
+
+fn mark_explicit_stop(company: &str) -> Result<()> {
+    let marker = explicit_stop_marker(company);
+    if let Some(parent) = marker.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    std::fs::write(&marker, b"stopped").with_context(|| format!("write {}", marker.display()))
+}
+
+fn clear_explicit_stop(company: &str) -> Result<()> {
+    let marker = explicit_stop_marker(company);
+    match std::fs::remove_file(&marker) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("remove {}", marker.display())),
+    }
 }
 
 fn sleep_marker(company: &str) -> PathBuf {
@@ -5352,6 +5406,7 @@ pub async fn destroy(
     org: &restless_orgintel::OrgIntel,
     spend: &crate::spend::SpendLedger,
 ) -> Result<String> {
+    let _start = company_start_guard(company).await;
     let mut removed = Vec::new();
     clear_sleeping(company);
     crate::local_documents::remove(root, org)
@@ -5366,6 +5421,10 @@ pub async fn destroy(
         run_ok(&["rm", "-f", &name]).await?;
         removed.push("container");
     }
+
+    crate::burst_jobs::remove_company_jobs(company)
+        .await
+        .context("remove this company's local jobs before its volume")?;
 
     // Local MCP workers hold the package cache and /company/tools (on the company volume)
     // open; end them before either volume goes.
@@ -5458,6 +5517,8 @@ pub async fn destroy(
     removed.push("spend");
 
     remove_company_logos(root, company, None).context("remove the company logo")?;
+
+    clear_explicit_stop(company)?;
 
     // The config last: while it exists, the company is nameable and the earlier
     // steps are re-runnable if one of them failed.
