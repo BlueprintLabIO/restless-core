@@ -14,8 +14,8 @@
 //! RESTLESS_TEST_DATABASE_URL is set.
 
 use restless_orgintel::{
-    NewOwnerHandoff, NewWork, OrgIntel, OwnerBrief, OwnerBriefKind, OwnerHandoffCategory,
-    OwnerHandoffState, OwnerReviewDecision, WorkspaceSpec,
+    NewOwnerHandoff, NewWork, OrgIntel, OwnerBrief, OwnerBriefKind, OwnerChatAnswer,
+    OwnerHandoffCategory, OwnerHandoffState, OwnerReviewDecision, WorkspaceSpec,
 };
 
 fn owner_brief(kind: OwnerBriefKind, headline: &str) -> OwnerBrief {
@@ -605,6 +605,32 @@ async fn displayed_review_version_refuses_refreshed_briefs_and_replaced_candidat
     )
     .await
     .unwrap();
+    let owner_message = org
+        .send_message("owner", Some("exec"), "Yes, accept this outcome")
+        .await
+        .unwrap();
+    let refused = org
+        .answer_handoff_from_owner_message(missing_handoff, owner_message, OwnerChatAnswer::Yes, "")
+        .await
+        .unwrap_err();
+    assert!(refused.to_string().contains("prepared preview"));
+    let graph = org.work_graph_snapshot().await.unwrap();
+    let still_assigned = graph
+        .handoffs
+        .iter()
+        .find(|row| row.id == missing_handoff)
+        .unwrap();
+    assert_eq!(still_assigned.assigned_to.as_deref(), Some("exec"));
+    assert_eq!(
+        graph
+            .work
+            .iter()
+            .find(|row| row.id == missing_work)
+            .unwrap()
+            .status,
+        WorkStatus::Blocked
+    );
+
     org.escalate_handoff(
         missing_handoff,
         "exec",
