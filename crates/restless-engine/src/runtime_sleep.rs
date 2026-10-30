@@ -218,6 +218,16 @@ pub async fn run(daemon: Arc<Daemon>) {
                 quiet_since.remove(company);
                 continue;
             }
+            if runtime::computer_refresh_pending(&daemon.root, company).unwrap_or(false) {
+                // A deferred browser restart must not interrupt an active owner
+                // lease or other owed work. Acquisition uses this same lock.
+                let _browser_control = runtime::browser_control_guard(company).await;
+                if matches!(is_quiet(&daemon, company).await, Ok(true)) {
+                    if let Err(error) = runtime::retry_pending_computer_refresh(&daemon.root, company).await {
+                        tracing::debug!(company, %error, "saved computer settings remain pending");
+                    }
+                }
+            }
 
             let cap_reached = if config.monthly_runtime_cap_hours.is_some() {
                 match crate::runtime_usage::cap_reached(&daemon.root, &config).await {

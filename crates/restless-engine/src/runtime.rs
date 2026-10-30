@@ -2402,10 +2402,64 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
     Ok(())
 }
 
-/// Give a running company its computer as the config now says (home sites changed).
-pub async fn refresh_computer(config: &CompanyConfig) -> Result<()> {
-    let _start = company_start_guard(&config.name).await;
-    ensure_computer(config).await
+fn computer_refresh_marker(root: &Path, company: &str) -> Result<PathBuf> {
+    validate_company_name(company)?;
+    Ok(root.join("computer-refresh-pending").join(company))
+}
+
+fn mark_computer_refresh_pending(root: &Path, company: &str) -> Result<()> {
+    let marker = computer_refresh_marker(root, company)?;
+    let parent = marker.parent().context("computer refresh marker parent")?;
+    std::fs::create_dir_all(parent)?;
+    let file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&marker)?;
+    file.sync_all()?;
+    std::fs::File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+fn clear_computer_refresh_pending(root: &Path, company: &str) -> Result<()> {
+    let marker = computer_refresh_marker(root, company)?;
+    match std::fs::remove_file(&marker) {
+        Ok(()) => { std::fs::File::open(marker.parent().context("computer refresh marker parent")?)?.sync_all()?; Ok(()) }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Save desired sites and retain a durable retry if a running computer cannot
+/// be refreshed. The same company lock orders saves, startup and maintenance.
+pub async fn save_home_sites(root: &Path, company: &str, sites: Vec<String>) -> Result<bool> {
+    let _start = company_start_guard(company).await;
+    let mut config = CompanyConfig::load(root, company)?;
+    mark_computer_refresh_pending(root, company)?;
+    config.home_sites = sites;
+    CompanyConfig::save(root, &config)?;
+    match status(company).await {
+        Ok(ContainerStatus::Running) => {}
+        Ok(_) => return Ok(true),
+        Err(error) => { tracing::warn!(company, %error, "saved computer settings await status"); return Ok(true); }
+    }
+    match ensure_computer(&config).await {
+        Ok(()) => { clear_computer_refresh_pending(root, company)?; Ok(false) }
+        Err(error) => { tracing::warn!(company, %error, "saved computer settings await refresh"); Ok(true) }
+    }
+}
+
+pub fn computer_refresh_pending(root: &Path, company: &str) -> Result<bool> {
+    Ok(computer_refresh_marker(root, company)?.is_file())
+}
+
+/// Maintenance never wakes a stopped computer, and reloads the latest desired
+/// config after acquiring the same lock used by the settings save.
+pub async fn retry_pending_computer_refresh(root: &Path, company: &str) -> Result<bool> {
+    if !computer_refresh_marker(root, company)?.is_file() { return Ok(false); }
+    let _start = company_start_guard(company).await;
+    if !computer_refresh_marker(root, company)?.is_file() { return Ok(false); }
+    if status(company).await? != ContainerStatus::Running { return Ok(true); }
+    let config = CompanyConfig::load(root, company)?;
+    ensure_computer(&config).await?;
+    clear_computer_refresh_pending(root, company)?;
+    Ok(false)
 }
 
 /// Stop the company computer, giving Chrome time to flush its profile.
@@ -3180,6 +3234,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let mut current = config.clone();
     if let Ok(latest) = CompanyConfig::load(&state_root(), company) {
         current.compute_limits = latest.compute_limits;
+        current.home_sites = latest.home_sites;
     }
     let config = &current;
     let internal_network = if config.internal_network {
@@ -3419,8 +3474,13 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     drop(account_start);
     // The company computer beside its Runtime (S104 F2). A computer that fails to start leaves the
     // agents working; the doctor reports the missing desktop.
-    if let Err(error) = ensure_computer(config).await {
-        tracing::warn!(company = %config.name, error = %format!("{error:#}"), "company computer did not start");
+    match ensure_computer(config).await {
+        Ok(()) => {
+            if let Err(error) = clear_computer_refresh_pending(&state_root(), company) {
+                tracing::warn!(company, %error, "computer refresh marker remains pending");
+            }
+        }
+        Err(error) => tracing::warn!(company = %config.name, error = %format!("{error:#}"), "company computer did not start"),
     }
     seed_mission(config).await?;
     // A logo agents cannot copy is a lesser company, not a broken one.
@@ -5603,6 +5663,7 @@ pub async fn destroy(
     remove_company_logos(root, company, None).context("remove the company logo")?;
 
     clear_explicit_stop(company)?;
+    clear_computer_refresh_pending(root, company)?;
 
     // The config last: while it exists, the company is nameable and the earlier
     // steps are re-runnable if one of them failed.

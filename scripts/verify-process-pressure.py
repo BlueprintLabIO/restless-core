@@ -89,8 +89,8 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
             run('docker', 'tag', original_image, image)
             # A changed home-site list ordinarily replaces the browser. Saving
             # remains available while the existing browser must stay intact.
-            site_status, _ = plane.owner(company, '/machines/home-sites', {'sites': ['example.test']}, method='PUT')
-            assert site_status == 200, site_status
+            site_status, site_result = plane.owner(company, '/machines/home-sites', {'sites': ['example.test']}, method='PUT')
+            assert site_status == 200 and site_result['computer_refresh_pending'] is True, (site_status, site_result)
             assert run('docker', 'inspect', '-f', '{{.Id}} {{.State.Status}}', browser).stdout.strip() == before_browser
             print('running Runtime and browser preserved during process pressure', flush=True)
         marker = '/company/run/s109-pid-capacity-marker'
@@ -106,6 +106,13 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
         assert run('docker', 'exec', '-u', 'company', container, 'test', '-e', marker, check=False).returncode != 0
         time.sleep(6)
         assert run('docker', 'inspect', '-f', '{{.State.Status}}', job).stdout.strip() == 'created'
+        if alternate_image:
+            # The saved intent must survive a plane restart while still busy.
+            assert (plane.root / 'computer-refresh-pending' / company).exists()
+            plane.stop(); plane.start(); plane.wait_for_port(plane.offset + 7788)
+            assert (plane.root / 'computer-refresh-pending' / company).exists()
+            assert run('docker', 'inspect', '-f', '{{.Id}} {{.State.Status}}', browser).stdout.strip() == before_browser
+            assert run('docker', 'inspect', '-f', '{{.State.Status}}', job).stdout.strip() == 'created'
         run('sudo', '-n', 'systemctl', 'set-property', '--runtime', slice_name, 'TasksMax=4096')
         for _ in range(120):
             result = run('docker', 'exec', '-u', 'company', container, 'cat', marker, check=False)
@@ -117,6 +124,20 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
             raise RuntimeError('queued job did not resume after process headroom returned')
         time.sleep(6)
         assert run('docker', 'exec', '-u', 'company', container, 'cat', marker).stdout == 'x', 'job repeated its effect'
+        if alternate_image:
+            # Existing maintenance scans once a minute. A running, quiet
+            # computer must eventually apply the saved sites without another edit.
+            expected = 'example.test'
+            for _ in range(180):
+                sites = run('docker', 'inspect', '-f', '{{index .Config.Labels "io.restless.home-sites"}}', browser, check=False)
+                if sites.returncode == 0 and sites.stdout.strip() == expected:
+                    break
+                time.sleep(0.5)
+            else:
+                raise RuntimeError('saved browser sites remained pending after capacity returned')
+            assert run('docker', 'inspect', '-f', '{{.Id}} {{.State.Status}}', browser).stdout.strip() != before_browser
+            assert not (plane.root / 'computer-refresh-pending' / company).exists()
+            print('saved browser sites applied after capacity returned', flush=True)
         after = int((pool / 'pids.current').read_text().strip())
         events = (pool / 'pids.events').read_text().strip()
         print(json.dumps({'company': company, 'initial_tasks': current, 'test_cap': maximum,

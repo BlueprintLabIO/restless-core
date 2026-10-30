@@ -155,8 +155,10 @@
 						helper={helpers[0]?.id ?? null}
 						choices={helperChoices}
 						sites={view.home_sites ?? []}
-						onsaved={async () => {
-							toast(`${companyName}'s sites now go through your computer.`);
+						onsaved={async (pending) => {
+							toast(pending
+								? `Sites saved. ${companyName}'s computer will update when it is available.`
+								: `${companyName}'s sites now go through your computer.`);
 							await refresh();
 						}}
 					/>

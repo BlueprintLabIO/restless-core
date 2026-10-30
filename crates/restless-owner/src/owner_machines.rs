@@ -330,14 +330,13 @@ pub(super) async fn set_home_sites(
             "Name at most 40 sites.",
         );
     }
-    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
-        Ok(config) => config,
-        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
-    };
-    config.home_sites = sites.clone();
-    if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
-        return refuse(error);
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
+        return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist.");
     }
+    let pending = match runtime::save_home_sites(&state.daemon.root, &company, sites.clone()).await {
+        Ok(pending) => pending,
+        Err(error) => return refuse(error),
+    };
     let pool = state.daemon.authority.pool();
     if let Ok(assignments) = machines::company_assignments(pool, &company).await {
         for assignment in assignments
@@ -347,16 +346,7 @@ pub(super) async fn set_home_sites(
             machines::push_settings(pool, &assignment.machine_id).await;
         }
     }
-    // A running computer restarts its browser with the new sites; an asleep one takes them on waking.
-    if runtime::status(&company).await.ok() == Some(runtime::ContainerStatus::Running) {
-        if let Err(error) = runtime::refresh_computer(&config).await {
-            tracing::warn!(
-                company,
-                "home sites saved; the computer did not restart: {error:#}"
-            );
-        }
-    }
-    Json(json!({ "home_sites": sites })).into_response()
+    Json(json!({ "home_sites": sites, "computer_refresh_pending": pending })).into_response()
 }
 
 #[derive(Deserialize)]

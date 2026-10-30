@@ -75,3 +75,18 @@ afterward. The settings route saves the site list even if browser refresh fails;
 its current code only logs that failure, and a dedicated safe retry and visible
 pending state have not been established. The automatic release roll-forward,
 concurrent actor starts and rollback after pressure changes remain open.
+
+The local branch now records a durable pending browser refresh before saving
+home sites, retries it on the existing maintenance cadence when the company is
+quiet, and reports the pending result to the owner. It does not wake a stopped
+computer, and an active browser lease blocks the deferred restart. The same
+company lifecycle lock orders this save against refresh and startup. A live
+single-company pressure fixture changed the sites while the pool was busy,
+restarted the plane with the marker still present, restored capacity, and saw
+maintenance replace the browser with the saved setting; the old browser stayed
+running while busy. The queued job ran once, owner APIs stayed available, no
+kernel PID rejection occurred, and fixture cleanup succeeded. This used a stub
+cockpit and no model provider. The final marker cleanup on company destruction
+and the restored not-found response were compile-checked after that smoke, not
+re-run in it. Real browser-lease races, user-interface visual checks, full
+role coverage, actor-start races and rollout remain open.
