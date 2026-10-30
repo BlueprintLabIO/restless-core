@@ -50,3 +50,16 @@ head-of-line blocking but has only passed an owner-crate build check. It has not
 yet passed live concurrency, cancellation, upgrade or user-interface tests.
 Independent ACP agent startups remain outside the boundary, and replacing a live
 container still needs a proved rollback when capacity changes after admission.
+
+A local real-pressure smoke on 31 October ran the actual daemon built from Core
+`1aca5df709a781250b616d69842d4254dde1e7a0` (binary SHA-256
+`34d702809c030501bc9f850bb68268238df66e95be0f524179f2556db17faddd`)
+with the Cloud task-cap installer and one disposable company. The temporary
+owner workload pool held 35 tasks and was narrowed to 59. Owner principal,
+Inbox and Work APIs remained available; an actual heavy job stayed in its
+capacity queue without its effect, then ran exactly once after restoring task
+capacity. The pool recorded `pids.events: max 0`, showing admission avoided a
+kernel process rejection in this scenario. Cleanup reported `[]` and the test
+slice was removed. No model provider was called. The owner API used a stub
+cockpit, and this is one job rather than a simultaneous agent/browser, multi-owner
+or production test. The full resource release gate and rollback proof remain open.
