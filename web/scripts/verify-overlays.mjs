@@ -154,7 +154,7 @@ try {
 		)
 	);
 	await page.keyboard.press('Escape');
-	await page.waitForTimeout(250);
+	await page.waitForFunction(() => !document.querySelector('.bridge-tooltip').matches(':popover-open'));
 	check(
 		'Escape dismisses it without moving focus',
 		await page.evaluate(
