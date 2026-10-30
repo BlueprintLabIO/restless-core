@@ -20,3 +20,12 @@ pre-cancelled request records no turn. The real ledger and a pending session wer
 exercised in `interrupted_native_postflight_records_only_started_usage`; all eight
 `exec::tests` passed on 30 October. This does not prove provider-side cancellation,
 prevent concurrent sessions from racing a cap, or repair a failed ledger write.
+
+### Completion repair failures
+
+If a native completion-correction prompt starts but its session fails or times out
+before returning a transcript, its usage is recorded as unknown before the attempt
+is settled. A launch that failed before the prompt started does not create a turn.
+The real ledger test covers timeout, transport failure, pre-launch failure and
+success, including refusal under a token cap. An externally dropped repair future,
+concurrent sessions and failed-ledger-write recovery remain unproven.

@@ -257,14 +257,16 @@ publish its contents.
 | Margin comments rather than a separate comments pane | E4 | Open |
 | Lead fails to delegate | G2 | Open |
 | Resend capabilities, integration and secret names; vault versus account | D3, H2, A2, B6 | Open |
-| Sidebar size, saved width and narrow minimum | F1, F2, F9 | Open |
+| Sidebar size, saved width and narrow minimum | F1, F2, F9 | Partial: narrower minimum deployed; account-saved preferences and complete role checks remain |
 | Duplicate attention items | B3 | Open |
 | Company storage, CPU and RAM controls and capacity purchase | A0.1–A0.6, H1 | Partial: CPU/RAM controls passed local checks; release and full account isolation gate remain |
 | Computer panel unexpectedly covers settings | A5 | Open; reproduce and diagnose |
 | Scheduled sends must look queued above composer | F7 | Open |
-| Equal board column widths, horizontal scroll acceptable | G4 | Open; supersedes narrow empty columns |
-| Browser tab shows company name rather than selected page | F8 | Open |
-| Work and chat warnings shift content | C5, C7 | Open |
+| Equal board column widths, horizontal scroll acceptable | G4 | Partial: equal-width change deployed; full title, role and Reno checks remain |
+| Browser tab shows company name rather than selected page | F8 | Partial: company-only title deployed; full multi-company and Reno checks remain |
+| Work and chat warnings shift content | C5, C7 | Partial: named Work and chat warning fixes deployed; all-surface release gate remains |
+
+[Production delivery evidence for these partial fixes](sprint-109/ui-efficiency-release-30-oct.md).
 
 ## Later (agreed, not this sprint)
 

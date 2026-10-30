@@ -997,6 +997,35 @@ enum CompletionRepairOutcome {
     Blocked(String, Option<acp::TurnUsage>),
 }
 
+// A launch may fail after its prompt reached the provider. Preserve that
+// uncertainty before admitting another native turn under a token cap.
+async fn accounted_repair_launch<T>(
+    launch: impl std::future::Future<Output = Result<T>>,
+    timeout: std::time::Duration,
+    started: &std::sync::atomic::AtomicBool,
+    spend: &SpendLedger,
+    auth: &AgentAuth,
+    actor: &str,
+    responsibility: &str,
+    work_id: uuid::Uuid,
+    attempt_id: uuid::Uuid,
+) -> std::result::Result<Result<T>, tokio::time::error::Elapsed> {
+    let result = tokio::time::timeout(timeout, launch).await;
+    if !matches!(&result, Ok(Ok(_))) && started.load(std::sync::atomic::Ordering::Relaxed) {
+        if let Err(error) = spend.record_native_transcript(
+            auth,
+            actor,
+            responsibility,
+            Some(work_id),
+            Some(attempt_id),
+            &acp::TurnTranscript::default(),
+        ) {
+            tracing::error!(company = %auth.company, %error, "failed native completion correction usage could not be recorded");
+        }
+    }
+    result
+}
+
 impl StaffDrive {
     fn record_prompt(&self, transcript: &acp::TurnTranscript) -> Result<()> {
         self.spend.record_native_transcript(
@@ -1175,6 +1204,8 @@ impl StaffDrive {
                 );
             }
         };
+        let prompt_started = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let launch_prompt_started = std::sync::Arc::clone(&prompt_started);
         let launch = async {
             if let Some(identity) = &self.hosted_identity {
                 let transport = crate::runtime_bridge::open_agent_transport(
@@ -1201,7 +1232,9 @@ impl StaffDrive {
                         let prompt = prompt.clone();
                         let cancellation = correction_cancellation.clone();
                         let enforce_budget = enforce_repair_budget;
+                        let prompt_started = std::sync::Arc::clone(&launch_prompt_started);
                         Box::pin(async move {
+                            prompt_started.store(true, std::sync::atomic::Ordering::Relaxed);
                             let end = session
                                 .prompt_live(
                                     &prompt,
@@ -1234,7 +1267,9 @@ impl StaffDrive {
                         let prompt = prompt.clone();
                         let cancellation = correction_cancellation.clone();
                         let enforce_budget = enforce_repair_budget;
+                        let prompt_started = std::sync::Arc::clone(&launch_prompt_started);
                         Box::pin(async move {
+                            prompt_started.store(true, std::sync::atomic::Ordering::Relaxed);
                             let end = session
                                 .prompt_live(
                                     &prompt,
@@ -1255,7 +1290,18 @@ impl StaffDrive {
                 .await
             }
         };
-        let launched = tokio::time::timeout(STAFF_TERMINATION_TIMEOUT, launch).await;
+        let launched = accounted_repair_launch(
+            launch,
+            STAFF_TERMINATION_TIMEOUT,
+            &prompt_started,
+            &self.spend,
+            &repair_auth,
+            &self.actor,
+            &responsibility,
+            work_id,
+            attempt_id,
+        )
+        .await;
         let (transcript, readiness) = match launched {
             Ok(Ok(result)) => result,
             Ok(Err(error)) => {
@@ -1977,6 +2023,74 @@ mod loop_detection_tests {
 mod native_staff_cap_tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[tokio::test]
+    async fn repair_failure_records_only_started_native_requests() {
+        for scenario in ["timeout", "error", "prelaunch", "success"] {
+            let root =
+                std::env::temp_dir().join(format!("restless-repair-cap-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(root.join("companies")).unwrap();
+            let company = "repair_cap_test";
+            std::fs::write(
+                root.join("companies").join(format!("{company}.toml")),
+                format!("name = \"{company}\"\nnative_monthly_token_limit = 1000\n"),
+            )
+            .unwrap();
+            let spend = SpendLedger::open(&root).unwrap();
+            let auth = AgentAuth {
+                model: "native-codex-oauth/test".into(),
+                effort: "medium".into(),
+                company: company.into(),
+                session_id: "test".into(),
+                coordination_token_env: String::new(),
+                coordination_token: String::new(),
+                gateway_token_env: String::new(),
+                gateway_token: String::new(),
+                gateway_url: String::new(),
+                billing: crate::model_gateway::ModelBilling::Subscription,
+            };
+            let started = std::sync::atomic::AtomicBool::new(false);
+            let launch = async {
+                if scenario != "prelaunch" {
+                    started.store(true, Ordering::Relaxed);
+                }
+                match scenario {
+                    "timeout" => std::future::pending::<Result<()>>().await,
+                    "error" | "prelaunch" => anyhow::bail!("transport failed"),
+                    _ => Ok(()),
+                }
+            };
+            let result = accounted_repair_launch(
+                launch,
+                std::time::Duration::from_millis(10),
+                &started,
+                &spend,
+                &auth,
+                "staff",
+                "repair",
+                uuid::Uuid::new_v4(),
+                uuid::Uuid::new_v4(),
+            )
+            .await;
+            match scenario {
+                "timeout" => assert!(result.is_err()),
+                "error" | "prelaunch" => assert!(result.unwrap().is_err()),
+                _ => assert!(result.unwrap().is_ok()),
+            }
+            let usage = spend.native_usage(company, chrono::Utc::now());
+            let expected = u64::from(matches!(scenario, "timeout" | "error"));
+            assert_eq!(
+                (usage.turns, usage.turns_without_tokens),
+                (expected, expected),
+                "{scenario}"
+            );
+            assert_eq!(
+                spend.native_turn_refusal(company, &auth.model).is_some(),
+                expected == 1
+            );
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
 
     struct FakeNativeSession {
         calls: AtomicUsize,
