@@ -4,7 +4,7 @@ Requires RESTLESSD_BIN, RESTLESS_CLOUD_DIR, Docker, an existing company image
 and passwordless sudo. Owns one uniquely named test slice, database and company;
 never targets an existing account or paid model provider.
 """
-import json, os, secrets, shutil, signal, subprocess, sys, tempfile, time
+import datetime, json, os, secrets, shutil, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 repo = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repo / 'scripts/lib'))
@@ -113,7 +113,29 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
             assert (plane.root / 'computer-refresh-pending' / company).exists()
             assert run('docker', 'inspect', '-f', '{{.Id}} {{.State.Status}}', browser).stdout.strip() == before_browser
             assert run('docker', 'inspect', '-f', '{{.State.Status}}', job).stdout.strip() == 'created'
+            # Simulate a live owner lease in this disposable company. The test
+            # exercises lease observation, not the browser attachment handshake.
+            lease = {'controller': 'owner', 'client_id': 'fixture-owner', 'lease_id': 'fixture-lease',
+                     'expires_at': (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)).isoformat()}
+            run('docker', 'exec', '-i', '-u', 'company', container, 'sh', '-c',
+                'cat > /company/run/browser-control.json', input=json.dumps(lease))
         run('sudo', '-n', 'systemctl', 'set-property', '--runtime', slice_name, 'TasksMax=4096')
+        if alternate_image:
+            for _ in range(100):
+                lease_status, lease_view = plane.owner(company, '/browser/status')
+                if lease_status == 200 and (lease_view.get('control') or {}).get('controller') == 'owner':
+                    break
+                assert run('docker', 'inspect', '-f', '{{.Id}} {{.State.Status}}', browser).stdout.strip() == before_browser
+                time.sleep(0.5)
+            else:
+                raise RuntimeError('browser control lease did not become observable: ' + str(lease_view))
+            # Cover at least one full normal maintenance interval with the lease held.
+            time.sleep(70)
+            assert run('docker', 'inspect', '-f', '{{.Id}} {{.State.Status}}', browser).stdout.strip() == before_browser
+            assert (plane.root / 'computer-refresh-pending' / company).exists()
+            run('docker', 'exec', '-i', '-u', 'company', container, 'sh', '-c',
+                'cat > /company/run/browser-control.json', input=json.dumps({'controller': 'unclaimed'}))
+            print('deferred browser preserved while synthetic owner lease was active', flush=True)
         for _ in range(120):
             result = run('docker', 'exec', '-u', 'company', container, 'cat', marker, check=False)
             if result.returncode == 0:

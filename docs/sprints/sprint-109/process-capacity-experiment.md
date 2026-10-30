@@ -90,3 +90,18 @@ cockpit and no model provider. The final marker cleanup on company destruction
 and the restored not-found response were compile-checked after that smoke, not
 re-run in it. Real browser-lease races, user-interface visual checks, full
 role coverage, actor-start races and rollout remain open.
+
+A further live test exposed an unsafe path: automatic `up` could replace the
+browser while a synthetic owner lease was active, despite the maintenance
+quiet check. The first run failed this assertion and cleaned up. The local fix
+now takes the browser control lock without waiting in the reverse order and
+rechecks the lease at both browser replacement and Runtime reconciliation. It
+checks process headroom before attempting the browser diagnostic. A second
+fixture revision waited until the owner API observed the synthetic lease, kept
+it active through a full maintenance interval, then released it. With daemon
+binary SHA-256 `3d478c9688785561b787f614c12dd9a5fcb6020e2027e8f270b5efc7b405a746`,
+the browser remained the same while held, applied the saved sites after release,
+the queued job ran once, owner APIs stayed available, `pids.events` was `max 0`,
+and cleanup reported no problems. The lease was injected in a disposable
+company; this is not a real browser attach, live UI, concurrent take/release
+race, production upgrade or full resource gate.

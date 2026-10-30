@@ -116,6 +116,19 @@ pub async fn browser_control_guard(company: &str) -> tokio::sync::OwnedMutexGuar
     lock.lock_owned().await
 }
 
+// A caller may already hold the company lifecycle lock, while sleep takes the
+// browser lock first. Never wait in the reverse order: retry later instead.
+async fn try_unclaimed_browser_guard(company: &str) -> Result<tokio::sync::OwnedMutexGuard<()>> {
+    let lock = BROWSER_CONTROL_LOCKS.lock().await.entry(container_name(company)).or_default().clone();
+    let guard = lock.try_lock_owned().map_err(|_| anyhow::anyhow!("Computer control is busy; its update will wait."))?;
+    let control = read_browser_control(company).await?;
+    anyhow::ensure!(
+        !control.as_ref().is_some_and(|value| value["controller"] == "owner"),
+        "The computer is in use; its update will wait."
+    );
+    Ok(guard)
+}
+
 pub async fn watch_browser_control(
     company: &str,
 ) -> tokio::sync::watch::Receiver<Option<serde_json::Value>> {
@@ -2313,6 +2326,9 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
     // another company's startup. Hold the shared guard only when changing it.
     let _account_start = account_lifecycle_guard().await;
     require_shared_process_start_headroom()?;
+    let _browser_control = if attached.is_some() {
+        Some(try_unclaimed_browser_guard(company).await?)
+    } else { None };
     if attached.is_some() {
         // Check before retiring an existing desktop so pressure cannot
         // replace a working computer with an unstartable one.
@@ -3259,6 +3275,8 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             // Preserve the old shell if process capacity cannot admit its replacement.
             account_start = Some(account_lifecycle_guard().await);
             require_shared_process_start_headroom()?;
+            // Preserve an actively controlled browser and the old shell.
+            let _browser_control = try_unclaimed_browser_guard(company).await?;
             // Reconciliation replaces the shell. A configured monthly hours
             // cap must gate that replacement before it stops live work.
             crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
