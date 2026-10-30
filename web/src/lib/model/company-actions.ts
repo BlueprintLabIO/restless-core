@@ -126,19 +126,21 @@ export interface OutputFile {
 }
 
 /** A stable position in the company's output listing. */
-export interface OutputCursor { modified: number; path: string }
+export interface OutputCursor { modified: number; path: string; revision?: string }
 
 /** One bounded page of output files for the Library's Folders view. Owner only. */
 export async function readLibraryOutputs(
 	company: string,
 	signal?: AbortSignal,
-	cursor?: OutputCursor
-): Promise<{ files: OutputFile[]; truncated: boolean; next: OutputCursor | null; skippedNames: number }> {
-	const query = cursor ? `?${new URLSearchParams({ modified: String(cursor.modified), path: cursor.path })}` : '';
-	const body = await ownerRequest<{ files?: OutputFile[]; truncated?: boolean; next_cursor?: OutputCursor | null; skipped_names?: number }>(
+	cursor?: OutputCursor,
+	fresh = false
+): Promise<{ files: OutputFile[]; truncated: boolean; next: OutputCursor | null; skippedNames: number; revision: string | null }> {
+	const params = cursor ? new URLSearchParams({ modified: String(cursor.modified), path: cursor.path, ...(cursor.revision ? { revision: cursor.revision } : {}) }) : new URLSearchParams(fresh ? { fresh: 'true' } : {});
+	const query = params.size ? `?${params}` : '';
+	const body = await ownerRequest<{ files?: OutputFile[]; truncated?: boolean; next_cursor?: OutputCursor | null; skipped_names?: number; revision?: string }>(
 		`${api(company)}/library/outputs${query}`, { signal }
 	);
-	return { files: body?.files ?? [], truncated: body?.truncated === true, next: body?.next_cursor ?? null, skippedNames: Number.isSafeInteger(body?.skipped_names) && (body?.skipped_names ?? 0) > 0 ? body!.skipped_names! : 0 };
+	return { files: body?.files ?? [], truncated: body?.truncated === true, next: body?.next_cursor ?? null, skippedNames: Number.isSafeInteger(body?.skipped_names) && (body?.skipped_names ?? 0) > 0 ? body!.skipped_names! : 0, revision: body?.revision ?? null };
 }
 
 export async function readLibraryModified(

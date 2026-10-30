@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
 	import { pollEvery } from '$lib/model/connection.svelte';
 	/* The Library: everything the company has written and made, in one place (S64). Native
@@ -59,7 +60,7 @@
 	import Lock from '@lucide/svelte/icons/lock';
 	import { PRIVATE_HINT } from '$lib/model/general-access';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
 	import {
 		LIBRARY_KIND_LABEL,
 		LibraryOpenError,
@@ -810,14 +811,20 @@
 	let outputFiles = $state<OutputFile[]>([]);
 	let outputFilesTruncated = $state(false);
 	let outputSkippedNames = $state(0);
+	let outputStale = $state(false);
+	let outputStaleToast: number | null = null;
+	let outputRevision: string | null = null;
+	let outputEpoch = 0;
 	let outputSkippedReported = false;
-	const outputIncomplete = $derived(outputFilesTruncated || outputSkippedNames > 0);
-	const folderListingHint = $derived(outputSkippedNames > 0
+	const outputIncomplete = $derived(outputFilesTruncated || outputSkippedNames > 0 || outputStale);
+	const folderListingHint = $derived(outputStale
+		? 'Files changed. Refresh the list to continue.'
+		: outputSkippedNames > 0
 		? `Some file names cannot be displayed.${outputFilesTruncated ? ' More older files are available.' : ''}`
 		: `Showing ${outputFiles.length} files; more older files are available`);
 	function reportSkippedNames(count: number) {
 		outputSkippedNames = count;
-		if (count > 0 && !outputSkippedReported) toast('Some file names cannot be displayed.', { tone: 'failure' });
+		if (count > 0 && !outputSkippedReported) toast('Some file names cannot be displayed.');
 		outputSkippedReported = count > 0;
 	}
 	let outputCursor = $state<import('$lib/model/company-actions').OutputCursor | null>(null);
@@ -826,15 +833,46 @@
 	let outputPagesLoaded = false;
 	let outputReadFailed = false;
 
+	function markOutputsStale() {
+		if (outputStale) return;
+		outputStale = true;
+		outputStaleToast = toast('Files changed. Refresh the list to continue.', {
+			persist: true, action: { label: 'Refresh', run: () => refreshOutputs() }
+		});
+	}
+	async function refreshOutputs() {
+		const company = companyId;
+		const epoch = ++outputEpoch;
+		outputLoadingMore = true;
+		outputLoadFailure = '';
+		try {
+			const result = await readLibraryOutputs(company, undefined, undefined, true);
+			if (company !== companyId || epoch !== outputEpoch) return;
+			outputFiles = result.files;
+			outputCursor = result.next;
+			outputFilesTruncated = result.truncated;
+			outputRevision = result.revision;
+			outputPagesLoaded = false;
+			outputStale = false;
+			if (outputStaleToast !== null) dismissToast(outputStaleToast);
+			outputStaleToast = null;
+			reportSkippedNames(result.skippedNames);
+		} catch {
+			if (company === companyId && epoch === outputEpoch) outputLoadFailure = 'Files could not be refreshed. Try again.';
+		} finally {
+			if (company === companyId && epoch === outputEpoch) outputLoadingMore = false;
+		}
+	}
 	async function loadMoreOutputs() {
-		if (!outputCursor || outputLoadingMore) return;
+		if (!outputCursor || outputLoadingMore || outputStale) return;
 		const company = companyId;
 		const cursor = outputCursor;
+		const epoch = ++outputEpoch;
 		outputLoadingMore = true;
 		outputLoadFailure = '';
 		try {
 			const result = await readLibraryOutputs(company, undefined, cursor);
-			if (company !== companyId) return;
+			if (company !== companyId || epoch !== outputEpoch) return;
 			if (result.truncated && (!result.next || (result.next.path === cursor.path && result.next.modified === cursor.modified))) {
 				throw new Error('The next file page could not be read.');
 			}
@@ -844,15 +882,24 @@
 			outputCursor = result.next;
 			outputFilesTruncated = result.truncated;
 			reportSkippedNames(result.skippedNames);
-		} catch {
-			if (company === companyId) outputLoadFailure = 'Older files could not be loaded. Try again.';
+		} catch (error) {
+			if (company === companyId && epoch === outputEpoch) {
+				if ((error as { status?: number })?.status === 409) markOutputsStale();
+				else outputLoadFailure = 'Older files could not be loaded. Try again.';
+			}
 		} finally {
-			if (company === companyId) outputLoadingMore = false;
+			if (company === companyId && epoch === outputEpoch) outputLoadingMore = false;
 		}
 	}
 	$effect(() => {
 		const company = companyId;
 		const controller = new AbortController();
+		outputEpoch++;
+		outputLoadingMore = false;
+		outputStale = false;
+		if (outputStaleToast !== null) dismissToast(outputStaleToast);
+		outputStaleToast = null;
+		outputRevision = null;
 		outputPagesLoaded = false;
 		outputReadFailed = false;
 		outputSkippedReported = false;
@@ -862,25 +909,26 @@
 		outputFilesTruncated = false;
 		const read = () => {
 			if (document.visibilityState === 'hidden') return;
+			const epoch = outputEpoch;
 			void readLibraryModified(company, controller.signal).then((times) => {
 				if (!controller.signal.aborted) fileModified = times;
 			});
-			if (owner)
+			if (owner && !untrack(() => outputLoadingMore))
 				void readLibraryOutputs(company, controller.signal).then((result) => {
-					if (!controller.signal.aborted) {
+					if (!controller.signal.aborted && epoch === outputEpoch) {
 						outputReadFailed = false;
-						reportSkippedNames(result.skippedNames);
-						if (outputPagesLoaded) {
-							const fresh = new Set(result.files.map((file) => file.path));
-							outputFiles = [...result.files, ...outputFiles.filter((file) => !fresh.has(file.path))];
-						} else {
+						if (outputPagesLoaded && outputRevision && result.revision && outputRevision !== result.revision) {
+							markOutputsStale();
+						} else if (!outputPagesLoaded && !outputStale) {
+							reportSkippedNames(result.skippedNames);
+							outputRevision = result.revision;
 							outputFiles = result.files;
 							outputFilesTruncated = result.truncated;
 							outputCursor = result.next;
 						}
 					}
 				}).catch(() => {
-					if (!controller.signal.aborted && !outputReadFailed) {
+					if (!controller.signal.aborted && epoch === outputEpoch && !outputReadFailed) {
 						outputReadFailed = true;
 						toast('Files could not be read. Try again.', { tone: 'failure' });
 					}
@@ -2136,7 +2184,12 @@
 									>{/if}{/snippet}
 						</Empty>
 					{/if}
-					{#if filter === 'folders' && outputFilesTruncated && outputCursor}
+					{#if filter === 'folders' && outputStale}
+						<button class="more" disabled={outputLoadingMore} onclick={() => void refreshOutputs()}>
+							{outputLoadingMore ? 'Refreshing…' : 'Refresh files'}
+						</button>
+						{#if outputLoadFailure}<span role="status">{outputLoadFailure}</span>{/if}
+					{:else if filter === 'folders' && outputFilesTruncated && outputCursor}
 						<button class="more" disabled={outputLoadingMore} onclick={() => void loadMoreOutputs()}>
 							{outputLoadingMore ? 'Loading…' : 'Load older files'}
 						</button>

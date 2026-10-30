@@ -372,6 +372,8 @@ pub(super) async fn archive_work_file(
 pub(super) struct LibraryOutputQuery {
     modified: Option<i64>,
     path: Option<String>,
+    revision: Option<String>,
+    fresh: Option<bool>,
 }
 
 pub(super) async fn library_outputs(
@@ -388,9 +390,11 @@ pub(super) async fn library_outputs(
         return Json(serde_json::json!({ "files": [] })).into_response();
     }
     let cursor = match (query.modified, query.path) {
-        (Some(modified), Some(path)) => {
-            Some(restless_engine::runtime_files::OutputCursor { modified, path })
-        }
+        (Some(modified), Some(path)) => Some(restless_engine::runtime_files::OutputCursor {
+            modified,
+            path,
+            revision: query.revision,
+        }),
         (None, None) => None,
         _ => {
             return api_error(
@@ -400,7 +404,7 @@ pub(super) async fn library_outputs(
             )
         }
     };
-    if cursor.is_none() {
+    if cursor.is_none() && !query.fresh.unwrap_or(false) {
         if let Some((at, body)) = LAST
             .lock()
             .ok()
@@ -416,7 +420,7 @@ pub(super) async fn library_outputs(
         Err(_) => {
             // A sleeping Runtime may use its last first page; never substitute
             // that page for a failed request for older files.
-            if cursor.is_none() {
+            if cursor.is_none() && !query.fresh.unwrap_or(false) {
                 if let Some((_, body)) = LAST
                     .lock()
                     .ok()
@@ -432,6 +436,17 @@ pub(super) async fn library_outputs(
             );
         }
     };
+    if cursor
+        .as_ref()
+        .and_then(|c| c.revision.as_ref())
+        .is_some_and(|revision| revision != &page.revision)
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "library",
+            "Files changed. Refresh the list to continue.",
+        );
+    }
     let mut files = page.files;
     let truncated = cap_library_outputs(&mut files);
     let next_cursor = truncated
@@ -441,12 +456,14 @@ pub(super) async fn library_outputs(
                 .map(|file| restless_engine::runtime_files::OutputCursor {
                     modified: file.modified,
                     path: file.path.clone(),
+                    revision: Some(page.revision.clone()),
                 })
         })
         .flatten();
     let body = serde_json::json!({
         "truncated": truncated,
         "skipped_names": page.skipped_names,
+        "revision": page.revision,
         "next_cursor": next_cursor,
         "files": files.iter().map(|file| serde_json::json!({
             "path": file.path,

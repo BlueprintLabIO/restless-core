@@ -239,12 +239,15 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   of test-selector and expected-status mistakes and also cleaned up. A repeat of the complete journey verified member and admin Library behavior at
   desktop and phone widths, including denial of both direct output-page requests; its resources
   were removed. Evidence: `/tmp/restless-identity-core-evidence-vuelZN/journey.log`. Concurrent
-  filesystem changes and production remain to be qualified. A mutation test confirmed a real
-  pagination gap: after a file is deleted, another updated, and a new file added, combining a
-  refreshed first page with an earlier cursor can skip a displaced file. Starting over with the
-  refreshed cursor recovers the complete current listing. The current UI can reuse that earlier
-  cursor, so this must be fixed before release, not treated as a completed qualification. Evidence:
-  `/tmp/s109-library-concurrent-smoke2.log`. Scratch notes also remain visible in the default Library. Evidence:
+  production remains to be qualified. A mutation test found that combining a refreshed first page
+  with an earlier cursor could skip a displaced file (`/tmp/s109-library-concurrent-smoke2.log`).
+  The local follow-up fingerprints the scanned listing, rejects an outdated cursor, and offers a
+  refresh without silently merging pages. After a delete, edit and addition, a fresh traversal
+  recovered all 4,004 current files; desktop and phone browsers exercised the warning and refresh.
+  The isolated fixture cleaned up. Evidence: `/tmp/s109-library-revision-smoke4.log`. Earlier
+  browser attempts exposed notices covering controls and a reactive refresh loop; those attempts
+  also cleaned up. A scan is not an atomic filesystem snapshot, and the extra fingerprint work,
+  mutation during a scan, role regression on this latest change and production remain to be checked. Scratch notes also remain visible in the default Library. Evidence:
   `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 
 

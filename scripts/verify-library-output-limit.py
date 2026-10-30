@@ -100,25 +100,12 @@ with tempfile.TemporaryDirectory(prefix="s109-library-limit-") as directory:
                   "os.utime(added,(2000000001,2000000001))")
         docker("exec", "-u", "company", plane.container(company), "python3", "-c", mutate, removed, updated, added)
         expected_current = (paths - {removed}) | {added}
-        plane.stop()
-        plane.start()
-        plane.wait_for_port(plane.offset + 7788, 120)
-        status, refreshed = plane.owner(company, "/library/outputs")
+        status, stale_tail = plane.owner(company, "/library/outputs?" + urllib.parse.urlencode(first_cursor))
+        assert status == 409, "a cursor from the previous listing must be rejected"
+        status, refreshed = plane.owner(company, "/library/outputs?fresh=true")
         assert status == 200
         refreshed_paths = {entry["path"] for entry in refreshed["files"]}
         assert {updated, added} <= refreshed_paths and removed not in refreshed_paths
-        status, stale_tail = plane.owner(company, "/library/outputs?" + urllib.parse.urlencode(first_cursor))
-        assert status == 200
-        # The old boundary skips files displaced by additions. Do not mistake a
-        # cursor from an earlier listing for a complete snapshot of the new one.
-        mixed = set(refreshed_paths)
-        while True:
-            mixed.update(entry["path"] for entry in stale_tail["files"])
-            if not stale_tail["truncated"]:
-                break
-            status, stale_tail = plane.owner(company, "/library/outputs?" + urllib.parse.urlencode(stale_tail["next_cursor"]))
-            assert status == 200
-        assert mixed < expected_current, "the test must expose a gap from reusing the old cursor"
         current = set()
         page = refreshed
         while True:
@@ -130,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix="s109-library-limit-") as directory:
             status, page = plane.owner(company, "/library/outputs?" + urllib.parse.urlencode(page["next_cursor"]))
             assert status == 200
         assert current == expected_current
-        print(json.dumps({"concurrentCursorGapConfirmed": True, "missingWithOldCursor": len(expected_current - mixed), "freshTraversalFiles": len(current)}), flush=True)
+        print(json.dumps({"staleCursorRejected": True, "freshTraversalFiles": len(current)}), flush=True)
         paths = expected_current
         # An invalid UTF-8 filename must not become a false empty or complete listing.
         docker("exec", "-u", "company", plane.container(company), "python3", "-c",
@@ -150,6 +137,7 @@ with tempfile.TemporaryDirectory(prefix="s109-library-limit-") as directory:
             assert status == 200
         assert found == paths, "unsupported name hid readable files"
         subprocess.run(["node", str(repo / "web/scripts/verify-library-limit.mjs"), plane.owner_origin, company, "unsupported"], check=True)
+        subprocess.run(["node", str(repo / "web/scripts/verify-library-limit.mjs"), plane.owner_origin, company, "changed", plane.container(company)], check=True)
         print(json.dumps({"company": company, "exact": 2000, "pageSizes": pages, "uniqueFiles": len(paths), "specialNames": len(special_paths), "invalidNameReported": True}), flush=True)
     finally:
         problems = plane.close()

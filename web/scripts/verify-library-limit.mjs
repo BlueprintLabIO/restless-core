@@ -1,10 +1,11 @@
 /* Owner Library count on a disposable local plane; does not touch production. */
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
-const [origin, company, expected] = process.argv.slice(2);
+import { execFileSync } from 'node:child_process';
+const [origin, company, expected, container] = process.argv.slice(2);
 assert(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname));
 assert(company.endsWith('_test'));
-assert(['2000', '2000+', 'unsupported'].includes(expected));
+assert(['2000', '2000+', 'unsupported', 'changed'].includes(expected));
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
 try {
   for (const width of [1440, 390]) {
@@ -19,6 +20,20 @@ try {
         const title = width === 1440 ? await row.locator('.sidebar-reading').getAttribute('title') : await row.getAttribute('title');
         assert.match(title ?? '', /Some file names cannot be displayed/);
         console.log(JSON.stringify({ width, unsupportedNameReported: true }));
+        continue;
+      }
+      if (expected === 'changed') {
+        const row = page.getByRole('link', { name: /Folders/ });
+        await row.waitFor({ state: 'visible', timeout: 30000 });
+        await row.click();
+        await page.getByRole('heading', { name: 'Folders', exact: true }).waitFor();
+        execFileSync('docker', ['exec', '-u', 'company', container, 'sh', '-c', `touch /company/outputs/limit-test/browser-change-${width}`]);
+        await page.getByRole('button', { name: 'Load older files' }).click();
+        await page.getByText('Files changed. Refresh the list to continue.', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+        await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+        await page.getByRole('button', { name: 'Load older files' }).waitFor({ state: 'visible', timeout: 30000 });
+        await page.getByText('Files changed. Refresh the list to continue.', { exact: true }).waitFor({ state: 'hidden', timeout: 30000 });
+        console.log(JSON.stringify({ width, staleCursorWarning: true, refreshed: true }));
         continue;
       }
       const row = page.getByRole('link', { name: /Folders/ });

@@ -165,6 +165,7 @@ pub struct OutputFile {
 pub struct OutputPage {
     pub files: Vec<OutputFile>,
     pub skipped_names: u64,
+    pub revision: String,
 }
 
 /// A bounded Library page; the extra record tells the caller whether another exists.
@@ -174,6 +175,7 @@ pub const OUTPUT_LIST_LIMIT: usize = 2_000;
 pub struct OutputCursor {
     pub modified: i64,
     pub path: String,
+    pub revision: Option<String>,
 }
 
 /// List a page in descending whole-second modification time and path order.
@@ -222,6 +224,10 @@ pub async fn output_files(company: &str, cursor: Option<&OutputCursor>) -> Resul
     );
     let page: OutputPage =
         serde_json::from_slice(&output.stdout).context("decode company output listing")?;
+    anyhow::ensure!(
+        page.revision.len() == 64 && page.revision.bytes().all(|c| c.is_ascii_hexdigit()),
+        "invalid output revision"
+    );
     let files = &page.files;
     anyhow::ensure!(
         files.len() <= OUTPUT_LIST_LIMIT + 1,
