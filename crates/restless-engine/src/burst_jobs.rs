@@ -874,6 +874,10 @@ pub async fn reconcile_pending(daemon: &crate::Daemon, companies: &[String]) -> 
         // Serialize with owner stop, sleep and destruction through the same
         // per-company lifecycle lock used by those operations.
         let _company_guard = crate::runtime::company_start_guard(company).await;
+        // Recheck capacity while serialized with Runtime/browser lifecycle starts.
+        // The guard covers Docker's start response so the next observation can
+        // see the new job. A timed-out Docker start still needs reconciliation.
+        let _account_start = crate::runtime::account_lifecycle_guard().await;
         // A stopped or removed Runtime must not be woken by a queued job.
         if !matches!(
             crate::runtime::status(company).await,

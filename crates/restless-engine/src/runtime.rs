@@ -52,6 +52,10 @@ static COMPANY_START_LOCKS: LazyLock<
 // not yet a reservation for independently launched agents or heavy jobs.
 static ACCOUNT_LIFECYCLE_START: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+pub(crate) async fn account_lifecycle_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    ACCOUNT_LIFECYCLE_START.lock().await
+}
+
 // Browser control is one small, reconstructable Runtime file. Keep its
 // read-modify-write transitions serial per company so two owner tabs cannot
 // both observe an available lease and then each publish a successor.
@@ -2399,7 +2403,7 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
 /// Give a running company its computer as the config now says (home sites changed).
 pub async fn refresh_computer(config: &CompanyConfig) -> Result<()> {
     let _start = company_start_guard(&config.name).await;
-    let _account_start = ACCOUNT_LIFECYCLE_START.lock().await;
+    let _account_start = account_lifecycle_guard().await;
     ensure_computer(config).await
 }
 
@@ -3170,7 +3174,7 @@ pub async fn up_automatically(config: &CompanyConfig) -> Result<Option<String>> 
 }
 
 async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
-    let _account_start = ACCOUNT_LIFECYCLE_START.lock().await;
+    let _account_start = account_lifecycle_guard().await;
     let company = &config.name;
     let mut current = config.clone();
     if let Ok(latest) = CompanyConfig::load(&state_root(), company) {

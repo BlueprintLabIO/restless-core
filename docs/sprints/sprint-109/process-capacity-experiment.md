@@ -35,3 +35,10 @@ starts, and a change in pressure after the check can still make replacement
 fail. The new startup guard has compiled but has not yet passed the prepared
 live pressure smoke or a concurrency/rollback test. Retain the old runtime under
 all failed replacements and prove safe recovery before release.
+
+Queued heavy-job starts now take the same account lifecycle lock as Runtime and
+browser starts, then re-read capacity before Docker start returns. The owner
+crate compiles with this change. This does not yet coordinate independent agent
+starts, guarantee a Docker start cancelled after timeout, or establish that a
+replacement can always roll back. The real-pressure fixture remains unrun and
+this is not a production isolation claim.
