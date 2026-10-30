@@ -48,9 +48,16 @@ pub struct SpendLedger {
     /// column.
     stores: Arc<Mutex<HashMap<String, Arc<SpendStore>>>>,
     metered_turn_lanes: Arc<Mutex<HashMap<String, Arc<MeteredTurnLane>>>>,
+    native_prompt_lanes: Arc<Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
 }
 
 type Path2 = std::path::PathBuf;
+
+/// Holds a company native-prompt lane until the prompt's usage is recorded.
+pub enum NativePromptPermit {
+    Shared(tokio::sync::OwnedRwLockReadGuard<()>),
+    Exclusive(tokio::sync::OwnedRwLockWriteGuard<()>),
+}
 
 /// The first product workload that needed same-company parallel model work
 /// was EXP-05's four independently closing Staff units. Keep the outer limit
@@ -487,6 +494,7 @@ impl SpendLedger {
             root: Arc::new(root.to_path_buf()),
             stores: Arc::new(Mutex::new(HashMap::new())),
             metered_turn_lanes: Arc::new(Mutex::new(HashMap::new())),
+            native_prompt_lanes: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -920,6 +928,45 @@ impl SpendLedger {
             .unwrap_or_default()
     }
 
+    /// Coordinate native prompts against the same company ledger. Uncapped
+    /// prompts share the lane; capped prompts wait for all earlier native
+    /// prompts and hold it through usage recording. The limit is re-read
+    /// under the exclusive permit before the caller starts the request.
+    pub async fn admit_native_prompt(
+        &self,
+        company: &str,
+        model: &str,
+    ) -> std::result::Result<Option<NativePromptPermit>, String> {
+        if !is_native_route(model) {
+            return Ok(None);
+        }
+        let lane = {
+            let mut lanes = self
+                .native_prompt_lanes
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            Arc::clone(
+                lanes
+                    .entry(company.to_string())
+                    .or_insert_with(|| Arc::new(tokio::sync::RwLock::new(()))),
+            )
+        };
+        let shared = Arc::clone(&lane).read_owned().await;
+        let config = CompanyConfig::load(&self.root, company).map_err(|error| {
+            format!("[budget] {company}'s native usage limit could not be read, so no native turn starts: {error:#}")
+        })?;
+        if config.native_monthly_turn_limit.is_none() && config.native_monthly_token_limit.is_none()
+        {
+            return Ok(Some(NativePromptPermit::Shared(shared)));
+        }
+        drop(shared);
+        let exclusive = lane.write_owned().await;
+        if let Some(reason) = self.native_turn_refusal(company, model) {
+            return Err(reason);
+        }
+        Ok(Some(NativePromptPermit::Exclusive(exclusive)))
+    }
+
     /// The native fuse: refuse a new native turn once this month's use has
     /// reached an owner-set cap. Returns the owner-facing `[budget]` reason,
     /// or `None` when the turn may start. It is checked only before a turn,
@@ -1216,6 +1263,77 @@ mod tests {
         write_limits("");
         assert_eq!(ledger.native_turn_refusal(company, model), None);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_prompt_admission_coordinates_caps_without_blocking_peers() {
+        let root = std::env::temp_dir().join(format!("restless-native-lanes-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let write_config = |company: &str, limits: &str| {
+            std::fs::write(
+                root.join("companies").join(format!("{company}.toml")),
+                format!("name = \"{company}\"\n{limits}\n"),
+            )
+            .unwrap();
+        };
+        let company = "lane_test";
+        let peer = "lane_peer";
+        let model = "native-codex-oauth/test";
+        write_config(company, "native_monthly_turn_limit = 1");
+        write_config(peer, "native_monthly_turn_limit = 1");
+        let ledger = SpendLedger::open(&root).unwrap();
+        let first = ledger.admit_native_prompt(company, model).await.unwrap();
+        let mut second = tokio::spawn({
+            let ledger = ledger.clone();
+            async move { ledger.admit_native_prompt(company, model).await }
+        });
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(25), &mut second)
+                .await
+                .is_err()
+        );
+        let peer_permit = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            ledger.admit_native_prompt(peer, model),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        drop(peer_permit);
+        let auth = native_auth(company, model, "first");
+        ledger.record_native_turns(&auth, "exec", "work", None, None, &[native_turn(5)]);
+        drop(first);
+        assert!(
+            second.await.unwrap().is_err(),
+            "second prompt must recheck the recorded cap"
+        );
+
+        write_config(company, "");
+        let shared_one = ledger.admit_native_prompt(company, model).await.unwrap();
+        let shared_two = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            ledger.admit_native_prompt(company, model),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        write_config(company, "native_monthly_turn_limit = 1");
+        let mut capped = tokio::spawn({
+            let ledger = ledger.clone();
+            async move { ledger.admit_native_prompt(company, model).await }
+        });
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(25), &mut capped)
+                .await
+                .is_err()
+        );
+        drop(shared_one);
+        drop(shared_two);
+        assert!(
+            capped.await.unwrap().is_err(),
+            "new cap must wait for existing native prompts and recheck usage"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

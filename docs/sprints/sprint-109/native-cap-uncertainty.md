@@ -29,3 +29,23 @@ is settled. A launch that failed before the prompt started does not create a tur
 The real ledger test covers timeout, transport failure, pre-launch failure and
 success, including refusal under a token cap. An externally dropped repair future,
 concurrent sessions and failed-ledger-write recovery remain unproven.
+
+### Same-company native prompt coordination
+
+A per-company in-process lane coordinates Exec, Staff and effect-free completion
+corrections at prompt boundaries. Uncapped native prompts share the lane; when a
+turn or token cap is configured, a prompt waits for earlier native prompts, then
+rechecks the ledger while holding the exclusive lane through usage recording.
+A new cap waits for already admitted native prompts; another company's lane stays
+independent. Stopping a Staff or Exec turn while waiting does not require the
+other prompt to finish. No extra scheduler or durable queue is created.
+
+Local tests exercise two concurrent Exec requests competing for one remaining turn,
+two independent companies, uncapped concurrent admissions, a limit introduced
+while requests are in flight, and the actual Staff drive after another session
+uses the final turn. The Staff test uses PostgreSQL and a simulated model, not a
+live provider. This protects admission within one shared daemon ledger; it does
+not coordinate overlapping daemon processes, prevent one provider response from
+exceeding a token limit, guarantee fair owner priority over a running long prompt,
+or repair usage lost after a process crash or a failed ledger write. These remain
+open A0 acceptance items.
