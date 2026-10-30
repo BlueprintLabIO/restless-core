@@ -300,6 +300,12 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   Evidence: `/tmp/s109-library-stale-pressure.log` and `/tmp/s109-library-stale-smoke.log`. The
   ordinary 30-second first-page cache may serve a recent result before trying a scan; it is not a
   real-time pressure indicator. CPU pressure, mutation during scanning and production remain open.
+  After merging current main into this branch, the owner crate and web checks and builds passed.
+  A fresh two-account local pressure test (daemon SHA-256 `712c605c7358e94d0bcbd9e4a7339fa95c730715e1e48015298a3523bd6a8a00`)
+  confirmed the pressured listing returned 503, its peer returned 200, all eight entry checks
+  passed, and the pressured listing recovered without restart. Desktop and phone retained
+  cached files, displayed the pressure warning and retried successfully; cleanup reported no
+  problems. This is not a production test or a CPU-pressure test.
   Scratch notes also remain visible in the default Library. Evidence:
   `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 
