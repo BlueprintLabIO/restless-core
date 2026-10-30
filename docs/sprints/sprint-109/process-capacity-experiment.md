@@ -207,3 +207,12 @@ is not used by this startup sweep. Fixing this requires a retryable, observed
 per-owner recovery boundary and a test that injects inspection/kill failures
 and late process creation; a global permanent pause would not satisfy owner
 isolation. This is source inspection, not a reproduced production incident.
+
+The agent orphan sweep now reports inspection and marker-read failures and
+keeps a marker unless the exact session is observed gone. A disposable
+company-image container test passed for an unavailable container, an invalid
+marker retained for recovery, and an actual orphaned session reaped before
+its marker was removed. The daemon build also passed. This improves recovery
+visibility and preserves evidence, but staff startup currently only logs the
+failure and still proceeds: per-owner admission and retry are not yet wired to
+this result. The late Docker-start race remains open.

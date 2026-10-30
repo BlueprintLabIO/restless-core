@@ -1060,13 +1060,17 @@ pub async fn sweep_orphans(
                 "could not reap orphan governed gate processes: {error:#}"
             ),
         }
-        let reaped = crate::acp::reap_orphan_sessions(&container).await;
-        if reaped > 0 {
-            tracing::warn!(
+        match crate::acp::reap_orphan_sessions(&container).await {
+            Ok(reaped) if reaped > 0 => tracing::warn!(
                 company = name,
                 reaped,
                 "reaped marked agent processes from before restart"
-            );
+            ),
+            Ok(_) => {},
+            Err(error) => tracing::warn!(
+                company = name,
+                "could not verify orphan agent cleanup: {error:#}"
+            ),
         }
     }
     for name in companies {

@@ -2698,46 +2698,39 @@ async fn container_started_after(container: &str, at: chrono::DateTime<chrono::U
         .is_ok_and(|started| started > at)
 }
 
-pub async fn reap_orphan_sessions(container: &str) -> usize {
-    let Ok(output) = crate::runtime::docker_bounded(
+pub async fn reap_orphan_sessions(container: &str) -> Result<usize> {
+    let output = crate::runtime::docker_bounded(
         &[
-            "exec",
-            container,
-            "find",
-            "/tmp",
-            "-maxdepth",
-            "1",
-            "-type",
-            "f",
-            "-name",
-            "restless-agent-*.sid",
-            "-print",
+            "exec", container, "find", "/tmp", "-maxdepth", "1", "-type", "f",
+            "-name", "restless-agent-*.sid", "-print",
         ],
         std::time::Duration::from_secs(8),
     )
     .await
-    else {
-        return 0;
-    };
-    if !output.status.success() {
-        return 0;
-    }
+    .context("inspect orphan agent session markers")?;
+    anyhow::ensure!(output.status.success(), "could not inspect orphan agent session markers");
 
     let mut reaped = 0;
     for marker in String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter(|path| path.starts_with("/tmp/restless-agent-") && path.ends_with(".sid"))
     {
-        if let Some(session_id) = read_session_id(container, marker).await {
-            reaped += reap_session(container, &session_id).await;
-        }
-        let _ = crate::runtime::docker_bounded(
+        let session_id = read_session_id(container, marker)
+            .await
+            .context("could not read a valid orphan agent session marker")?;
+        reaped += reap_session(container, &session_id).await;
+        // Do not discard the ownership record unless absence was observed.
+        // A failed kill or process inspection remains retryable.
+        verify_session_reaped(container, &session_id).await?;
+        let removed = crate::runtime::docker_bounded(
             &["exec", container, "unlink", marker],
             std::time::Duration::from_secs(8),
         )
-        .await;
+        .await
+        .context("remove reaped orphan agent marker")?;
+        anyhow::ensure!(removed.status.success(), "could not remove reaped orphan agent marker");
     }
-    reaped
+    Ok(reaped)
 }
 
 /// Parse `ps -eo pid=,sid=` without teaching cleanup about process names.
@@ -2756,6 +2749,48 @@ fn pids_in_session(table: &str, session_id: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    #[ignore = "requires an isolated RESTLESS_TEST_SESSION_CONTAINER with Docker init"]
+    async fn orphan_cleanup_preserves_invalid_markers_and_reports_unavailable_runtime() {
+        let container = std::env::var("RESTLESS_TEST_SESSION_CONTAINER").unwrap();
+        assert!(container.ends_with("_test"));
+        let marker = format!("/tmp/restless-agent-{}.sid", uuid::Uuid::new_v4());
+        super::write_private_container_file(&container, &marker, "invalid").await.unwrap();
+        assert!(super::reap_orphan_sessions(&container).await.is_err());
+        let present = crate::runtime::docker_bounded(
+            &["exec", &container, "test", "-f", &marker],
+            std::time::Duration::from_secs(5),
+        ).await.unwrap();
+        assert!(present.status.success(), "unverified marker must remain for recovery");
+        let removed = crate::runtime::docker_bounded(
+            &["exec", &container, "rm", "-f", &marker],
+            std::time::Duration::from_secs(5),
+        ).await.unwrap();
+        assert!(removed.status.success());
+        assert!(super::reap_orphan_sessions("restless-missing-orphan-test").await.is_err());
+        assert_eq!(super::reap_orphan_sessions(&container).await.unwrap(), 0);
+        let started = crate::runtime::docker_bounded(
+            &["exec", "-d", &container, "setsid", "sh", "-c",
+              "echo $$ > \"$1\"; exec sleep 120", "orphan-test", &marker],
+            std::time::Duration::from_secs(5),
+        ).await.unwrap();
+        assert!(started.status.success());
+        let mut session = None;
+        for _ in 0..50 {
+            session = super::read_session_id(&container, &marker).await;
+            if session.is_some() { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let session = session.expect("orphan session marker");
+        assert!(super::reap_orphan_sessions(&container).await.unwrap() > 0);
+        super::verify_session_reaped(&container, &session).await.unwrap();
+        let remaining = crate::runtime::docker_bounded(
+            &["exec", &container, "test", "-e", &marker],
+            std::time::Duration::from_secs(5),
+        ).await.unwrap();
+        assert!(!remaining.status.success());
+    }
+
     #[tokio::test]
     #[ignore = "requires an isolated RESTLESS_TEST_SESSION_CONTAINER with Docker init"]
     async fn session_cleanup_waits_for_exit_and_rejects_live_residue() {
