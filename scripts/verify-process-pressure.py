@@ -4,7 +4,7 @@ Requires RESTLESSD_BIN, RESTLESS_CLOUD_DIR, Docker, an existing company image
 and passwordless sudo. Owns one uniquely named test slice, database and company;
 never targets an existing account or paid model provider.
 """
-import datetime, json, os, secrets, shutil, signal, subprocess, sys, tempfile, time
+import concurrent.futures, datetime, json, os, secrets, shutil, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 repo = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repo / 'scripts/lib'))
@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
     pool = Path('/sys/fs/cgroup/restless.slice') / slice_name
     plane = None
     owned_unit = False
-    job = None
+    jobs = []
     try:
         own_path = str(root / 'bin') + ':' + os.environ['PATH']
         if alternate_image:
@@ -95,19 +95,26 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
             assert status == 200 and machines['computer_refresh_pending'] is True, (status, machines)
             assert run('docker', 'inspect', '-f', '{{.Id}} {{.State.Status}}', browser).stdout.strip() == before_browser
             print('running Runtime and browser preserved during process pressure', flush=True)
-        marker = '/company/run/s109-pid-capacity-marker'
-        output = run('docker', 'exec', '-u', 'company', container, 'restless', 'job', 'run',
-                     '--cpus', '0.2', '--memory', '128m', '--timeout', '30', '--', 'printf x >> ' + marker).stdout
-        job_id = json.loads(output)['job']
-        assert len(job_id) == 12 and all(c in '0123456789abcdef' for c in job_id)
-        job = container + '-job-' + job_id
-        state = run('docker', 'inspect', '-f', '{{.State.Status}}', job).stdout.strip()
-        assert state == 'created', state
-        job_status = json.loads(run('docker', 'exec', '-u', 'company', container, 'restless', 'job', 'status', job_id).stdout)
-        assert job_status['status'] == 'waiting_for_capacity', job_status
-        assert run('docker', 'exec', '-u', 'company', container, 'test', '-e', marker, check=False).returncode != 0
+        markers = [f'/company/run/s109-pid-capacity-marker-{i}' for i in range(2)]
+        def submit(marker):
+            output = run('docker', 'exec', '-u', 'company', container, 'restless', 'job', 'run',
+                         '--cpus', '0.2', '--memory', '128m', '--timeout', '30', '--', 'printf x >> ' + marker).stdout
+            job_id = json.loads(output)['job']
+            assert len(job_id) == 12 and all(c in '0123456789abcdef' for c in job_id)
+            jobs.append((job_id, container + '-job-' + job_id))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            list(executor.map(submit, markers))
+        assert len(jobs) == len(markers)
+        for job_id, job in jobs:
+            state = run('docker', 'inspect', '-f', '{{.State.Status}}', job).stdout.strip()
+            assert state == 'created', state
+            job_status = json.loads(run('docker', 'exec', '-u', 'company', container, 'restless', 'job', 'status', job_id).stdout)
+            assert job_status['status'] == 'waiting_for_capacity', job_status
+        for marker in markers:
+            assert run('docker', 'exec', '-u', 'company', container, 'test', '-e', marker, check=False).returncode != 0
         time.sleep(6)
-        assert run('docker', 'inspect', '-f', '{{.State.Status}}', job).stdout.strip() == 'created'
+        for _, job in jobs:
+            assert run('docker', 'inspect', '-f', '{{.State.Status}}', job).stdout.strip() == 'created'
         if alternate_image:
             # The saved intent must survive a plane restart while still busy.
             assert (plane.root / 'computer-refresh-pending' / company).exists()
@@ -116,7 +123,8 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
             assert status == 200 and machines['computer_refresh_pending'] is True, (status, machines)
             assert (plane.root / 'computer-refresh-pending' / company).exists()
             assert run('docker', 'inspect', '-f', '{{.Id}} {{.State.Status}}', browser).stdout.strip() == before_browser
-            assert run('docker', 'inspect', '-f', '{{.State.Status}}', job).stdout.strip() == 'created'
+            for _, job in jobs:
+                assert run('docker', 'inspect', '-f', '{{.State.Status}}', job).stdout.strip() == 'created'
             # Simulate a live owner lease in this disposable company. The test
             # exercises lease observation, not the browser attachment handshake.
             lease = {'controller': 'owner', 'client_id': 'fixture-owner', 'lease_id': 'fixture-lease',
@@ -140,16 +148,18 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
             run('docker', 'exec', '-i', '-u', 'company', container, 'sh', '-c',
                 'cat > /company/run/browser-control.json', input=json.dumps({'controller': 'unclaimed'}))
             print('deferred browser preserved while synthetic owner lease was active', flush=True)
-        for _ in range(120):
-            result = run('docker', 'exec', '-u', 'company', container, 'cat', marker, check=False)
-            if result.returncode == 0:
-                assert result.stdout == 'x'
-                break
-            time.sleep(0.5)
-        else:
-            raise RuntimeError('queued job did not resume after process headroom returned')
+        for marker in markers:
+            for _ in range(120):
+                result = run('docker', 'exec', '-u', 'company', container, 'cat', marker, check=False)
+                if result.returncode == 0:
+                    assert result.stdout == 'x'
+                    break
+                time.sleep(0.5)
+            else:
+                raise RuntimeError('queued job did not resume after process headroom returned')
         time.sleep(6)
-        assert run('docker', 'exec', '-u', 'company', container, 'cat', marker).stdout == 'x', 'job repeated its effect'
+        for marker in markers:
+            assert run('docker', 'exec', '-u', 'company', container, 'cat', marker).stdout == 'x', 'job repeated its effect'
         if alternate_image:
             # Existing maintenance scans once a minute. A running, quiet
             # computer must eventually apply the saved sites without another edit.
@@ -169,7 +179,7 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
         after = int((pool / 'pids.current').read_text().strip())
         events = (pool / 'pids.events').read_text().strip()
         print(json.dumps({'company': company, 'initial_tasks': current, 'test_cap': maximum,
-                          'job_waited': True, 'job_resumed_once': True,
+                          'jobs_waited': len(jobs), 'jobs_resumed_once': len(jobs),
                           'tasks_after': after, 'events': events, 'owner_entry': 'healthy'}), flush=True)
     finally:
         problems = []
@@ -179,7 +189,7 @@ with tempfile.TemporaryDirectory(prefix='s109-pid-admission-') as folder:
                 run('sudo', '-n', 'systemctl', 'set-property', '--runtime', slice_name, 'TasksMax=4096')
             except Exception as error:
                 problems.append('restore test task cap: ' + str(error))
-        if job:
+        for _, job in jobs:
             run('docker', 'rm', '-f', job, check=False)
         if plane:
             try:

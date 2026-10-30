@@ -141,3 +141,11 @@ fix must preserve each existing Work/turn retry path when admission is deferred
 and cover cancellation and daemon replacement; simply returning an error after
 a Work Attempt has been claimed could falsely fail work. This is source
 inspection, not a reproduced concurrency test.
+
+A concurrent-submission local smoke against daemon SHA-256 `85f9cc55175ac5824d6792bf0d7f229b0b703fc6989ab801be8afa572922b68f`
+submitted two heavy jobs to one disposable company while its task count was 35
+with a cap of 59. Both remained queued without effects, then each applied its
+effect once after capacity was restored. Owner entry remained healthy, kernel
+process rejections were zero, cleanup reported no problems and the temporary
+slice was removed. This does not test agent starts, overlapping daemon versions,
+multiple owners, or admission under sustained load after capacity returns.
