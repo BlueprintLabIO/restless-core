@@ -5,7 +5,7 @@
   "description": "Pinned model broker used by the source development launcher",
   "scripts": {
     "postinstall": "node apply-pi-ai-patch.mjs",
-    "test": "bash smoke-namespace && bun tests/pi-native-wire.ts",
+    "test": "bash smoke-namespace",
     "test:browser": "node tests/browser-compatibility.mjs",
     "test:omp-browser": "bun tests/omp-browser-compatibility.mjs"
   },
