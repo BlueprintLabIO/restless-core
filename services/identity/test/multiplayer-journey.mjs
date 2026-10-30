@@ -66,6 +66,25 @@ async function until(check, label, seconds = 60) {
   throw Error(`Timed out: ${label}${last ? ` (${last.message})` : ""}`);
 }
 
+async function verifyRoomDisconnect(who, messageText) {
+  const message = who.page.getByText(messageText).first();
+  const composer = who.page.getByRole("textbox", { name: "Conversation message" });
+  await composer.fill("Draft held while offline");
+  const before = await message.boundingBox();
+  assert(before, `${who.key}: loaded message has a position`);
+  try {
+    await who.context.setOffline(true);
+    await who.page.getByText("Showing the last loaded messages. Your draft stays on this device.").waitFor({ timeout: 10000 });
+    assert.equal(await composer.inputValue(), "Draft held while offline");
+    const after = await message.boundingBox();
+    assert(after && Math.abs(after.y - before.y) < 1, `${who.key}: reconnect must not move the message`);
+    assert.equal(await who.page.locator(".degraded-strip").count(), 0);
+  } finally {
+    await who.context.setOffline(false);
+    await composer.clear();
+  }
+}
+
 // ---------------------------------------------------------------- SMTP catcher
 // A loopback SMTP server that keeps every message. Nothing leaves the host.
 function decodeQuotedPrintable(text) {
@@ -154,6 +173,7 @@ function startDaemon(network, entry = {}) {
       RESTLESS_OWNER_ADDR: `127.0.0.1:${corePort}`,
       RESTLESS_ENTRY_MODE: network ? "network" : "local",
       RESTLESS_RUNTIME_MODE: "local",
+      RESTLESS_SHEETS_WORKER: join(repo, "services/native-sheets/src/worker.mjs"),
       ...entry,
     },
     stdio: ["ignore", logFd, logFd],
@@ -569,6 +589,9 @@ try {
     await writeFile(join(evidence, "room-missing.json"), JSON.stringify(report, null, 2));
     throw error;
   }
+  // A lost connection must not move loaded messages or discard a local draft.
+  for (const who of [owner, alice]) await verifyRoomDisconnect(who, chat[0]);
+  pass("owner and member keep their message positions and drafts when their room goes offline");
   for (const [who, trace] of tracers) who.page.off("response", trace);
   for (const who of editors) await shot(who, "room");
   pass("room chat typed by owner and a member appears live for all three people");
@@ -1002,6 +1025,10 @@ try {
   bob.page.off("response", watchAdmin);
   assert.deepEqual([...new Set(adminRefused)], [], "an admin's screens make no refused requests");
   await steadyEntry(bob, "admin");
+  await bob.page.goto(roomUrl);
+  await bob.page.getByText(chat[0]).first().waitFor({ timeout: 20000 });
+  await verifyRoomDisconnect(bob, chat[0]);
+  pass("admin keeps message position and draft when the room goes offline");
   // Owner output paths stay private even when another person is an admin.
   await daemonCommand({ cmd: "up", company });
   const runtimeContainer = `restless-${process.env.RESTLESS_RESOURCE_NAMESPACE}-co-${company}`;
