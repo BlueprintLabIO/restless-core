@@ -66,6 +66,12 @@ let pausedName;
 const queueFixtures = [];
 const marker = "/company/run/s109-heavy-job-" + namespace;
 try {
+  for (const [name, container] of [[company, co], [peer, peerCo]]) {
+    await docker(["exec", "-u", "company", container, "sh", "-c", "mkdir -p /company/outputs/pressure-test && printf ready > /company/outputs/pressure-test/visible.txt"]);
+    const response = await fetch(new URL(`/api/companies/${name}/library/outputs?fresh=true`, origin), { signal: AbortSignal.timeout(10000) });
+    assert.equal(response.status, 200, "Library must read before pressure");
+    assert((await response.json()).files.some(file => file.path.endsWith("/pressure-test/visible.txt")));
+  }
   // A job larger than the hard account ceiling can never make progress. Refuse
   // it before creating an intent, with a useful explanation rather than a silent queue.
   let oversized;
@@ -142,6 +148,8 @@ try {
     "fixture must really be under admission pressure",
   );
   for (const name of [company, peer]) {
+    const listing = await fetch(new URL(`/api/companies/${name}/library/outputs?fresh=true`, origin), { signal: AbortSignal.timeout(10000) });
+    assert.equal(listing.status, 503, "Library scanning must defer under account memory pressure");
     for (const path of [
       "/health",
       "/api/companies/" + name + "/principal",
@@ -315,6 +323,12 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     assert(resumed, "the isolated daemon restart must complete");
+    for (const name of [company, peer]) {
+      const response = await fetch(new URL(`/api/companies/${name}/library/outputs?fresh=true`, origin), { signal: AbortSignal.timeout(10000) });
+      assert.equal(response.status, 200, "Library must recover after pressure and restart");
+      assert((await response.json()).files.some(file => file.path.endsWith("/pressure-test/visible.txt")));
+    }
+    console.log("Library scans defer during real pool pressure and recover for both companies after restart");
   }
   if (!process.env.RESTLESS_JOB_RESTART_DIR) {
     const before = await run("docker", [
