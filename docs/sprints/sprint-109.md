@@ -191,6 +191,12 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   are localStorage per company and area).
 - [ ] **F3 Chat spacing [24].** One spacing scale for paragraphs, lists, Work details and footers.
 - [ ] **F4 Chat header [25, 39].** Fixed row heights; no tooltip over "About: …".
+  In a local owner role journey, resizing from desktop to 390px with Exec chat open left its
+  composer over the Resources page's Edit limit button, preventing a normal click. The earlier
+  phone check started with the rail closed and did not cover this state. Reproduce and correct the
+  open-rail phone layout as part of F4/F9; don't claim the Resources editor fully qualified until
+  it works. Evidence: `/tmp/restless-identity-core-evidence-eJRnEj/journey.log`. The disposable
+  journey cleaned up; it ended as a failed role run, not a passing release gate.
 - [ ] **F5 Clipping [29, 49].** The stray chip in the card footer and Library's cut-off "Archived".
 - [ ] **F6 Compact entry and concise copy.** Make the sign-in button proportionate to the surrounding
   controls at desktop and phone sizes. Remove unnecessary eyebrows and explanatory footer copy,
