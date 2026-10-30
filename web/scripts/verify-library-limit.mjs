@@ -5,13 +5,34 @@ import { execFileSync } from 'node:child_process';
 const [origin, company, expected, container] = process.argv.slice(2);
 assert(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname));
 assert(company.endsWith('_test'));
-assert(['2000', '2000+', 'unsupported', 'changed'].includes(expected));
+assert(['2000', '2000+', 'unsupported', 'changed', 'unavailable'].includes(expected));
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
 try {
   for (const width of [1440, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
     try {
+      if (expected === 'unavailable') {
+        let failures = 0;
+        await page.route('**/library/outputs**', route => {
+          if (failures++ < 2) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'library', message: 'Files could not be read. Try again.' }) });
+          return route.continue();
+        });
+      }
       await page.goto(`${origin}/${encodeURIComponent(company)}/library`, { waitUntil: 'domcontentloaded' });
+      if (expected === 'unavailable') {
+        const notice = page.getByText('Files could not be read. Try again.', { exact: true });
+        await notice.waitFor({ state: 'visible', timeout: 30000 });
+        const row = page.getByRole('link', { name: /Folders/ });
+        await row.waitFor({ state: 'visible', timeout: 30000 });
+        assert.equal((await row.innerText()).replace(/\s/g, ''), 'Folders—');
+        await page.getByRole('button', { name: 'Try again', exact: true }).click();
+        await notice.waitFor({ state: 'visible', timeout: 30000 });
+        await page.getByRole('button', { name: 'Try again', exact: true }).click();
+        await notice.waitFor({ state: 'hidden', timeout: 30000 });
+        await page.waitForFunction(() => [...document.querySelectorAll('a')].some(a => a.textContent?.replace(/\s/g, '') === 'Folders2000'), { timeout: 30000 });
+        console.log(JSON.stringify({ width, unavailableWarned: true, repeatedRetryRecovered: true }));
+        continue;
+      }
       if (expected === 'unsupported') {
         await page.getByText('Some file names cannot be displayed.', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
         const row = page.getByRole('link', { name: /Folders/ });

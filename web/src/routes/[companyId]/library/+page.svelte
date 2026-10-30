@@ -812,12 +812,16 @@
 	let outputFilesTruncated = $state(false);
 	let outputSkippedNames = $state(0);
 	let outputStale = $state(false);
+	let outputReadFailed = $state(false);
 	let outputStaleToast: number | null = null;
+	let outputFailureToast: number | null = null;
 	let outputRevision: string | null = null;
 	let outputEpoch = 0;
 	let outputSkippedReported = false;
-	const outputIncomplete = $derived(outputFilesTruncated || outputSkippedNames > 0 || outputStale);
-	const folderListingHint = $derived(outputStale
+	const outputIncomplete = $derived(outputFilesTruncated || outputSkippedNames > 0 || outputStale || outputReadFailed);
+	const folderListingHint = $derived(outputReadFailed
+		? 'Files could not be read. Try again.'
+		: outputStale
 		? 'Files changed. Refresh the list to continue.'
 		: outputSkippedNames > 0
 		? `Some file names cannot be displayed.${outputFilesTruncated ? ' More older files are available.' : ''}`
@@ -831,7 +835,19 @@
 	let outputLoadingMore = $state(false);
 	let outputLoadFailure = $state('');
 	let outputPagesLoaded = false;
-	let outputReadFailed = false;
+
+	function clearOutputFailure() {
+		outputReadFailed = false;
+		if (outputFailureToast !== null) dismissToast(outputFailureToast);
+		outputFailureToast = null;
+	}
+	function reportOutputFailure() {
+		outputReadFailed = true;
+		if (outputFailureToast !== null) dismissToast(outputFailureToast);
+		outputFailureToast = toast('Files could not be read. Try again.', {
+			tone: 'failure', action: { label: 'Try again', run: () => refreshOutputs() }
+		});
+	}
 
 	function markOutputsStale() {
 		if (outputStale) return;
@@ -854,11 +870,12 @@
 			outputRevision = result.revision;
 			outputPagesLoaded = false;
 			outputStale = false;
+			clearOutputFailure();
 			if (outputStaleToast !== null) dismissToast(outputStaleToast);
 			outputStaleToast = null;
 			reportSkippedNames(result.skippedNames);
 		} catch {
-			if (company === companyId && epoch === outputEpoch) outputLoadFailure = 'Files could not be refreshed. Try again.';
+			if (company === companyId && epoch === outputEpoch) reportOutputFailure();
 		} finally {
 			if (company === companyId && epoch === outputEpoch) outputLoadingMore = false;
 		}
@@ -901,7 +918,7 @@
 		outputStaleToast = null;
 		outputRevision = null;
 		outputPagesLoaded = false;
-		outputReadFailed = false;
+		clearOutputFailure();
 		outputSkippedReported = false;
 		outputSkippedNames = 0;
 		outputFiles = [];
@@ -916,7 +933,7 @@
 			if (owner && !untrack(() => outputLoadingMore))
 				void readLibraryOutputs(company, controller.signal).then((result) => {
 					if (!controller.signal.aborted && epoch === outputEpoch) {
-						outputReadFailed = false;
+						clearOutputFailure();
 						if (outputPagesLoaded && outputRevision && result.revision && outputRevision !== result.revision) {
 							markOutputsStale();
 						} else if (!outputPagesLoaded && !outputStale) {
@@ -929,8 +946,7 @@
 					}
 				}).catch(() => {
 					if (!controller.signal.aborted && epoch === outputEpoch && !outputReadFailed) {
-						outputReadFailed = true;
-						toast('Files could not be read. Try again.', { tone: 'failure' });
+						reportOutputFailure();
 					}
 				});
 		};
@@ -1601,13 +1617,13 @@
 						count={row.total}
 					/>
 				{/each}
-				{#if owner && (folderEntries.length || outputSkippedNames)}<SidebarRow
+				{#if owner && (folderEntries.length || outputSkippedNames || outputReadFailed)}<SidebarRow
 						href={filterHref('folders')}
 						label="Folders"
 						icon={FolderOpen}
 						active={filter === 'folders' && !fileOpen && !uploadFile}
 						count={outputIncomplete ? null : folderEntries.length}
-						reading={outputIncomplete ? `${folderEntries.length}+` : undefined}
+						reading={outputReadFailed ? '—' : outputIncomplete ? `${folderEntries.length}+` : undefined}
 						readingTitle={outputIncomplete ? folderListingHint : undefined}
 						title={outputIncomplete
 							? folderListingHint
@@ -1670,7 +1686,7 @@
 				aria-label="Library"
 				hidden={!!(openFileId || openUploadId || openPath)}
 			>
-				{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && (folderEntries.length || outputSkippedNames) ? [{ key: 'folders' as Filter, label: `Folders ${folderEntries.length}${outputIncomplete ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
+				{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && (folderEntries.length || outputSkippedNames || outputReadFailed) ? [{ key: 'folders' as Filter, label: outputReadFailed ? 'Folders —' : `Folders ${folderEntries.length}${outputIncomplete ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
 					<a
 						href={filterHref(item.key)}
 						title={item.key === 'folders' && outputIncomplete ? folderListingHint : undefined}
@@ -1776,7 +1792,9 @@
 					<h1>{filterLabel(filter)}</h1>
 					<span class="head-count"
 						title={filter === 'folders' && outputIncomplete ? folderListingHint : undefined}
-						>{filter === 'folders' && outputIncomplete && !query && !byParam && !sinceParam
+						>{filter === 'folders' && outputReadFailed && !query && !byParam && !sinceParam
+							? '—'
+							: filter === 'folders' && outputIncomplete && !query && !byParam && !sinceParam
 							? `${shown.length}+`
 							: ((!query && !collectionParam && !byParam && !sinceParam && filter === 'docs'
 								? counts.docs
@@ -2149,6 +2167,8 @@
 												: 'Nothing here yet'}
 							info={filter === 'folders' && outputFilesTruncated && (query || byParam || sinceParam)
 								? 'Load older files to continue searching.'
+								: filter === 'folders' && outputReadFailed
+								? 'Files could not be read. Try again.'
 								: filter === 'folders' && outputSkippedNames > 0
 								? 'Some file names cannot be displayed.'
 								: filter === 'yours'
@@ -2184,7 +2204,11 @@
 									>{/if}{/snippet}
 						</Empty>
 					{/if}
-					{#if filter === 'folders' && outputStale}
+					{#if filter === 'folders' && outputReadFailed}
+						<button class="more" disabled={outputLoadingMore} onclick={() => void refreshOutputs()}>
+							{outputLoadingMore ? 'Retrying…' : 'Try reading files again'}
+						</button>
+					{:else if filter === 'folders' && outputStale}
 						<button class="more" disabled={outputLoadingMore} onclick={() => void refreshOutputs()}>
 							{outputLoadingMore ? 'Refreshing…' : 'Refresh files'}
 						</button>

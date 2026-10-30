@@ -277,7 +277,13 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   pressure was released and its safety backoff elapsed. Both planes and pools were removed without
   cleanup errors. Evidence: `/tmp/s109-library-owner-isolation.log` and the reusable
   `scripts/verify-library-owner-isolation.py`. This synthetic two-plane test is not production,
-  a CPU-pressure test or a browser-level failure-state test; those remain open. Scratch notes also remain visible in the default Library. Evidence:
+  a CPU-pressure test or a browser-level failure-state test under real pressure; those remain open.
+  The browser now retains a Folders entry with an unknown count and a retry action when the initial
+  file read fails. A local browser test injected two 503 responses at both desktop and phone widths,
+  then verified retry recovered the real 2,000-file listing. The full paging/mutation fixture passed
+  and cleaned up. Evidence: `/tmp/s109-library-unavailable-smoke.log`. This injected-failure check
+  is not the real-pressure browser test: first-page caching can still return a previous listing under
+  pressure without labeling it stale, which must be addressed before release. Scratch notes also remain visible in the default Library. Evidence:
   `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 
 

@@ -40,6 +40,7 @@ with tempfile.TemporaryDirectory(prefix="s109-library-limit-") as directory:
         status, exact = plane.owner(company, "/library/outputs")
         assert status == 200 and len(exact["files"]) == 2000 and exact["truncated"] is False, (status, len(exact.get("files", [])), exact.get("truncated"))
         subprocess.run(["node", str(repo / "web/scripts/verify-library-limit.mjs"), plane.owner_origin, company, "2000"], check=True)
+        subprocess.run(["node", str(repo / "web/scripts/verify-library-limit.mjs"), plane.owner_origin, company, "unavailable"], check=True)
         docker("exec", "-u", "company", plane.container(company), "sh", "-c", ': > /company/outputs/limit-test/2001.txt; touch -t 202610300101 /company/outputs/limit-test/2001.txt')
         # Clear only the disposable daemon's 30-second listing cache.
         plane.stop()
