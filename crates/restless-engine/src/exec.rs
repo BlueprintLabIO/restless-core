@@ -417,6 +417,11 @@ pub async fn wake(
                             let session_org = org.clone();
                             let turn_context = turn_context.clone();
                             let session_responsibility = responsibility.clone();
+                            let native_accounting = NativePromptAccounting {
+                                spend: spend.clone(),
+                                auth: auth.clone(),
+                                responsibility: responsibility.clone(),
+                            };
                             move |session| {
                                 Box::pin(async move {
                                     run_ready_exec_session(
@@ -426,6 +431,7 @@ pub async fn wake(
                                         &company,
                                         &model,
                                         &session_responsibility,
+                                        &native_accounting,
                                         remaining,
                                         metered,
                                         focused_mention,
@@ -457,6 +463,11 @@ pub async fn wake(
                             let session_org = org.clone();
                             let turn_context = turn_context.clone();
                             let session_responsibility = responsibility.clone();
+                            let native_accounting = NativePromptAccounting {
+                                spend: spend.clone(),
+                                auth: auth.clone(),
+                                responsibility: responsibility.clone(),
+                            };
                             move |session| {
                                 Box::pin(async move {
                                     run_ready_exec_session(
@@ -466,6 +477,7 @@ pub async fn wake(
                                         &company,
                                         &model,
                                         &session_responsibility,
+                                        &native_accounting,
                                         remaining,
                                         metered,
                                         focused_mention,
@@ -499,6 +511,11 @@ pub async fn wake(
                             let session_org = org.clone();
                             let turn_context = turn_context.clone();
                             let session_responsibility = responsibility.clone();
+                            let native_accounting = NativePromptAccounting {
+                                spend: spend.clone(),
+                                auth: auth.clone(),
+                                responsibility: responsibility.clone(),
+                            };
                             let complete_reply_hook = complete_reply_hook.clone();
                             move |session| {
                                 Box::pin(async move {
@@ -509,6 +526,7 @@ pub async fn wake(
                                         &company,
                                         &model,
                                         &session_responsibility,
+                                        &native_accounting,
                                         remaining,
                                         metered,
                                         focused_mention,
@@ -538,6 +556,11 @@ pub async fn wake(
                             let session_org = org.clone();
                             let turn_context = turn_context.clone();
                             let session_responsibility = responsibility.clone();
+                            let native_accounting = NativePromptAccounting {
+                                spend: spend.clone(),
+                                auth: auth.clone(),
+                                responsibility: responsibility.clone(),
+                            };
                             let complete_reply_hook = complete_reply_hook.clone();
                             move |session| {
                                 Box::pin(async move {
@@ -548,6 +571,7 @@ pub async fn wake(
                                         &company,
                                         &model,
                                         &session_responsibility,
+                                        &native_accounting,
                                         remaining,
                                         metered,
                                         focused_mention,
@@ -951,6 +975,32 @@ async fn record_usage(
     Ok(())
 }
 
+#[derive(Clone)]
+struct NativePromptAccounting {
+    spend: crate::spend::SpendLedger,
+    auth: crate::acp::AgentAuth,
+    responsibility: String,
+}
+impl NativePromptAccounting {
+    fn record(&self, transcript: &acp::TurnTranscript) -> Result<()> {
+        self.spend.record_native_transcript(
+            &self.auth,
+            "exec",
+            &self.responsibility,
+            None,
+            None,
+            transcript,
+        )
+    }
+    fn refusal(&self) -> Option<String> {
+        self.spend
+            .native_turn_refusal(&self.auth.company, &self.auth.model)
+    }
+    fn unknown(&self) -> Result<()> {
+        self.record(&acp::TurnTranscript::default())
+    }
+}
+
 /// The full turn inside one ACP session: work prompt, then the termination
 /// decision as a second prompt on the same session (it has full context).
 trait ExecutiveSession: Sync {
@@ -1083,6 +1133,7 @@ async fn run_ready_exec_session(
     company: &str,
     model: &str,
     responsibility: &str,
+    native_accounting: &NativePromptAccounting,
     remaining_budget_usd: f64,
     enforce_spend_budget: bool,
     focused_mention: bool,
@@ -1129,6 +1180,7 @@ async fn run_ready_exec_session(
         focused_mention,
         complete_reply_hook,
         cancellation,
+        Some(native_accounting),
     )
     .await
 }
@@ -1144,6 +1196,7 @@ async fn run_turn(
     focused_mention: bool,
     complete_reply_hook: Option<CompleteReplyHook>,
     cancellation: &CancellationToken,
+    native_accounting: Option<&NativePromptAccounting>,
 ) -> Result<(WakeReport, Option<acp::TurnUsage>)> {
     // Run for as long as the agent is alive, not for a fixed wall-clock
     // budget. How the turn ends is a deterministic observation — the agent
@@ -1162,6 +1215,16 @@ async fn run_turn(
     // way it ended. The termination ask that follows is a second, tiny turn on
     // the same session — it is not what we are measuring.
     let usage = end.usage();
+    let mut native_block = native_accounting.and_then(|accounting| {
+        if let Err(error) = accounting.record(end.transcript()) {
+            tracing::error!(company, %error, "native Exec turn usage could not be recorded");
+            return Some(
+                "[budget] Native turn usage could not be recorded. This session has stopped."
+                    .to_string(),
+            );
+        }
+        accounting.refusal()
+    });
 
     // The one and only place a turn is classified. Everything below reads the
     // verdict; nothing below re-derives it from the transcript.
@@ -1177,16 +1240,40 @@ async fn run_turn(
                  Rewrite the reply so it names the page and the button (\"Company › Charter, Publish\"), \
                  or does the step yourself if you may. Reply with the rewritten message only."
             );
-            match tokio::time::timeout(TERMINATION_TIMEOUT, session.prompt_once(&ask)).await {
-                Ok(Ok(rewritten))
+            let rewritten = if native_block.is_none() {
+                Some(tokio::time::timeout(TERMINATION_TIMEOUT, session.prompt_once(&ask)).await)
+            } else {
+                None
+            };
+            if let (Some(accounting), Some(result)) = (native_accounting, rewritten.as_ref()) {
+                let recorded = match result {
+                    Ok(Ok(transcript)) => accounting.record(transcript),
+                    _ => accounting.unknown(),
+                };
+                if let Err(error) = recorded {
+                    tracing::error!(company, %error, "native Exec rewrite usage could not be recorded");
+                    native_block = Some("[budget] Native rewrite usage could not be recorded. This session has stopped.".into());
+                } else {
+                    native_block = accounting.refusal();
+                }
+            }
+            match rewritten {
+                Some(Ok(Ok(rewritten)))
                     if !rewritten.text.trim().is_empty()
                         && crate::staff::operator_text(&rewritten.text).is_none()
                         && health::classify_provider_error_content(&rewritten.text).is_none() =>
                 {
                     transcript.last_message_text = rewritten.text.trim().to_string();
+                    if native_block.is_some() {
+                        transcript.text = transcript.last_message_text.clone();
+                    }
                 }
                 _ => {
-                    tracing::warn!(%found, "a reply handed the owner a command and could not be rewritten")
+                    tracing::warn!(%found, "a reply handed the owner a command and could not be rewritten");
+                    if native_block.is_some() {
+                        transcript.last_message_text = "I could not prepare that instruction for the cockpit because this session stopped. The work so far is preserved.".into();
+                        transcript.text = transcript.last_message_text.clone();
+                    }
                 }
             }
         }
@@ -1286,7 +1373,14 @@ async fn run_turn(
             // The decision envelope is internal coordination, not the
             // owner-facing reply that the live activity dock previews.
             session.set_live_observer_enabled(false);
-            let decision = termination_decision(session, cancellation).await;
+            let decision = match native_block {
+                Some(reason) => TerminationDecision {
+                    termination: Termination::Blocked,
+                    reason,
+                    retry_after_seconds: None,
+                },
+                None => termination_decision(session, cancellation, native_accounting).await,
+            };
             Ok((
                 report(
                     decision.termination,
@@ -1325,6 +1419,7 @@ pub const TERMINATION_PROMPT: &str = "The turn is ending now. Based on everythin
 async fn termination_decision(
     session: &dyn ExecutiveSession,
     cancellation: &CancellationToken,
+    native_accounting: Option<&NativePromptAccounting>,
 ) -> TerminationDecision {
     let prompted = tokio::select! {
         () = cancellation.cancelled() => {
@@ -1338,6 +1433,11 @@ async fn termination_decision(
     };
     let Ok(prompted) = prompted else {
         let _ = session.cancel().await;
+        if let Some(accounting) = native_accounting {
+            if let Err(error) = accounting.unknown() {
+                tracing::error!(%error, "timed-out native Exec completion usage could not be recorded");
+            }
+        }
         tracing::warn!(
             timeout_s = TERMINATION_TIMEOUT.as_secs(),
             "termination decision timed out; preserving completed work turn"
@@ -1350,12 +1450,25 @@ async fn termination_decision(
     let transcript = match prompted {
         Ok(transcript) => transcript,
         Err(error) => {
+            if let Some(accounting) = native_accounting {
+                if let Err(record_error) = accounting.unknown() {
+                    tracing::error!(%record_error, "native Exec completion usage could not be recorded");
+                }
+            }
             tracing::warn!(%error, "termination decision transport failed; preserving work turn");
             return protocol_blocked(format!(
                 "Exec completion protocol transport failed; the productive turn is preserved for accountable review: {error:#}"
             ));
         }
     };
+    if let Some(accounting) = native_accounting {
+        if let Err(error) = accounting.record(&transcript) {
+            tracing::error!(%error, "native Exec completion usage could not be recorded");
+            return protocol_blocked(
+                "[budget] Native completion usage could not be recorded. This session has stopped.",
+            );
+        }
+    }
     if let Some(parsed) = parse_termination(&transcript.text) {
         return parsed;
     }
@@ -1976,6 +2089,261 @@ mod tests {
         .is_none());
     }
 
+    struct FakeNativeExec {
+        prompts: std::sync::atomic::AtomicUsize,
+        command_reply: bool,
+        fail_postflight: bool,
+    }
+    impl ExecutiveSession for FakeNativeExec {
+        fn readiness_observation(&self) -> serde_json::Value {
+            serde_json::Value::Null
+        }
+        fn set_live_observer_enabled(&self, _: bool) {}
+        fn prompt_exec<'a>(
+            &'a self,
+            _: &'a str,
+            _: bool,
+            _: f64,
+            _: &'a CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = acp::TurnEnd> + Send + 'a>> {
+            Box::pin(async move {
+                self.prompts
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let mut transcript = acp::TurnTranscript::default();
+                transcript.text = if self.command_reply {
+                    "Run `restless work list --company reno`"
+                } else {
+                    "Your answer is ready."
+                }
+                .into();
+                transcript.last_message_text = transcript.text.clone();
+                transcript.usage = Some(acp::TurnUsage {
+                    turn_id: transcript.turn_id(),
+                    used: 10,
+                    size: 1000,
+                    turn_tokens: Some(50),
+                    ..Default::default()
+                });
+                acp::TurnEnd::Completed { transcript }
+            })
+        }
+        fn prompt_once<'a>(
+            &'a self,
+            text: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<acp::TurnTranscript>> + Send + 'a>> {
+            Box::pin(async move {
+                self.prompts
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if self.fail_postflight {
+                    anyhow::bail!("simulated transport failure");
+                }
+                let mut transcript = acp::TurnTranscript::default();
+                transcript.text = if text == TERMINATION_PROMPT {
+                    r#"{"decision":"waiting","reason":"Work is in progress"}"#.into()
+                } else {
+                    "Open Work in the cockpit.".into()
+                };
+                transcript.last_message_text = transcript.text.clone();
+                transcript.usage = Some(acp::TurnUsage {
+                    turn_id: transcript.turn_id(),
+                    used: 10,
+                    size: 1000,
+                    turn_tokens: Some(5),
+                    ..Default::default()
+                });
+                Ok(transcript)
+            })
+        }
+        fn cancel<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn native_exec_cap_stops_followups_without_losing_owner_reply() {
+        for (limits, command_reply, expected_prompts, expected_termination) in [
+            (
+                "native_monthly_turn_limit = 1",
+                false,
+                1,
+                Termination::Blocked,
+            ),
+            (
+                "native_monthly_token_limit = 40",
+                false,
+                1,
+                Termination::Blocked,
+            ),
+            (
+                "native_monthly_turn_limit = 1",
+                true,
+                1,
+                Termination::Blocked,
+            ),
+            (
+                "native_monthly_turn_limit = 2",
+                true,
+                2,
+                Termination::Blocked,
+            ),
+            (
+                "native_monthly_turn_limit = 2",
+                false,
+                2,
+                Termination::Continue,
+            ),
+            ("", false, 2, Termination::Continue),
+        ] {
+            let root =
+                std::env::temp_dir().join(format!("restless-exec-cap-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(root.join("companies")).unwrap();
+            let company = "exec_cap_test";
+            std::fs::write(
+                root.join("companies").join(format!("{company}.toml")),
+                format!("name = \"{company}\"\n{limits}\n"),
+            )
+            .unwrap();
+            let spend = crate::spend::SpendLedger::open(&root).unwrap();
+            let auth = acp::AgentAuth {
+                model: "native-codex-oauth/test".into(),
+                effort: "medium".into(),
+                company: company.into(),
+                session_id: "test".into(),
+                coordination_token_env: String::new(),
+                coordination_token: String::new(),
+                gateway_token_env: String::new(),
+                gateway_token: String::new(),
+                gateway_url: String::new(),
+                billing: crate::model_gateway::ModelBilling::Subscription,
+            };
+            let accounting = NativePromptAccounting {
+                spend: spend.clone(),
+                auth,
+                responsibility: "test".into(),
+            };
+            let session = FakeNativeExec {
+                prompts: std::sync::atomic::AtomicUsize::new(0),
+                command_reply,
+                fail_postflight: false,
+            };
+            let saved = Arc::new(std::sync::Mutex::new(String::new()));
+            let hook: CompleteReplyHook = {
+                let saved = Arc::clone(&saved);
+                Arc::new(move |reply| {
+                    let saved = Arc::clone(&saved);
+                    Box::pin(async move {
+                        *saved.lock().unwrap() = reply;
+                        Ok(1)
+                    })
+                })
+            };
+            let (report, _) = run_turn(
+                &session,
+                "work",
+                company,
+                "native-codex-oauth/test",
+                0.0,
+                false,
+                false,
+                Some(hook),
+                &CancellationToken::new(),
+                Some(&accounting),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                session.prompts.load(std::sync::atomic::Ordering::SeqCst),
+                expected_prompts,
+                "{limits}"
+            );
+            assert_eq!(
+                report.termination, expected_termination,
+                "{limits}: {}",
+                report.reason
+            );
+            assert!(
+                report.reply_complete,
+                "completed owner reply must be preserved"
+            );
+            assert_eq!(
+                report.owner_reply.as_deref(),
+                Some(saved.lock().unwrap().as_str())
+            );
+            if command_reply {
+                assert!(!report
+                    .owner_reply
+                    .as_ref()
+                    .unwrap()
+                    .contains("restless work"));
+                assert!(!report.said.contains("restless work"));
+            }
+            assert_eq!(
+                spend.native_usage(company, chrono::Utc::now()).turns,
+                expected_prompts as u64
+            );
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn native_exec_failed_postflight_records_unknown_usage() {
+        let root =
+            std::env::temp_dir().join(format!("restless-exec-unknown-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let company = "exec_unknown_test";
+        std::fs::write(
+            root.join("companies").join(format!("{company}.toml")),
+            format!("name = \"{company}\"\nnative_monthly_token_limit = 1000\n"),
+        )
+        .unwrap();
+        let spend = crate::spend::SpendLedger::open(&root).unwrap();
+        let auth = acp::AgentAuth {
+            model: "native-codex-oauth/test".into(),
+            effort: "medium".into(),
+            company: company.into(),
+            session_id: "test".into(),
+            coordination_token_env: String::new(),
+            coordination_token: String::new(),
+            gateway_token_env: String::new(),
+            gateway_token: String::new(),
+            gateway_url: String::new(),
+            billing: crate::model_gateway::ModelBilling::Subscription,
+        };
+        let accounting = NativePromptAccounting {
+            spend: spend.clone(),
+            auth,
+            responsibility: "test".into(),
+        };
+        let session = FakeNativeExec {
+            prompts: std::sync::atomic::AtomicUsize::new(0),
+            command_reply: false,
+            fail_postflight: true,
+        };
+        let (report, _) = run_turn(
+            &session,
+            "work",
+            company,
+            "native-codex-oauth/test",
+            0.0,
+            false,
+            false,
+            None,
+            &CancellationToken::new(),
+            Some(&accounting),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.termination, Termination::Blocked);
+        assert!(report.reply_complete);
+        let usage = spend.native_usage(company, chrono::Utc::now());
+        assert_eq!((usage.turns, usage.turns_without_tokens), (2, 1));
+        assert!(
+            accounting.refusal().is_some(),
+            "unknown postflight use must stop the next capped turn"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// Follows the harness contract: a cancelled turn ends `Interrupted`,
     /// and one nobody cancelled can still wedge.
     struct StoppableSession;
@@ -2041,6 +2409,7 @@ mod tests {
             false,
             None,
             &stopped,
+            None,
         )
         .await
         .unwrap();
@@ -2048,7 +2417,7 @@ mod tests {
         assert_eq!(report.retry_after_seconds, None);
         assert!(!report.reply_complete);
 
-        let decision = termination_decision(&StoppableSession, &stopped).await;
+        let decision = termination_decision(&StoppableSession, &stopped, None).await;
         assert_eq!(decision.termination, Termination::Continue);
         assert_eq!(decision.retry_after_seconds, None);
 
@@ -2063,6 +2432,7 @@ mod tests {
             false,
             None,
             &CancellationToken::new(),
+            None,
         )
         .await
         .unwrap();
