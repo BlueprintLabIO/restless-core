@@ -264,7 +264,14 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   isolated 4,004-file browser/API smoke. A focused concurrent-slot test saw a peak of one execution;
   the existing cancellation/backoff test passed. Evidence: `/tmp/s109-library-bounded-smoke.log`,
   `/tmp/s109-library-bounded-unit.log` and `/tmp/s109-library-cancel-unit.log`. This does not yet
-  prove the Library behavior under real account or host pressure, or across multiple owners. Scratch notes also remain visible in the default Library. Evidence:
+  prove the Library behavior under real account or host pressure, or across multiple owners.
+  A subsequent isolated real-cgroup test used two companies in one constrained account pool. Their
+  fresh Library scans returned 503 while the account was under memory admission pressure, while
+  health, principal, Inbox and Work endpoints remained reachable; both scans returned their saved
+  file after pressure was released and the daemon restarted. The full workload lifecycle test
+  passed, with no fixture cleanup problems and its temporary pool removed. Evidence:
+  `/tmp/s109-library-real-pressure.log`. This is not a separate-owner isolation, CPU-pressure,
+  production or browser-level failure-state test; those remain open. Scratch notes also remain visible in the default Library. Evidence:
   `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 
 
