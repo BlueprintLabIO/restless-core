@@ -152,7 +152,7 @@ pub async fn modified_times(
 }
 
 /// One file under /company/outputs, as the Library lists it.
-#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct OutputFile {
     /// Its full path, /company/outputs/...
     pub path: String,
@@ -179,7 +179,7 @@ pub async fn output_files(company: &str, cursor: Option<&OutputCursor>) -> Resul
             (cursor.path.starts_with("/company/outputs/")
                 || cursor.path.starts_with("/company/downloads/"))
                 && cursor.path.len() <= 4096
-                && !cursor.path.contains(['\n', '\r', '\t', '\0']),
+                && !cursor.path.contains('\0'),
             "invalid output cursor"
         );
     }
@@ -192,39 +192,42 @@ pub async fn output_files(company: &str, cursor: Option<&OutputCursor>) -> Resul
         "RESTLESS_CURSOR_PATH={}",
         cursor.map(|c| c.path.as_str()).unwrap_or_default()
     );
-    // Cursor data goes through Docker's environment arguments, never into shell syntax.
-    let script = format!(
-        r#"export LC_ALL=C; find /company/outputs /company/downloads -type d \( -name node_modules -o -name '.*' \) -prune -o -type f ! -name '.*' -printf '%T@\t%s\t%p\n' 2>/dev/null | awk -F '\t' 'BEGIN {{ t=ENVIRON["RESTLESS_CURSOR_TIME"]; p=ENVIRON["RESTLESS_CURSOR_PATH"] }} {{ sec=int($1); if (t=="" || sec < t+0 || (sec == t+0 && $3 < p)) print sec "\t" $2 "\t" $3 }}' | sort -t "$(printf '\t')" -k1,1nr -k3,3r | head -{}"#,
-        OUTPUT_LIST_LIMIT + 1
-    );
+    let limit = format!("RESTLESS_OUTPUT_LIMIT={}", OUTPUT_LIST_LIMIT + 1);
+    // Cursor data goes through Docker's environment arguments, never into code.
     let output = runtime::docker_observe(&[
-        "exec", "-u", "company", "-e", &time, "-e", &path, &container, "sh", "-c", &script,
+        "exec",
+        "-u",
+        "company",
+        "-e",
+        &time,
+        "-e",
+        &path,
+        "-e",
+        &limit,
+        &container,
+        "python3",
+        "-c",
+        include_str!("runtime/output_scan.py"),
     ])
     .await?;
     anyhow::ensure!(
         output.status.success(),
         "could not list company output files"
     );
-    Ok(parse_output_files(&String::from_utf8_lossy(&output.stdout)))
-}
-
-fn parse_output_files(listing: &str) -> Vec<OutputFile> {
-    listing
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.splitn(3, '\t');
-            let modified = parts.next()?.split('.').next()?.parse().ok()?;
-            let bytes = parts.next()?.parse().ok()?;
-            let path = parts.next()?;
-            (path.starts_with("/company/outputs/") || path.starts_with("/company/downloads/")).then(
-                || OutputFile {
-                    path: path.to_string(),
-                    bytes,
-                    modified,
-                },
-            )
-        })
-        .collect()
+    let files: Vec<OutputFile> =
+        serde_json::from_slice(&output.stdout).context("decode company output listing")?;
+    anyhow::ensure!(
+        files.len() <= OUTPUT_LIST_LIMIT + 1,
+        "oversized output listing"
+    );
+    anyhow::ensure!(
+        files
+            .iter()
+            .all(|file| file.path.starts_with("/company/outputs/")
+                || file.path.starts_with("/company/downloads/")),
+        "invalid output listing path"
+    );
+    Ok(files)
 }
 
 /// The canonical path of one regular file inside the owner places, for a download.
@@ -294,22 +297,4 @@ pub async fn drop_in_downloads(company: &str, name: &str, bytes: &[u8]) -> Resul
         );
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn output_listing_keeps_only_files_under_outputs_and_downloads() {
-        let files = super::parse_output_files(
-            "1729500000.123\t2048\t/company/outputs/site/index.html\n\
-             garbage line\n\
-             1729400000.5\t10\t/etc/passwd\n\
-             1729300000.0\t99\t/company/downloads/invoice.pdf\n",
-        );
-        assert_eq!(files.len(), 2);
-        assert_eq!(files[1].path, "/company/downloads/invoice.pdf");
-        assert_eq!(files[0].path, "/company/outputs/site/index.html");
-        assert_eq!(files[0].bytes, 2048);
-        assert_eq!(files[0].modified, 1_729_500_000);
-    }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Verify Library output truncation against an isolated local company and browser."""
-import argparse, json, secrets, shutil, signal, subprocess, sys, tempfile, urllib.parse
+import argparse, datetime, json, secrets, shutil, signal, subprocess, sys, tempfile, urllib.parse
 from pathlib import Path
 
 repo = Path(__file__).resolve().parents[1]
@@ -55,25 +55,49 @@ with tempfile.TemporaryDirectory(prefix="s109-library-limit-") as directory:
         subprocess.run(["node", str(repo / "web/scripts/verify-library-limit.mjs"), plane.owner_origin, company, "2000+"], check=True)
         docker("exec", "-u", "company", plane.container(company), "sh", "-c",
                'n=2002; while [ "$n" -le 4001 ]; do : > "/company/outputs/limit-test/$n.txt"; n=$((n+1)); done; find /company/outputs/limit-test -type f -exec touch -t 202610300101 {} +')
+        special_names = ["line\nbreak.txt", "tab\tname.txt", "odd'$(echo nope)\té.txt"]
+        create_special = "import os,sys; root='/company/outputs/limit-test'; names=" + repr(special_names) + "; [open(os.path.join(root,n),'w').close() for n in names]; [os.utime(os.path.join(root,n),(1793322060,1793322060)) for n in names]; os.makedirs(os.path.join(root,'.hidden'),exist_ok=True); open(os.path.join(root,'.hidden','skip.txt'),'w').close(); os.makedirs(os.path.join(root,'node_modules'),exist_ok=True); open(os.path.join(root,'node_modules','skip.txt'),'w').close(); os.symlink(os.path.join(root,'1.txt'),os.path.join(root,'skip-link'))"
+        docker("exec", "-u", "company", plane.container(company), "python3", "-c", create_special)
         plane.stop()
         plane.start()
         plane.wait_for_port(plane.offset + 7788, 120)
         status, page = plane.owner(company, "/library/outputs")
         assert status == 200
-        pages, paths = [], set()
+        pages, paths, timestamps = [], set(), {}
         while True:
             pages.append(len(page["files"]))
             for entry in page["files"]:
                 assert entry["path"] not in paths, "duplicate across pages"
                 paths.add(entry["path"])
+                timestamps[entry["path"]] = int(datetime.datetime.fromisoformat(entry["modified"]).timestamp())
             if not page["truncated"]:
                 break
             status, page = plane.owner(company, "/library/outputs?" + urllib.parse.urlencode(page["next_cursor"]))
             assert status == 200
             assert len(pages) < 4, "cursor did not advance"
-        assert pages == [2000, 2000, 1] and len(paths) == 4001, (pages, len(paths))
+        assert pages == [2000, 2000, 4] and len(paths) == 4004, (pages, len(paths))
         assert all(f"/company/outputs/limit-test/{n}.txt" in paths for n in range(1, 4002))
-        print(json.dumps({"company": company, "exact": 2000, "pageSizes": pages, "uniqueFiles": len(paths)}), flush=True)
+        special_paths = {"/company/outputs/limit-test/" + name for name in special_names}
+        assert special_paths <= paths
+        assert not any("/.hidden/" in path or "/node_modules/" in path or path.endswith("/skip-link") for path in paths)
+        # Cursor arguments are passed as data even when a name contains shell syntax and whitespace.
+        special_path = "/company/outputs/limit-test/" + special_names[-1]
+        special_time = 1793322060
+        status, after_special = plane.owner(company, "/library/outputs?" + urllib.parse.urlencode({"modified": special_time, "path": special_path}))
+        assert status == 200
+        expected_after = sorted((path for path in paths if (timestamps[path], path.encode("utf-8")) < (special_time, special_path.encode("utf-8"))),
+                                key=lambda path: (timestamps[path], path.encode("utf-8")), reverse=True)
+        assert [entry["path"] for entry in after_special["files"]] == expected_after[:2000]
+        # An invalid UTF-8 filename must not become a false empty or complete listing.
+        docker("exec", "-u", "company", plane.container(company), "python3", "-c",
+               "import os; p=b'/company/outputs/limit-test/invalid-\\xff'; fd=os.open(p,os.O_CREAT|os.O_WRONLY,0o600); os.close(fd)")
+        plane.stop()
+        plane.start()
+        plane.wait_for_port(plane.offset + 7788, 120)
+        status, _ = plane.owner(company, "/library/outputs")
+        assert status == 503, status
+        subprocess.run(["node", str(repo / "web/scripts/verify-library-limit.mjs"), plane.owner_origin, company, "error"], check=True)
+        print(json.dumps({"company": company, "exact": 2000, "pageSizes": pages, "uniqueFiles": len(paths), "specialNames": len(special_paths), "invalidNameReported": True}), flush=True)
     finally:
         problems = plane.close()
         print("cleanup:", json.dumps(problems), flush=True)

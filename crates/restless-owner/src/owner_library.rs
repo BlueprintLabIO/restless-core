@@ -414,25 +414,25 @@ pub(super) async fn library_outputs(
     let mut files =
         match restless_engine::runtime_files::output_files(&company, cursor.as_ref()).await {
             Ok(files) => files,
-            Err(_) if cursor.is_none() => Vec::new(),
             Err(_) => {
+                // A sleeping Runtime may use its last first page; never substitute
+                // that page for a failed request for older files.
+                if cursor.is_none() {
+                    if let Some((_, body)) = LAST
+                        .lock()
+                        .ok()
+                        .and_then(|cache| cache.get(&company).cloned())
+                    {
+                        return Json(body).into_response();
+                    }
+                }
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "library",
-                    "Older files could not be read. Try again.",
-                )
+                    "Files could not be read. Try again.",
+                );
             }
         };
-    if files.is_empty() && cursor.is_none() {
-        // Asleep or unreachable: keep showing what was there.
-        if let Some((_, body)) = LAST
-            .lock()
-            .ok()
-            .and_then(|cache| cache.get(&company).cloned())
-        {
-            return Json(body).into_response();
-        }
-    }
     let truncated = cap_library_outputs(&mut files);
     let next_cursor = truncated
         .then(|| {

@@ -225,10 +225,13 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   desktop/phone browser checks, including loading the older file. A simulated hidden-tab check
   verified that visibility changes do not trigger a scan while hidden and do refresh on return.
   The temporary company and containers were removed. Earlier browser runs had test timing or
-  tooltip expectations wrong and cleaned up. Each page still scans and sorts the file tree;
-  concurrent filesystem changes, unusual filenames, admin/member roles and production remain
-  to be qualified. Scratch notes also remain visible in the default Library. Evidence:
-  `/tmp/s109-library-pages-final3-retry.log`.
+  tooltip expectations wrong and cleaned up. The scanner now keeps at most one page plus one
+  candidate while scanning, preserves Unicode names with tabs/newlines and reports a scan error
+  instead of a false empty list. An isolated 4,004-file API/browser run covered those names,
+  cursor round trips, hidden files, symlinks and invalid UTF-8; cleanup succeeded. Each page still
+  scans the tree and may retain pending directory paths. Concurrent filesystem changes,
+  admin/member roles and production remain to be qualified. Scratch notes also remain visible
+  in the default Library. Evidence: `/tmp/s109-library-unusual-smoke.log`.
 
 
 ## Track H: new surfaces (design first, build after review)

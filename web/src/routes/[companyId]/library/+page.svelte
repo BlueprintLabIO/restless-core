@@ -813,6 +813,7 @@
 	let outputLoadingMore = $state(false);
 	let outputLoadFailure = $state('');
 	let outputPagesLoaded = false;
+	let outputReadFailed = false;
 
 	async function loadMoreOutputs() {
 		if (!outputCursor || outputLoadingMore) return;
@@ -841,6 +842,7 @@
 		const company = companyId;
 		const controller = new AbortController();
 		outputPagesLoaded = false;
+		outputReadFailed = false;
 		outputFiles = [];
 		outputCursor = null;
 		outputFilesTruncated = false;
@@ -852,6 +854,7 @@
 			if (owner)
 				void readLibraryOutputs(company, controller.signal).then((result) => {
 					if (!controller.signal.aborted) {
+						outputReadFailed = false;
 						if (outputPagesLoaded) {
 							const fresh = new Set(result.files.map((file) => file.path));
 							outputFiles = [...result.files, ...outputFiles.filter((file) => !fresh.has(file.path))];
@@ -861,7 +864,12 @@
 							outputCursor = result.next;
 						}
 					}
-				}).catch(() => {});
+				}).catch(() => {
+					if (!controller.signal.aborted && !outputReadFailed) {
+						outputReadFailed = true;
+						toast('Files could not be read. Try again.', { tone: 'failure' });
+					}
+				});
 		};
 		read();
 		const timer = setInterval(read, 60_000);
