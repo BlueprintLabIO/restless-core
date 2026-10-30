@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Verify Library output truncation against an isolated local company and browser."""
-import argparse, datetime, json, secrets, shutil, signal, subprocess, sys, tempfile, urllib.parse
+import argparse, concurrent.futures, datetime, json, secrets, shutil, signal, subprocess, sys, tempfile, urllib.parse
 from pathlib import Path
 
 repo = Path(__file__).resolve().parents[1]
@@ -82,6 +82,13 @@ with tempfile.TemporaryDirectory(prefix="s109-library-limit-") as directory:
         special_paths = {"/company/outputs/limit-test/" + name for name in special_names}
         assert special_paths <= paths
         assert not any("/.hidden/" in path or "/node_modules/" in path or path.endswith("/skip-link") for path in paths)
+        # Concurrent owners/tabs use the same company; all responses must remain
+        # bounded, consistent, and usable through the diagnostic admission path.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            responses = list(pool.map(lambda _: plane.owner(company, "/library/outputs?fresh=true"), range(8)))
+        assert all(status == 200 and len(body["files"]) == 2000 for status, body in responses)
+        assert len({body["revision"] for _, body in responses}) == 1
+        print(json.dumps({"concurrentFreshReads": len(responses), "sameRevision": True}), flush=True)
         # Cursor arguments are passed as data even when a name contains shell syntax and whitespace.
         special_path = "/company/outputs/limit-test/" + special_names[-1]
         special_time = 1793322060

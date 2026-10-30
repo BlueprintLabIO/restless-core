@@ -257,7 +257,14 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   is per scan on that synthetic filesystem, not a production capacity estimate; each page still
   scans the tree. The temporary files were removed. Full samples are in
   `C:/Users/yaoke/AppData/Local/Temp/s109-scan-cost.json`. Larger trees, cold storage, concurrent
-  users, account-pressure effects and peak memory still need measurement before a resource claim. Scratch notes also remain visible in the default Library. Evidence:
+  users, account-pressure effects and peak memory still need measurement before a resource claim.
+  The local scanner now uses the existing per-company diagnostic admission: same-company Python
+  observations serialize, memory pressure defers them, and a Runtime-side deadline limits processes
+  if the host request ends. Eight simultaneous fresh requests returned consistent pages in the
+  isolated 4,004-file browser/API smoke. A focused concurrent-slot test saw a peak of one execution;
+  the existing cancellation/backoff test passed. Evidence: `/tmp/s109-library-bounded-smoke.log`,
+  `/tmp/s109-library-bounded-unit.log` and `/tmp/s109-library-cancel-unit.log`. This does not yet
+  prove the Library behavior under real account or host pressure, or across multiple owners. Scratch notes also remain visible in the default Library. Evidence:
   `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 
 

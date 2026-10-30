@@ -202,7 +202,10 @@ pub async fn output_files(company: &str, cursor: Option<&OutputCursor>) -> Resul
     );
     let limit = format!("RESTLESS_OUTPUT_LIMIT={}", OUTPUT_LIST_LIMIT + 1);
     // Cursor data goes through Docker's environment arguments, never into code.
-    let output = runtime::docker_observe(&[
+    // The shared diagnostic path serializes same-company Python observations,
+    // defers under memory pressure and puts a deadline inside the Runtime as
+    // well as on the host CLI. A dropped request must not leave a scan running.
+    let output = runtime::docker_diagnostic(&[
         "exec",
         "-u",
         "company",
