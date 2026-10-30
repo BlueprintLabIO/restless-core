@@ -1002,6 +1002,34 @@ try {
   bob.page.off("response", watchAdmin);
   assert.deepEqual([...new Set(adminRefused)], [], "an admin's screens make no refused requests");
   await steadyEntry(bob, "admin");
+  // Owner output paths stay private even when another person is an admin.
+  await daemonCommand({ cmd: "up", company });
+  const runtimeContainer = `restless-${process.env.RESTLESS_RESOURCE_NAMESPACE}-co-${company}`;
+  await new Promise((resolve, reject) => {
+    const child = spawn("docker", ["exec", "-u", "company", runtimeContainer, "sh", "-c",
+      "mkdir -p /company/outputs/role-check && printf test > /company/outputs/role-check/owner-only.txt"], { stdio: "ignore" });
+    child.once("error", reject);
+    child.once("exit", (code) => code === 0 ? resolve() : reject(Error(`could not seed Library role fixture: ${code}`)));
+  });
+  await until(async () => (await coreApi(owner, `${base}/library/outputs`)).files.some(file => file.path.endsWith("/role-check/owner-only.txt")),
+    "the owner can read the output listing", 45);
+  await owner.page.goto(`${core}/${company}/library?show=folders`);
+  await owner.page.locator('.item-title').getByText("role-check/owner-only.txt", { exact: true }).waitFor({ timeout: 30000 });
+  for (const who of [alice, bob]) {
+    await coreApi(who, `${base}/library/outputs`, { expected: 403 });
+    await coreApi(who, `${base}/library/outputs?modified=0&path=${encodeURIComponent('/company/outputs/role-check/owner-only.txt')}`, { expected: 403 });
+    const requests = [];
+    const observe = request => { if (new URL(request.url()).pathname === `${base}/library/outputs`) requests.push(request.url()); };
+    who.page.on("request", observe);
+    await who.page.goto(`${core}/${company}/library`);
+    await who.page.getByRole("heading", { name: "All files", exact: true }).waitFor({ timeout: 30000 });
+    assert.equal(await who.page.getByText("role-check/owner-only.txt", { exact: true }).count(), 0);
+    assert.equal(await who.page.getByRole("link", { name: /^Folders/ }).count(), 0);
+    who.page.off("request", observe);
+    assert.deepEqual(requests, [], `${who.key}'s Library does not request owner output paths`);
+  }
+  pass("owner output pages are visible to the owner and remain unavailable to member and admin accounts");
+
   // Resources uses the real verified accounts. Shared host observations are owner-only.
   const computeReading = await coreApi(owner, `${base}/company/compute`);
   assert.equal(computeReading.status, process.env.RESTLESS_WORKLOAD_CGROUP_PARENT ? "available" : "not_configured");

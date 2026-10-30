@@ -229,9 +229,14 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   candidate while scanning, preserves Unicode names with tabs/newlines and reports a scan error
   instead of a false empty list. An isolated 4,004-file API/browser run covered those names,
   cursor round trips, hidden files, symlinks and invalid UTF-8; cleanup succeeded. Each page still
-  scans the tree and may retain pending directory paths. Concurrent filesystem changes,
-  admin/member roles and production remain to be qualified. Scratch notes also remain visible
-  in the default Library. Evidence: `/tmp/s109-library-unusual-smoke.log`.
+  scans the tree and may retain pending directory paths. An isolated multiplayer journey verified
+  the owner can see an output, while member and admin requests for either page receive 403 and
+  their Library screens do not request or display owner-only paths. The complete journey passed
+  and removed its company, containers, databases and roles; the first two attempts failed because
+  of test-selector and expected-status mistakes and also cleaned up. These role checks used a
+  desktop viewport. Concurrent filesystem changes, mobile member/admin behavior and production
+  remain to be qualified. Scratch notes also remain visible in the default Library. Evidence:
+  `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 
 
 ## Track H: new surfaces (design first, build after review)
