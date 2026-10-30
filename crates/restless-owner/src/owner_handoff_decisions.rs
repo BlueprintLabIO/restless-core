@@ -241,6 +241,21 @@ pub(super) async fn run(state: OwnerState) -> std::io::Result<()> {
                 Ok(org) => org,
                 Err(_) => continue,
             };
+            // The database clock is authoritative for both queues. Most cells
+            // have no pending decision: don't read both queues on every repair
+            // sweep when the deadline query proves there is nothing due.
+            match org.next_human_decision_delay().await {
+                Ok(None) => continue,
+                Ok(Some(next)) if !next.is_zero() => {
+                    until =
+                        until.min(tokio::time::Instant::now() + next.max(Duration::from_secs(1)));
+                    continue;
+                }
+                Ok(Some(_)) => {}
+                // Preserve the old due-read path if the optimisation's query
+                // fails; a transient observation error must not hide a decision.
+                Err(error) => tracing::warn!(%error, "pending decision deadline could not be read"),
+            }
             super::document_decisions_api::apply_due(&state, &org).await;
             let due = match org.due_handoff_decisions().await {
                 Ok(due) => due,
