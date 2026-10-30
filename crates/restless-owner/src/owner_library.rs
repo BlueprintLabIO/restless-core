@@ -368,9 +368,16 @@ pub(super) async fn archive_work_file(
 /// made (20 October). Owner only; read at most every 30 seconds per company.
 /// Every file under /company/outputs, for the Library's Folders view. Owner only; read from the
 /// company computer, so a sleeping company answers with its last listing (or none).
+#[derive(Debug, Deserialize)]
+pub(super) struct LibraryOutputQuery {
+    modified: Option<i64>,
+    path: Option<String>,
+}
+
 pub(super) async fn library_outputs(
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
+    Query(query): Query<LibraryOutputQuery>,
 ) -> Response<Body> {
     static LAST: std::sync::LazyLock<
         std::sync::Mutex<
@@ -380,19 +387,43 @@ pub(super) async fn library_outputs(
     if principal.membership_role() != "owner" || !principal.permits_company(&company) {
         return Json(serde_json::json!({ "files": [] })).into_response();
     }
-    if let Some((at, body)) = LAST
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(&company).cloned())
-    {
-        if at.elapsed() < std::time::Duration::from_secs(30) {
-            return Json(body).into_response();
+    let cursor = match (query.modified, query.path) {
+        (Some(modified), Some(path)) => {
+            Some(restless_engine::runtime_files::OutputCursor { modified, path })
+        }
+        (None, None) => None,
+        _ => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "library",
+                "The file page is invalid.",
+            )
+        }
+    };
+    if cursor.is_none() {
+        if let Some((at, body)) = LAST
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(&company).cloned())
+        {
+            if at.elapsed() < std::time::Duration::from_secs(30) {
+                return Json(body).into_response();
+            }
         }
     }
-    let mut files = restless_engine::runtime_files::output_files(&company)
-        .await
-        .unwrap_or_default();
-    if files.is_empty() {
+    let mut files =
+        match restless_engine::runtime_files::output_files(&company, cursor.as_ref()).await {
+            Ok(files) => files,
+            Err(_) if cursor.is_none() => Vec::new(),
+            Err(_) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "library",
+                    "Older files could not be read. Try again.",
+                )
+            }
+        };
+    if files.is_empty() && cursor.is_none() {
         // Asleep or unreachable: keep showing what was there.
         if let Some((_, body)) = LAST
             .lock()
@@ -403,16 +434,29 @@ pub(super) async fn library_outputs(
         }
     }
     let truncated = cap_library_outputs(&mut files);
+    let next_cursor = truncated
+        .then(|| {
+            files
+                .last()
+                .map(|file| restless_engine::runtime_files::OutputCursor {
+                    modified: file.modified,
+                    path: file.path.clone(),
+                })
+        })
+        .flatten();
     let body = serde_json::json!({
         "truncated": truncated,
+        "next_cursor": next_cursor,
         "files": files.iter().map(|file| serde_json::json!({
             "path": file.path,
             "bytes": file.bytes,
             "modified": chrono::DateTime::from_timestamp(file.modified, 0).map(|at| at.to_rfc3339()),
         })).collect::<Vec<_>>(),
     });
-    if let Ok(mut cache) = LAST.lock() {
-        cache.insert(company, (std::time::Instant::now(), body.clone()));
+    if cursor.is_none() {
+        if let Ok(mut cache) = LAST.lock() {
+            cache.insert(company, (std::time::Instant::now(), body.clone()));
+        }
     }
     Json(body).into_response()
 }

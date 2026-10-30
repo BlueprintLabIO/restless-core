@@ -161,23 +161,50 @@ pub struct OutputFile {
     pub modified: i64,
 }
 
-/// Maximum files shown by the Library; one extra detects a truncated listing.
+/// A bounded Library page; the extra record tells the caller whether another exists.
 pub const OUTPUT_LIST_LIMIT: usize = 2_000;
 
-/// Files agents wrote under /company/outputs (up to 2,001, newest first), so the Library
-/// shows work an agent made but never linked as an output (21 October: Calcifer's card site).
-/// Hidden files and dependency folders are left out.
-pub async fn output_files(company: &str) -> Result<Vec<OutputFile>> {
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct OutputCursor {
+    pub modified: i64,
+    pub path: String,
+}
+
+/// List a page in descending whole-second modification time and path order.
+/// The path tie-breaker keeps paging deterministic when files share a timestamp.
+pub async fn output_files(company: &str, cursor: Option<&OutputCursor>) -> Result<Vec<OutputFile>> {
     validate_company_name(company)?;
-    let container = container_name(company);
-    // Agents' outputs and what the company browser downloaded (S104 F2) are the Library's folders.
-    let script = format!("find /company/outputs /company/downloads -type d \\( -name node_modules -o -name '.*' \\) -prune -o -type f ! -name '.*' -printf '%T@\\t%s\\t%p\\n' 2>/dev/null | sort -rn | head -{}; exit 0", OUTPUT_LIST_LIMIT + 1);
-    let output =
-        runtime::docker_observe(&["exec", "-u", "company", &container, "sh", "-c", &script])
-            .await?;
-    if !output.status.success() {
-        return Ok(Vec::new());
+    if let Some(cursor) = cursor {
+        anyhow::ensure!(
+            (cursor.path.starts_with("/company/outputs/")
+                || cursor.path.starts_with("/company/downloads/"))
+                && cursor.path.len() <= 4096
+                && !cursor.path.contains(['\n', '\r', '\t', '\0']),
+            "invalid output cursor"
+        );
     }
+    let container = container_name(company);
+    let time = format!(
+        "RESTLESS_CURSOR_TIME={}",
+        cursor.map(|c| c.modified.to_string()).unwrap_or_default()
+    );
+    let path = format!(
+        "RESTLESS_CURSOR_PATH={}",
+        cursor.map(|c| c.path.as_str()).unwrap_or_default()
+    );
+    // Cursor data goes through Docker's environment arguments, never into shell syntax.
+    let script = format!(
+        r#"export LC_ALL=C; find /company/outputs /company/downloads -type d \( -name node_modules -o -name '.*' \) -prune -o -type f ! -name '.*' -printf '%T@\t%s\t%p\n' 2>/dev/null | awk -F '\t' 'BEGIN {{ t=ENVIRON["RESTLESS_CURSOR_TIME"]; p=ENVIRON["RESTLESS_CURSOR_PATH"] }} {{ sec=int($1); if (t=="" || sec < t+0 || (sec == t+0 && $3 < p)) print sec "\t" $2 "\t" $3 }}' | sort -t "$(printf '\t')" -k1,1nr -k3,3r | head -{}"#,
+        OUTPUT_LIST_LIMIT + 1
+    );
+    let output = runtime::docker_observe(&[
+        "exec", "-u", "company", "-e", &time, "-e", &path, &container, "sh", "-c", &script,
+    ])
+    .await?;
+    anyhow::ensure!(
+        output.status.success(),
+        "could not list company output files"
+    );
     Ok(parse_output_files(&String::from_utf8_lossy(&output.stdout)))
 }
 

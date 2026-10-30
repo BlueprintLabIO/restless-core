@@ -125,15 +125,20 @@ export interface OutputFile {
 	modified: string | null;
 }
 
-/** Every file under /company/outputs, for the Library's Folders view. Owner only. */
+/** A stable position in the company's output listing. */
+export interface OutputCursor { modified: number; path: string }
+
+/** One bounded page of output files for the Library's Folders view. Owner only. */
 export async function readLibraryOutputs(
 	company: string,
-	signal?: AbortSignal
-): Promise<{ files: OutputFile[]; truncated: boolean }> {
-	const body = await ownerRequest<{ files?: OutputFile[]; truncated?: boolean }>(`${api(company)}/library/outputs`, {
-		signal
-	}).catch(() => null);
-	return { files: body?.files ?? [], truncated: body?.truncated === true };
+	signal?: AbortSignal,
+	cursor?: OutputCursor
+): Promise<{ files: OutputFile[]; truncated: boolean; next: OutputCursor | null }> {
+	const query = cursor ? `?${new URLSearchParams({ modified: String(cursor.modified), path: cursor.path })}` : '';
+	const body = await ownerRequest<{ files?: OutputFile[]; truncated?: boolean; next_cursor?: OutputCursor | null }>(
+		`${api(company)}/library/outputs${query}`, { signal }
+	);
+	return { files: body?.files ?? [], truncated: body?.truncated === true, next: body?.next_cursor ?? null };
 }
 
 export async function readLibraryModified(

@@ -809,26 +809,67 @@
 	 * site was on disk but missing from the Library because nothing linked it (21 October). */
 	let outputFiles = $state<OutputFile[]>([]);
 	let outputFilesTruncated = $state(false);
+	let outputCursor = $state<import('$lib/model/company-actions').OutputCursor | null>(null);
+	let outputLoadingMore = $state(false);
+	let outputLoadFailure = $state('');
+	let outputPagesLoaded = false;
+
+	async function loadMoreOutputs() {
+		if (!outputCursor || outputLoadingMore) return;
+		const company = companyId;
+		const cursor = outputCursor;
+		outputLoadingMore = true;
+		outputLoadFailure = '';
+		try {
+			const result = await readLibraryOutputs(company, undefined, cursor);
+			if (company !== companyId) return;
+			if (result.truncated && (!result.next || (result.next.path === cursor.path && result.next.modified === cursor.modified))) {
+				throw new Error('The next file page could not be read.');
+			}
+			const seen = new Set(outputFiles.map((file) => file.path));
+			outputFiles = [...outputFiles, ...result.files.filter((file) => !seen.has(file.path))];
+			outputPagesLoaded = true;
+			outputCursor = result.next;
+			outputFilesTruncated = result.truncated;
+		} catch {
+			if (company === companyId) outputLoadFailure = 'Older files could not be loaded. Try again.';
+		} finally {
+			if (company === companyId) outputLoadingMore = false;
+		}
+	}
 	$effect(() => {
 		const company = companyId;
 		const controller = new AbortController();
+		outputPagesLoaded = false;
+		outputFiles = [];
+		outputCursor = null;
+		outputFilesTruncated = false;
 		const read = () => {
+			if (document.visibilityState === 'hidden') return;
 			void readLibraryModified(company, controller.signal).then((times) => {
 				if (!controller.signal.aborted) fileModified = times;
 			});
 			if (owner)
 				void readLibraryOutputs(company, controller.signal).then((result) => {
 					if (!controller.signal.aborted) {
-						outputFiles = result.files;
-						outputFilesTruncated = result.truncated;
+						if (outputPagesLoaded) {
+							const fresh = new Set(result.files.map((file) => file.path));
+							outputFiles = [...result.files, ...outputFiles.filter((file) => !fresh.has(file.path))];
+						} else {
+							outputFiles = result.files;
+							outputFilesTruncated = result.truncated;
+							outputCursor = result.next;
+						}
 					}
-				});
+				}).catch(() => {});
 		};
 		read();
 		const timer = setInterval(read, 60_000);
+		document.addEventListener('visibilitychange', read);
 		return () => {
 			controller.abort();
 			clearInterval(timer);
+			document.removeEventListener('visibilitychange', read);
 		};
 	});
 	const fileEntry = (file: LibraryFile, archived = false): Entry => ({
@@ -1496,9 +1537,9 @@
 						active={filter === 'folders' && !fileOpen && !uploadFile}
 						count={outputFilesTruncated ? null : folderEntries.length}
 						reading={outputFilesTruncated ? `${folderEntries.length}+` : undefined}
-						readingTitle={outputFilesTruncated ? 'Showing the newest 2,000 files; older files are not listed' : undefined}
+						readingTitle={outputFilesTruncated ? `Showing ${folderEntries.length} files; more older files are available` : undefined}
 						title={outputFilesTruncated
-							? 'Showing the newest 2,000 files; older files are not listed'
+							? `Showing ${folderEntries.length} files; more older files are available`
 							: 'Every file agents wrote to the outputs folder, linked or not'}
 					/>{/if}
 				<SidebarRow
@@ -1561,7 +1602,7 @@
 				{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && folderEntries.length ? [{ key: 'folders' as Filter, label: `Folders ${folderEntries.length}${outputFilesTruncated ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
 					<a
 						href={filterHref(item.key)}
-						title={item.key === 'folders' && outputFilesTruncated ? 'Showing the newest 2,000 files; older files are not listed' : undefined}
+						title={item.key === 'folders' && outputFilesTruncated ? `Showing ${folderEntries.length} files; more older files are available` : undefined}
 						class:active={filter === item.key && !collectionParam}
 						aria-current={filter === item.key && !collectionParam ? 'page' : undefined}
 						>{item.label}</a
@@ -2022,7 +2063,9 @@
 						<div class="searching"><Pending label="Searching inside documents" /></div>
 					{:else}
 						<Empty
-							title={byParam || sinceParam
+							title={filter === 'folders' && outputFilesTruncated && (query || byParam || sinceParam)
+								? 'No matches in loaded files'
+								: byParam || sinceParam
 								? 'Nothing matches these filters'
 								: query
 									? 'Nothing matches that search'
@@ -2033,7 +2076,9 @@
 											: filter === 'yours'
 												? 'Nothing from you yet'
 												: 'Nothing here yet'}
-							info={filter === 'yours'
+							info={filter === 'folders' && outputFilesTruncated && (query || byParam || sinceParam)
+								? 'Load older files to continue searching.'
+								: filter === 'yours'
 								? 'Files you add here or send in a conversation are kept here.'
 								: query && !searchesDocuments && filter !== 'archived'
 									? 'This view matches titles and file names. All files also searches inside documents.'
@@ -2065,6 +2110,12 @@
 										onclick={() => documents.loadMore()}>Load more documents</button
 									>{/if}{/snippet}
 						</Empty>
+					{/if}
+					{#if filter === 'folders' && outputFilesTruncated && outputCursor}
+						<button class="more" disabled={outputLoadingMore} onclick={() => void loadMoreOutputs()}>
+							{outputLoadingMore ? 'Loading…' : 'Load older files'}
+						</button>
+						{#if outputLoadFailure}<span role="status">{outputLoadFailure}</span>{/if}
 					{/if}
 				</div>
 				{#if dropping}

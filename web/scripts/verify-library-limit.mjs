@@ -17,12 +17,39 @@ try {
       assert.equal(text, `Folders${expected}`, `unexpected folder count at ${width}: ${text}`);
       if (expected.endsWith('+')) {
         const title = width === 1440 ? await row.locator('.sidebar-reading').getAttribute('title') : await row.getAttribute('title');
-        assert.match(title ?? '', /older files are not listed/);
+        assert.match(title ?? '', /more older files are available/);
+      }
+      // Exercise visibility events without leaving the local test page.
+      if (width === 1440 && expected === '2000') {
+        let reads = 0;
+        page.on('request', request => { if (request.url().includes('/library/outputs')) reads++; });
+        await page.evaluate(() => {
+          Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+          document.dispatchEvent(new Event('visibilitychange'));
+        });
+        await page.waitForTimeout(200);
+        assert.equal(reads, 0, 'hidden page refreshed outputs');
+        const refreshed = page.waitForRequest(request => request.url().includes('/library/outputs'));
+        await page.evaluate(() => {
+          Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+          document.dispatchEvent(new Event('visibilitychange'));
+        });
+        await refreshed;
       }
       await row.click();
       await page.waitForURL(url => url.searchParams.get('show') === 'folders');
       await page.getByRole('heading', { name: 'Folders', exact: true }).waitFor();
       assert.equal((await page.locator('.head-count').innerText()).trim(), expected);
+      if (expected.endsWith('+')) {
+        const search = page.locator('input[placeholder="Search files"]:visible');
+        await search.fill('no-such-file-in-this-test');
+        await page.getByText('No matches in loaded files', { exact: true }).waitFor();
+        await page.getByText('Load older files to continue searching.', { exact: true }).waitFor({ state: 'attached' });
+        await search.fill('');
+        await page.getByRole('button', { name: 'Load older files' }).click();
+        await page.waitForFunction(() => document.querySelector('.head-count')?.textContent?.trim() === '2001', { timeout: 30000 });
+        await page.getByRole('button', { name: 'Load older files' }).waitFor({ state: 'hidden', timeout: 30000 });
+      }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await page.screenshot({ path: `/tmp/s109-library-limit-${width}-${expected.replace('+', 'plus')}.png` });
       console.log(JSON.stringify({ width, count: expected, openedFolders: true }));

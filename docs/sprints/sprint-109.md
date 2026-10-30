@@ -218,13 +218,18 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
 - [ ] **G5 Scratch out of sight [48].** Agents' working notes leave the owner's default Library
   view. Check the "Folders 2000" count, which looks like a cap.
 
-  The Folders list really is capped at the 2,000 newest files. The local count change probes one
-  extra file and shows `2000+` only when older files were omitted; the Folders view now has the
-  right heading and is reachable on a phone. An isolated owner company with exactly 2,000 and
-  then 2,001 files passed the API and desktop/phone browser checks after daemon restart; its
-  containers and data were removed. The earlier browser run had a test URL error and cleaned up.
-  This does not yet let you browse older files or remove scratch notes from the default view;
-  admin/member and production checks remain open. Evidence: `/tmp/s109-library-browser-smoke-final.log`.
+  The Folders list was capped at the 2,000 newest files. The local change reports when more
+  exist and loads older files in bounded pages, with a timestamp-and-path cursor. Folders is also
+  reachable on a phone, and a search with no loaded matches says older files remain. An isolated
+  owner company with 4,001 same-timestamp files passed three API pages without duplicates and
+  desktop/phone browser checks, including loading the older file. A simulated hidden-tab check
+  verified that visibility changes do not trigger a scan while hidden and do refresh on return.
+  The temporary company and containers were removed. Earlier browser runs had test timing or
+  tooltip expectations wrong and cleaned up. Each page still scans and sorts the file tree;
+  concurrent filesystem changes, unusual filenames, admin/member roles and production remain
+  to be qualified. Scratch notes also remain visible in the default Library. Evidence:
+  `/tmp/s109-library-pages-final3-retry.log`.
+
 
 ## Track H: new surfaces (design first, build after review)
 
