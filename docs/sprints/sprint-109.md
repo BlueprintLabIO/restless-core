@@ -281,9 +281,14 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   The browser now retains a Folders entry with an unknown count and a retry action when the initial
   file read fails. A local browser test injected two 503 responses at both desktop and phone widths,
   then verified retry recovered the real 2,000-file listing. The full paging/mutation fixture passed
-  and cleaned up. Evidence: `/tmp/s109-library-unavailable-smoke.log`. This injected-failure check
-  is not the real-pressure browser test: first-page caching can still return a previous listing under
-  pressure without labeling it stale, which must be addressed before release. Scratch notes also remain visible in the default Library. Evidence:
+  and cleaned up. Evidence: `/tmp/s109-library-unavailable-smoke.log`. The server now marks an
+  expired cached listing stale when a new scan fails; the browser retains saved files with an unknown
+  count and retry notice. Real two-account memory-pressure tests verified that behavior and recovery
+  on desktop and phone while the other account remained readable; both pools were cleaned up.
+  Evidence: `/tmp/s109-library-stale-pressure.log` and `/tmp/s109-library-stale-smoke.log`. The
+  ordinary 30-second first-page cache may serve a recent result before trying a scan; it is not a
+  real-time pressure indicator. CPU pressure, mutation during scanning and production remain open.
+  Scratch notes also remain visible in the default Library. Evidence:
   `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 
 
