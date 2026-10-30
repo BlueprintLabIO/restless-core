@@ -4,16 +4,21 @@ import assert from 'node:assert/strict';
 const [origin, company, expected] = process.argv.slice(2);
 assert(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname));
 assert(company.endsWith('_test'));
-assert(['2000', '2000+', 'error'].includes(expected));
+assert(['2000', '2000+', 'unsupported'].includes(expected));
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
 try {
   for (const width of [1440, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
     try {
       await page.goto(`${origin}/${encodeURIComponent(company)}/library`, { waitUntil: 'domcontentloaded' });
-      if (expected === 'error') {
-        await page.getByText('Files could not be read. Try again.', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
-        console.log(JSON.stringify({ width, scanErrorShown: true }));
+      if (expected === 'unsupported') {
+        await page.getByText('Some file names cannot be displayed.', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+        const row = page.getByRole('link', { name: /Folders/ });
+        await row.waitFor({ state: 'visible', timeout: 30000 });
+        assert.equal((await row.innerText()).replace(/\s/g, ''), 'Folders2000+');
+        const title = width === 1440 ? await row.locator('.sidebar-reading').getAttribute('title') : await row.getAttribute('title');
+        assert.match(title ?? '', /Some file names cannot be displayed/);
+        console.log(JSON.stringify({ width, unsupportedNameReported: true }));
         continue;
       }
       const row = page.getByRole('link', { name: /Folders/ });

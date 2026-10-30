@@ -809,6 +809,17 @@
 	 * site was on disk but missing from the Library because nothing linked it (21 October). */
 	let outputFiles = $state<OutputFile[]>([]);
 	let outputFilesTruncated = $state(false);
+	let outputSkippedNames = $state(0);
+	let outputSkippedReported = false;
+	const outputIncomplete = $derived(outputFilesTruncated || outputSkippedNames > 0);
+	const folderListingHint = $derived(outputSkippedNames > 0
+		? `Some file names cannot be displayed.${outputFilesTruncated ? ' More older files are available.' : ''}`
+		: `Showing ${outputFiles.length} files; more older files are available`);
+	function reportSkippedNames(count: number) {
+		outputSkippedNames = count;
+		if (count > 0 && !outputSkippedReported) toast('Some file names cannot be displayed.', { tone: 'failure' });
+		outputSkippedReported = count > 0;
+	}
 	let outputCursor = $state<import('$lib/model/company-actions').OutputCursor | null>(null);
 	let outputLoadingMore = $state(false);
 	let outputLoadFailure = $state('');
@@ -832,6 +843,7 @@
 			outputPagesLoaded = true;
 			outputCursor = result.next;
 			outputFilesTruncated = result.truncated;
+			reportSkippedNames(result.skippedNames);
 		} catch {
 			if (company === companyId) outputLoadFailure = 'Older files could not be loaded. Try again.';
 		} finally {
@@ -843,6 +855,8 @@
 		const controller = new AbortController();
 		outputPagesLoaded = false;
 		outputReadFailed = false;
+		outputSkippedReported = false;
+		outputSkippedNames = 0;
 		outputFiles = [];
 		outputCursor = null;
 		outputFilesTruncated = false;
@@ -855,6 +869,7 @@
 				void readLibraryOutputs(company, controller.signal).then((result) => {
 					if (!controller.signal.aborted) {
 						outputReadFailed = false;
+						reportSkippedNames(result.skippedNames);
 						if (outputPagesLoaded) {
 							const fresh = new Set(result.files.map((file) => file.path));
 							outputFiles = [...result.files, ...outputFiles.filter((file) => !fresh.has(file.path))];
@@ -1538,16 +1553,16 @@
 						count={row.total}
 					/>
 				{/each}
-				{#if owner && folderEntries.length}<SidebarRow
+				{#if owner && (folderEntries.length || outputSkippedNames)}<SidebarRow
 						href={filterHref('folders')}
 						label="Folders"
 						icon={FolderOpen}
 						active={filter === 'folders' && !fileOpen && !uploadFile}
-						count={outputFilesTruncated ? null : folderEntries.length}
-						reading={outputFilesTruncated ? `${folderEntries.length}+` : undefined}
-						readingTitle={outputFilesTruncated ? `Showing ${folderEntries.length} files; more older files are available` : undefined}
-						title={outputFilesTruncated
-							? `Showing ${folderEntries.length} files; more older files are available`
+						count={outputIncomplete ? null : folderEntries.length}
+						reading={outputIncomplete ? `${folderEntries.length}+` : undefined}
+						readingTitle={outputIncomplete ? folderListingHint : undefined}
+						title={outputIncomplete
+							? folderListingHint
 							: 'Every file agents wrote to the outputs folder, linked or not'}
 					/>{/if}
 				<SidebarRow
@@ -1607,10 +1622,10 @@
 				aria-label="Library"
 				hidden={!!(openFileId || openUploadId || openPath)}
 			>
-				{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && folderEntries.length ? [{ key: 'folders' as Filter, label: `Folders ${folderEntries.length}${outputFilesTruncated ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
+				{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && (folderEntries.length || outputSkippedNames) ? [{ key: 'folders' as Filter, label: `Folders ${folderEntries.length}${outputIncomplete ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
 					<a
 						href={filterHref(item.key)}
-						title={item.key === 'folders' && outputFilesTruncated ? `Showing ${folderEntries.length} files; more older files are available` : undefined}
+						title={item.key === 'folders' && outputIncomplete ? folderListingHint : undefined}
 						class:active={filter === item.key && !collectionParam}
 						aria-current={filter === item.key && !collectionParam ? 'page' : undefined}
 						>{item.label}</a
@@ -1712,8 +1727,8 @@
 				<header class="head">
 					<h1>{filterLabel(filter)}</h1>
 					<span class="head-count"
-						title={filter === 'folders' && outputFilesTruncated ? 'Showing the newest 2,000 files; older files are not listed' : undefined}
-						>{filter === 'folders' && outputFilesTruncated && !query && !byParam && !sinceParam
+						title={filter === 'folders' && outputIncomplete ? folderListingHint : undefined}
+						>{filter === 'folders' && outputIncomplete && !query && !byParam && !sinceParam
 							? `${shown.length}+`
 							: ((!query && !collectionParam && !byParam && !sinceParam && filter === 'docs'
 								? counts.docs
@@ -2086,6 +2101,8 @@
 												: 'Nothing here yet'}
 							info={filter === 'folders' && outputFilesTruncated && (query || byParam || sinceParam)
 								? 'Load older files to continue searching.'
+								: filter === 'folders' && outputSkippedNames > 0
+								? 'Some file names cannot be displayed.'
 								: filter === 'yours'
 								? 'Files you add here or send in a conversation are kept here.'
 								: query && !searchesDocuments && filter !== 'archived'

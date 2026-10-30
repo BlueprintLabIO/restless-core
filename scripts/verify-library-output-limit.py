@@ -94,9 +94,18 @@ with tempfile.TemporaryDirectory(prefix="s109-library-limit-") as directory:
         plane.stop()
         plane.start()
         plane.wait_for_port(plane.offset + 7788, 120)
-        status, _ = plane.owner(company, "/library/outputs")
-        assert status == 503, status
-        subprocess.run(["node", str(repo / "web/scripts/verify-library-limit.mjs"), plane.owner_origin, company, "error"], check=True)
+        status, page = plane.owner(company, "/library/outputs")
+        assert status == 200 and page["skipped_names"] == 1 and page["truncated"]
+        found = set()
+        while True:
+            assert page["skipped_names"] == 1
+            found.update(entry["path"] for entry in page["files"])
+            if not page["truncated"]:
+                break
+            status, page = plane.owner(company, "/library/outputs?" + urllib.parse.urlencode(page["next_cursor"]))
+            assert status == 200
+        assert found == paths, "unsupported name hid readable files"
+        subprocess.run(["node", str(repo / "web/scripts/verify-library-limit.mjs"), plane.owner_origin, company, "unsupported"], check=True)
         print(json.dumps({"company": company, "exact": 2000, "pageSizes": pages, "uniqueFiles": len(paths), "specialNames": len(special_paths), "invalidNameReported": True}), flush=True)
     finally:
         problems = plane.close()

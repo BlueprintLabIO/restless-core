@@ -411,28 +411,28 @@ pub(super) async fn library_outputs(
             }
         }
     }
-    let mut files =
-        match restless_engine::runtime_files::output_files(&company, cursor.as_ref()).await {
-            Ok(files) => files,
-            Err(_) => {
-                // A sleeping Runtime may use its last first page; never substitute
-                // that page for a failed request for older files.
-                if cursor.is_none() {
-                    if let Some((_, body)) = LAST
-                        .lock()
-                        .ok()
-                        .and_then(|cache| cache.get(&company).cloned())
-                    {
-                        return Json(body).into_response();
-                    }
+    let page = match restless_engine::runtime_files::output_files(&company, cursor.as_ref()).await {
+        Ok(page) => page,
+        Err(_) => {
+            // A sleeping Runtime may use its last first page; never substitute
+            // that page for a failed request for older files.
+            if cursor.is_none() {
+                if let Some((_, body)) = LAST
+                    .lock()
+                    .ok()
+                    .and_then(|cache| cache.get(&company).cloned())
+                {
+                    return Json(body).into_response();
                 }
-                return api_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "library",
-                    "Files could not be read. Try again.",
-                );
             }
-        };
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "library",
+                "Files could not be read. Try again.",
+            );
+        }
+    };
+    let mut files = page.files;
     let truncated = cap_library_outputs(&mut files);
     let next_cursor = truncated
         .then(|| {
@@ -446,6 +446,7 @@ pub(super) async fn library_outputs(
         .flatten();
     let body = serde_json::json!({
         "truncated": truncated,
+        "skipped_names": page.skipped_names,
         "next_cursor": next_cursor,
         "files": files.iter().map(|file| serde_json::json!({
             "path": file.path,

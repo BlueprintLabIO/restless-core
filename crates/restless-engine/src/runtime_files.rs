@@ -161,6 +161,12 @@ pub struct OutputFile {
     pub modified: i64,
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct OutputPage {
+    pub files: Vec<OutputFile>,
+    pub skipped_names: u64,
+}
+
 /// A bounded Library page; the extra record tells the caller whether another exists.
 pub const OUTPUT_LIST_LIMIT: usize = 2_000;
 
@@ -172,7 +178,7 @@ pub struct OutputCursor {
 
 /// List a page in descending whole-second modification time and path order.
 /// The path tie-breaker keeps paging deterministic when files share a timestamp.
-pub async fn output_files(company: &str, cursor: Option<&OutputCursor>) -> Result<Vec<OutputFile>> {
+pub async fn output_files(company: &str, cursor: Option<&OutputCursor>) -> Result<OutputPage> {
     validate_company_name(company)?;
     if let Some(cursor) = cursor {
         anyhow::ensure!(
@@ -214,8 +220,9 @@ pub async fn output_files(company: &str, cursor: Option<&OutputCursor>) -> Resul
         output.status.success(),
         "could not list company output files"
     );
-    let files: Vec<OutputFile> =
+    let page: OutputPage =
         serde_json::from_slice(&output.stdout).context("decode company output listing")?;
+    let files = &page.files;
     anyhow::ensure!(
         files.len() <= OUTPUT_LIST_LIMIT + 1,
         "oversized output listing"
@@ -227,7 +234,7 @@ pub async fn output_files(company: &str, cursor: Option<&OutputCursor>) -> Resul
                 || file.path.starts_with("/company/downloads/")),
         "invalid output listing path"
     );
-    Ok(files)
+    Ok(page)
 }
 
 /// The canonical path of one regular file inside the owner places, for a download.

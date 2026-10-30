@@ -133,12 +133,12 @@ export async function readLibraryOutputs(
 	company: string,
 	signal?: AbortSignal,
 	cursor?: OutputCursor
-): Promise<{ files: OutputFile[]; truncated: boolean; next: OutputCursor | null }> {
+): Promise<{ files: OutputFile[]; truncated: boolean; next: OutputCursor | null; skippedNames: number }> {
 	const query = cursor ? `?${new URLSearchParams({ modified: String(cursor.modified), path: cursor.path })}` : '';
-	const body = await ownerRequest<{ files?: OutputFile[]; truncated?: boolean; next_cursor?: OutputCursor | null }>(
+	const body = await ownerRequest<{ files?: OutputFile[]; truncated?: boolean; next_cursor?: OutputCursor | null; skipped_names?: number }>(
 		`${api(company)}/library/outputs${query}`, { signal }
 	);
-	return { files: body?.files ?? [], truncated: body?.truncated === true, next: body?.next_cursor ?? null };
+	return { files: body?.files ?? [], truncated: body?.truncated === true, next: body?.next_cursor ?? null, skippedNames: Number.isSafeInteger(body?.skipped_names) && (body?.skipped_names ?? 0) > 0 ? body!.skipped_names! : 0 };
 }
 
 export async function readLibraryModified(

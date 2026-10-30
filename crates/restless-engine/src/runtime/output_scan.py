@@ -13,6 +13,7 @@ cursor_time = os.environ.get("RESTLESS_CURSOR_TIME", "")
 cursor_path = os.environ.get("RESTLESS_CURSOR_PATH", "")
 cursor = None if cursor_time == "" else (int(cursor_time), cursor_path.encode("utf-8"))
 heap = []
+skipped_names = 0
 stack = ["/company/outputs", "/company/downloads"]
 while stack:
     directory = stack.pop()
@@ -25,6 +26,12 @@ while stack:
             if entry.name.startswith("."):
                 continue
             try:
+                path = entry.path.encode("utf-8")
+            except UnicodeEncodeError:
+                # The API cannot represent this name. Keep the other files available.
+                skipped_names += 1
+                continue
+            try:
                 if entry.is_dir(follow_symlinks=False):
                     if entry.name != "node_modules":
                         stack.append(entry.path)
@@ -35,9 +42,6 @@ while stack:
                 continue
             if not stat.S_ISREG(info.st_mode):
                 continue
-            # The owner API uses UTF-8 paths. Refuse invalid byte names rather
-            # than silently returning a misleadingly complete listing.
-            path = entry.path.encode("utf-8")
             key = (info.st_mtime_ns // 1_000_000_000, path)
             if cursor is not None and key >= cursor:
                 continue
@@ -49,4 +53,4 @@ while stack:
 
 records = [{"modified": key[0], "path": key[1].decode("utf-8"), "bytes": size}
            for key, size in sorted(heap, reverse=True)]
-print(json.dumps(records, ensure_ascii=True, separators=(",", ":")))
+print(json.dumps({"files": records, "skipped_names": skipped_names}, ensure_ascii=True, separators=(",", ":")))
