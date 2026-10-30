@@ -2646,6 +2646,11 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 else {
                     return Response::err("work-artifact needs UUID work and attempt");
                 };
+                if kind == restless_orgintel::REVIEW_TARGET_ARTIFACT_KIND
+                    && !supported_review_target(uri)
+                {
+                    return Response::err("A review target must be a viewable file inside /company or an uncredentialed local HTTP preview. Prepare the actual outcome, then link it for review.");
+                }
                 match daemon.orgintel.get(company).await {
                     Ok(org) => {
                         // Runtime generation is host-observed provenance. A
@@ -5312,8 +5317,30 @@ async fn schedule_exists(daemon: &Daemon, company: &str, schedule_id: &str) -> b
     matches!(org.get_schedule(id).await, Ok(Some(row)) if row.cancelled_at.is_none())
 }
 
+/// Use the same target shapes as the owner review renderer. Existence and
+/// runtime availability are checked separately when the prepared item opens.
+fn supported_review_target(uri: &str) -> bool {
+    runtime::runtime_http_target(uri).is_ok()
+        || runtime::is_runtime_review_text_target(uri)
+        || (runtime::is_runtime_review_file_target(uri)
+            && runtime::runtime_review_file_root(uri).is_ok())
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn review_target_requires_a_supported_owner_view() {
+        assert!(super::supported_review_target("/company/output/brief.md"));
+        assert!(super::supported_review_target("/company/output/site.html"));
+        assert!(super::supported_review_target(
+            "http://127.0.0.1:4173/index.html"
+        ));
+        assert!(!super::supported_review_target("/company/output"));
+        assert!(super::supported_review_target("/company/site.html"));
+        assert!(!super::supported_review_target("https://example.com/page"));
+        assert!(!super::supported_review_target("http://localhost:9222/"));
+        assert!(!super::supported_review_target("/company/../secret.txt"));
+    }
     #[test]
     fn only_local_peers_reach_the_coordinator() {
         for local in [
