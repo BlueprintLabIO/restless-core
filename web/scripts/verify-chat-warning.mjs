@@ -162,6 +162,11 @@ try {
 			Math.abs(afterUndoNotice.y - beforeUndo.y) < 1,
 			`undo notice moved composer: ${JSON.stringify({ beforeUndo, afterUndoNotice })}`
 		);
+		if (width <= 760) {
+			const composer = await page.locator('.exr-composer').boundingBox();
+			const notice = await goalToast.boundingBox();
+			assert(notice.y + notice.height <= composer.y, 'undo notice covers the phone composer');
+		}
 		await goalToast.getByRole('button', { name: 'Undo', exact: true }).click();
 		await page.locator('.toast').filter({ hasText: 'Reopened the goal' }).waitFor();
 		assert.deepEqual(goalActions, ['close', 'reopen']);
