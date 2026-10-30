@@ -105,3 +105,8 @@ the queued job ran once, owner APIs stayed available, `pids.events` was `max 0`,
 and cleanup reported no problems. The lease was injected in a disposable
 company; this is not a real browser attach, live UI, concurrent take/release
 race, production upgrade or full resource gate.
+
+After that smoke, code review found that a stopped Runtime cannot answer the
+browser-control probe. The local change skips that probe for an already-stopped
+Runtime; the owner crate compiled, but this stopped-Runtime path needs its own
+live test before release.

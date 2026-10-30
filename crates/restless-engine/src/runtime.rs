@@ -3275,8 +3275,13 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             // Preserve the old shell if process capacity cannot admit its replacement.
             account_start = Some(account_lifecycle_guard().await);
             require_shared_process_start_headroom()?;
-            // Preserve an actively controlled browser and the old shell.
-            let _browser_control = try_unclaimed_browser_guard(company).await?;
+            // A stopped Runtime cannot host an active browser lease, and its
+            // browser-control file cannot be read through Docker exec.
+            let _browser_control = if status(company).await? == ContainerStatus::Running {
+                Some(try_unclaimed_browser_guard(company).await?)
+            } else {
+                None
+            };
             // Reconciliation replaces the shell. A configured monthly hours
             // cap must gate that replacement before it stops live work.
             crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
