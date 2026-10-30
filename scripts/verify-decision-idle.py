@@ -56,12 +56,11 @@ with tempfile.TemporaryDirectory(prefix='restless-decision-idle-') as folder:
         start = datetime.datetime.now(datetime.timezone.utc).isoformat()
         for _ in range(40):
             lines = docker('logs', '--since', start, plane.pg_container).stderr
-            if (lines.count('SELECT * FROM owner_handoff_decisions WHERE state=') >= 2
-                    and lines.count('SELECT * FROM owner_document_decisions WHERE state=') >= 2):
+            if lines.count('SELECT GREATEST(0, EXTRACT(EPOCH FROM') >= 2:
                 break
             time.sleep(0.5)
         else:
-            raise RuntimeError('both idle company scans did not start')
+            raise RuntimeError('both idle company deadline reads did not start')
         start = datetime.datetime.now(datetime.timezone.utc).isoformat()
         time.sleep(12)
         lines = docker('logs', '--since', start, plane.pg_container).stderr
@@ -70,8 +69,12 @@ with tempfile.TemporaryDirectory(prefix='restless-decision-idle-') as folder:
             handoffDueQueries=lines.count('SELECT * FROM owner_handoff_decisions WHERE state='),
             documentDueQueries=lines.count('SELECT * FROM owner_document_decisions WHERE state='),
             deadlineQueries=lines.count('SELECT GREATEST(0, EXTRACT(EPOCH FROM'),
-            status='pass',
         )
+        if report['handoffDueQueries'] or report['documentDueQueries']:
+            raise AssertionError('quiet companies must not scan either due queue')
+        if report['deadlineQueries'] < 2:
+            raise AssertionError('the repair sweep must still read the deadline')
+        report['status'] = 'pass'
         print(json.dumps(report), flush=True)
     finally:
         report['cleanupProblems'] = plane.close()
