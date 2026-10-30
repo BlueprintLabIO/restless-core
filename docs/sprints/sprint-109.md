@@ -312,6 +312,12 @@ explicit owner decision. The proposed 16 GB production resize has not been appro
   removed its test resources; evidence is `/tmp/restless-identity-core-evidence-iO1x09/journey.log`.
   Its first run stopped before Library checks because this checkout lacked native Sheets worker
   dependencies; those were installed locally before the passing rerun.
+  A separate two-account local CPU test limited one workload pool to 25% of a core,
+  observed 62 throttled periods while a busy process ran, and successfully read a fresh
+  one-file Library listing plus health, principal, Inbox and Work in each account.
+  All checks took 5.93 seconds and cleanup succeeded. This does not test a large tree
+  under CPU pressure, prolonged load or production. The reusable test is
+  `scripts/verify-library-cpu-isolation.py`.
   Scratch notes also remain visible in the default Library. Evidence:
   `/tmp/s109-library-unusual-smoke.log` and `/tmp/restless-identity-core-evidence-rOhlXH/journey.log`.
 
