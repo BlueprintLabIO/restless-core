@@ -6978,6 +6978,16 @@ mission = "Choose native intelligence"
         assert_eq!(blocked.kind, crate::health::BlockKind::Transport);
         assert!(blocked.message().contains("credit service"));
         assert!(!blocked.message().contains("owner action required"));
+        // The Runtime receives the gateway's JSON envelope, not this Rust string.
+        let forwarded = relay_error(StatusCode::SERVICE_UNAVAILABLE, &message);
+        let body = axum::body::to_bytes(forwarded.into_body(), 8192)
+            .await
+            .unwrap();
+        let received = std::str::from_utf8(&body).unwrap();
+        let from_content = crate::health::classify_provider_error_content(received)
+            .expect("the forwarded error is classified");
+        assert_eq!(from_content.kind, crate::health::BlockKind::Transport);
+        assert!(from_content.message().contains("credit service"));
     }
 
     #[tokio::test]
