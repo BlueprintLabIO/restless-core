@@ -142,6 +142,28 @@ and cover cancellation and daemon replacement; simply returning an error after
 a Work Attempt has been claimed could falsely fail work. This is source
 inspection, not a reproduced concurrency test.
 
+The launch boundary is broader than the ACP child itself. Local Codex sessions
+use a separate Docker exec in `codex.rs`, and both harnesses run preparatory
+Docker execs before their long-lived child is spawned. A guard placed only
+around the ACP spawn would therefore leave Codex and preparation uncovered.
+Conversational Exec, Staff conversation and claimed Work all enter through
+different scheduling paths; a capacity wait after claim must retain the
+claimed turn and honor cancellation, rather than becoming a failed attempt.
+Any cross-daemon coordination must also survive a daemon dying during startup,
+without freeing a reservation while its accepted Docker operation is still
+creating processes. These are source-level findings, not proof that a proposed
+reservation size is sufficient or that a particular coordination design works.
+
+The daemon does already hold `SingletonGuard` on `machine/plane.lock` for its
+entire lifetime, before scheduler startup. Two daemon processes using the same
+state root cannot run concurrently, so the earlier concern about overlapping
+generations needs that qualification. This does not serialize distinct state
+roots sharing a workload pool, and it does not cancel a Docker operation already
+accepted when the old daemon exits. The replacement daemon can therefore see
+an operation still in progress even after acquiring the singleton lock. A
+restart test must cover that case rather than treating the lock as a complete
+account-wide reservation.
+
 A concurrent-submission local smoke against daemon SHA-256 `85f9cc55175ac5824d6792bf0d7f229b0b703fc6989ab801be8afa572922b68f`
 submitted two heavy jobs to one disposable company while its task count was 35
 with a cap of 59. Both remained queued without effects, then each applied its
@@ -149,3 +171,13 @@ effect once after capacity was restored. Owner entry remained healthy, kernel
 process rejections were zero, cleanup reported no problems and the temporary
 slice was removed. This does not test agent starts, overlapping daemon versions,
 multiple owners, or admission under sustained load after capacity returns.
+
+
+After merging current main into the prototype, verify-process-pressure.py passed
+against clean source 63666e424ff936351599a4035a1b1bed7ee46811 and daemon
+SHA-256 0e54e6e6be885f3b4783b20e29bfd2f12f93cb08dc840f067337694c8b0d37b3.
+Two jobs queued at 35 tasks with a cap of 59, each resumed once, and owner
+entry remained healthy. The kernel reported zero process-cap rejections; the
+disposable plane and slice were removed without reported cleanup errors. This
+is the same bounded single-company heavy-job scenario, not a test of agent
+launches, multiple owners, or the full resource gate.
