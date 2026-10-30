@@ -882,6 +882,36 @@ impl SpendLedger {
         }
     }
 
+    /// Persist a prompt before another native prompt can be admitted. If the
+    /// harness reported no usage at all, retain an explicit unknown under the
+    /// transcript's stable turn ID instead of silently treating it as zero.
+    pub fn record_native_transcript(
+        &self,
+        auth: &crate::acp::AgentAuth,
+        actor: &str,
+        responsibility: &str,
+        work_id: Option<Uuid>,
+        attempt_id: Option<Uuid>,
+        transcript: &crate::acp::TurnTranscript,
+    ) -> Result<()> {
+        if !is_native_route(&auth.model) {
+            return Ok(());
+        }
+        let usage = transcript.usage.unwrap_or(crate::acp::TurnUsage {
+            turn_id: transcript.turn_id(),
+            ..Default::default()
+        });
+        anyhow::ensure!(
+            !usage.turn_id.is_nil(),
+            "native turn has no accounting identity"
+        );
+        let record = native_turn_record(auth, actor, responsibility, work_id, attempt_id, &usage);
+        self.store(&auth.company)?
+            .record_once(&record)
+            .map_err(|error| anyhow::anyhow!("native turn usage could not be recorded: {error}"))?;
+        Ok(())
+    }
+
     /// Native-harness use in the current UTC month.
     #[must_use]
     pub fn native_usage(&self, company: &str, now: DateTime<Utc>) -> NativeUsage {
