@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentRouteState } from './intelligence-route.ts';
+import { agentPickerSelection, agentRouteState } from './intelligence-route.ts';
 import type { IntelligenceView } from './intelligence.svelte';
 
 const connected: IntelligenceView = {
@@ -38,4 +38,39 @@ test('a selected model is not proof of a usable connection', () => {
 		),
 		'starting'
 	);
+});
+
+test('an agent without an explicit assignment uses its actual model provider, not the base model provider', () => {
+	const view: IntelligenceView = {
+		...connected,
+		company_issue: null,
+		default: null,
+		base_default: { connection: 'direct:anthropic', model: 'claude-opus-5-5' },
+		agents: connected.agents.map((agent) =>
+			agent.id === 'eames' ? { ...agent, effective_model: 'openai/gpt-example' } : agent
+		)
+	};
+	assert.equal(agentRouteState(view, 'eames'), 'unavailable');
+	assert.equal(
+		agentRouteState(
+			{
+				...view,
+				connections: [{ id: 'direct:openai', provider: 'openai', kind: 'direct', loaded: true }]
+			},
+			'eames'
+		),
+		'ready'
+	);
+	const eames = view.agents.find((agent) => agent.id === 'eames')!;
+	assert.equal(agentPickerSelection(view, eames), null);
+	const withOpenAI: IntelligenceView = {
+		...view,
+		connections: [
+			{ id: 'account:openai@fixture', provider: 'openai', kind: 'direct', loaded: true }
+		]
+	};
+	assert.deepEqual(agentPickerSelection(withOpenAI, eames), {
+		connection: 'account:openai@fixture',
+		model: 'gpt-example'
+	});
 });
