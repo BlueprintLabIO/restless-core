@@ -66,6 +66,34 @@ async function until(check, label, seconds = 60) {
   throw Error(`Timed out: ${label}${last ? ` (${last.message})` : ""}`);
 }
 
+async function verifyRoomDisconnect(who, messageText) {
+  const message = who.page.getByText(messageText).first();
+  const composer = who.page.getByRole("textbox", { name: "Conversation message" });
+  await composer.fill("Draft held while offline");
+  await who.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const before = await message.boundingBox();
+  const composerBefore = await composer.boundingBox();
+  assert(before && composerBefore, `${who.key}: loaded message and composer have positions`);
+  try {
+    await who.context.setOffline(true);
+    await who.page.getByText("Showing the last loaded messages. Your draft stays on this device.").waitFor({ timeout: 10000 });
+    assert.equal(await composer.inputValue(), "Draft held while offline");
+    const after = await message.boundingBox();
+    assert(after && Math.abs(after.y - before.y) < 1, `${who.key}: reconnect must not move the message`);
+    const composerAfter = await composer.boundingBox();
+    assert(composerAfter && Math.abs(composerAfter.y - composerBefore.y) < 1, `${who.key}: reconnect moved the composer from ${composerBefore.y} to ${composerAfter?.y}`);
+    assert.equal(await who.page.locator(".degraded-strip").count(), 0);
+    if ((who.page.viewportSize()?.width ?? 0) <= 760) {
+      const notice = await who.page.getByText("Showing the last loaded messages. Your draft stays on this device.").boundingBox();
+      const form = await who.page.locator(".room-composer").first().boundingBox();
+      assert(notice && form && notice.y + notice.height <= form.y, `${who.key}: reconnect toast covers the phone composer`);
+    }
+  } finally {
+    await who.context.setOffline(false);
+    await composer.clear();
+  }
+}
+
 // ---------------------------------------------------------------- SMTP catcher
 // A loopback SMTP server that keeps every message. Nothing leaves the host.
 function decodeQuotedPrintable(text) {
@@ -587,6 +615,15 @@ try {
     await writeFile(join(evidence, "room-missing.json"), JSON.stringify(report, null, 2));
     throw error;
   }
+  // A lost connection must not move loaded messages or discard a local draft.
+  for (const who of [owner, alice]) await verifyRoomDisconnect(who, chat[0]);
+  await owner.page.setViewportSize({ width: 390, height: 844 });
+  try {
+    await verifyRoomDisconnect(owner, chat[0]);
+  } finally {
+    await owner.page.setViewportSize({ width: 1280, height: 900 });
+  }
+  pass("owner and member keep their message positions and drafts when their room goes offline, including phone width");
   for (const [who, trace] of tracers) who.page.off("response", trace);
   for (const who of editors) await shot(who, "room");
   pass("room chat typed by owner and a member appears live for all three people");
@@ -1020,6 +1057,10 @@ try {
   bob.page.off("response", watchAdmin);
   assert.deepEqual([...new Set(adminRefused)], [], "an admin's screens make no refused requests");
   await steadyEntry(bob, "admin");
+  await bob.page.goto(roomUrl);
+  await bob.page.getByText(chat[0]).first().waitFor({ timeout: 20000 });
+  await verifyRoomDisconnect(bob, chat[0]);
+  pass("admin keeps message position and draft when the room goes offline");
   // Owner output paths stay private even when another person is an admin.
   await daemonCommand({ cmd: "up", company });
   const runtimeContainer = `restless-${process.env.RESTLESS_RESOURCE_NAMESPACE}-co-${company}`;

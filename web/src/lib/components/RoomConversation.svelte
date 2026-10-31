@@ -1,5 +1,6 @@
 <script lang="ts">
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { clearOfToastsOnPhone, dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
 	import { presentNow } from '$lib/model/presence.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -486,6 +487,20 @@
 	});
 
 	const roomMessages = $derived(roomProjection?.messages ?? []);
+	// Keep the conversation in place when its connection drops. The header
+	// retains the connection status after the toast is dismissed.
+	$effect(() => {
+		const degraded = (!online || activity?.transport === 'reconnecting') && roomMessages.length > 0;
+		const roomId = selectedRoomId;
+		if (!degraded) return;
+		const id = untrack(() =>
+			toast('Showing the last loaded messages. Your draft stays on this device.', {
+				tone: 'failure',
+				dedupeKey: `room-reconnect:${companyId}:${roomId}`
+			})
+		);
+		return () => untrack(() => dismissToast(id));
+	});
 	const roots = $derived(roomMessages.filter((message) => message.parent_message_id === null));
 	const visibleRoots = $derived(
 		pendingMessage && pendingMessage.parent_message_id === null ? [...roots, pendingMessage] : roots
@@ -1346,7 +1361,9 @@
 			if (parent !== null)
 				threadScrollEl?.scrollTo({
 					top: threadScrollEl.scrollHeight,
-					behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+					behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+						? 'auto'
+						: 'smooth'
 				});
 		} catch (cause) {
 			const status = (cause as { status?: unknown }).status;
@@ -1529,7 +1546,7 @@
 							role="status"
 							aria-live="polite"
 							title={!online
-								? 'This device is offline. Messages will send when it reconnects.'
+								? 'This device is offline. Your draft stays on this device until it reconnects.'
 								: 'New messages appear when the live connection is restored; nothing is lost.'}
 						>
 							{#if !online}
@@ -1595,12 +1612,6 @@
 						}}
 					/>
 				</label>
-			{/if}
-
-			{#if (!online || activity?.transport === 'reconnecting') && roomMessages.length}
-				<div class="degraded-strip" role="status">
-					Showing the last loaded messages. Your draft stays on this device.
-				</div>
 			{/if}
 
 			{#if pinnedRoots.length && !hasMessageSearch}
@@ -1984,7 +1995,12 @@
 
 {#snippet liveComposer()}
 	<p class="room-typing" aria-live="polite">{typingLine}</p>
-	<form class="room-composer" onsubmit={submitMessage} bind:this={composerForm}>
+	<form
+		class="room-composer"
+		onsubmit={submitMessage}
+		bind:this={composerForm}
+		{@attach clearOfToastsOnPhone}
+	>
 		<Composer
 			bind:value={composer}
 			bind:files={composerFiles}
@@ -2087,7 +2103,6 @@
 			>
 				{composerFiles.length} file{composerFiles.length === 1 ? '' : 's'} ready to send.
 			</p>{/if}
-		{#if !online}<p class="room-draft-state">Draft kept locally until you reconnect.</p>{/if}
 	</form>
 {/snippet}
 
@@ -2488,15 +2503,6 @@
 	.room-transport.degraded {
 		border-color: color-mix(in srgb, var(--intent-authority) 24%, var(--border));
 		background: var(--intent-authority-soft);
-		color: var(--intent-authority);
-	}
-
-	.degraded-strip {
-		flex: 0 0 auto;
-		padding: 6px 14px;
-		border-bottom: 1px solid color-mix(in srgb, var(--intent-authority) 20%, var(--border));
-		background: color-mix(in srgb, var(--intent-authority-soft) 58%, var(--surface));
-		font-size: var(--t-label);
 		color: var(--intent-authority);
 	}
 
