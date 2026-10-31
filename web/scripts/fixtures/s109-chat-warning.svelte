@@ -27,7 +27,7 @@
 					error: 'Could not confirm the send. Your draft is still here.',
 					retryCommandId: 'fixture'
 				}
-			: {};
+			: { notice: 'Message queued.' };
 	}
 </script>
 
@@ -36,7 +36,7 @@
 		onclick={() => (broken = false)}>Restore conversation</button
 	><button onclick={() => (fails = false)}>Allow send</button><span data-retries>{retries}</span>
 </div>
-<div class="fixture-rail">
+<div class="bridge-root fixture-rail" style="display: flex; --topbar-total: 0px; padding: 0;">
 	<ExecutiveRail
 		companyId="fixture_test"
 		membershipRole="owner"

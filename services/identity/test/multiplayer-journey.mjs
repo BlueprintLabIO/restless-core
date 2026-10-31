@@ -154,6 +154,7 @@ function startDaemon(network, entry = {}) {
       RESTLESS_OWNER_ADDR: `127.0.0.1:${corePort}`,
       RESTLESS_ENTRY_MODE: network ? "network" : "local",
       RESTLESS_RUNTIME_MODE: "local",
+      RESTLESS_SHEETS_WORKER: join(repo, "services/native-sheets/src/worker.mjs"),
       ...entry,
     },
     stdio: ["ignore", logFd, logFd],
@@ -453,6 +454,23 @@ try {
   }
   const actors = new Set([owner, alice, bob].map((who) => who.principal.actor_id));
   assert.equal(actors.size, 3, "three people are three distinct Actors");
+  // Use a real, disposable goal to verify the Exec toast keeps Undo actionable.
+  const noticeGoal = await coreApi(owner, `${base}/goals`, { method: "POST", expected: 201, body: { objective: "Fixture notice goal" } });
+  await owner.page.goto(`${core}/${company}/work`);
+  await owner.page.locator("#bridge-exrail.open").waitFor({ state: "visible", timeout: 30000 });
+  const execInput = owner.page.locator("#bridge-exrail").getByRole("textbox", { name: "Ask Exec" });
+  await execInput.fill("/goal clear Fixture notice goal");
+  await owner.page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const execBefore = await execInput.boundingBox();
+  await execInput.press("Enter");
+  const actualNotice = owner.page.locator(".toast").filter({ hasText: "Closed the goal" });
+  await actualNotice.waitFor({ timeout: 15000 });
+  assert(Math.abs((await execInput.boundingBox()).y - execBefore.y) < 1, "real command notice must not move composer");
+  const closedGoal = (await coreApi(owner, `${base}/goals`)).goals.find(g => g.id === noticeGoal.goal_id);
+  assert(closedGoal?.closed_at, "the real goal closed");
+  await actualNotice.getByRole("button", { name: "Undo", exact: true }).click();
+  await until(async () => { const goal = (await coreApi(owner, `${base}/goals`)).goals.find(g => g.id === noticeGoal.goal_id); return !!goal && !goal.closed_at; }, "goal reopened", 15);
+  pass("Exec command toast keeps the composer steady and Undo reopens the actual goal");
   pass("both colleagues accepted by email link and entered as distinct member Actors");
 
   // 6b. What waited for Bob's address is his now, shared by the owner; Alice was never given it.
