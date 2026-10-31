@@ -328,3 +328,14 @@ bce23548d4939b5d9c53af2c0ae0932431c683f781d87d7abe7889e198900061; cleanup
 succeeded. This does not prove a real agent/job concurrent start, browser
 coordination, bounded overhead with many jobs, other daemon generations, or
 accepted starts outliving Docker client timeouts. Those remain release blockers.
+
+A real local Exec/job contention smoke now passed against daemon SHA-256
+bce23548d4939b5d9c53af2c0ae0932431c683f781d87d7abe7889e198900061, a
+scripted Anthropic-compatible provider and the installed local OMP gateway.
+While the Exec was producing a reply, a queued job's configured memory fit
+within the observed live headroom alone but exceeded it after the active
+agent's reservation; the job stayed queued, then ran exactly once after the
+agent finished. The owner endpoint remained available and all test resources
+were removed. This uses one company and a synthetic provider. It does not
+establish the reverse job-first scenario, simultaneous agent launches, browser
+coordination, cancellation, delayed starts or production behavior.
