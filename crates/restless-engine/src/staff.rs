@@ -1247,6 +1247,35 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn actor_process_reservations_exclude_concurrent_starts() {
+        let registry = super::StaffRegistry::default();
+        let wake = std::sync::Arc::new(tokio::sync::Notify::new());
+        let capacity = crate::runtime::ActorCapacity {
+            company_slots: 4,
+            shared_slots: Some(1),
+            company_memory_slots: 10,
+            shared_memory_slots: Some(10),
+            waiting_for_memory: false,
+            waiting_for_processes: false,
+        };
+        let mut tasks = tokio::task::JoinSet::new();
+        for index in 0..20 {
+            let registry = registry.clone();
+            let wake = wake.clone();
+            tasks.spawn(async move {
+                registry.try_reserve_actor_capacity(&format!("company_{index}_test"), capacity, &wake).unwrap()
+            });
+        }
+        let mut permits = Vec::new();
+        while let Some(result) = tasks.join_next().await {
+            if let Some(permit) = result.unwrap() { permits.push(permit); }
+        }
+        assert_eq!(permits.len(), 1, "one observed process slot cannot admit concurrent starts");
+        drop(permits);
+        assert!(registry.try_reserve_actor_capacity("later_test", capacity, &wake).unwrap().is_some());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn actor_resource_reservations_bound_concurrent_starts_and_release() {
         let registry = super::StaffRegistry::default();
         let wake = std::sync::Arc::new(tokio::sync::Notify::new());

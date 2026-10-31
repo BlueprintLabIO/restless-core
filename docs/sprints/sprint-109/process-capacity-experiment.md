@@ -286,3 +286,18 @@ remained. The real per-company memory-pressure smoke also passed on that binary;
 both fixtures reported clean teardown. Container replacement, Docker inventory
 failure injection, delayed accepted starts and Attempt-settlement failures have
 not been exercised and remain open.
+
+Local actor admissions now limit concurrent reservations by the observed
+company and shared task headroom as well as CPU and memory. Each admitted
+actor consumes an experimental 32-task allowance in the logical registry;
+this includes pending starts before they appear in cgroup counters. The
+allowance is conservative and is not an enforced per-actor process maximum.
+The concurrent registry test admitted one of 20 simultaneous contenders for
+one slot and admitted another after release; the task-counter boundary test
+passed. The local process-pressure smoke on daemon SHA-256
+4c50874162f1b88dc1a15c0b88799e8c0cbd4048738c672b16b8a938d9d63a00 passed its
+existing two-job queue and resume check with no kernel task-cap rejections and
+clean teardown. That smoke does not launch agents. Browser/job starts do not
+reserve against the same actor claims, an agent can exceed 32 tasks, Docker
+starts can outlive a daemon and real concurrent harness launches remain
+untested. This is not yet a hard admission or production release guarantee.

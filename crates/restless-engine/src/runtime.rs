@@ -488,6 +488,7 @@ pub async fn actor_capacity(company: &str) -> Result<Option<ActorCapacity>> {
     let root = PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
     let (shared_slots, shared_memory_slots, shared_waiting) = actor_cgroup_capacity(&root)?;
     let shared_process_waiting = process_pressure(&root)?;
+    let shared_process_slots = actor_process_slots(&root)?;
     let path = workload_container_scope(&container_name(company))
         .await?
         .context("company Runtime has not joined its workload pool")?;
@@ -511,6 +512,9 @@ pub async fn actor_capacity(company: &str) -> Result<Option<ActorCapacity>> {
                     .parse::<u64>()
                     .map_or(true, |applied| wanted < applied)
         });
+    let company_process_slots = actor_process_slots(&path)?;
+    let shared_slots = shared_process_slots.map_or(shared_slots, |slots| shared_slots.min(slots));
+    let company_slots = company_process_slots.map_or(company_slots, |slots| company_slots.min(slots));
     Ok(Some(ActorCapacity {
         company_slots: company_slots.min(shared_slots),
         shared_slots: Some(shared_slots),
@@ -639,6 +643,23 @@ fn process_pressure(root: &std::path::Path) -> Result<bool> {
     // Experimental startup headroom; validate against real browser and agent starts.
     let reserve = (maximum / 10).max(32).min(maximum / 2);
     Ok(current >= maximum.saturating_sub(reserve))
+}
+
+// Each admitted local actor keeps a process-start reservation until its turn
+// ends. Live counters alone miss processes from concurrently admitted starts.
+// This conservative experimental allowance is not a hard per-actor task cap.
+fn actor_process_slots(root: &Path) -> Result<Option<usize>> {
+    const ACTOR_TASK_RESERVATION: u64 = 32;
+    let maximum = std::fs::read_to_string(root.join("pids.max"))
+        .context("workload task limit is unavailable")?;
+    if maximum.trim() == "max" { return Ok(None); }
+    let maximum: u64 = maximum.trim().parse().context("invalid workload task limit")?;
+    anyhow::ensure!(maximum > 0, "workload task limit must be positive");
+    let current: u64 = std::fs::read_to_string(root.join("pids.current"))?
+        .trim().parse().context("invalid workload task count")?;
+    let baseline = (maximum / 10).max(32).min(maximum / 2);
+    let available = maximum.saturating_sub(baseline).saturating_sub(current);
+    Ok(Some((available / ACTOR_TASK_RESERVATION).min(usize::MAX as u64) as usize))
 }
 
 fn require_process_start_headroom(root: &Path) -> Result<()> {
@@ -6848,9 +6869,13 @@ mission = "Choose intelligence"
         assert!(super::process_pressure(&root).is_err());
         std::fs::write(root.join("pids.max"), "max").unwrap();
         assert!(!super::process_pressure(&root).unwrap());
+        assert_eq!(super::actor_process_slots(&root).unwrap(), None);
         std::fs::write(root.join("pids.max"), "100").unwrap();
         assert!(super::process_pressure(&root).is_err());
+        std::fs::write(root.join("pids.current"), "35").unwrap();
+        assert_eq!(super::actor_process_slots(&root).unwrap(), Some(1));
         std::fs::write(root.join("pids.current"), "67").unwrap();
+        assert_eq!(super::actor_process_slots(&root).unwrap(), Some(0));
         assert!(!super::process_pressure(&root).unwrap());
         std::fs::write(root.join("pids.current"), "68").unwrap();
         assert!(super::process_pressure(&root).unwrap());
@@ -6860,6 +6885,7 @@ mission = "Choose intelligence"
         assert!(!super::process_pressure(&root).unwrap());
         std::fs::write(root.join("pids.max"), "0").unwrap();
         assert!(super::process_pressure(&root).is_err());
+        assert!(super::actor_process_slots(&root).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 
