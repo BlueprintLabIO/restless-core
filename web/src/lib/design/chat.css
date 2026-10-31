@@ -560,6 +560,10 @@
 	color: var(--text-tertiary);
 }
 
+.bridge-root .hc-guide.disabled {
+	visibility: hidden;
+}
+
 .bridge-root .hc-guide kbd {
 	display: inline-block;
 	min-width: 1.4em;
