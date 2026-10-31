@@ -235,6 +235,7 @@ pub struct ActorResourcePermit {
     id: uuid::Uuid,
     wake: Arc<tokio::sync::Notify>,
     started: bool,
+    local_start_claim: bool,
 }
 
 impl ActorResourcePermit {
@@ -245,6 +246,9 @@ impl ActorResourcePermit {
 
 impl Drop for ActorResourcePermit {
     fn drop(&mut self) {
+        if self.local_start_claim {
+            runtime::release_local_actor_start_claim();
+        }
         if let Ok(mut claims) = self.claims.lock() {
             claims.remove(&self.id);
         }
@@ -330,7 +334,14 @@ impl StaffRegistry {
             .lock()
             .map_err(|_| anyhow::anyhow!("actor capacity observation"))?
             .insert(company.to_string(), (std::time::Instant::now(), capacity));
-        self.try_reserve_actor_capacity(company, capacity, wake)
+        let mut permit = self.try_reserve_actor_capacity(company, capacity, wake)?;
+        if !bridges.is_hosted() {
+            if let Some(permit) = permit.as_mut() {
+                runtime::register_local_actor_start_claim();
+                permit.local_start_claim = true;
+            }
+        }
+        Ok(permit)
     }
 
     fn try_reserve_actor_capacity(
@@ -362,6 +373,7 @@ impl StaffRegistry {
             id,
             wake: Arc::clone(wake),
             started: false,
+            local_start_claim: false,
         }))
     }
 

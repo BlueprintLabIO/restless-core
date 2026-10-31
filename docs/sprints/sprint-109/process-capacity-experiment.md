@@ -350,3 +350,17 @@ The agent-first case also passed again, the owner endpoint stayed healthy,
 and cleanup succeeded. The test uses one company and does not establish
 simultaneous submission races, multiple agents or owners, browser starts,
 late Docker operations or production behavior.
+
+Local actor permits now register their outstanding start/turn claims with the
+account lifecycle gate. Runtime and browser starts consult those claims when
+checking task and memory headroom, under the same start lock; they defer when
+the current working set plus agent reservations would exceed the soft limit.
+On daemon SHA-256
+6335a0b64f67595b493aacd6a2ebbf127196f27a81feaa82a5adfa90f051a00f, the real
+local Exec/job smoke also saved changed home sites while a scripted Exec was
+active and memory headroom was reserved: the existing browser was preserved,
+the refresh remained pending, and the saved change applied after capacity
+returned. Both job/agent orders passed again and cleanup succeeded. This is one
+company on one daemon with a synthetic provider. The browser's own eventual
+maximum, multiple daemon generations, simultaneous actor launches, and late
+Docker starts still need stronger accounting or verification before release.

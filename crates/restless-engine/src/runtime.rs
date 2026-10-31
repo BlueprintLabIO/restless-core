@@ -7,7 +7,7 @@ use std::fmt;
 use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::task::{Context as TaskContext, Poll};
 use std::time::{Duration, Instant};
@@ -51,6 +51,18 @@ static COMPANY_START_LOCKS: LazyLock<
 // Serialize Runtime, browser and queued heavy-job starts in this daemon.
 // Independently launched agents and overlapping daemon generations are not covered.
 static ACCOUNT_LIFECYCLE_START: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+// Claims are registered under the account start lock and live until the local
+// actor permit is dropped. Lifecycle starts consult them under the same lock.
+static LOCAL_ACTOR_START_CLAIMS: AtomicUsize = AtomicUsize::new(0);
+
+pub(crate) fn register_local_actor_start_claim() {
+    LOCAL_ACTOR_START_CLAIMS.fetch_add(1, Ordering::SeqCst);
+}
+
+pub(crate) fn release_local_actor_start_claim() {
+    LOCAL_ACTOR_START_CLAIMS.fetch_sub(1, Ordering::SeqCst);
+}
 
 pub(crate) async fn account_lifecycle_guard() -> tokio::sync::MutexGuard<'static, ()> {
     ACCOUNT_LIFECYCLE_START.lock().await
@@ -684,6 +696,16 @@ fn require_shared_process_start_headroom() -> Result<()> {
     if workload_cgroup_parent()?.is_some() {
         let root = PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
         require_process_start_headroom(&root)?;
+        let claims = LOCAL_ACTOR_START_CLAIMS.load(Ordering::SeqCst);
+        anyhow::ensure!(shared_task_headroom_for_job(claims)?,
+            "Account process capacity is busy. Try again when running work has freed capacity.");
+        let admission = admission_from_cgroup(&root)?;
+        let reserved = (claims as u64).saturating_mul(ACTOR_MEMORY_RESERVATION);
+        anyhow::ensure!(
+            !admission.waiting_for_memory
+                && admission.working_set_bytes.saturating_add(reserved) < admission.resume_below_bytes,
+            "Account memory capacity is busy. Try again when running work has freed capacity."
+        );
     }
     Ok(())
 }

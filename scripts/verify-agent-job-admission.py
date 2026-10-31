@@ -75,6 +75,28 @@ with tempfile.TemporaryDirectory(prefix='s109-agentjob-') as folder:
             data = compute(); cap = data.get('actor_capacity') or {}
             return (cap.get('shared_active') or 0) >= 1 and mocklog.exists() and '/v1/messages' in mocklog.read_text()
         until(actor_active, 'real Exec did not start with the scripted provider', 180)
+        # While Exec is active, bring the shared soft threshold above the live
+        # working set but below that set plus the actor reservation. A saved
+        # browser refresh must remain pending instead of replacing the browser.
+        browser = plane.container(company).replace('-co-', '-pc-', 1)
+        before_browser = run('docker', 'inspect', '-f', '{{.Id}}', browser).stdout.strip()
+        original_high = (pool / 'memory.high').read_text().strip()
+        observed = compute()['sample']['work_admission']
+        artificial_high = observed['working_set_bytes'] + 512 * 1024 * 1024
+        assert artificial_high < int((pool / 'memory.max').read_text().strip())
+        try:
+            run('sudo', '-n', 'systemctl', 'set-property', '--runtime', slice_name,
+                'MemoryHigh=' + str(artificial_high))
+            limited = compute()['sample']['work_admission']
+            assert not limited['waiting_for_memory'], limited
+            assert limited['working_set_bytes'] + 512 * 1024 * 1024 >= limited['resume_below_bytes']
+            status, result = plane.owner(company, '/machines/home-sites', {'sites': ['example.test']}, method='PUT')
+            assert status == 200 and result['computer_refresh_pending'] is True, (status, result)
+            assert run('docker', 'inspect', '-f', '{{.Id}}', browser).stdout.strip() == before_browser
+            assert actor_active(), 'agent ended before the browser check'
+            print('PASS: browser refresh preserved the live computer while agent headroom was reserved', flush=True)
+        finally:
+            run('sudo', '-n', 'systemctl', 'set-property', '--runtime', slice_name, 'MemoryHigh=' + original_high)
         data = compute(); sample = data['sample']['work_admission']
         assert sample['scope'] == 'shared' and not sample['waiting_for_memory'], sample
         # Leave 256 MiB below the soft threshold; an active actor holds a 512 MiB
@@ -147,6 +169,14 @@ with tempfile.TemporaryDirectory(prefix='s109-agentjob-') as folder:
         assert plane.owner(company, '/principal')[0] == 200
         until(lambda: model_calls() > calls_before, 'agent did not resume after the job finished', 120)
         print('PASS: running job held Exec until its memory reservation was released', flush=True)
+        def refreshed():
+            status, machines = plane.owner(company, '/machines')
+            return status == 200 and machines.get('computer_refresh_pending') is False
+        until(refreshed, 'saved browser refresh did not apply after capacity returned', 150)
+        assert run('docker', 'inspect', '-f', '{{.Id}}', browser).stdout.strip() != before_browser
+        sites = run('docker', 'inspect', '-f', '{{index .Config.Labels "io.restless.home-sites"}}', browser).stdout.strip()
+        assert sites == 'example.test', sites
+        print('PASS: saved browser refresh applied after capacity returned', flush=True)
     finally:
         problems = []
         if job: run('docker', 'rm', '-f', job, check=False)
