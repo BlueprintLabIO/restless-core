@@ -41,6 +41,13 @@ with tempfile.TemporaryDirectory(prefix='s109-recovery-') as folder:
         plane.stop()
         bad = '/tmp/restless-agent-' + suffix + '.sid'
         run('docker', 'exec', plane.container(a), 'sh', '-c', 'printf invalid > "$1"', 'fixture', bad)
+        bad_effect = '/tmp/restless-effect-stage-invalid'
+        good_effect = '/tmp/restless-effect-stage-' + secrets.token_hex(16)
+        run('docker', 'exec', plane.container(a), 'mkdir', '-p', bad_effect)
+        run('docker', 'exec', plane.container(b), 'mkdir', '-p', good_effect)
+        run('docker', 'exec', '-d', '-u', '2001:2000', plane.container(b), 'sleep', '300')
+        until(lambda: run('docker', 'exec', plane.container(b), 'pgrep', '-u', '2001', check=False).returncode == 0,
+              'effect orphan did not start')
         bad_gate = '/company/run/gates/recovery-test/process-group.pid'
         run('docker', 'exec', '-u', 'company', plane.container(a), 'sh', '-c',
             'mkdir -p "${1%/*}"; printf invalid > "$1"', 'fixture', bad_gate)
@@ -55,8 +62,10 @@ with tempfile.TemporaryDirectory(prefix='s109-recovery-') as folder:
         plane.start(); plane.wait_for_port(plane.offset + 7788)
         def recovered():
             log = plane.log_path.read_text()[log_offset:]
-            return 'could not verify orphan agent cleanup' in log and 'runtime orphan recovery complete' in log
+            return 'could not verify orphan effect cleanup' in log and 'runtime orphan recovery scheduled' in log
         until(recovered, 'restart did not observe cleanup failure')
+        assert run('docker', 'exec', plane.container(b), 'test', '-e', good_effect, check=False).returncode != 0
+        assert run('docker', 'exec', plane.container(b), 'pgrep', '-u', '2001', check=False).returncode == 1
         assert run('docker', 'exec', plane.container(b), 'test', '-e', live_gate, check=False).returncode != 0
         groups = run('docker', 'exec', plane.container(b), 'ps', '-eo', 'pgid=').stdout.split()
         assert live_group not in groups, 'orphan gate process group remained'
@@ -74,6 +83,10 @@ with tempfile.TemporaryDirectory(prefix='s109-recovery-') as folder:
         until(lambda: effect(b, jobs[1][2]).stdout == 'x', 'other company job did not run')
         time.sleep(7)
         assert effect(a, jobs[0][2]).returncode != 0, 'held company ran before cleanup recovered'
+        assert run('docker', 'exec', plane.container(a), 'test', '-d', bad_effect, check=False).returncode == 0
+        run('docker', 'exec', plane.container(a), 'rm', '-rf', '--', bad_effect)
+        time.sleep(8)
+        assert effect(a, jobs[0][2]).returncode != 0, 'invalid agent and gate markers did not hold company'
         run('docker', 'exec', plane.container(a), 'rm', '-f', bad)
         time.sleep(8)
         assert effect(a, jobs[0][2]).returncode != 0, 'invalid gate marker did not hold company'

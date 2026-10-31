@@ -509,73 +509,43 @@ async fn run() -> Result<()> {
             }
         };
 
-        // Recovery starts processes inside each Runtime. Wait for memory
-        // headroom before those processes, using the existing recovery barrier
-        // to keep the durable owner plane readable and model work paused.
-        if !hosted_runtime {
-            loop {
-                let mut waiting = false;
-                for company in &running_companies {
-                    match runtime::workload_admission(company).await {
-                        Ok(Some(admission)) if admission.waiting_for_memory => {
-                            waiting = true;
-                            break;
-                        }
-                        Err(error) => {
-                            tracing::warn!(
-                                company,
-                                "Runtime recovery waits for a resource reading: {error:#}"
-                            );
-                            waiting = true;
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-                if !waiting {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            }
-        }
-
-        // Effect and cognitive orphan domains are disjoint. Sweep them in
-        // parallel after the one shared inventory instead of multiplying slow
-        // Docker round trips across the appliance readiness path.
+        // Each company observes capacity and completes its own orphan sweep.
+        // A busy or unobservable company stays held while other companies recover.
         let sweep_started = std::time::Instant::now();
         if !hosted_runtime {
             let companies = recovery_configs
                 .iter()
                 .map(|config| config.name.clone())
                 .collect::<Vec<_>>();
-            let (_, failed) = tokio::join!(
-                effect::sweep_orphans(&running_companies),
-                staff::sweep_orphans(
-                    &recovery_daemon.orgintel,
-                    &recovery_daemon.staff,
-                    &companies,
-                    &running_companies,
-                )
-            );
-            for company in failed {
+            // Install every hold before spawning any sweep or reopening the
+            // scheduler; one slow company cannot delay a healthy peer.
+            for company in &companies {
+                recovery_daemon.staff.set_recovery_pending(company, true);
+            }
+            let recovery_slots = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+            for company in companies {
                 let daemon = std::sync::Arc::clone(&recovery_daemon);
+                let slots = std::sync::Arc::clone(&recovery_slots);
                 let was_running = running_companies.contains(&company);
                 tokio::spawn(async move {
                     loop {
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        let Ok(permit) = slots.acquire().await else { break; };
                         let companies = vec![company.clone()];
                         let running = if was_running { companies.clone() } else { Vec::new() };
-                        if staff::sweep_orphans(&daemon.orgintel, &daemon.staff, &companies, &running).await.is_empty() {
+                        let complete = staff::sweep_orphans(&daemon.orgintel, &daemon.staff, &companies, &running).await.is_empty();
+                        drop(permit);
+                        if complete {
                             daemon.schedule_wake.notify_one();
                             break;
                         }
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     }
                 });
             }
         }
         tracing::info!(
             elapsed_ms = sweep_started.elapsed().as_millis(),
-            "runtime orphan recovery complete"
+            "runtime orphan recovery scheduled"
         );
 
         if !hosted_runtime {

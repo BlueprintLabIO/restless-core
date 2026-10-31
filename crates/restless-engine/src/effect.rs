@@ -82,85 +82,57 @@ async fn stop_effect_children(container: &str) -> bool {
 
 /// Reap only governed-effect children left by a previous daemon lifetime,
 /// then clean only UUID-shaped staging directories. This runs before the
-/// scheduler and owner gateway start, so a new secret-bearing child can never
-/// overlap an unsupervised child under the shared effect UID. Authority intent
+/// company admits new actor work, so a supervised agent cannot overlap an
+/// unsupervised child under the shared effect UID. Authority intent
 /// remains `unknown`; killing a local process does not infer the external
 /// result.
-pub async fn sweep_orphans(running_companies: &[String]) {
-    for company in running_companies {
-        let container = crate::runtime::container_name(company);
-        if stop_effect_children(&container).await {
-            tracing::warn!(
-                company,
-                "reaped orphaned governed-effect process after daemon restart"
-            );
-        }
-
-        let mut candidates = Vec::new();
-        for args in [
-            vec![
-                "exec",
-                "-u",
-                "0:0",
-                &container,
-                "find",
-                "/tmp/restless-effect",
-                "-mindepth",
-                "1",
-                "-maxdepth",
-                "1",
-                "-type",
-                "d",
-                "-print",
-            ],
-            vec![
-                "exec",
-                "-u",
-                "0:0",
-                &container,
-                "find",
-                "/tmp",
-                "-mindepth",
-                "1",
-                "-maxdepth",
-                "1",
-                "-type",
-                "d",
-                "-name",
-                "restless-effect-stage-*",
-                "-print",
-            ],
-        ] {
-            match crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(5)).await {
-                Ok(output) if output.status.success() => candidates.extend(
-                    String::from_utf8_lossy(&output.stdout)
-                        .lines()
-                        .map(str::to_string),
-                ),
-                Ok(output)
-                    if output.status.code() == Some(1)
-                        && String::from_utf8_lossy(&output.stderr)
-                            .contains("No such file or directory") => {}
-                Ok(output) => tracing::warn!(
-                    company,
-                    stderr = %String::from_utf8_lossy(&output.stderr).trim(),
-                    "failed to enumerate governed-effect staging"
-                ),
-                Err(error) => {
-                    tracing::warn!(company, %error, "failed to enumerate governed-effect staging")
-                }
-            }
-        }
-        for candidate in candidates {
-            if !valid_staging_path(&candidate) {
-                tracing::warn!(company, path = %candidate, "refusing unexpected governed-effect staging path");
-                continue;
-            }
-            if let Err(error) = cleanup_staging(&container, &candidate).await {
-                tracing::warn!(company, path = %candidate, %error, "failed to clean orphaned governed-effect staging");
-            }
+pub async fn sweep_orphan_company(company: &str) -> Result<()> {
+    let container = crate::runtime::container_name(company);
+    // Unlike the best-effort turn cleanup, restart admission must observe
+    // successful signals and then prove no shared-UID child remains.
+    for signal in ["-TERM", "-KILL"] {
+        let output = crate::runtime::docker_bounded(
+            &["exec", "-u", "0:0", &container, "pkill", signal, "-u", "2001"],
+            std::time::Duration::from_secs(5),
+        ).await.context("stop orphan governed-effect children")?;
+        anyhow::ensure!(output.status.success() || output.status.code() == Some(1),
+            "could not stop orphan governed-effect children");
+        if signal == "-TERM" { tokio::time::sleep(std::time::Duration::from_millis(100)).await; }
+    }
+    let mut absent = false;
+    for _ in 0..40 {
+        let output = crate::runtime::docker_bounded(
+            &["exec", "-u", "0:0", &container, "pgrep", "-u", "2001"],
+            std::time::Duration::from_secs(5),
+        ).await.context("verify orphan governed-effect children")?;
+        match output.status.code() {
+            Some(1) => { absent = true; break; }
+            Some(0) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+            _ => bail!("could not inspect orphan governed-effect children"),
         }
     }
+    anyhow::ensure!(absent, "orphan governed-effect children remain");
+    let mut candidates = Vec::new();
+    for args in [
+        vec!["exec", "-u", "0:0", &container, "find", "/tmp/restless-effect",
+             "-mindepth", "1", "-maxdepth", "1", "-type", "d", "-print"],
+        vec!["exec", "-u", "0:0", &container, "find", "/tmp", "-mindepth", "1",
+             "-maxdepth", "1", "-type", "d", "-name", "restless-effect-stage-*", "-print"],
+    ] {
+        let output = crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(5))
+            .await.context("inspect orphan governed-effect staging")?;
+        if output.status.code() == Some(1)
+            && String::from_utf8_lossy(&output.stderr).contains("No such file or directory") {
+            continue;
+        }
+        anyhow::ensure!(output.status.success(), "could not inspect governed-effect staging");
+        candidates.extend(String::from_utf8_lossy(&output.stdout).lines().map(str::to_string));
+    }
+    for candidate in candidates {
+        anyhow::ensure!(valid_staging_path(&candidate), "unexpected governed-effect staging path");
+        cleanup_staging(&container, &candidate).await?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]

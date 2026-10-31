@@ -245,3 +245,19 @@ responded and cleanup succeeded. This does not test a signal denied by the
 kernel, Docker accepting a delayed start across a restart, process-group ID
 reuse, actual agent launch under pressure, multi-owner production, or failure
 in Attempt settlement.
+
+Startup recovery now installs per-company holds before reopening scheduling,
+then runs at most four company sweeps concurrently. Memory observation and
+credential-bearing effect cleanup are included in the affected company's sweep;
+failed observations keep that company held for retry. Effect cleanup now checks
+signals, verifies no process remains under the effect UID, and requires staging
+cleanup to succeed. A local two-company restart smoke using daemon SHA-256
+f52b9262f302705a608672982a445f4c78804c05c0f4d1749f9ae2df8312c8cd passed:
+it killed a real orphan effect child and gate group, removed valid effect
+staging, held one company for malformed effect, agent and gate records while
+the other ran a job, then resumed the held job once. Both owner APIs responded
+and cleanup succeeded. This does not test actual memory pressure in this
+recovery path, provider or multi-owner production, effect calls initiated
+outside actor admission, delayed Docker starts, failed Attempt settlement,
+stopped/replaced containers during retry, or fairness when all four recovery
+slots are busy; these remain release blockers.

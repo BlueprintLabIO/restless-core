@@ -270,7 +270,7 @@ impl StaffRegistry {
         self.recovery_pending.lock().map_or(true, |pending| pending.contains(company))
     }
 
-    fn set_recovery_pending(&self, company: &str, waiting: bool) {
+    pub fn set_recovery_pending(&self, company: &str, waiting: bool) {
         if let Ok(mut pending) = self.recovery_pending.lock() {
             if waiting { pending.insert(company.to_string()); } else { pending.remove(company); }
         }
@@ -1064,6 +1064,23 @@ pub async fn sweep_orphans(
 ) -> Vec<String> {
     let mut failed = HashSet::new();
     for name in running_companies {
+        match runtime::workload_admission(name).await {
+            Ok(Some(admission)) if admission.waiting_for_memory => {
+                failed.insert(name.clone());
+                continue;
+            }
+            Err(error) => {
+                tracing::warn!(company = name, "recovery waits for a resource reading: {error:#}");
+                failed.insert(name.clone());
+                continue;
+            }
+            _ => {}
+        }
+        if let Err(error) = crate::effect::sweep_orphan_company(name).await {
+            tracing::warn!(company = name, "could not verify orphan effect cleanup: {error:#}");
+            failed.insert(name.clone());
+            continue;
+        }
         let container = runtime::container_name(name);
         match reap_orphan_gate_processes(&container).await {
             Ok(reaped) if reaped > 0 => tracing::warn!(
