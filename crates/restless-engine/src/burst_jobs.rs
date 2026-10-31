@@ -868,14 +868,23 @@ pub async fn reconcile_pending(daemon: &crate::Daemon, companies: &[String]) -> 
         // The guard covers Docker's start response so the next observation can
         // see the new job. A timed-out Docker start still needs reconciliation.
         let _account_start = crate::runtime::account_lifecycle_guard().await;
-        // Observe shared pressure under the start guard: another Runtime or
-        // browser can consume headroom while this job waits for the lock.
+        // Actor claims include starts that are not yet in the live counters.
+        // Count them while holding the same lock used to reserve new actors.
+        let Some((_, actor_claims)) = daemon.staff.resource_counts(company) else {
+            continue;
+        };
+        if !crate::runtime::shared_task_headroom_for_job(actor_claims)? {
+            continue;
+        }
         if let Some(admission) = crate::runtime::shared_workload_admission()? {
+            let actor_memory = (actor_claims as u64)
+                .saturating_mul(crate::runtime::ACTOR_MEMORY_RESERVATION);
             if admission.waiting()
                 || memory == &0
                 || admission
                     .working_set_bytes
                     .saturating_add(reserved)
+                    .saturating_add(actor_memory)
                     .saturating_add(*memory)
                     > admission.resume_below_bytes
             {

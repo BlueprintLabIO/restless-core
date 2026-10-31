@@ -301,3 +301,16 @@ clean teardown. That smoke does not launch agents. Browser/job starts do not
 reserve against the same actor claims, an agent can exceed 32 tasks, Docker
 starts can outlive a daemon and real concurrent harness launches remain
 untested. This is not yet a hard admission or production release guarantee.
+
+Agent capacity observations and logical reservations now share the account
+start lock used by queued jobs. Under that lock a queued job accounts for
+existing local actor claims, including their experimental memory and task
+allowances, before starting. The existing process-pressure and two-company
+memory-recovery smokes passed using daemon SHA-256
+0a802c14b90097920d3e915bb86e6e8b4f069eea6104f72b610f550902230093; both
+reported clean teardown. Neither fixture starts a real agent concurrently
+with a job, so the new cross-admission path is not directly qualified. Actor
+admission still does not reserve against a running job's configured memory
+maximum, browser starts do not account for actor claims, the task allowances
+are estimates rather than per-process hard limits, and accepted Docker starts
+can outlive a daemon. These remain release blockers.

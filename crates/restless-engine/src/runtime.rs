@@ -444,7 +444,7 @@ impl ActorCapacity {
     }
 }
 
-const ACTOR_MEMORY_RESERVATION: u64 = 512 * 1024 * 1024;
+pub(crate) const ACTOR_MEMORY_RESERVATION: u64 = 512 * 1024 * 1024;
 
 fn actor_slots(memory: u64, cpu_max: &str) -> Result<usize> {
     let mut fields = cpu_max.split_whitespace();
@@ -660,6 +660,14 @@ fn actor_process_slots(root: &Path) -> Result<Option<usize>> {
     let baseline = (maximum / 10).max(32).min(maximum / 2);
     let available = maximum.saturating_sub(baseline).saturating_sub(current);
     Ok(Some((available / ACTOR_TASK_RESERVATION).min(usize::MAX as u64) as usize))
+}
+
+/// A waiting job needs one task allowance in addition to every admitted
+/// local actor, whose own Docker processes may not be visible yet.
+pub(crate) fn shared_task_headroom_for_job(actor_claims: usize) -> Result<bool> {
+    if workload_cgroup_parent()?.is_none() { return Ok(true); }
+    let root = PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
+    Ok(actor_process_slots(&root)?.is_none_or(|slots| slots > actor_claims))
 }
 
 fn require_process_start_headroom(root: &Path) -> Result<()> {

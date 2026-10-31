@@ -286,6 +286,18 @@ impl StaffRegistry {
             self.resource_retry.store(true, Ordering::SeqCst);
             return Ok(None);
         }
+        // Coordinate observation and reservation with queued job starts.
+        // A job either sees this claim, or completes its start before the
+        // actor observes the shared pool.
+        let _account_start = if bridges.is_hosted() {
+            None
+        } else {
+            Some(runtime::account_lifecycle_guard().await)
+        };
+        if self.recovery_pending(company) {
+            self.resource_retry.store(true, Ordering::SeqCst);
+            return Ok(None);
+        }
         let capacity = if bridges.is_hosted() {
             // Paired machines execute outside this host's work pool.
             runtime::ActorCapacity {
