@@ -314,3 +314,17 @@ admission still does not reserve against a running job's configured memory
 maximum, browser starts do not account for actor claims, the task allowances
 are estimates rather than per-process hard limits, and accepted Docker starts
 can outlive a daemon. These remain release blockers.
+
+Actor capacity now inventories live heavy jobs in the same cgroup parent and
+subtracts their finite configured memory limits before admitting an agent.
+The account start lock prevents a local queued job start and an actor
+reservation from both observing the other as absent. This deliberately counts
+job limits in addition to current working set, so it may delay work before the
+hard limit is reached. Missing, invalid or changing job inventory defers actor
+admission. An isolated Docker test counted a 256 MiB job in the target pool
+while excluding a 128 MiB job in another pool; the capacity calculation test
+and process-pressure job smoke passed. The daemon SHA-256 was
+bce23548d4939b5d9c53af2c0ae0932431c683f781d87d7abe7889e198900061; cleanup
+succeeded. This does not prove a real agent/job concurrent start, browser
+coordination, bounded overhead with many jobs, other daemon generations, or
+accepted starts outliving Docker client timeouts. Those remain release blockers.

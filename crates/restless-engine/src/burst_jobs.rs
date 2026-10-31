@@ -698,6 +698,42 @@ pub async fn run(
     }))
 }
 
+/// Sum the hard memory limits of all live heavy jobs in the shared pool.
+/// Called under account start admission. Missing or changing inventory fails
+/// closed, since an accepted job may still allocate up to its hard limit.
+pub(crate) async fn running_job_memory_reservation(parent: &str) -> Result<u64> {
+    let output = crate::runtime::docker_bounded(
+        &["ps", "-a", "--filter", "label=restless.job=1", "--filter", "status=running",
+          "--filter", "status=paused", "--filter", "status=restarting", "--format", "{{.Names}}"],
+        std::time::Duration::from_secs(10),
+    ).await.context("list running heavy jobs")?;
+    anyhow::ensure!(output.status.success(), "running heavy job inventory unavailable");
+    let text = String::from_utf8(output.stdout).context("invalid heavy job inventory")?;
+    let names = text.lines().collect::<Vec<_>>();
+    if names.is_empty() { return Ok(0); }
+    let mut args = vec!["inspect", "-f",
+        r#"{"name":{{json .Name}},"parent":{{json .HostConfig.CgroupParent}},"state":{{json .State.Status}},"memory":{{.HostConfig.Memory}}}"#];
+    args.extend(names.iter().copied());
+    let output = crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(10))
+        .await.context("inspect running heavy job limits")?;
+    anyhow::ensure!(output.status.success(), "running heavy job limits unavailable");
+    let text = String::from_utf8(output.stdout).context("invalid heavy job limits")?;
+    let mut count = 0usize;
+    let mut total = 0u64;
+    for line in text.lines() {
+        let row: serde_json::Value = serde_json::from_str(line)?;
+        count += 1;
+        let state = row["state"].as_str().context("missing heavy job state")?;
+        if row["parent"].as_str().context("missing heavy job pool")? != parent { continue; }
+        if !matches!(state, "running" | "paused" | "restarting") { continue; }
+        let memory = row["memory"].as_u64().filter(|value| *value > 0)
+            .context("running heavy job has no finite memory limit")?;
+        total = total.saturating_add(memory);
+    }
+    anyhow::ensure!(count == names.len(), "incomplete heavy job limits");
+    Ok(total)
+}
+
 /// Reconcile the Docker-owned pending jobs from the existing schedule loop.
 /// Created containers retain the exact job across a daemon restart without
 /// starting its command; only this loop starts them. Unknown resource readings
@@ -1100,6 +1136,14 @@ pub fn request(value: Option<&serde_json::Value>) -> Result<JobRequest> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    #[ignore = "requires isolated Docker job containers in RESTLESS_TEST_JOB_PARENT"]
+    async fn running_job_reservation_counts_only_its_shared_pool() {
+        let parent = std::env::var("RESTLESS_TEST_JOB_PARENT").unwrap();
+        assert!(parent.starts_with("restless-s109job") && parent.ends_with(".slice"));
+        assert_eq!(super::running_job_memory_reservation(&parent).await.unwrap(), 256 * 1024 * 1024);
+    }
+
     #[test]
     fn job_memory_parsing_is_finite_and_checked() {
         assert_eq!(super::job_memory_bytes("512m"), Some(512 * 1024 * 1024));

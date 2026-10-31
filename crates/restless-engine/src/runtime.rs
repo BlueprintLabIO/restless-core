@@ -463,7 +463,7 @@ fn actor_slots(memory: u64, cpu_max: &str) -> Result<usize> {
     Ok(memory_slots.min(quota.div_ceil(period).max(1) as usize))
 }
 
-fn actor_cgroup_capacity(path: &Path) -> Result<(usize, usize, bool)> {
+fn actor_cgroup_capacity(path: &Path, job_reserved: u64) -> Result<(usize, usize, bool)> {
     let sample = admission_from_cgroup(path)?;
     let maximum: u64 = std::fs::read_to_string(path.join("memory.max"))?
         .trim()
@@ -472,21 +472,23 @@ fn actor_cgroup_capacity(path: &Path) -> Result<(usize, usize, bool)> {
         .resume_below_bytes
         .min(maximum.saturating_sub(ACTOR_MEMORY_RESERVATION));
     let slots = actor_slots(maximum, &std::fs::read_to_string(path.join("cpu.max"))?)?;
-    let memory_slots = maximum.saturating_sub(sample.working_set_bytes) / ACTOR_MEMORY_RESERVATION;
+    let committed = sample.working_set_bytes.saturating_add(job_reserved);
+    let memory_slots = maximum.saturating_sub(committed) / ACTOR_MEMORY_RESERVATION;
     Ok((
         slots,
         memory_slots as usize,
-        sample.working_set_bytes >= threshold,
+        committed >= threshold,
     ))
 }
 
 pub async fn actor_capacity(company: &str) -> Result<Option<ActorCapacity>> {
     validate_company_name(company)?;
-    if workload_cgroup_parent()?.is_none() {
+    let Some(parent) = workload_cgroup_parent()? else {
         return Ok(None);
-    }
+    };
     let root = PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
-    let (shared_slots, shared_memory_slots, shared_waiting) = actor_cgroup_capacity(&root)?;
+    let job_reserved = crate::burst_jobs::running_job_memory_reservation(&parent).await?;
+    let (shared_slots, shared_memory_slots, shared_waiting) = actor_cgroup_capacity(&root, job_reserved)?;
     let shared_process_waiting = process_pressure(&root)?;
     let shared_process_slots = actor_process_slots(&root)?;
     let path = workload_container_scope(&container_name(company))
@@ -496,7 +498,7 @@ pub async fn actor_capacity(company: &str) -> Result<Option<ActorCapacity>> {
         if std::fs::read_to_string(path.join("memory.max"))?.trim() == "max" {
             (shared_slots, shared_memory_slots, false)
         } else {
-            actor_cgroup_capacity(&path)?
+            actor_cgroup_capacity(&path, 0)?
         };
     let current_config = CompanyConfig::load(&state_root(), company)?;
     let applied_memory = std::fs::read_to_string(path.join("memory.max"))?;
@@ -6254,19 +6256,19 @@ mod tests {
         };
         write_stat("");
         assert!(
-            !super::actor_cgroup_capacity(&root).unwrap().2,
+            !super::actor_cgroup_capacity(&root, 0).unwrap().2,
             "the real idle snapshot must admit a turn without waiting for cache aging"
         );
         for protected in ["shmem", "file_dirty", "file_writeback", "unevictable"] {
             write_stat(protected);
             assert!(
-                super::actor_cgroup_capacity(&root).unwrap().2,
+                super::actor_cgroup_capacity(&root, 0).unwrap().2,
                 "{protected} is not clean reclaimable cache"
             );
         }
         std::fs::write(root.join("memory.stat"), "file 303079424\n").unwrap();
         assert!(
-            super::actor_cgroup_capacity(&root).is_err(),
+            super::actor_cgroup_capacity(&root, 0).is_err(),
             "unknown protected memory is not zero"
         );
         std::fs::remove_dir_all(root).unwrap();
@@ -6303,12 +6305,14 @@ mod tests {
                 .waiting_for_memory
         );
         assert_eq!(
-            super::actor_cgroup_capacity(&root).unwrap(),
+            super::actor_cgroup_capacity(&root, 0).unwrap(),
             (1, 0, true),
             "a new harness needs startup room"
         );
         std::fs::write(root.join("memory.current"), "52428800").unwrap();
-        assert_eq!(super::actor_cgroup_capacity(&root).unwrap(), (1, 1, false));
+        assert_eq!(super::actor_cgroup_capacity(&root, 0).unwrap(), (1, 1, false));
+        assert_eq!(super::actor_cgroup_capacity(&root, 300 * mib).unwrap(), (1, 0, true),
+            "a live job's unused allowance is not available for an agent");
         std::fs::remove_dir_all(root).unwrap();
     }
 
