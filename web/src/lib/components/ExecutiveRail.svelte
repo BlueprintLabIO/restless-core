@@ -21,7 +21,7 @@
 	} from '$lib/model/open-question';
 	import { untrack, type Snippet } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { clearOfToasts, dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
+	import { clearOfToastsOnPhone, dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	/* One contextual conversation rail. It normally belongs to the Exec; while
 	 * the owner focuses a review it belongs to that Work's accountable lead.
@@ -254,23 +254,6 @@
 	/* Every person in the company talks to Exec and the team, and decides a review handed to
 	 * them; the server checks the review is theirs to decide. */
 	const canOperate = $derived(['owner', 'admin', 'member'].includes(membershipRole ?? ''));
-
-	// On phones the rail fills the viewport, so a bottom-centred toast would
-	// cover its composer. Keep desktop notices in their usual position.
-	function clearMobileComposer(node: HTMLElement) {
-		const phone = window.matchMedia('(max-width: 760px)');
-		let clear: (() => void) | undefined;
-		const update = () => {
-			clear?.();
-			clear = phone.matches ? clearOfToasts(node) : undefined;
-		};
-		update();
-		phone.addEventListener('change', update);
-		return () => {
-			phone.removeEventListener('change', update);
-			clear?.();
-		};
-	}
 
 	/* Pinned messages stay in reach above the conversation, however old: the direct conversation's
 	 * pins come as their own list; elsewhere they are found among the messages held. */
@@ -1845,7 +1828,7 @@
 				<p class="model-reply-state" role="status">
 					{needsProvider ? 'The model can’t reply now. Your message will wait.' : ''}
 				</p>
-				<form class="exr-composer" onsubmit={submitAsk} {@attach clearMobileComposer}>
+				<form class="exr-composer" onsubmit={submitAsk} {@attach clearOfToastsOnPhone}>
 					{#if quoting}
 						<div class="quoting">
 							<Reply size={13} aria-hidden="true" />

@@ -157,3 +157,19 @@ export function clearOfToasts(node: HTMLElement) {
 		});
 	};
 }
+
+/** Keep notices above a phone composer without moving desktop toasts. */
+export function clearOfToastsOnPhone(node: HTMLElement) {
+	const phone = window.matchMedia('(max-width: 760px)');
+	let clear: (() => void) | undefined;
+	const update = () => {
+		clear?.();
+		clear = phone.matches ? clearOfToasts(node) : undefined;
+	};
+	update();
+	phone.addEventListener('change', update);
+	return () => {
+		phone.removeEventListener('change', update);
+		clear?.();
+	};
+}

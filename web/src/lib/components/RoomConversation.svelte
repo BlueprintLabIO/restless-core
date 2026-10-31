@@ -1,6 +1,6 @@
 <script lang="ts">
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
-	import { dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
+	import { clearOfToastsOnPhone, dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
 	import { presentNow } from '$lib/model/presence.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -1995,7 +1995,12 @@
 
 {#snippet liveComposer()}
 	<p class="room-typing" aria-live="polite">{typingLine}</p>
-	<form class="room-composer" onsubmit={submitMessage} bind:this={composerForm}>
+	<form
+		class="room-composer"
+		onsubmit={submitMessage}
+		bind:this={composerForm}
+		{@attach clearOfToastsOnPhone}
+	>
 		<Composer
 			bind:value={composer}
 			bind:files={composerFiles}

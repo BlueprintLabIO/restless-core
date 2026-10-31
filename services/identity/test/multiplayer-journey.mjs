@@ -83,6 +83,11 @@ async function verifyRoomDisconnect(who, messageText) {
     const composerAfter = await composer.boundingBox();
     assert(composerAfter && Math.abs(composerAfter.y - composerBefore.y) < 1, `${who.key}: reconnect moved the composer from ${composerBefore.y} to ${composerAfter?.y}`);
     assert.equal(await who.page.locator(".degraded-strip").count(), 0);
+    if ((who.page.viewportSize()?.width ?? 0) <= 760) {
+      const notice = await who.page.getByText("Showing the last loaded messages. Your draft stays on this device.").boundingBox();
+      const form = await who.page.locator(".room-composer").first().boundingBox();
+      assert(notice && form && notice.y + notice.height <= form.y, `${who.key}: reconnect toast covers the phone composer`);
+    }
   } finally {
     await who.context.setOffline(false);
     await composer.clear();
