@@ -7,12 +7,12 @@ use std::fmt;
 use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::task::{Context as TaskContext, Poll};
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use http_body_util::Empty;
 use hyper::body::{Bytes, Incoming};
@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 mod compute_limits;
 pub use compute_limits::{
-    apply_compute_limits, compute_limits_view, CompanyComputeLimits, ComputeTarget, ContainerLimits,
+    CompanyComputeLimits, ComputeTarget, ContainerLimits, apply_compute_limits, compute_limits_view,
 };
 
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
@@ -47,6 +47,26 @@ const COMPUTER_SUPERVISOR_CONFIG: &str = "/etc/supervisor/conf.d/computer.conf";
 static COMPANY_START_LOCKS: LazyLock<
     tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 > = LazyLock::new(Default::default);
+
+// Serialize Runtime, browser and queued heavy-job starts in this daemon.
+// Independently launched agents and overlapping daemon generations are not covered.
+static ACCOUNT_LIFECYCLE_START: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+// Claims are registered under the account start lock and live until the local
+// actor permit is dropped. Lifecycle starts consult them under the same lock.
+static LOCAL_ACTOR_START_CLAIMS: AtomicUsize = AtomicUsize::new(0);
+
+pub(crate) fn register_local_actor_start_claim() {
+    LOCAL_ACTOR_START_CLAIMS.fetch_add(1, Ordering::SeqCst);
+}
+
+pub(crate) fn release_local_actor_start_claim() {
+    LOCAL_ACTOR_START_CLAIMS.fetch_sub(1, Ordering::SeqCst);
+}
+
+pub(crate) async fn account_lifecycle_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    ACCOUNT_LIFECYCLE_START.lock().await
+}
 
 // Browser control is one small, reconstructable Runtime file. Keep its
 // read-modify-write transitions serial per company so two owner tabs cannot
@@ -106,6 +126,19 @@ pub async fn browser_control_guard(company: &str) -> tokio::sync::OwnedMutexGuar
         .or_default()
         .clone();
     lock.lock_owned().await
+}
+
+// A caller may already hold the company lifecycle lock, while sleep takes the
+// browser lock first. Never wait in the reverse order: retry later instead.
+async fn try_unclaimed_browser_guard(company: &str) -> Result<tokio::sync::OwnedMutexGuard<()>> {
+    let lock = BROWSER_CONTROL_LOCKS.lock().await.entry(container_name(company)).or_default().clone();
+    let guard = lock.try_lock_owned().map_err(|_| anyhow::anyhow!("Computer control is busy; its update will wait."))?;
+    let control = read_browser_control(company).await?;
+    anyhow::ensure!(
+        !control.as_ref().is_some_and(|value| value["controller"] == "owner"),
+        "The computer is in use; its update will wait."
+    );
+    Ok(guard)
 }
 
 pub async fn watch_browser_control(
@@ -390,8 +423,15 @@ pub struct ComputeSample {
 pub struct WorkloadAdmission {
     pub scope: &'static str,
     pub waiting_for_memory: bool,
+    pub waiting_for_processes: bool,
     pub working_set_bytes: u64,
     pub resume_below_bytes: u64,
+}
+
+impl WorkloadAdmission {
+    pub fn waiting(&self) -> bool {
+        self.waiting_for_memory || self.waiting_for_processes
+    }
 }
 
 /// Process-start capacity, shared by Exec, addressed conversations and Work.
@@ -403,6 +443,7 @@ pub struct ActorCapacity {
     pub company_memory_slots: usize,
     pub shared_memory_slots: Option<usize>,
     pub waiting_for_memory: bool,
+    pub waiting_for_processes: bool,
 }
 
 impl ActorCapacity {
@@ -415,7 +456,7 @@ impl ActorCapacity {
     }
 }
 
-const ACTOR_MEMORY_RESERVATION: u64 = 512 * 1024 * 1024;
+pub(crate) const ACTOR_MEMORY_RESERVATION: u64 = 512 * 1024 * 1024;
 
 fn actor_slots(memory: u64, cpu_max: &str) -> Result<usize> {
     let mut fields = cpu_max.split_whitespace();
@@ -434,7 +475,7 @@ fn actor_slots(memory: u64, cpu_max: &str) -> Result<usize> {
     Ok(memory_slots.min(quota.div_ceil(period).max(1) as usize))
 }
 
-fn actor_cgroup_capacity(path: &Path) -> Result<(usize, usize, bool)> {
+fn actor_cgroup_capacity(path: &Path, job_reserved: u64) -> Result<(usize, usize, bool)> {
     let sample = admission_from_cgroup(path)?;
     let maximum: u64 = std::fs::read_to_string(path.join("memory.max"))?
         .trim()
@@ -443,21 +484,25 @@ fn actor_cgroup_capacity(path: &Path) -> Result<(usize, usize, bool)> {
         .resume_below_bytes
         .min(maximum.saturating_sub(ACTOR_MEMORY_RESERVATION));
     let slots = actor_slots(maximum, &std::fs::read_to_string(path.join("cpu.max"))?)?;
-    let memory_slots = maximum.saturating_sub(sample.working_set_bytes) / ACTOR_MEMORY_RESERVATION;
+    let committed = sample.working_set_bytes.saturating_add(job_reserved);
+    let memory_slots = maximum.saturating_sub(committed) / ACTOR_MEMORY_RESERVATION;
     Ok((
         slots,
         memory_slots as usize,
-        sample.working_set_bytes >= threshold,
+        committed >= threshold,
     ))
 }
 
 pub async fn actor_capacity(company: &str) -> Result<Option<ActorCapacity>> {
     validate_company_name(company)?;
-    if workload_cgroup_parent()?.is_none() {
+    let Some(parent) = workload_cgroup_parent()? else {
         return Ok(None);
-    }
+    };
     let root = PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
-    let (shared_slots, shared_memory_slots, shared_waiting) = actor_cgroup_capacity(&root)?;
+    let job_reserved = crate::burst_jobs::running_job_memory_reservation(&parent).await?;
+    let (shared_slots, shared_memory_slots, shared_waiting) = actor_cgroup_capacity(&root, job_reserved)?;
+    let shared_process_waiting = process_pressure(&root)?;
+    let shared_process_slots = actor_process_slots(&root)?;
     let path = workload_container_scope(&container_name(company))
         .await?
         .context("company Runtime has not joined its workload pool")?;
@@ -465,7 +510,7 @@ pub async fn actor_capacity(company: &str) -> Result<Option<ActorCapacity>> {
         if std::fs::read_to_string(path.join("memory.max"))?.trim() == "max" {
             (shared_slots, shared_memory_slots, false)
         } else {
-            actor_cgroup_capacity(&path)?
+            actor_cgroup_capacity(&path, 0)?
         };
     let current_config = CompanyConfig::load(&state_root(), company)?;
     let applied_memory = std::fs::read_to_string(path.join("memory.max"))?;
@@ -481,12 +526,16 @@ pub async fn actor_capacity(company: &str) -> Result<Option<ActorCapacity>> {
                     .parse::<u64>()
                     .map_or(true, |applied| wanted < applied)
         });
+    let company_process_slots = actor_process_slots(&path)?;
+    let shared_slots = shared_process_slots.map_or(shared_slots, |slots| shared_slots.min(slots));
+    let company_slots = company_process_slots.map_or(company_slots, |slots| company_slots.min(slots));
     Ok(Some(ActorCapacity {
         company_slots: company_slots.min(shared_slots),
         shared_slots: Some(shared_slots),
         company_memory_slots,
         shared_memory_slots: Some(shared_memory_slots),
         waiting_for_memory: shared_waiting || company_waiting || limits_pending,
+        waiting_for_processes: shared_process_waiting || process_pressure(&path)?,
     }))
 }
 
@@ -551,7 +600,7 @@ pub async fn workload_admission(company: &str) -> Result<Option<WorkloadAdmissio
     let Some(shared) = shared_workload_admission()? else {
         return Ok(None);
     };
-    if shared.waiting_for_memory {
+    if shared.waiting() {
         return Ok(Some(shared));
     }
     let path = workload_container_scope(&container_name(company))
@@ -563,7 +612,14 @@ pub async fn workload_admission(company: &str) -> Result<Option<WorkloadAdmissio
 fn container_admission(path: &Path) -> Result<Option<WorkloadAdmission>> {
     // An explicitly uncapped local Runtime still shares its finite parent.
     if std::fs::read_to_string(path.join("memory.max"))?.trim() == "max" {
-        return Ok(None);
+        let waiting_for_processes = process_pressure(path)?;
+        return Ok(waiting_for_processes.then_some(WorkloadAdmission {
+            scope: "company",
+            waiting_for_memory: false,
+            waiting_for_processes,
+            working_set_bytes: 0,
+            resume_below_bytes: u64::MAX,
+        }));
     }
     admission_from_cgroup(path).map(Some)
 }
@@ -572,13 +628,86 @@ fn combine_admission(
     shared: WorkloadAdmission,
     own: Option<WorkloadAdmission>,
 ) -> WorkloadAdmission {
-    if !shared.waiting_for_memory {
-        if let Some(mut own) = own.filter(|own| own.waiting_for_memory) {
+    if !shared.waiting() {
+        if let Some(mut own) = own.filter(|own| own.waiting()) {
             own.scope = "company";
             return own;
         }
     }
     shared
+}
+
+// Keep process-start room below a finite kernel task limit. "max" means the
+// older host has not installed an aggregate task cap; malformed readings fail closed.
+fn process_pressure(root: &std::path::Path) -> Result<bool> {
+    let maximum = std::fs::read_to_string(root.join("pids.max"))
+        .context("workload task limit is unavailable")?;
+    if maximum.trim() == "max" {
+        return Ok(false);
+    }
+    let maximum: u64 = maximum
+        .trim()
+        .parse()
+        .context("invalid workload task limit")?;
+    anyhow::ensure!(maximum > 0, "workload task limit must be positive");
+    let current: u64 = std::fs::read_to_string(root.join("pids.current"))?
+        .trim()
+        .parse()
+        .context("invalid workload task count")?;
+    // Experimental startup headroom; validate against real browser and agent starts.
+    let reserve = (maximum / 10).max(32).min(maximum / 2);
+    Ok(current >= maximum.saturating_sub(reserve))
+}
+
+// Each admitted local actor keeps a process-start reservation until its turn
+// ends. Live counters alone miss processes from concurrently admitted starts.
+// This conservative experimental allowance is not a hard per-actor task cap.
+fn actor_process_slots(root: &Path) -> Result<Option<usize>> {
+    const ACTOR_TASK_RESERVATION: u64 = 32;
+    let maximum = std::fs::read_to_string(root.join("pids.max"))
+        .context("workload task limit is unavailable")?;
+    if maximum.trim() == "max" { return Ok(None); }
+    let maximum: u64 = maximum.trim().parse().context("invalid workload task limit")?;
+    anyhow::ensure!(maximum > 0, "workload task limit must be positive");
+    let current: u64 = std::fs::read_to_string(root.join("pids.current"))?
+        .trim().parse().context("invalid workload task count")?;
+    let baseline = (maximum / 10).max(32).min(maximum / 2);
+    let available = maximum.saturating_sub(baseline).saturating_sub(current);
+    Ok(Some((available / ACTOR_TASK_RESERVATION).min(usize::MAX as u64) as usize))
+}
+
+/// A waiting job needs one task allowance in addition to every admitted
+/// local actor, whose own Docker processes may not be visible yet.
+pub(crate) fn shared_task_headroom_for_job(actor_claims: usize) -> Result<bool> {
+    if workload_cgroup_parent()?.is_none() { return Ok(true); }
+    let root = PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
+    Ok(actor_process_slots(&root)?.is_none_or(|slots| slots > actor_claims))
+}
+
+fn require_process_start_headroom(root: &Path) -> Result<()> {
+    anyhow::ensure!(
+        !process_pressure(root)?,
+        "Account process capacity is busy. Try again when running work has freed capacity."
+    );
+    Ok(())
+}
+
+fn require_shared_process_start_headroom() -> Result<()> {
+    if workload_cgroup_parent()?.is_some() {
+        let root = PathBuf::from(std::env::var("RESTLESS_WORKLOAD_CGROUP_ROOT")?);
+        require_process_start_headroom(&root)?;
+        let claims = LOCAL_ACTOR_START_CLAIMS.load(Ordering::SeqCst);
+        anyhow::ensure!(shared_task_headroom_for_job(claims)?,
+            "Account process capacity is busy. Try again when running work has freed capacity.");
+        let admission = admission_from_cgroup(&root)?;
+        let reserved = (claims as u64).saturating_mul(ACTOR_MEMORY_RESERVATION);
+        anyhow::ensure!(
+            !admission.waiting_for_memory
+                && admission.working_set_bytes.saturating_add(reserved) < admission.resume_below_bytes,
+            "Account memory capacity is busy. Try again when running work has freed capacity."
+        );
+    }
+    Ok(())
 }
 
 fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
@@ -626,6 +755,7 @@ fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
     Ok(WorkloadAdmission {
         scope: "shared",
         waiting_for_memory: working_set_bytes >= resume_below_bytes,
+        waiting_for_processes: process_pressure(root)?,
         working_set_bytes,
         resume_below_bytes,
     })
@@ -2234,6 +2364,8 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
     match attached.as_deref() {
         Some(id) if id == runtime_id && sites_current && parent_current => {
             if container_state(&name).await? != ContainerStatus::Running {
+                let _account_start = account_lifecycle_guard().await;
+                require_shared_process_start_headroom()?;
                 if config.compute_limits.is_some() {
                     compute_limits::apply_locked(config, ComputeTarget::Computer).await?;
                 }
@@ -2241,10 +2373,19 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
             }
             return Ok(());
         }
-        Some(_) => {
-            remove_computer(company).await;
-        }
-        None => {}
+        _ => {}
+    }
+    // A running, already-correct computer returns above without waiting for
+    // another company's startup. Hold the shared guard only when changing it.
+    let _account_start = account_lifecycle_guard().await;
+    require_shared_process_start_headroom()?;
+    let _browser_control = if attached.is_some() {
+        Some(try_unclaimed_browser_guard(company).await?)
+    } else { None };
+    if attached.is_some() {
+        // Check before retiring an existing desktop so pressure cannot
+        // replace a working computer with an unstartable one.
+        remove_computer(company).await;
     }
     let network = format!("container:{runtime}");
     let computer_of = format!("{COMPUTER_OF_LABEL}={runtime_id}");
@@ -2330,10 +2471,70 @@ async fn ensure_computer(config: &CompanyConfig) -> Result<()> {
     Ok(())
 }
 
-/// Give a running company its computer as the config now says (home sites changed).
-pub async fn refresh_computer(config: &CompanyConfig) -> Result<()> {
-    let _start = company_start_guard(&config.name).await;
-    ensure_computer(config).await
+fn computer_refresh_marker(root: &Path, company: &str) -> Result<PathBuf> {
+    validate_company_name(company)?;
+    Ok(root.join("computer-refresh-pending").join(company))
+}
+
+fn mark_computer_refresh_pending(root: &Path, company: &str) -> Result<()> {
+    let marker = computer_refresh_marker(root, company)?;
+    let parent = marker.parent().context("computer refresh marker parent")?;
+    std::fs::create_dir_all(parent)?;
+    let file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&marker)?;
+    file.sync_all()?;
+    std::fs::File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+fn clear_computer_refresh_pending(root: &Path, company: &str) -> Result<()> {
+    let marker = computer_refresh_marker(root, company)?;
+    match std::fs::remove_file(&marker) {
+        Ok(()) => { std::fs::File::open(marker.parent().context("computer refresh marker parent")?)?.sync_all()?; Ok(()) }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Save desired sites and retain a durable retry if a running computer cannot
+/// be refreshed. The same company lock orders saves, startup and maintenance.
+pub async fn save_home_sites(root: &Path, company: &str, sites: Vec<String>) -> Result<bool> {
+    let _start = company_start_guard(company).await;
+    let mut config = CompanyConfig::load(root, company)?;
+    mark_computer_refresh_pending(root, company)?;
+    config.home_sites = sites;
+    CompanyConfig::save(root, &config)?;
+    match status(company).await {
+        Ok(ContainerStatus::Running) => {}
+        Ok(_) => return Ok(true),
+        Err(error) => { tracing::warn!(company, %error, "saved computer settings await status"); return Ok(true); }
+    }
+    match ensure_computer(&config).await {
+        Ok(()) => { clear_computer_refresh_pending(root, company)?; Ok(false) }
+        Err(error) => { tracing::warn!(company, %error, "saved computer settings await refresh"); Ok(true) }
+    }
+}
+
+pub fn computer_refresh_pending(root: &Path, company: &str) -> Result<bool> {
+    let marker = computer_refresh_marker(root, company)?;
+    match std::fs::metadata(&marker) {
+        Ok(metadata) if metadata.is_file() => Ok(true),
+        Ok(_) => anyhow::bail!("computer refresh marker is not a file"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Maintenance never wakes a stopped computer, and reloads the latest desired
+/// config after acquiring the same lock used by the settings save.
+pub async fn retry_pending_computer_refresh(root: &Path, company: &str) -> Result<bool> {
+    if !computer_refresh_pending(root, company)? { return Ok(false); }
+    let _start = company_start_guard(company).await;
+    if !computer_refresh_pending(root, company)? { return Ok(false); }
+    if status(company).await? != ContainerStatus::Running { return Ok(true); }
+    let config = CompanyConfig::load(root, company)?;
+    ensure_computer(&config).await?;
+    clear_computer_refresh_pending(root, company)?;
+    Ok(false)
 }
 
 /// Stop the company computer, giving Chrome time to flush its profile.
@@ -2844,14 +3045,12 @@ pub(crate) async fn docker_diagnostic(args: &[&str]) -> Result<std::process::Out
                 observe_exec(&slot, async {
                     if let Some(path) = workload_container_scope(name).await? {
                         anyhow::ensure!(
-                            !shared_workload_admission()?
-                                .is_some_and(|sample| sample.waiting_for_memory),
-                            "shared diagnostics are waiting for memory"
+                            !shared_workload_admission()?.is_some_and(|sample| sample.waiting()),
+                            "shared diagnostics are waiting for capacity"
                         );
                         anyhow::ensure!(
-                            !container_admission(&path)?
-                                .is_some_and(|sample| sample.waiting_for_memory),
-                            "company diagnostics are waiting for memory"
+                            !container_admission(&path)?.is_some_and(|sample| sample.waiting()),
+                            "company diagnostics are waiting for capacity"
                         );
                     }
                     if name.starts_with(&container_name("")) {
@@ -2897,7 +3096,7 @@ fn observation_exec_index(args: &[&str]) -> Result<Option<usize>> {
                 return args
                     .get(index + 1)
                     .map(|_| Some(index + 1))
-                    .context("Docker exec target is missing")
+                    .context("Docker exec target is missing");
             }
             "-u" | "--user" | "-w" | "--workdir" | "-e" | "--env" | "--env-file"
             | "--detach-keys" => index += 2,
@@ -2974,6 +3173,30 @@ pub async fn running_configured_companies(configs: &[CompanyConfig]) -> Result<V
         configs,
         &String::from_utf8_lossy(&output.stdout),
     ))
+}
+
+/// Observe a company Runtime for recovery without interpreting a Docker error
+/// as an absent or stopped container. The caller holds the company start lock.
+pub(crate) async fn recovery_runtime_running(company: &str) -> Result<bool> {
+    validate_company_name(company)?;
+    let name = container_name(company);
+    let filter = format!("name=^/{name}$");
+    let output = docker_bounded(
+        &["ps", "-a", "--filter", &filter, "--format", "{{.Names}}\t{{.State}}"],
+        Duration::from_secs(10),
+    ).await.context("inspect company Runtime for recovery")?;
+    anyhow::ensure!(output.status.success(), "company Runtime recovery inventory unavailable");
+    let text = String::from_utf8(output.stdout).context("invalid Runtime recovery inventory")?;
+    let mut rows = text.lines();
+    let Some(row) = rows.next() else { return Ok(false); };
+    anyhow::ensure!(rows.next().is_none(), "ambiguous company Runtime recovery inventory");
+    let (observed, state) = row.split_once('\t').context("invalid Runtime recovery state")?;
+    anyhow::ensure!(observed == name, "unexpected company Runtime identity");
+    match state {
+        "running" => Ok(true),
+        "created" | "exited" | "dead" => Ok(false),
+        _ => bail!("company Runtime is transitioning; recovery will retry"),
+    }
 }
 
 /// Observe the entire owner catalogue in one Docker round trip. Catalogue
@@ -3105,10 +3328,12 @@ pub async fn up_automatically(config: &CompanyConfig) -> Result<Option<String>> 
 }
 
 async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
+    let mut account_start = None;
     let company = &config.name;
     let mut current = config.clone();
     if let Ok(latest) = CompanyConfig::load(&state_root(), company) {
         current.compute_limits = latest.compute_limits;
+        current.home_sites = latest.home_sites;
     }
     let config = &current;
     let internal_network = if config.internal_network {
@@ -3130,6 +3355,16 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                 || !container_mounts_attachments(company).await?
                 || !container_uses_workload_parent(&container_name(company)).await?)
         {
+            // Preserve the old shell if process capacity cannot admit its replacement.
+            account_start = Some(account_lifecycle_guard().await);
+            require_shared_process_start_headroom()?;
+            // A stopped Runtime cannot host an active browser lease, and its
+            // browser-control file cannot be read through Docker exec.
+            let _browser_control = if status(company).await? == ContainerStatus::Running {
+                Some(try_unclaimed_browser_guard(company).await?)
+            } else {
+                None
+            };
             // Reconciliation replaces the shell. A configured monthly hours
             // cap must gate that replacement before it stops live work.
             crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
@@ -3173,6 +3408,8 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
         }
         ContainerStatus::Stopped => {
             if !replaced {
+                account_start = Some(account_lifecycle_guard().await);
+                require_shared_process_start_headroom()?;
                 crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
             }
             let name = container_name(company);
@@ -3187,6 +3424,8 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
         }
         ContainerStatus::Absent => {
             if !replaced {
+                account_start = Some(account_lifecycle_guard().await);
+                require_shared_process_start_headroom()?;
                 crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
             }
             let volume = volume_name(company);
@@ -3337,10 +3576,17 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             }
         }
     }
+    // Browser creation takes the same guard separately; never hold it twice.
+    drop(account_start);
     // The company computer beside its Runtime (S104 F2). A computer that fails to start leaves the
     // agents working; the doctor reports the missing desktop.
-    if let Err(error) = ensure_computer(config).await {
-        tracing::warn!(company = %config.name, error = %format!("{error:#}"), "company computer did not start");
+    match ensure_computer(config).await {
+        Ok(()) => {
+            if let Err(error) = clear_computer_refresh_pending(&state_root(), company) {
+                tracing::warn!(company, %error, "computer refresh marker remains pending");
+            }
+        }
+        Err(error) => tracing::warn!(company = %config.name, error = %format!("{error:#}"), "company computer did not start"),
     }
     seed_mission(config).await?;
     // A logo agents cannot copy is a lesser company, not a broken one.
@@ -3427,7 +3673,9 @@ async fn ensure_company_internal_network(company: &str) -> Result<String> {
         || namespace != Some(expected_namespace.as_str())
         || actual_profile != Some(profile.as_str())
     {
-        bail!("configured Docker network {network} is not the labeled internal network for company {company}");
+        bail!(
+            "configured Docker network {network} is not the labeled internal network for company {company}"
+        );
     }
     Ok(network)
 }
@@ -3447,7 +3695,9 @@ async fn ensure_container_on_network(company: &str, network: &str) -> Result<()>
         .filter(|attached| !attached.is_empty())
         .collect::<Vec<_>>();
     if attached.len() != 1 || attached[0] != network {
-        bail!("company Runtime {name} must be attached only to its configured internal network {network}; observed {attached:?}");
+        bail!(
+            "company Runtime {name} must be attached only to its configured internal network {network}; observed {attached:?}"
+        );
     }
     Ok(())
 }
@@ -5519,6 +5769,7 @@ pub async fn destroy(
     remove_company_logos(root, company, None).context("remove the company logo")?;
 
     clear_explicit_stop(company)?;
+    clear_computer_refresh_pending(root, company)?;
 
     // The config last: while it exists, the company is nameable and the earlier
     // steps are re-runnable if one of them failed.
@@ -5973,6 +6224,20 @@ mod kept_files_e2e {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn computer_refresh_marker_reports_invalid_state() {
+        let root = std::env::temp_dir().join(format!("restless-refresh-test-{}", uuid::Uuid::new_v4()));
+        let company = "pending_test";
+        assert!(!super::computer_refresh_pending(&root, company).unwrap());
+        super::mark_computer_refresh_pending(&root, company).unwrap();
+        assert!(super::computer_refresh_pending(&root, company).unwrap());
+        super::clear_computer_refresh_pending(&root, company).unwrap();
+        let marker = super::computer_refresh_marker(&root, company).unwrap();
+        std::fs::create_dir(&marker).unwrap();
+        assert!(super::computer_refresh_pending(&root, company).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn clean_mapped_cache_does_not_strand_an_idle_actor() {
         let root = std::env::temp_dir().join(format!(
             "actor_cache_{}_test",
@@ -5981,6 +6246,7 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         for (name, value) in [
             ("memory.max", "805306368"),
+            ("pids.max", "max"),
             ("memory.high", "max"),
             ("memory.current", "358072320"),
             ("cpu.max", "50000 100000"),
@@ -6012,19 +6278,19 @@ mod tests {
         };
         write_stat("");
         assert!(
-            !super::actor_cgroup_capacity(&root).unwrap().2,
+            !super::actor_cgroup_capacity(&root, 0).unwrap().2,
             "the real idle snapshot must admit a turn without waiting for cache aging"
         );
         for protected in ["shmem", "file_dirty", "file_writeback", "unevictable"] {
             write_stat(protected);
             assert!(
-                super::actor_cgroup_capacity(&root).unwrap().2,
+                super::actor_cgroup_capacity(&root, 0).unwrap().2,
                 "{protected} is not clean reclaimable cache"
             );
         }
         std::fs::write(root.join("memory.stat"), "file 303079424\n").unwrap();
         assert!(
-            super::actor_cgroup_capacity(&root).is_err(),
+            super::actor_cgroup_capacity(&root, 0).is_err(),
             "unknown protected memory is not zero"
         );
         std::fs::remove_dir_all(root).unwrap();
@@ -6044,6 +6310,7 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         for (name, value) in [
             ("memory.max", "805306368"),
+            ("pids.max", "max"),
             ("memory.high", "max"),
             ("memory.current", "314572800"),
             (
@@ -6060,12 +6327,14 @@ mod tests {
                 .waiting_for_memory
         );
         assert_eq!(
-            super::actor_cgroup_capacity(&root).unwrap(),
+            super::actor_cgroup_capacity(&root, 0).unwrap(),
             (1, 0, true),
             "a new harness needs startup room"
         );
         std::fs::write(root.join("memory.current"), "52428800").unwrap();
-        assert_eq!(super::actor_cgroup_capacity(&root).unwrap(), (1, 1, false));
+        assert_eq!(super::actor_cgroup_capacity(&root, 0).unwrap(), (1, 1, false));
+        assert_eq!(super::actor_cgroup_capacity(&root, 300 * mib).unwrap(), (1, 0, true),
+            "a live job's unused allowance is not available for an agent");
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -6122,12 +6391,12 @@ mod tests {
     }
 
     use super::{
-        bound_docker_call, company_statuses, container_name, docker_observe,
-        is_immutable_image_digest, is_runtime_review_download, owner_attachment_alias,
-        read_owner_attachment, remove_owner_attachment, resolve_company_image,
-        resolve_resource_bound, running_company_names, sort_source_files, store_owner_attachment,
-        AgentIntelligence, ContainerStatus, NativeHarnessConfig, COMPANY_IMAGE, DEFAULT_CPUS,
-        DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT,
+        AgentIntelligence, COMPANY_IMAGE, ContainerStatus, DEFAULT_CPUS, DEFAULT_MEMORY,
+        DEFAULT_PIDS_LIMIT, NativeHarnessConfig, bound_docker_call, company_statuses,
+        container_name, docker_observe, is_immutable_image_digest, is_runtime_review_download,
+        owner_attachment_alias, read_owner_attachment, remove_owner_attachment,
+        resolve_company_image, resolve_resource_bound, running_company_names, sort_source_files,
+        store_owner_attachment,
     };
 
     #[test]
@@ -6236,10 +6505,12 @@ mission = "Choose intelligence"
             std::time::Duration::from_millis(1),
         )
         .await;
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("docker command exceeded"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("docker command exceeded")
+        );
     }
 
     #[tokio::test]
@@ -6325,9 +6596,11 @@ mission = "Choose intelligence"
         let company = std::env::var("RESTLESS_COMPUTE_SMOKE_COMPANY").unwrap();
         assert!(company.ends_with("_test"));
         super::validate_company_name(&company).unwrap();
-        assert!(!std::env::var("RESTLESS_RESOURCE_NAMESPACE")
-            .unwrap_or_default()
-            .is_empty());
+        assert!(
+            !std::env::var("RESTLESS_RESOURCE_NAMESPACE")
+                .unwrap_or_default()
+                .is_empty()
+        );
         let container = super::container_name(&company);
         async fn probe(container: &str) -> serde_json::Value {
             let output = super::docker_bounded(
@@ -6434,7 +6707,9 @@ mission = "Choose intelligence"
         assert!(super::resource_doctor("guard_test").await.is_none());
         assert_eq!(procs(), before);
         assert_eq!(events(), before_events);
-        println!("30 probes deferred by the busy shared pool while individual Runtime still had headroom; no OCI growth");
+        println!(
+            "30 probes deferred by the busy shared pool while individual Runtime still had headroom; no OCI growth"
+        );
     }
 
     #[tokio::test]
@@ -6533,7 +6808,9 @@ mission = "Choose intelligence"
             before,
             "a timed-out probe must not leave its remote process"
         );
-        println!("30 deferred probes: no process growth or child OOM; actual exec recovered after backoff; remote timeout left no process");
+        println!(
+            "30 deferred probes: no process growth or child OOM; actual exec recovered after backoff; remote timeout left no process"
+        );
     }
 
     #[tokio::test]
@@ -6619,6 +6896,34 @@ mission = "Choose intelligence"
     }
 
     #[test]
+    fn process_capacity_waits_before_a_finite_limit_and_recovers() {
+        let root =
+            std::env::temp_dir().join(format!("task_pressure_{}_test", Uuid::new_v4().simple()));
+        std::fs::create_dir(&root).unwrap();
+        assert!(super::process_pressure(&root).is_err());
+        std::fs::write(root.join("pids.max"), "max").unwrap();
+        assert!(!super::process_pressure(&root).unwrap());
+        assert_eq!(super::actor_process_slots(&root).unwrap(), None);
+        std::fs::write(root.join("pids.max"), "100").unwrap();
+        assert!(super::process_pressure(&root).is_err());
+        std::fs::write(root.join("pids.current"), "35").unwrap();
+        assert_eq!(super::actor_process_slots(&root).unwrap(), Some(1));
+        std::fs::write(root.join("pids.current"), "67").unwrap();
+        assert_eq!(super::actor_process_slots(&root).unwrap(), Some(0));
+        assert!(!super::process_pressure(&root).unwrap());
+        std::fs::write(root.join("pids.current"), "68").unwrap();
+        assert!(super::process_pressure(&root).unwrap());
+        assert!(super::require_process_start_headroom(&root).is_err());
+        std::fs::write(root.join("pids.current"), "20").unwrap();
+        super::require_process_start_headroom(&root).unwrap();
+        assert!(!super::process_pressure(&root).unwrap());
+        std::fs::write(root.join("pids.max"), "0").unwrap();
+        assert!(super::process_pressure(&root).is_err());
+        assert!(super::actor_process_slots(&root).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn individual_runtime_waits_even_when_shared_memory_is_available() {
         let root = std::env::temp_dir().join(format!(
             "runtime_admission_{}_test",
@@ -6626,6 +6931,7 @@ mission = "Choose intelligence"
         ));
         std::fs::create_dir(&root).unwrap();
         let write = |name: &str, value: &str| std::fs::write(root.join(name), value).unwrap();
+        write("pids.max", "max");
         write("memory.max", "805306368");
         write("memory.high", "max");
         write("memory.current", "629145600");
@@ -6636,6 +6942,7 @@ mission = "Choose intelligence"
         let shared = || super::WorkloadAdmission {
             scope: "shared",
             waiting_for_memory: false,
+            waiting_for_processes: false,
             working_set_bytes: 100,
             resume_below_bytes: 1000,
         };
@@ -6664,6 +6971,7 @@ mission = "Choose intelligence"
         ));
         std::fs::create_dir(&root).unwrap();
         let write = |name: &str, value: &str| std::fs::write(root.join(name), value).unwrap();
+        write("pids.max", "max");
         write("memory.max", "1000");
         write("memory.high", "900");
         write("memory.current", "950");
@@ -6858,9 +7166,11 @@ mission = "Choose intelligence"
             cpu: 1,
             cpu_limit: Some(1.0),
         };
-        assert!(super::compute_sample(&before, reset, 0.2)
-            .cpu_used_cores
-            .is_none());
+        assert!(
+            super::compute_sample(&before, reset, 0.2)
+                .cpu_used_cores
+                .is_none()
+        );
     }
 
     #[test]
@@ -7066,11 +7376,11 @@ mission = "Choose intelligence"
     use std::path::Path;
 
     use super::{
+        AgentHarness, CANONICAL_COMPANY_FILE, CompanyConfig, SpendCeiling,
         is_runtime_review_file_target, move_active_config_to_archive,
         move_archived_config_to_active, normalize_expired_browser_control, resolve_review_file,
         review_file_media_type, runtime_http_target, runtime_review_file_root,
-        runtime_review_text_path, AgentHarness, CompanyConfig, SpendCeiling,
-        CANONICAL_COMPANY_FILE,
+        runtime_review_text_path,
     };
 
     #[test]
@@ -7113,9 +7423,11 @@ outcome_standard = "frontier"
 "#,
         )
         .unwrap();
-        assert!(!toml::to_string(&config)
-            .unwrap()
-            .contains("outcome_standard"));
+        assert!(
+            !toml::to_string(&config)
+                .unwrap()
+                .contains("outcome_standard")
+        );
     }
 
     #[test]
@@ -7343,11 +7655,13 @@ reasoning_effort = "high"
 
         let mut unknown_codex_tariff = codex.clone();
         unknown_codex_tariff.model = "litellm/gpt-5.7-unpriced".into();
-        assert!(unknown_codex_tariff
-            .validate_harness_models()
-            .unwrap_err()
-            .to_string()
-            .contains("no pinned metering tariff"));
+        assert!(
+            unknown_codex_tariff
+                .validate_harness_models()
+                .unwrap_err()
+                .to_string()
+                .contains("no pinned metering tariff")
+        );
 
         let mut claude: CompanyConfig = toml::from_str(
             r#"name = "claude_test"
@@ -7362,18 +7676,22 @@ worker_harness = "claude_agent"
         claude.validate_harness_models().unwrap();
 
         claude.model = "anthropic/claude-sonnet-future".into();
-        assert!(claude
-            .validate_harness_models()
-            .unwrap_err()
-            .to_string()
-            .contains("no pinned metering tariff"));
+        assert!(
+            claude
+                .validate_harness_models()
+                .unwrap_err()
+                .to_string()
+                .contains("no pinned metering tariff")
+        );
         claude.model = "anthropic/claude-sonnet-4-6".into();
         claude.reasoning_effort = "xhigh".into();
-        assert!(claude
-            .validate_harness_models()
-            .unwrap_err()
-            .to_string()
-            .contains("reasoning_effort"));
+        assert!(
+            claude
+                .validate_harness_models()
+                .unwrap_err()
+                .to_string()
+                .contains("reasoning_effort")
+        );
     }
 
     #[test]

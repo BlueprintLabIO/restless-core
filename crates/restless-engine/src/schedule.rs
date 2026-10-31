@@ -16,7 +16,7 @@ use restless_orgintel::{OrgIntel, WorkAttemptState};
 use tokio_util::sync::CancellationToken;
 
 use crate::runtime::{self, CompanyConfig, ContainerStatus};
-use crate::{exec, Daemon};
+use crate::{Daemon, exec};
 
 /// LISTEN/NOTIFY, the exact next-due timer and the OS wake entry are the normal
 /// sources. This slow sweep repairs a lost listener or newly added cell; it is
@@ -419,7 +419,7 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
         return OVERDUE_RETRY_INTERVAL;
     }
     let memory_wait = match runtime::shared_workload_admission() {
-        Ok(Some(admission)) => admission.waiting_for_memory,
+        Ok(Some(admission)) => admission.waiting(),
         Ok(None) => false,
         Err(_) => true,
     };
@@ -448,7 +448,7 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
         let runtime_sleeping = !runtime_running && runtime::is_sleeping(&company);
         if runtime_running && org.has_ready_work().await.unwrap_or(false) {
             let company_wait = match runtime::workload_admission(&company).await {
-                Ok(Some(admission)) => admission.waiting_for_memory,
+                Ok(Some(admission)) => admission.waiting(),
                 Ok(None) => false,
                 Err(_) => true,
             };
@@ -499,6 +499,7 @@ async fn scan_all_companies(daemon: &Arc<Daemon>, in_flight: &InFlight) {
 }
 
 async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str) {
+    if daemon.staff.recovery_pending(company) { return; }
     // Hold one admission lease across observation, claim and dispatch. A
     // replacement therefore sees either this scan or the actor it launched,
     // never a false idle gap between them.
@@ -1577,6 +1578,10 @@ async fn run_exec_turn_with_lease(
 
 /// Fire a free-form Exec conversation. It never owns or mutates Work.
 async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, reason: &str) {
+    if daemon.staff.recovery_pending(company) {
+        in_flight.lock().expect("in-flight guard").queue(company, reason);
+        return;
+    }
     let Some(_lifecycle_lease) = daemon.lifecycle.try_enter() else {
         return;
     };
@@ -1680,8 +1685,8 @@ async fn fire_pending(daemon: &Arc<Daemon>, in_flight: &InFlight) {
 #[cfg(test)]
 mod tests {
     use super::{
-        actor_exclusions, exec_wake_is_interrupted, is_exec_self_message, is_message_wake,
-        WakeClaims,
+        WakeClaims, actor_exclusions, exec_wake_is_interrupted, is_exec_self_message,
+        is_message_wake,
     };
 
     #[test]
@@ -1709,16 +1714,20 @@ mod tests {
             Some("Site is live.")
         );
         // A provider error streamed as text never reaches the owner.
-        assert!(exec_owner_update(
-            Some("429 Rate limit exceeded: free-models-per-min.  retry-after-ms=54287"),
-            true
-        )
-        .is_err());
-        assert!(exec_owner_update(
-            Some("invalid model capability: capability expired at 2026-10-19T16:34:09Z"),
-            false
-        )
-        .is_err());
+        assert!(
+            exec_owner_update(
+                Some("429 Rate limit exceeded: free-models-per-min.  retry-after-ms=54287"),
+                true
+            )
+            .is_err()
+        );
+        assert!(
+            exec_owner_update(
+                Some("invalid model capability: capability expired at 2026-10-19T16:34:09Z"),
+                false
+            )
+            .is_err()
+        );
     }
 
     #[test]

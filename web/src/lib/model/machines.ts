@@ -59,6 +59,7 @@ export interface CompanyMachines {
 	move: MoveProgress | null;
 	/** Sites this company reaches through the owner's own computer, from a home IP. */
 	home_sites?: string[];
+	computer_refresh_pending?: boolean | null;
 }
 
 export async function listMachines(): Promise<Machine[]> {
@@ -133,7 +134,7 @@ export function unassignHelper(id: string, machine: string) {
 
 /** The sites the company reaches through its helper computers. */
 export function setHomeSites(id: string, sites: string[]) {
-	return ownerRequest<{ home_sites: string[] }>(`${company(id)}/home-sites`, {
+	return ownerRequest<{ home_sites: string[]; computer_refresh_pending?: boolean }>(`${company(id)}/home-sites`, {
 		method: 'PUT',
 		json: { sites }
 	});

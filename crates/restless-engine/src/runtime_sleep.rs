@@ -218,6 +218,15 @@ pub async fn run(daemon: Arc<Daemon>) {
                 quiet_since.remove(company);
                 continue;
             }
+            if runtime::computer_refresh_pending(&daemon.root, company).unwrap_or(false) {
+                // This is an optimistic check; the replacement path takes the
+                // browser lock and rechecks the owner lease before changing it.
+                if matches!(is_quiet(&daemon, company).await, Ok(true)) {
+                    if let Err(error) = runtime::retry_pending_computer_refresh(&daemon.root, company).await {
+                        tracing::debug!(company, %error, "saved computer settings remain pending");
+                    }
+                }
+            }
 
             let cap_reached = if config.monthly_runtime_cap_hours.is_some() {
                 match crate::runtime_usage::cap_reached(&daemon.root, &config).await {

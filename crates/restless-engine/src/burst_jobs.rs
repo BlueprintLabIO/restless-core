@@ -14,7 +14,7 @@
 //! clone of the repository made with a read-only token for that one repository, and a per-company
 //! cache volume as its home so toolchains and build output survive between jobs.
 
-use anyhow::{bail, Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 use sqlx::PgPool;
 
@@ -214,7 +214,9 @@ async fn run_on_machine(
         bail!("give the job a command (up to 8,000 characters)");
     }
     if request.workdir.is_some() {
-        bail!("a job on another computer runs in its own checkout, not under /company; drop --workdir");
+        bail!(
+            "a job on another computer runs in its own checkout, not under /company; drop --workdir"
+        );
     }
     let repo = request
         .repo
@@ -538,7 +540,10 @@ pub async fn run(
         .context("give the job a finite memory limit, such as 512m or 2g")?;
     if let Some(ceiling) = crate::runtime::shared_job_hard_ceiling()? {
         if memory_bytes > ceiling {
-            bail!("This job requests more memory than the account can admit. Request at most {} MiB or increase the account limit; no job was started.", ceiling / (1024 * 1024));
+            bail!(
+                "This job requests more memory than the account can admit. Request at most {} MiB or increase the account limit; no job was started.",
+                ceiling / (1024 * 1024)
+            );
         }
     }
     let _submission = tokio::time::timeout(
@@ -693,6 +698,42 @@ pub async fn run(
     }))
 }
 
+/// Sum the hard memory limits of all live heavy jobs in the shared pool.
+/// Called under account start admission. Missing or changing inventory fails
+/// closed, since an accepted job may still allocate up to its hard limit.
+pub(crate) async fn running_job_memory_reservation(parent: &str) -> Result<u64> {
+    let output = crate::runtime::docker_bounded(
+        &["ps", "-a", "--filter", "label=restless.job=1", "--filter", "status=running",
+          "--filter", "status=paused", "--filter", "status=restarting", "--format", "{{.Names}}"],
+        std::time::Duration::from_secs(10),
+    ).await.context("list running heavy jobs")?;
+    anyhow::ensure!(output.status.success(), "running heavy job inventory unavailable");
+    let text = String::from_utf8(output.stdout).context("invalid heavy job inventory")?;
+    let names = text.lines().collect::<Vec<_>>();
+    if names.is_empty() { return Ok(0); }
+    let mut args = vec!["inspect", "-f",
+        r#"{"name":{{json .Name}},"parent":{{json .HostConfig.CgroupParent}},"state":{{json .State.Status}},"memory":{{.HostConfig.Memory}}}"#];
+    args.extend(names.iter().copied());
+    let output = crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(10))
+        .await.context("inspect running heavy job limits")?;
+    anyhow::ensure!(output.status.success(), "running heavy job limits unavailable");
+    let text = String::from_utf8(output.stdout).context("invalid heavy job limits")?;
+    let mut count = 0usize;
+    let mut total = 0u64;
+    for line in text.lines() {
+        let row: serde_json::Value = serde_json::from_str(line)?;
+        count += 1;
+        let state = row["state"].as_str().context("missing heavy job state")?;
+        if row["parent"].as_str().context("missing heavy job pool")? != parent { continue; }
+        if !matches!(state, "running" | "paused" | "restarting") { continue; }
+        let memory = row["memory"].as_u64().filter(|value| *value > 0)
+            .context("running heavy job has no finite memory limit")?;
+        total = total.saturating_add(memory);
+    }
+    anyhow::ensure!(count == names.len(), "incomplete heavy job limits");
+    Ok(total)
+}
+
 /// Reconcile the Docker-owned pending jobs from the existing schedule loop.
 /// Created containers retain the exact job across a daemon restart without
 /// starting its command; only this loop starts them. Unknown resource readings
@@ -839,7 +880,6 @@ pub async fn reconcile_pending(daemon: &crate::Daemon, companies: &[String]) -> 
         }
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), lock.rollback()).await;
     }
-    let shared = crate::runtime::shared_workload_admission()?;
     let reserved = jobs
         .iter()
         .filter(|job| matches!(job.3.as_str(), "running" | "paused" | "restarting"))
@@ -854,21 +894,39 @@ pub async fn reconcile_pending(daemon: &crate::Daemon, companies: &[String]) -> 
         .iter()
         .filter(|job| job.3 == "created" && job.5 && !job.1.ends_with("-preparing"))
     {
-        if let Some(admission) = &shared {
-            if admission.waiting_for_memory
+        if daemon.staff.recovery_pending(company) {
+            continue;
+        }
+        // Serialize with owner stop, sleep and destruction through the same
+        // per-company lifecycle lock used by those operations.
+        let _company_guard = crate::runtime::company_start_guard(company).await;
+        // Recheck capacity while serialized with Runtime/browser lifecycle starts.
+        // The guard covers Docker's start response so the next observation can
+        // see the new job. A timed-out Docker start still needs reconciliation.
+        let _account_start = crate::runtime::account_lifecycle_guard().await;
+        // Actor claims include starts that are not yet in the live counters.
+        // Count them while holding the same lock used to reserve new actors.
+        let Some((_, actor_claims)) = daemon.staff.resource_counts(company) else {
+            continue;
+        };
+        if !crate::runtime::shared_task_headroom_for_job(actor_claims)? {
+            continue;
+        }
+        if let Some(admission) = crate::runtime::shared_workload_admission()? {
+            let actor_memory = (actor_claims as u64)
+                .saturating_mul(crate::runtime::ACTOR_MEMORY_RESERVATION);
+            if admission.waiting()
                 || memory == &0
                 || admission
                     .working_set_bytes
                     .saturating_add(reserved)
+                    .saturating_add(actor_memory)
                     .saturating_add(*memory)
                     > admission.resume_below_bytes
             {
                 continue;
             }
         }
-        // Serialize with owner stop, sleep and destruction through the same
-        // per-company lifecycle lock used by those operations.
-        let _company_guard = crate::runtime::company_start_guard(company).await;
         // A stopped or removed Runtime must not be woken by a queued job.
         if !matches!(
             crate::runtime::status(company).await,
@@ -877,7 +935,7 @@ pub async fn reconcile_pending(daemon: &crate::Daemon, companies: &[String]) -> 
             continue;
         }
         match crate::runtime::workload_admission(company).await {
-            Ok(Some(admission)) if admission.waiting_for_memory => continue,
+            Ok(Some(admission)) if admission.waiting() => continue,
             Ok(_) => {}
             Err(error) => {
                 tracing::warn!(company, %error, "waiting job could not read company capacity");
@@ -1078,6 +1136,14 @@ pub fn request(value: Option<&serde_json::Value>) -> Result<JobRequest> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    #[ignore = "requires isolated Docker job containers in RESTLESS_TEST_JOB_PARENT"]
+    async fn running_job_reservation_counts_only_its_shared_pool() {
+        let parent = std::env::var("RESTLESS_TEST_JOB_PARENT").unwrap();
+        assert!(parent.starts_with("restless-s109job") && parent.ends_with(".slice"));
+        assert_eq!(super::running_job_memory_reservation(&parent).await.unwrap(), 256 * 1024 * 1024);
+    }
+
     #[test]
     fn job_memory_parsing_is_finite_and_checked() {
         assert_eq!(super::job_memory_bytes("512m"), Some(512 * 1024 * 1024));
@@ -1144,10 +1210,12 @@ mod tests {
         let ok =
             super::request(Some(&serde_json::json!({"command": "make", "cpus": 2.0}))).unwrap();
         assert_eq!(ok.command, "make");
-        assert!(super::request(Some(
-            &serde_json::json!({"command": "x", "privileged": true})
-        ))
-        .is_err());
+        assert!(
+            super::request(Some(
+                &serde_json::json!({"command": "x", "privileged": true})
+            ))
+            .is_err()
+        );
         assert!(super::request(None).is_err());
         let on = super::request(Some(&serde_json::json!({
             "command": "cargo test", "on": "Yail's PC", "repo": "a/b", "ref": "main"

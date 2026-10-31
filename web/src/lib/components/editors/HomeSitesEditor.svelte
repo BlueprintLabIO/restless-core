@@ -22,7 +22,7 @@
 		/** The owner's own computers that could carry them. */
 		choices: Machine[];
 		sites: string[];
-		onsaved: () => unknown;
+		onsaved: (pending: boolean) => unknown;
 	} = $props();
 
 	const id = $props.id();
@@ -48,8 +48,8 @@
 		error = '';
 		try {
 			if (target && target !== helper) await assignHelper(companyId, target);
-			await setHomeSites(companyId, listed);
-			await onsaved();
+			const result = await setHomeSites(companyId, listed);
+			await onsaved(result.computer_refresh_pending === true);
 		} catch (cause) {
 			error = failureSentence(cause, 'The sites were not saved.');
 		}

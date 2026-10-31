@@ -3,11 +3,11 @@
 //! The registry below observes live processes and enforces a small resource
 //! cap; it never owns delegation or task state.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{bail, Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use restless_orgintel::ClaimedWork;
 use sha2::Digest as _;
 use tokio_util::sync::CancellationToken;
@@ -23,15 +23,15 @@ mod workspace;
 use crate::runtime::{self, CompanyConfig};
 use crate::spend::SpendLedger;
 use context::{bound_attempt_context, shared_spine};
-pub use conversation::{dispatch_actor_conversation, ConversationRuntime};
-use execution::{run_staff_with_failover, StaffRun, StaffTurnKind};
+pub use conversation::{ConversationRuntime, dispatch_actor_conversation};
+use execution::{StaffRun, StaffTurnKind, run_staff_with_failover};
 pub use recovery::reconcile_execution_substrate;
 use recovery::{
-    record_hosted_staff_outcome, record_staff_outcome, record_unknown_recovery, StaffAttemptContext,
+    StaffAttemptContext, record_hosted_staff_outcome, record_staff_outcome, record_unknown_recovery,
 };
 use workspace::{
-    cleanup_attempt_runtime, ensure_hosted_worktree, ensure_worktree, observe_workspace,
-    recorded_start_observation, valid_slug, workdir_for, WorkspaceObservation,
+    WorkspaceObservation, cleanup_attempt_runtime, ensure_hosted_worktree, ensure_worktree,
+    observe_workspace, recorded_start_observation, valid_slug, workdir_for,
 };
 
 #[cfg(test)]
@@ -217,6 +217,7 @@ impl Drop for CognitiveLeaseGuard {
 pub struct StaffRegistry {
     running: Arc<Mutex<HashMap<ActorKey, RunningStaff>>>,
     resources: ResourceClaims,
+    recovery_pending: Arc<Mutex<HashSet<String>>>,
     resource_retry: Arc<AtomicBool>,
     resource_limits: Arc<Mutex<HashMap<String, (std::time::Instant, runtime::ActorCapacity)>>>,
     /// Coordination messages remain durable in OrgIntel. This local timer
@@ -234,6 +235,7 @@ pub struct ActorResourcePermit {
     id: uuid::Uuid,
     wake: Arc<tokio::sync::Notify>,
     started: bool,
+    local_start_claim: bool,
 }
 
 impl ActorResourcePermit {
@@ -244,6 +246,9 @@ impl ActorResourcePermit {
 
 impl Drop for ActorResourcePermit {
     fn drop(&mut self) {
+        if self.local_start_claim {
+            runtime::release_local_actor_start_claim();
+        }
         if let Ok(mut claims) = self.claims.lock() {
             claims.remove(&self.id);
         }
@@ -265,12 +270,38 @@ impl std::fmt::Display for CapacityDeferred {
 impl std::error::Error for CapacityDeferred {}
 
 impl StaffRegistry {
+    pub fn recovery_pending(&self, company: &str) -> bool {
+        self.recovery_pending.lock().map_or(true, |pending| pending.contains(company))
+    }
+
+    pub fn set_recovery_pending(&self, company: &str, waiting: bool) {
+        if let Ok(mut pending) = self.recovery_pending.lock() {
+            if waiting { pending.insert(company.to_string()); } else { pending.remove(company); }
+        }
+    }
+
     pub async fn reserve_actor_capacity(
         &self,
         company: &str,
         bridges: &crate::runtime_bridge::RuntimeBridgeRegistry,
         wake: &Arc<tokio::sync::Notify>,
     ) -> Result<Option<ActorResourcePermit>> {
+        if self.recovery_pending(company) {
+            self.resource_retry.store(true, Ordering::SeqCst);
+            return Ok(None);
+        }
+        // Coordinate observation and reservation with queued job starts.
+        // A job either sees this claim, or completes its start before the
+        // actor observes the shared pool.
+        let _account_start = if bridges.is_hosted() {
+            None
+        } else {
+            Some(runtime::account_lifecycle_guard().await)
+        };
+        if self.recovery_pending(company) {
+            self.resource_retry.store(true, Ordering::SeqCst);
+            return Ok(None);
+        }
         let capacity = if bridges.is_hosted() {
             // Paired machines execute outside this host's work pool.
             runtime::ActorCapacity {
@@ -279,6 +310,7 @@ impl StaffRegistry {
                 company_memory_slots: usize::MAX,
                 shared_memory_slots: None,
                 waiting_for_memory: false,
+                waiting_for_processes: false,
             }
         } else {
             match runtime::actor_capacity(company).await {
@@ -290,6 +322,7 @@ impl StaffRegistry {
                     company_memory_slots: usize::MAX,
                     shared_memory_slots: None,
                     waiting_for_memory: false,
+                    waiting_for_processes: false,
                 },
                 Err(error) => {
                     self.resource_retry.store(true, Ordering::SeqCst);
@@ -301,7 +334,14 @@ impl StaffRegistry {
             .lock()
             .map_err(|_| anyhow::anyhow!("actor capacity observation"))?
             .insert(company.to_string(), (std::time::Instant::now(), capacity));
-        self.try_reserve_actor_capacity(company, capacity, wake)
+        let mut permit = self.try_reserve_actor_capacity(company, capacity, wake)?;
+        if !bridges.is_hosted() {
+            if let Some(permit) = permit.as_mut() {
+                runtime::register_local_actor_start_claim();
+                permit.local_start_claim = true;
+            }
+        }
+        Ok(permit)
     }
 
     fn try_reserve_actor_capacity(
@@ -316,7 +356,8 @@ impl StaffRegistry {
             .map_err(|_| anyhow::anyhow!("actor resource guard"))?;
         let company_active = claims.values().filter(|(name, _)| name == company).count();
         let shared_active = claims.values().filter(|(_, shared)| *shared).count();
-        if capacity.waits_for_memory(company_active, shared_active)
+        if capacity.waiting_for_processes
+            || capacity.waits_for_memory(company_active, shared_active)
             || company_active >= capacity.company_slots
             || capacity
                 .shared_slots
@@ -332,6 +373,7 @@ impl StaffRegistry {
             id,
             wake: Arc::clone(wake),
             started: false,
+            local_start_claim: false,
         }))
     }
 
@@ -348,6 +390,7 @@ impl StaffRegistry {
     }
 
     pub fn has_capacity(&self, company: &str) -> bool {
+        if self.recovery_pending(company) { return false; }
         let logical_capacity = self
             .running
             .lock()
@@ -378,6 +421,7 @@ impl StaffRegistry {
         self.resource_counts(company).is_some_and(|(own, shared)| {
             own < limits.company_slots
                 && limits.shared_slots.is_none_or(|slots| shared < slots)
+                && !limits.waiting_for_processes
                 && !limits.waits_for_memory(own, shared)
         })
     }
@@ -1040,48 +1084,87 @@ pub async fn sweep_orphans(
     orgintel: &crate::OrgIntelRegistry,
     registry: &StaffRegistry,
     companies: &[String],
-    running_companies: &[String],
-) {
-    for name in running_companies {
-        let container = runtime::container_name(name);
-        match reap_orphan_gate_processes(&container).await {
-            Ok(reaped) if reaped > 0 => tracing::warn!(
-                company = name,
-                reaped,
-                "reaped governed gate process groups from before restart"
-            ),
-            Ok(_) => {}
-            Err(error) => tracing::warn!(
-                company = name,
-                "could not reap orphan governed gate processes: {error:#}"
-            ),
-        }
-        let reaped = crate::acp::reap_orphan_sessions(&container).await;
-        if reaped > 0 {
-            tracing::warn!(
-                company = name,
-                reaped,
-                "reaped marked agent processes from before restart"
-            );
-        }
-    }
+) -> Vec<String> {
+    let mut failed = HashSet::new();
     for name in companies {
+        // Owner lifecycle changes use this lock too, so a stopped or replaced
+        // Runtime cannot race the observed cleanup and Attempt reconciliation.
+        let _start = runtime::company_start_guard(name).await;
+        let running = match runtime::recovery_runtime_running(name).await {
+            Ok(running) => running,
+            Err(error) => {
+                tracing::warn!(company = name, "could not observe Runtime recovery state: {error:#}");
+                registry.set_recovery_pending(name, true);
+                failed.insert(name.clone());
+                continue;
+            }
+        };
+        if running {
+            match runtime::workload_admission(name).await {
+                Ok(Some(admission)) if admission.waiting_for_memory => {
+                    registry.set_recovery_pending(name, true);
+                    failed.insert(name.clone());
+                    continue;
+                }
+                Err(error) => {
+                    tracing::warn!(company = name, "recovery waits for a resource reading: {error:#}");
+                    registry.set_recovery_pending(name, true);
+                    failed.insert(name.clone());
+                    continue;
+                }
+                _ => {}
+            }
+            if let Err(error) = crate::effect::sweep_orphan_company(name).await {
+                tracing::warn!(company = name, "could not verify orphan effect cleanup: {error:#}");
+                registry.set_recovery_pending(name, true);
+                failed.insert(name.clone());
+                continue;
+            }
+            let container = runtime::container_name(name);
+            match reap_orphan_gate_processes(&container).await {
+                Ok(reaped) if reaped > 0 => tracing::warn!(
+                    company = name,
+                    reaped,
+                    "reaped governed gate process groups from before restart"
+                ),
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(company = name, "could not reap orphan governed gate processes: {error:#}");
+                    failed.insert(name.clone());
+                },
+            }
+            match crate::acp::reap_orphan_sessions(&container).await {
+                Ok(reaped) if reaped > 0 => tracing::warn!(
+                    company = name,
+                    reaped,
+                    "reaped marked agent processes from before restart"
+                ),
+                Ok(_) => {},
+                Err(error) => {
+                    tracing::warn!(company = name, "could not verify orphan agent cleanup: {error:#}");
+                    failed.insert(name.clone());
+                },
+            }
+        }
+        if failed.contains(name) {
+            registry.set_recovery_pending(name, true);
+            continue;
+        }
         let Ok(org) = orgintel.get(name).await else {
+            registry.set_recovery_pending(name, true);
+            failed.insert(name.clone());
             continue;
         };
-        let container = running_companies
-            .contains(name)
-            .then(|| runtime::container_name(name));
-        let interrupted = org
-            .list_running_work_attempts()
-            .await
-            .map(|attempts| {
-                attempts
-                    .into_iter()
-                    .map(|attempt| attempt.work_id)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let container = running.then(|| runtime::container_name(name));
+        let interrupted = match org.list_running_work_attempts().await {
+            Ok(attempts) => attempts.into_iter().map(|attempt| attempt.work_id).collect::<Vec<_>>(),
+            Err(error) => {
+                tracing::warn!(company = name, "could not inspect interrupted attempts: {error:#}");
+                registry.set_recovery_pending(name, true);
+                failed.insert(name.clone());
+                continue;
+            }
+        };
         recover_unsupervised_attempts(
             &org,
             registry,
@@ -1103,7 +1186,9 @@ pub async fn sweep_orphans(
                 }
             }
         }
+        registry.set_recovery_pending(name, false);
     }
+    failed.into_iter().collect()
 }
 
 /// Close every running Attempt that no process in this daemon supervises. Its
@@ -1173,6 +1258,47 @@ pub async fn recover_unsupervised_attempts(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recovery_pending_is_scoped_to_the_affected_company() {
+        let registry = super::StaffRegistry::default();
+        registry.set_recovery_pending("affected_test", true);
+        assert!(registry.recovery_pending("affected_test"));
+        assert!(!registry.has_capacity("affected_test"));
+        assert!(!registry.recovery_pending("other_test"));
+        assert!(registry.has_capacity("other_test"));
+        registry.set_recovery_pending("affected_test", false);
+        assert!(registry.has_capacity("affected_test"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn actor_process_reservations_exclude_concurrent_starts() {
+        let registry = super::StaffRegistry::default();
+        let wake = std::sync::Arc::new(tokio::sync::Notify::new());
+        let capacity = crate::runtime::ActorCapacity {
+            company_slots: 4,
+            shared_slots: Some(1),
+            company_memory_slots: 10,
+            shared_memory_slots: Some(10),
+            waiting_for_memory: false,
+            waiting_for_processes: false,
+        };
+        let mut tasks = tokio::task::JoinSet::new();
+        for index in 0..20 {
+            let registry = registry.clone();
+            let wake = wake.clone();
+            tasks.spawn(async move {
+                registry.try_reserve_actor_capacity(&format!("company_{index}_test"), capacity, &wake).unwrap()
+            });
+        }
+        let mut permits = Vec::new();
+        while let Some(result) = tasks.join_next().await {
+            if let Some(permit) = result.unwrap() { permits.push(permit); }
+        }
+        assert_eq!(permits.len(), 1, "one observed process slot cannot admit concurrent starts");
+        drop(permits);
+        assert!(registry.try_reserve_actor_capacity("later_test", capacity, &wake).unwrap().is_some());
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn actor_resource_reservations_bound_concurrent_starts_and_release() {
         let registry = super::StaffRegistry::default();
@@ -1183,6 +1309,7 @@ mod tests {
             company_memory_slots: 10,
             shared_memory_slots: Some(10),
             waiting_for_memory: false,
+            waiting_for_processes: false,
         };
         let mut tasks = tokio::task::JoinSet::new();
         for index in 0..30 {
@@ -1212,16 +1339,20 @@ mod tests {
             shared_slots: Some(1),
             ..capacity
         };
-        assert!(registry
-            .try_reserve_actor_capacity("later_test", smaller, &wake)
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .try_reserve_actor_capacity("later_test", smaller, &wake)
+                .unwrap()
+                .is_none()
+        );
         permits.pop();
         permits.pop();
-        assert!(registry
-            .try_reserve_actor_capacity("later_test", smaller, &wake)
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .try_reserve_actor_capacity("later_test", smaller, &wake)
+                .unwrap()
+                .is_none()
+        );
         permits.pop();
         // An unused Work reservation must not create a scheduler wake loop.
         assert!(
@@ -1233,10 +1364,12 @@ mod tests {
             .try_reserve_actor_capacity("later_test", smaller, &wake)
             .unwrap()
             .unwrap();
-        assert!(registry
-            .try_reserve_actor_capacity("later_test", capacity, &wake)
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .try_reserve_actor_capacity("later_test", capacity, &wake)
+                .unwrap()
+                .is_none()
+        );
         permit.activate();
         drop(permit);
         assert!(
@@ -1270,21 +1403,41 @@ mod tests {
             "another company shares the same startup RAM allowance"
         );
         drop(held);
-        let busy = crate::runtime::ActorCapacity {
-            waiting_for_memory: true,
+        let process_busy = crate::runtime::ActorCapacity {
+            waiting_for_processes: true,
             ..capacity
         };
-        assert!(registry
-            .try_reserve_actor_capacity("later_test", busy, &wake)
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .try_reserve_actor_capacity("process_test", process_busy, &wake)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            registry
+                .try_reserve_actor_capacity("process_test", capacity, &wake)
+                .unwrap()
+                .is_some()
+        );
+        let busy = crate::runtime::ActorCapacity {
+            waiting_for_memory: true,
+            waiting_for_processes: false,
+            ..capacity
+        };
+        assert!(
+            registry
+                .try_reserve_actor_capacity("later_test", busy, &wake)
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(registry.resource_counts("later_test"), Some((0, 0)));
     }
 
     use super::{
-        actor_posture, bound_attempt_context, conversation_turn_prompt, final_staff_usage,
-        gate_cwd, internal_message_context, staff_spend_limit_reached, team_capacity_context,
-        termination_prompt, workspace_instruction, StaffRegistry, WorkspaceObservation,
+        StaffRegistry, WorkspaceObservation, actor_posture, bound_attempt_context,
+        conversation_turn_prompt, final_staff_usage, gate_cwd, internal_message_context,
+        staff_spend_limit_reached, team_capacity_context, termination_prompt,
+        workspace_instruction,
     };
     use crate::acp::TurnUsage;
     use crate::model_gateway::ModelBilling;
@@ -1525,8 +1678,11 @@ mod tests {
         assert!(!context.contains("the active team charter and roster when present"));
         assert!(context.contains("Runtime binds this Attempt's clean terminal commit and tree"));
         assert!(context.contains("may materialize that evidence themselves"));
-        assert!(context
-            .contains("declare `outcome_met` even if gate-generated evidence does not exist yet"));
+        assert!(
+            context.contains(
+                "declare `outcome_met` even if gate-generated evidence does not exist yet"
+            )
+        );
         assert!(!context.contains(&format!(
             "restless work artifact --work {work_id} --attempt {}",
             claimed.attempt_id
@@ -1541,9 +1697,11 @@ mod tests {
             accounting["retrieved_depth"]["at_launch"],
             serde_json::json!([])
         );
-        assert!(accounting["automatically_attached"]["system_context"]
-            .get("active_team_capacity")
-            .is_none());
+        assert!(
+            accounting["automatically_attached"]["system_context"]
+                .get("active_team_capacity")
+                .is_none()
+        );
 
         claimed.inputs.push(ArtifactRefRow {
             id: uuid::Uuid::new_v4(),
@@ -1605,7 +1763,9 @@ mod tests {
         )));
         assert!(review_context.contains("/company/outputs/playable-room.html"));
         assert!(review_context.contains(restless_orgintel::REVIEW_TARGET_LIVE_PROBE_GATE));
-        assert!(!review_context.contains("--kind output --uri /company/outputs/playable-room.html"));
+        assert!(
+            !review_context.contains("--kind output --uri /company/outputs/playable-room.html")
+        );
 
         claimed.review_targets = vec![uuid::Uuid::new_v4()];
         let (critic_context, critic_accounting) = bound_attempt_context(
@@ -1616,8 +1776,10 @@ mod tests {
             false,
         );
         assert!(critic_context.contains("# Critic posture [independent judgement]"));
-        assert!(critic_context
-            .contains("Judge the customer-facing outcome before policing constraints"));
+        assert!(
+            critic_context
+                .contains("Judge the customer-facing outcome before policing constraints")
+        );
         assert!(critic_context.contains("Quality comes first"));
         assert!(!critic_context.contains("# Producer posture [creative ownership]"));
         assert_eq!(
@@ -1639,12 +1801,18 @@ mod tests {
         assert!(rules.contains("prove that another actor contributed"));
         assert!(rules.contains("not the lead's plan, reasoning, checklist"));
         assert!(rules.contains("do not commission promotion-only Work"));
-        assert!(crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
-            .contains("Never let a stale report decide a repaired candidate"));
-        assert!(crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
-            .contains("evidence, not owner delivery"));
-        assert!(crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
-            .contains("exactly one current available ReviewTarget"));
+        assert!(
+            crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
+                .contains("Never let a stale report decide a repaired candidate")
+        );
+        assert!(
+            crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
+                .contains("evidence, not owner delivery")
+        );
+        assert!(
+            crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
+                .contains("exactly one current available ReviewTarget")
+        );
 
         let lead = actor_posture(true);
         assert!(lead.contains("ACCOUNTABLE LEAD"));
@@ -1742,9 +1910,11 @@ mod tests {
                 .expect("a Work Attempt within the bound");
         }
         assert!(!registry.has_work_capacity("company_test"));
-        assert!(registry
-            .try_claim("company_test", "one-more", Some(uuid::Uuid::new_v4()))
-            .is_err());
+        assert!(
+            registry
+                .try_claim("company_test", "one-more", Some(uuid::Uuid::new_v4()))
+                .is_err()
+        );
         // Another company, and a conversation turn here, still start.
         assert!(registry.has_work_capacity("company_other"));
         registry
@@ -1876,16 +2046,19 @@ mod tests {
             .expect("recovery evidence reaches the accountable coordinator");
         assert_eq!(notice.from_actor, "daemon");
         assert!(notice.body.contains("productive outcome is UNKNOWN"));
-        assert!(!inbox
-            .iter()
-            .any(|message| message.body.contains(&live_attempt.to_string())));
+        assert!(
+            !inbox
+                .iter()
+                .any(|message| message.body.contains(&live_attempt.to_string()))
+        );
         org.abandon_work(lost_work, "exec", "superseded")
             .await
             .expect("an unsupervised Attempt no longer blocks abandonment");
-        assert!(org
-            .abandon_work(live_work, "exec", "superseded")
-            .await
-            .is_err());
+        assert!(
+            org.abandon_work(live_work, "exec", "superseded")
+                .await
+                .is_err()
+        );
         org.drop_schema().await.expect("drop scratch schema");
     }
 }

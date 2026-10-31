@@ -162,11 +162,13 @@
 	</Row>
 	<Row
 		label="New AI turns"
-		info="Messages and Work stay in their existing queues until memory and a turn slot are available. This includes Exec and teammate conversations."
+		info="Messages and Work stay in their existing queues until memory, process capacity and a turn slot are available. This includes Exec and teammate conversations."
 	>
 		<span
 			>{sample?.work_admission && !missingActorReading
-				? sample.work_admission.waiting_for_memory || actors?.waiting_for_memory
+				? sample.work_admission.waiting_for_processes || actors?.waiting_for_processes
+                    ? 'Waiting for process capacity'
+                    : sample.work_admission.waiting_for_memory || actors?.waiting_for_memory
 					? sample.work_admission.scope === 'company'
 						? 'Company RAM busy'
 						: 'Waiting for memory'
