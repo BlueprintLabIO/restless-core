@@ -339,3 +339,14 @@ agent finished. The owner endpoint remained available and all test resources
 were removed. This uses one company and a synthetic provider. It does not
 establish the reverse job-first scenario, simultaneous agent launches, browser
 coordination, cancellation, delayed starts or production behavior.
+
+The local real-Exec/job smoke now also passes in the reverse order on daemon
+SHA-256 bce23548d4939b5d9c53af2c0ae0932431c683f781d87d7abe7889e198900061.
+With a bounded shared pool, a real running job's configured memory allowance
+made agent capacity report waiting while the live working set alone was below
+the threshold. A new owner message made no model call during the observed
+hold; after the job finished the Exec contacted the scripted local provider.
+The agent-first case also passed again, the owner endpoint stayed healthy,
+and cleanup succeeded. The test uses one company and does not establish
+simultaneous submission races, multiple agents or owners, browser starts,
+late Docker operations or production behavior.

@@ -32,7 +32,7 @@ with tempfile.TemporaryDirectory(prefix='s109-agentjob-') as folder:
     setup = root / 'setup.sh'; setup.write_text('log(){ :; }\n' + source[start:end] + '\ninstall_workload_budget ' + slice_name + '\n')
     scenario = root / 'scenario.json'
     scenario.write_text(json.dumps({'rules': [{'match': '.*', 'steps': [{'text': ' '.join('fixture' + str(i) for i in range(80)), 'delay_ms': 500}]}]}))
-    mocklog = root / 'requests.jsonl'; port = free_port(); mock = None; plane = None; job = None; owned = False
+    mocklog = root / 'requests.jsonl'; port = free_port(); mock = None; plane = None; job = None; job2 = None; owned = False
     try:
         path = str(root / 'bin') + ':' + os.environ['PATH']; owned = True
         run('sudo', '-n', 'env', 'PATH=' + path, 'RESTLESS_HOST_MEMINFO=' + str(root / 'meminfo'),
@@ -102,9 +102,55 @@ with tempfile.TemporaryDirectory(prefix='s109-agentjob-') as folder:
         time.sleep(6); assert effect().stdout == 'x'
         assert plane.owner(company, '/principal')[0] == 200
         print('PASS: real Exec held a competing job; job resumed once after the agent finished', flush=True)
+        until(lambda: (compute().get('actor_capacity') or {}).get('shared_active') == 0,
+              'first Exec did not release its reservation')
+        # Bound the pool to 2 GiB in this disposable slice. Select a job limit
+        # between the agent's reservation threshold and the job soft threshold.
+        run('sudo', '-n', 'systemctl', 'set-property', '--runtime', slice_name,
+            'MemoryMax=2147483648', 'MemoryHigh=2040109465')
+        def no_agent_wait():
+            data = compute(); cap = data.get('actor_capacity') or {}; sample = data.get('sample', {}).get('work_admission', {})
+            return cap.get('waiting_for_memory') is False and sample.get('scope') == 'shared' and not sample.get('waiting_for_memory')
+        until(no_agent_wait, 'baseline memory did not settle after reducing the fixture pool')
+        data = compute(); sample = data['sample']['work_admission']
+        maximum = int((pool / 'memory.max').read_text().strip())
+        actor_threshold = min(sample['resume_below_bytes'], maximum - 512 * 1024 * 1024)
+        assert sample['working_set_bytes'] < actor_threshold < sample['resume_below_bytes']
+        target = (actor_threshold + sample['resume_below_bytes']) // 2
+        reserved_mib = (target - sample['working_set_bytes']) // (1024 * 1024)
+        assert reserved_mib >= 128, reserved_mib
+        long_marker = '/company/run/agentjob-long-' + nonce
+        command = 'printf started > ' + long_marker + '; sleep 45; printf finished > ' + long_marker
+        out = run('docker', 'exec', '-u', 'company', plane.container(company), 'restless', 'job', 'run',
+                  '--cpus', '0.2', '--memory', str(reserved_mib) + 'm', '--timeout', '60', '--', command).stdout
+        job2_id = json.loads(out)['job']; job2 = plane.container(company) + '-job-' + job2_id
+        until(lambda: run('docker', 'inspect', '-f', '{{.State.Status}}', job2).stdout.strip() == 'running',
+              'job-first fixture did not start', 60)
+        def reservation_blocks_actor():
+            data = compute(); cap = data.get('actor_capacity') or {}; sample = data.get('sample', {}).get('work_admission', {})
+            return cap.get('waiting_for_memory') is True and sample.get('scope') == 'shared' and not sample.get('waiting_for_memory')
+        until(reservation_blocks_actor, 'running job memory did not defer agent capacity', 20)
+        sample = compute()['sample']['work_admission']
+        actual_limit = int(run('docker', 'inspect', '-f', '{{.HostConfig.Memory}}', job2).stdout.strip())
+        assert sample['working_set_bytes'] < actor_threshold <= sample['working_set_bytes'] + actual_limit
+        def model_calls():
+            return sum(1 for line in mocklog.read_text().splitlines()
+                       if json.loads(line).get('method') == 'POST' and json.loads(line).get('path') == '/v1/messages')
+        calls_before = model_calls()
+        # Keep the second response short after the first test's slow stream.
+        scenario.write_text(json.dumps({'rules': [{'match': '.*', 'steps': [{'text': 'The local fixture reply is complete.'}]}]}))
+        plane.raw(company, {'cmd': 'tell', 'body': 'Reply after the running fixture job finishes.'})
+        time.sleep(7)
+        assert run('docker', 'inspect', '-f', '{{.State.Status}}', job2).stdout.strip() == 'running'
+        assert model_calls() == calls_before, 'agent called the model while the running job held capacity'
+        assert (compute().get('actor_capacity') or {}).get('shared_active') == 0
+        assert plane.owner(company, '/principal')[0] == 200
+        until(lambda: model_calls() > calls_before, 'agent did not resume after the job finished', 120)
+        print('PASS: running job held Exec until its memory reservation was released', flush=True)
     finally:
         problems = []
         if job: run('docker', 'rm', '-f', job, check=False)
+        if job2: run('docker', 'rm', '-f', job2, check=False)
         if plane:
             try: problems.extend(plane.close())
             except Exception as error: problems.append(str(error))
