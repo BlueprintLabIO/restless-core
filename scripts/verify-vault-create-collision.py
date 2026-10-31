@@ -12,6 +12,8 @@ class FakeVault(BaseHTTPRequestHandler):
     values = {'resend.production': 'synthetic-old-value'}
     writes = 0
     fail_reads = False
+    race_name = None
+    guard = threading.Lock()
     def log_message(self, *_): pass
     def reply(self, status, body):
         data = json.dumps(body).encode()
@@ -22,6 +24,16 @@ class FakeVault(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == '/api/v1/auth/universal-auth/login': return self.reply(200, {'accessToken':'synthetic-token'})
         if path == '/api/v2/folders': return self.reply(200, {})
+        if path.startswith('/api/v4/secrets/'):
+            name = unquote(path.rsplit('/', 1)[-1]); body = self.body()
+            with self.guard:
+                if self.__class__.race_name == name:
+                    self.values[name] = 'synthetic-race-winner'
+                    self.__class__.race_name = None
+                if name in self.values: return self.reply(500, {})
+                self.values[name] = body['secretValue']
+                self.__class__.writes += 1
+            return self.reply(200, {})
         return self.reply(404, {})
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -68,11 +80,22 @@ def main():
             code,_=create('another','synthetic-new-value')
             assert code == 503 and FakeVault.writes==0, f'unavailable Vault did not fail closed: {code}'
             FakeVault.fail_reads=False
+            FakeVault.race_name = 'raced'
+            code,_=create('raced','synthetic-new-value')
+            assert code == 409 and FakeVault.values['raced'] == 'synthetic-race-winner'
+            assert FakeVault.writes == 0, 'concurrent destination was overwritten'
             code,_=create('another','synthetic-new-value')
             assert code == 200 and FakeVault.values['another']=='synthetic-new-value'
+            FakeVault.race_name = 'rename-race'
+            old_reference = f'infisical:/companies/{company}/another'
+            code,_=plane.owner(company,'/vault/secret/rename',
+                               {'reference':old_reference,'name':'rename-race','revision':revision()})
+            assert code == 409, f'concurrent rename destination was not protected: {code}'
+            assert FakeVault.values['rename-race'] == 'synthetic-race-winner'
+            assert FakeVault.values['another'] == 'synthetic-new-value'
             code,_=create('resend','synthetic-confirmed-value',True)
             assert code == 200 and FakeVault.values['resend.production']=='synthetic-confirmed-value'
-            print('PASS unbound collision preserved; unavailable lookup failed closed; create and confirmed replace worked',flush=True)
+            print('PASS existing and concurrent create/rename collisions preserved; unavailable lookup failed closed; confirmed replace worked',flush=True)
         finally:
             signal.alarm(0);signal.signal(signal.SIGTERM,signal.SIG_IGN)
             problems=plane.close();fake.shutdown();fake.server_close()

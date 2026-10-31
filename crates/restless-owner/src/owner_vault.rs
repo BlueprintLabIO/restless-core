@@ -170,7 +170,11 @@ pub(super) async fn store_secret(
         }
         // The binding is saved only once the value is confirmed below; a failed store leaves the
         // company as it was.
-        let stored = store_and_confirm(&reference, &input.secret, Some(binding)).await;
+        let stored = if input.replace {
+            store_and_confirm(&reference, &input.secret, Some(binding)).await
+        } else {
+            create_and_confirm(&reference, &input.secret, Some(binding)).await
+        };
         if !stored.status().is_success() {
             return stored;
         }
@@ -183,6 +187,19 @@ pub(super) async fn store_secret(
         return stored;
     }
     store_and_confirm(&reference, &input.secret, Some(binding)).await
+}
+
+async fn create_and_confirm(reference: &str, secret: &str, binding: Option<&str>) -> Response {
+    match credential::create_reference(reference, secret).await {
+        Ok(true) => {}
+        Ok(false) => return api_error(StatusCode::CONFLICT, "vault_exists", "A secret with that name already exists. Refresh the Vault before replacing it."),
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "vault", "Could not create the secret in Infisical. Check the local Vault service and try again."),
+    }
+    let probe = credential::probe_reference(reference).await;
+    if probe.status != credential::ProbeStatus::Present {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "vault", "Infisical did not confirm the stored secret.");
+    }
+    no_store(Json(serde_json::json!({"binding":binding,"reference":reference,"status":"present"})))
 }
 
 #[derive(Deserialize)]
@@ -290,7 +307,7 @@ pub(super) async fn rename_secret(
             )
         }
     };
-    let stored = store_and_confirm(&destination, &value, None).await;
+    let stored = create_and_confirm(&destination, &value, None).await;
     if !stored.status().is_success() {
         return stored;
     }
@@ -304,7 +321,8 @@ pub(super) async fn rename_secret(
         .credentials
         .insert(name.to_string(), destination.clone());
     if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
-        let _ = credential::delete_reference(&destination).await;
+        // Leave the unbound copy for inspection. A concurrent Vault writer
+        // may have changed it after our create, so deleting it is unsafe.
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "vault",
