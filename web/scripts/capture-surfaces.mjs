@@ -124,11 +124,15 @@ try {
 			const page = await context.newPage();
 			const errors = [],
 				expectedErrors = [];
-			const expectedMissing = 'SvelteKitError: Not found: ' + path;
+			// Production minification can rename SvelteKitError. Match the exact
+			// missing path on the first line, not the compiler-dependent class name.
+			const expectedMissing = 'Not found: ' + path;
 			function recordError(message, source = '') {
+				const firstLine = message.split('\n', 1)[0];
+				const missingPrefix = firstLine.slice(0, -expectedMissing.length);
 				if (
 					name === 'not-found' &&
-					(message.startsWith(expectedMissing) ||
+					((firstLine.endsWith(expectedMissing) && /^[\w$]+: $/.test(missingPrefix)) ||
 						(source === origin + path &&
 							message ===
 								'Failed to load resource: the server responded with a status of 404 (Not Found)'))

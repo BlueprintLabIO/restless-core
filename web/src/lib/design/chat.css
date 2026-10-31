@@ -277,6 +277,8 @@
  * button in the slot's column and pushed the chips onto a second, indented row. */
 .bridge-root .hc-toolbar {
 	min-width: 0;
+	/* The 32px command trigger comes and goes as the draft changes. */
+	min-height: 40px;
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
@@ -630,6 +632,7 @@
  * worth of target. */
 @media (pointer: coarse) {
 	.bridge-root .hc-toolbar {
+		min-height: 52px;
 		gap: 2px;
 	}
 	.bridge-root .hc-field .attach-btn,

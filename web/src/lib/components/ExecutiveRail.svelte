@@ -21,7 +21,7 @@
 	} from '$lib/model/open-question';
 	import { untrack, type Snippet } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
+	import { clearOfToasts, dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	/* One contextual conversation rail. It normally belongs to the Exec; while
 	 * the owner focuses a review it belongs to that Work's accountable lead.
@@ -254,6 +254,23 @@
 	/* Every person in the company talks to Exec and the team, and decides a review handed to
 	 * them; the server checks the review is theirs to decide. */
 	const canOperate = $derived(['owner', 'admin', 'member'].includes(membershipRole ?? ''));
+
+	// On phones the rail fills the viewport, so a bottom-centred toast would
+	// cover its composer. Keep desktop notices in their usual position.
+	function clearMobileComposer(node: HTMLElement) {
+		const phone = window.matchMedia('(max-width: 760px)');
+		let clear: (() => void) | undefined;
+		const update = () => {
+			clear?.();
+			clear = phone.matches ? clearOfToasts(node) : undefined;
+		};
+		update();
+		phone.addEventListener('change', update);
+		return () => {
+			phone.removeEventListener('change', update);
+			clear?.();
+		};
+	}
 
 	/* Pinned messages stay in reach above the conversation, however old: the direct conversation's
 	 * pins come as their own list; elsewhere they are found among the messages held. */
@@ -597,6 +614,20 @@
 			noticeUndo?.notice === notice ? 20_000 : 8_000
 		);
 		return () => clearTimeout(timer);
+	});
+	// Notices must not change the space available to the conversation or composer.
+	$effect(() => {
+		const notice = askNotice;
+		const undoable = noticeUndo?.notice === notice;
+		const waiting = notice === leftForLater;
+		if (!notice) return;
+		const id = untrack(() =>
+			toast(notice, {
+				persist: waiting,
+				...(undoable ? { undo: () => void undoCommand(), expiresAt: Date.now() + 20_000 } : {})
+			})
+		);
+		return () => untrack(() => dismissToast(id));
 	});
 	const commandLogKey = $derived(`restless:exec-commands:${companyId}`);
 	let commandLog = $state<CommandRecord[]>([]);
@@ -1814,7 +1845,7 @@
 				<p class="model-reply-state" role="status">
 					{needsProvider ? 'The model can’t reply now. Your message will wait.' : ''}
 				</p>
-				<form class="exr-composer" onsubmit={submitAsk}>
+				<form class="exr-composer" onsubmit={submitAsk} {@attach clearMobileComposer}>
 					{#if quoting}
 						<div class="quoting">
 							<Reply size={13} aria-hidden="true" />
@@ -1891,14 +1922,6 @@
 							{/if}
 						{/snippet}
 					</Composer>
-					{#if askNotice}
-						<p class="exr-notice" role="status">
-							{askNotice}{#if noticeUndo?.notice === askNotice}
-								<button type="button" class="exr-undo" onclick={() => void undoCommand()}
-									>Undo</button
-								>{/if}
-						</p>
-					{/if}
 				</form>
 			</div>
 		</div>
@@ -1939,17 +1962,6 @@
 		flex: none;
 		color: var(--text-secondary);
 		font-family: var(--font-mono);
-	}
-	.exr-undo {
-		margin-left: 6px;
-		padding: 0;
-		border: 0;
-		background: none;
-		color: var(--ink);
-		font: inherit;
-		font-weight: 600;
-		text-decoration: underline;
-		cursor: pointer;
 	}
 	.jump-anchor {
 		position: relative;

@@ -57,7 +57,20 @@ try {
 	for (const width of [1440, 390]) {
 		const page = await browser.newPage({ viewport: { width, height: 900 } });
 		const errors = [];
+		const goalActions = [];
 		page.on('pageerror', (e) => errors.push(e.message));
+		await page.route('**/api/companies/fixture_test/goals**', async (route) => {
+			const path = new URL(route.request().url()).pathname;
+			if (path.endsWith('/goals'))
+				return route.fulfill({
+					json: { goals: [{ id: 'fixture-goal', title: 'Fixture goal', closed_at: null }] }
+				});
+			if (path.endsWith('/close') || path.endsWith('/reopen')) {
+				goalActions.push(path.endsWith('/close') ? 'close' : 'reopen');
+				return route.fulfill({ json: { closed: true, reopened: true } });
+			}
+			return route.continue();
+		});
 		await page.goto(`${origin}/s109-chat-warning-fixture`);
 		await page.locator('.fixture-controls[data-ready="true"]').waitFor({ timeout: 60000 });
 		await page.waitForLoadState('networkidle');
@@ -105,9 +118,58 @@ try {
 		await indicator.click();
 		await failure.waitFor();
 		await page.getByRole('button', { name: 'Allow send' }).click();
+		const beforeNotice = await input.boundingBox();
+		const layoutBefore = await page
+			.locator('.hc-field')
+			.first()
+			.evaluate((el) =>
+				[...el.querySelectorAll('.hc-toolbar, .hc-guide, .hc-slot, .hc-send, .hc-input')].map(
+					(node) => ({ name: node.className, rect: node.getBoundingClientRect().toJSON() })
+				)
+			);
 		await input.press('Enter');
+		await page.locator('.toast').filter({ hasText: 'Message queued.' }).waitFor();
+		const afterNotice = await input.boundingBox();
+		assert(
+			Math.abs(afterNotice.y - beforeNotice.y) < 1,
+			`send notice moved composer: ${JSON.stringify({
+				beforeNotice,
+				afterNotice,
+				layoutBefore,
+				layoutAfter: await page
+					.locator('.hc-field')
+					.first()
+					.evaluate((el) =>
+						[...el.querySelectorAll('.hc-toolbar, .hc-guide, .hc-slot, .hc-send, .hc-input')].map(
+							(node) => ({ name: node.className, rect: node.getBoundingClientRect().toJSON() })
+						)
+					)
+			})}`
+		);
 		await failure.waitFor({ state: 'detached' });
 		await indicator.waitFor({ state: 'detached' });
+		await input.fill('/goal clear');
+		await input.press('Escape'); // Close the command picker before measuring the notice.
+		await page.evaluate(
+			() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+		);
+		const beforeUndo = await input.boundingBox();
+		await input.press('Enter');
+		const goalToast = page.locator('.toast').filter({ hasText: 'Closed the goal' });
+		await goalToast.waitFor();
+		const afterUndoNotice = await input.boundingBox();
+		assert(
+			Math.abs(afterUndoNotice.y - beforeUndo.y) < 1,
+			`undo notice moved composer: ${JSON.stringify({ beforeUndo, afterUndoNotice })}`
+		);
+		if (width <= 760) {
+			const composer = await page.locator('.exr-composer').boundingBox();
+			const notice = await goalToast.boundingBox();
+			assert(notice.y + notice.height <= composer.y, 'undo notice covers the phone composer');
+		}
+		await goalToast.getByRole('button', { name: 'Undo', exact: true }).click();
+		await page.locator('.toast').filter({ hasText: 'Reopened the goal' }).waitFor();
+		assert.deepEqual(goalActions, ['close', 'reopen']);
 		assert.deepEqual(errors, []);
 		console.log(
 			JSON.stringify({
