@@ -856,26 +856,35 @@ async fn terminate_process_group(container: &str, marker: &str) -> i32 {
 /// removed.
 pub async fn reap_orphan_gate_processes(container: &str) -> Result<u32> {
     let script = r#"
+set -eu
 root=/company/run/gates
-test -d "$root" || { echo 0; exit 0; }
-count=0
-for marker in $(find "$root" -type f -name process-group.pid -print); do
-    if test -s "$marker"; then
-      group=$(cat "$marker")
-      case "$group" in
-        *[!0-9]*|'') ;;
-        *)
-          kill -TERM -"$group" 2>/dev/null || true
-          sleep 0.1
-          kill -KILL -"$group" 2>/dev/null || true
-          ;;
-      esac
-    fi
-    rm -f "$marker"
-    count=$((count + 1))
+test -d "$root" || exit 0
+find "$root" -type f -name process-group.pid -exec sh -c '
+set -eu
+for marker do
+    group=$(cat "$marker") || exit 1
+    case "$group" in *[!0-9]*|"") exit 1 ;; esac
+    test "$group" -gt 1 2>/dev/null || exit 1
+    kill -TERM -"$group" 2>/dev/null || true
+    sleep 0.1
+    kill -KILL -"$group" 2>/dev/null || true
+    attempts=0
+    while :; do
+        groups=$(ps -eo pgid=) || exit 1
+        found=0
+        for seen in $groups; do
+            if test "$seen" -eq "$group"; then found=1; break; fi
+        done
+        test "$found" -eq 1 || break
+        attempts=$((attempts + 1))
+        test "$attempts" -lt 40 || exit 1
+        sleep 0.1
+    done
+    rm -f -- "$marker" || exit 1
+    echo reaped
 done
+' sh {} +
 find "$root" -depth -type d -empty -delete 2>/dev/null || true
-echo "$count"
 "#;
     let output = crate::runtime::docker_bounded(
         &[
@@ -898,11 +907,9 @@ echo "$count"
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .last()
-        .and_then(|line| line.trim().parse().ok())
-        .unwrap_or(0))
+    let lines = String::from_utf8_lossy(&output.stdout);
+    anyhow::ensure!(lines.lines().all(|line| line == "reaped"), "invalid orphan gate cleanup result");
+    Ok(lines.lines().count().try_into().context("too many orphan gate markers")?)
 }
 
 fn stage_order(stage: &str) -> u8 {

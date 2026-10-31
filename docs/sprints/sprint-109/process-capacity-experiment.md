@@ -232,3 +232,16 @@ error branch. This is two companies on one local plane, not multiple production
 owners. It does not cover agents launching during pressure, late Docker starts,
 gate kill verification, failed Attempt settlement, stopped or replaced
 containers during retry, or a database error. Those remain release blockers.
+
+Gate orphan recovery now retains invalid or unverified process-group markers
+and checks an observed process listing before removal; an inspection failure
+keeps that company on the existing retry hold. The two-company local restart
+smoke passed with daemon SHA-256
+3aa605db0872b0f18e7f9b32f3fc8e68507f59f61500197c419e5b6d427b21aa. It verified
+a real orphaned gate process group was gone, a malformed gate marker kept its
+company's queued job waiting after the agent marker was cleared, the other
+company's job ran, the held job ran once after correction, both owner APIs
+responded and cleanup succeeded. This does not test a signal denied by the
+kernel, Docker accepting a delayed start across a restart, process-group ID
+reuse, actual agent launch under pressure, multi-owner production, or failure
+in Attempt settlement.

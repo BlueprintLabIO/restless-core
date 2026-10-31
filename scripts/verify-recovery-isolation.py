@@ -41,12 +41,25 @@ with tempfile.TemporaryDirectory(prefix='s109-recovery-') as folder:
         plane.stop()
         bad = '/tmp/restless-agent-' + suffix + '.sid'
         run('docker', 'exec', plane.container(a), 'sh', '-c', 'printf invalid > "$1"', 'fixture', bad)
+        bad_gate = '/company/run/gates/recovery-test/process-group.pid'
+        run('docker', 'exec', '-u', 'company', plane.container(a), 'sh', '-c',
+            'mkdir -p "${1%/*}"; printf invalid > "$1"', 'fixture', bad_gate)
+        live_gate = '/company/run/gates/recovery-test/process-group.pid'
+        run('docker', 'exec', '-u', 'company', plane.container(b), 'mkdir', '-p', '/company/run/gates/recovery-test')
+        run('docker', 'exec', '-d', '-u', 'company', plane.container(b), 'setsid', 'sh', '-c',
+            'echo $$ > "$1"; exec sleep 300', 'fixture', live_gate)
+        until(lambda: run('docker', 'exec', plane.container(b), 'test', '-s', live_gate, check=False).returncode == 0,
+              'live gate did not start')
+        live_group = run('docker', 'exec', plane.container(b), 'cat', live_gate).stdout.strip()
         log_offset = plane.log_path.stat().st_size
         plane.start(); plane.wait_for_port(plane.offset + 7788)
         def recovered():
             log = plane.log_path.read_text()[log_offset:]
             return 'could not verify orphan agent cleanup' in log and 'runtime orphan recovery complete' in log
         until(recovered, 'restart did not observe cleanup failure')
+        assert run('docker', 'exec', plane.container(b), 'test', '-e', live_gate, check=False).returncode != 0
+        groups = run('docker', 'exec', plane.container(b), 'ps', '-eo', 'pgid=').stdout.split()
+        assert live_group not in groups, 'orphan gate process group remained'
         for company in (a, b):
             status, _ = plane.owner(company, '/principal')
             assert status == 200, (company, status)
@@ -62,6 +75,10 @@ with tempfile.TemporaryDirectory(prefix='s109-recovery-') as folder:
         time.sleep(7)
         assert effect(a, jobs[0][2]).returncode != 0, 'held company ran before cleanup recovered'
         run('docker', 'exec', plane.container(a), 'rm', '-f', bad)
+        time.sleep(8)
+        assert effect(a, jobs[0][2]).returncode != 0, 'invalid gate marker did not hold company'
+        assert run('docker', 'exec', plane.container(a), 'test', '-e', bad_gate, check=False).returncode == 0
+        run('docker', 'exec', plane.container(a), 'rm', '-f', bad_gate)
         until(lambda: effect(a, jobs[0][2]).stdout == 'x', 'held company did not resume')
         time.sleep(6)
         assert all(effect(company, marker).stdout == 'x' for company, _, marker in jobs)
