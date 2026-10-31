@@ -24,6 +24,7 @@
 
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
+	import { agentConnection, agentPickerSelection } from '$lib/model/intelligence-route';
 
 	let { companyId, actorId, name }: { companyId: string; actorId: string; name: string } = $props();
 	/* Choosing a model is the owner's alone, as the server decides; for anyone else the chip is not
@@ -34,12 +35,13 @@
 	const source = $derived(intelligenceQuery(companyId, () => allowed));
 	const agent = $derived(source.view?.agents.find((row) => row.id === actorId) ?? null);
 	const routeState = $derived(agentRouteState(source.view, actorId));
-	const assignment = $derived(
-		agent?.assignment ?? source.view?.default ?? source.view?.base_default ?? null
-	);
 	const connection = $derived(
-		source.view?.connections.find((row) => row.id === assignment?.connection) ?? null
+		source.view && agent ? (agentConnection(source.view, agent) ?? null) : null
 	);
+	const assignment = $derived(
+		source.view && agent ? agentPickerSelection(source.view, agent) : null
+	);
+	const current = $derived(assignment?.model ?? '');
 	/* An empty list from the connection is no list: fall back to the catalogue (see ModelAssignmentEditor). */
 	const choices = $derived(
 		connection?.models?.length
@@ -49,7 +51,6 @@
 					connection?.account_kind ?? 'api_key'
 				)
 	);
-	const current = $derived(assignment?.model ?? '');
 	let busy = $state(false);
 	let failure = $state('');
 
