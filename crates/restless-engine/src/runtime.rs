@@ -3122,6 +3122,30 @@ pub async fn running_configured_companies(configs: &[CompanyConfig]) -> Result<V
     ))
 }
 
+/// Observe a company Runtime for recovery without interpreting a Docker error
+/// as an absent or stopped container. The caller holds the company start lock.
+pub(crate) async fn recovery_runtime_running(company: &str) -> Result<bool> {
+    validate_company_name(company)?;
+    let name = container_name(company);
+    let filter = format!("name=^/{name}$");
+    let output = docker_bounded(
+        &["ps", "-a", "--filter", &filter, "--format", "{{.Names}}\t{{.State}}"],
+        Duration::from_secs(10),
+    ).await.context("inspect company Runtime for recovery")?;
+    anyhow::ensure!(output.status.success(), "company Runtime recovery inventory unavailable");
+    let text = String::from_utf8(output.stdout).context("invalid Runtime recovery inventory")?;
+    let mut rows = text.lines();
+    let Some(row) = rows.next() else { return Ok(false); };
+    anyhow::ensure!(rows.next().is_none(), "ambiguous company Runtime recovery inventory");
+    let (observed, state) = row.split_once('\t').context("invalid Runtime recovery state")?;
+    anyhow::ensure!(observed == name, "unexpected company Runtime identity");
+    match state {
+        "running" => Ok(true),
+        "created" | "exited" | "dead" => Ok(false),
+        _ => bail!("company Runtime is transitioning; recovery will retry"),
+    }
+}
+
 /// Observe the entire owner catalogue in one Docker round trip. Catalogue
 /// rendering is a projection, so an unavailable Docker backend yields
 /// `unavailable` rows rather than N sequential inspections and a blank UI.

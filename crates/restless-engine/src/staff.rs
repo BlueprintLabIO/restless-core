@@ -1060,54 +1060,68 @@ pub async fn sweep_orphans(
     orgintel: &crate::OrgIntelRegistry,
     registry: &StaffRegistry,
     companies: &[String],
-    running_companies: &[String],
 ) -> Vec<String> {
     let mut failed = HashSet::new();
-    for name in running_companies {
-        match runtime::workload_admission(name).await {
-            Ok(Some(admission)) if admission.waiting_for_memory => {
-                failed.insert(name.clone());
-                continue;
-            }
-            Err(error) => {
-                tracing::warn!(company = name, "recovery waits for a resource reading: {error:#}");
-                failed.insert(name.clone());
-                continue;
-            }
-            _ => {}
-        }
-        if let Err(error) = crate::effect::sweep_orphan_company(name).await {
-            tracing::warn!(company = name, "could not verify orphan effect cleanup: {error:#}");
-            failed.insert(name.clone());
-            continue;
-        }
-        let container = runtime::container_name(name);
-        match reap_orphan_gate_processes(&container).await {
-            Ok(reaped) if reaped > 0 => tracing::warn!(
-                company = name,
-                reaped,
-                "reaped governed gate process groups from before restart"
-            ),
-            Ok(_) => {}
-            Err(error) => {
-                tracing::warn!(company = name, "could not reap orphan governed gate processes: {error:#}");
-                failed.insert(name.clone());
-            },
-        }
-        match crate::acp::reap_orphan_sessions(&container).await {
-            Ok(reaped) if reaped > 0 => tracing::warn!(
-                company = name,
-                reaped,
-                "reaped marked agent processes from before restart"
-            ),
-            Ok(_) => {},
-            Err(error) => {
-                tracing::warn!(company = name, "could not verify orphan agent cleanup: {error:#}");
-                failed.insert(name.clone());
-            },
-        }
-    }
     for name in companies {
+        // Owner lifecycle changes use this lock too, so a stopped or replaced
+        // Runtime cannot race the observed cleanup and Attempt reconciliation.
+        let _start = runtime::company_start_guard(name).await;
+        let running = match runtime::recovery_runtime_running(name).await {
+            Ok(running) => running,
+            Err(error) => {
+                tracing::warn!(company = name, "could not observe Runtime recovery state: {error:#}");
+                registry.set_recovery_pending(name, true);
+                failed.insert(name.clone());
+                continue;
+            }
+        };
+        if running {
+            match runtime::workload_admission(name).await {
+                Ok(Some(admission)) if admission.waiting_for_memory => {
+                    registry.set_recovery_pending(name, true);
+                    failed.insert(name.clone());
+                    continue;
+                }
+                Err(error) => {
+                    tracing::warn!(company = name, "recovery waits for a resource reading: {error:#}");
+                    registry.set_recovery_pending(name, true);
+                    failed.insert(name.clone());
+                    continue;
+                }
+                _ => {}
+            }
+            if let Err(error) = crate::effect::sweep_orphan_company(name).await {
+                tracing::warn!(company = name, "could not verify orphan effect cleanup: {error:#}");
+                registry.set_recovery_pending(name, true);
+                failed.insert(name.clone());
+                continue;
+            }
+            let container = runtime::container_name(name);
+            match reap_orphan_gate_processes(&container).await {
+                Ok(reaped) if reaped > 0 => tracing::warn!(
+                    company = name,
+                    reaped,
+                    "reaped governed gate process groups from before restart"
+                ),
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(company = name, "could not reap orphan governed gate processes: {error:#}");
+                    failed.insert(name.clone());
+                },
+            }
+            match crate::acp::reap_orphan_sessions(&container).await {
+                Ok(reaped) if reaped > 0 => tracing::warn!(
+                    company = name,
+                    reaped,
+                    "reaped marked agent processes from before restart"
+                ),
+                Ok(_) => {},
+                Err(error) => {
+                    tracing::warn!(company = name, "could not verify orphan agent cleanup: {error:#}");
+                    failed.insert(name.clone());
+                },
+            }
+        }
         if failed.contains(name) {
             registry.set_recovery_pending(name, true);
             continue;
@@ -1117,9 +1131,7 @@ pub async fn sweep_orphans(
             failed.insert(name.clone());
             continue;
         };
-        let container = running_companies
-            .contains(name)
-            .then(|| runtime::container_name(name));
+        let container = running.then(|| runtime::container_name(name));
         let interrupted = match org.list_running_work_attempts().await {
             Ok(attempts) => attempts.into_iter().map(|attempt| attempt.work_id).collect::<Vec<_>>(),
             Err(error) => {

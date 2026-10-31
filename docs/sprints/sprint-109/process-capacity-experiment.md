@@ -273,3 +273,16 @@ recovery observed a deliberately invalid agent marker and continued to hold
 until it was removed; the queued job then ran exactly once. Cleanup reported
 no problems. This is not a production or multi-owner test and does not address
 the remaining agent-start, delayed Docker-start or Attempt-settlement gaps.
+
+Recovery retries now observe the current company Runtime under its lifecycle
+lock instead of relying on the startup inventory. A Docker inventory failure or
+transitioning Runtime keeps recovery held; an observed stopped or absent
+Runtime can recover without attempting commands inside it. Using daemon SHA-256
+edb53a7871a544298a7c271051b1ca1f1b6a8bc3d58f0b61a77171c891544877, the
+local two-company smoke passed the previous cleanup-isolation checks and a new
+owner-stop case: after an invalid marker caused a hold, the owner stopped and
+restarted the same container and a job resumed even though its stale marker
+remained. The real per-company memory-pressure smoke also passed on that binary;
+both fixtures reported clean teardown. Container replacement, Docker inventory
+failure injection, delayed accepted starts and Attempt-settlement failures have
+not been exercised and remain open.

@@ -64,6 +64,8 @@ with tempfile.TemporaryDirectory(prefix='s109-recovery-') as folder:
             log = plane.log_path.read_text()[log_offset:]
             return 'could not verify orphan effect cleanup' in log and 'runtime orphan recovery scheduled' in log
         until(recovered, 'restart did not observe cleanup failure')
+        until(lambda: run('docker', 'exec', plane.container(b), 'test', '-e', live_gate, check=False).returncode != 0,
+              'healthy company orphan recovery did not finish')
         assert run('docker', 'exec', plane.container(b), 'test', '-e', good_effect, check=False).returncode != 0
         assert run('docker', 'exec', plane.container(b), 'pgrep', '-u', '2001', check=False).returncode == 1
         assert run('docker', 'exec', plane.container(b), 'test', '-e', live_gate, check=False).returncode != 0
@@ -96,6 +98,27 @@ with tempfile.TemporaryDirectory(prefix='s109-recovery-') as folder:
         time.sleep(6)
         assert all(effect(company, marker).stdout == 'x' for company, _, marker in jobs)
         print('PASS: cleanup failure held one company; other company ran; held job resumed once', flush=True)
+        # A stopped Runtime has no surviving processes. Its own recovery must
+        # complete even if its now-stale marker remains in the stopped container.
+        plane.stop()
+        run('docker', 'exec', plane.container(a), 'sh', '-c', 'printf invalid > "$1"', 'fixture', bad)
+        log_offset = plane.log_path.stat().st_size
+        plane.start(); plane.wait_for_port(plane.offset + 7788)
+        until(lambda: 'could not verify orphan agent cleanup' in plane.log_path.read_text()[log_offset:],
+              'second restart did not hold invalid marker')
+        plane.raw(a, {'cmd': 'down'}, timeout=180)
+        until(lambda: run('docker', 'inspect', '-f', '{{.State.Status}}', plane.container(a)).stdout.strip() == 'exited',
+              'owner stop did not complete')
+        time.sleep(12)
+        plane.raw(a, {'cmd': 'up'}, timeout=300)
+        assert run('docker', 'exec', plane.container(a), 'test', '-e', bad, check=False).returncode == 0, 'fixture marker did not survive stop'
+        marker = '/company/run/recovery-after-stop-' + suffix
+        output = run('docker', 'exec', '-u', 'company', plane.container(a), 'restless', 'job', 'run',
+                     '--cpus', '0.2', '--memory', '128m', '--timeout', '30', '--', 'printf x >> ' + marker).stdout
+        job_id = json.loads(output)['job']; jobs.append((a, job_id, marker))
+        until(lambda: effect(a, marker).stdout == 'x', 'company did not recover after owner stop')
+        run('docker', 'exec', plane.container(a), 'rm', '-f', bad)
+        print('PASS: owner stop clears the recovery hold without deleting the stopped container', flush=True)
     finally:
         for company, job_id, _ in jobs:
             run('docker', 'rm', '-f', plane.container(company) + '-job-' + job_id, check=False)

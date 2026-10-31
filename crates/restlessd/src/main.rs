@@ -478,37 +478,6 @@ async fn run() -> Result<()> {
         if release_plane {
             company::note_roll_forward_stage("waiting_for_startup_recovery", None);
         }
-        let running_companies = if hosted_runtime {
-            Vec::new()
-        } else {
-            loop {
-                let attempt_started = std::time::Instant::now();
-                match runtime::running_configured_companies(&recovery_configs).await {
-                    Ok(companies) => {
-                        tracing::info!(
-                            elapsed_ms = attempt_started.elapsed().as_millis(),
-                            running = companies.len(),
-                            "runtime recovery inventory complete"
-                        );
-                        break companies;
-                    }
-                    Err(error) => {
-                        if release_plane {
-                            company::note_roll_forward_stage(
-                                "waiting_for_startup_recovery",
-                                Some(format!("Docker inventory deferred: {error:#}")),
-                            );
-                        }
-                        tracing::warn!(
-                            elapsed_ms = attempt_started.elapsed().as_millis(),
-                            "runtime recovery inventory deferred: {error:#}"
-                        );
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    }
-                }
-            }
-        };
-
         // Each company observes capacity and completes its own orphan sweep.
         // A busy or unobservable company stays held while other companies recover.
         let sweep_started = std::time::Instant::now();
@@ -526,13 +495,11 @@ async fn run() -> Result<()> {
             for company in companies {
                 let daemon = std::sync::Arc::clone(&recovery_daemon);
                 let slots = std::sync::Arc::clone(&recovery_slots);
-                let was_running = running_companies.contains(&company);
                 tokio::spawn(async move {
                     loop {
                         let Ok(permit) = slots.acquire().await else { break; };
                         let companies = vec![company.clone()];
-                        let running = if was_running { companies.clone() } else { Vec::new() };
-                        let complete = staff::sweep_orphans(&daemon.orgintel, &daemon.staff, &companies, &running).await.is_empty();
+                        let complete = staff::sweep_orphans(&daemon.orgintel, &daemon.staff, &companies).await.is_empty();
                         drop(permit);
                         if complete {
                             daemon.schedule_wake.notify_one();
