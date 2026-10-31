@@ -3,7 +3,7 @@
 //! The registry below observes live processes and enforces a small resource
 //! cap; it never owns delegation or task state.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -217,6 +217,7 @@ impl Drop for CognitiveLeaseGuard {
 pub struct StaffRegistry {
     running: Arc<Mutex<HashMap<ActorKey, RunningStaff>>>,
     resources: ResourceClaims,
+    recovery_pending: Arc<Mutex<HashSet<String>>>,
     resource_retry: Arc<AtomicBool>,
     resource_limits: Arc<Mutex<HashMap<String, (std::time::Instant, runtime::ActorCapacity)>>>,
     /// Coordination messages remain durable in OrgIntel. This local timer
@@ -265,12 +266,26 @@ impl std::fmt::Display for CapacityDeferred {
 impl std::error::Error for CapacityDeferred {}
 
 impl StaffRegistry {
+    pub fn recovery_pending(&self, company: &str) -> bool {
+        self.recovery_pending.lock().map_or(true, |pending| pending.contains(company))
+    }
+
+    fn set_recovery_pending(&self, company: &str, waiting: bool) {
+        if let Ok(mut pending) = self.recovery_pending.lock() {
+            if waiting { pending.insert(company.to_string()); } else { pending.remove(company); }
+        }
+    }
+
     pub async fn reserve_actor_capacity(
         &self,
         company: &str,
         bridges: &crate::runtime_bridge::RuntimeBridgeRegistry,
         wake: &Arc<tokio::sync::Notify>,
     ) -> Result<Option<ActorResourcePermit>> {
+        if self.recovery_pending(company) {
+            self.resource_retry.store(true, Ordering::SeqCst);
+            return Ok(None);
+        }
         let capacity = if bridges.is_hosted() {
             // Paired machines execute outside this host's work pool.
             runtime::ActorCapacity {
@@ -351,6 +366,7 @@ impl StaffRegistry {
     }
 
     pub fn has_capacity(&self, company: &str) -> bool {
+        if self.recovery_pending(company) { return false; }
         let logical_capacity = self
             .running
             .lock()
@@ -1045,7 +1061,8 @@ pub async fn sweep_orphans(
     registry: &StaffRegistry,
     companies: &[String],
     running_companies: &[String],
-) {
+) -> Vec<String> {
+    let mut failed = HashSet::new();
     for name in running_companies {
         let container = runtime::container_name(name);
         match reap_orphan_gate_processes(&container).await {
@@ -1055,10 +1072,10 @@ pub async fn sweep_orphans(
                 "reaped governed gate process groups from before restart"
             ),
             Ok(_) => {}
-            Err(error) => tracing::warn!(
-                company = name,
-                "could not reap orphan governed gate processes: {error:#}"
-            ),
+            Err(error) => {
+                tracing::warn!(company = name, "could not reap orphan governed gate processes: {error:#}");
+                failed.insert(name.clone());
+            },
         }
         match crate::acp::reap_orphan_sessions(&container).await {
             Ok(reaped) if reaped > 0 => tracing::warn!(
@@ -1067,29 +1084,34 @@ pub async fn sweep_orphans(
                 "reaped marked agent processes from before restart"
             ),
             Ok(_) => {},
-            Err(error) => tracing::warn!(
-                company = name,
-                "could not verify orphan agent cleanup: {error:#}"
-            ),
+            Err(error) => {
+                tracing::warn!(company = name, "could not verify orphan agent cleanup: {error:#}");
+                failed.insert(name.clone());
+            },
         }
     }
     for name in companies {
+        if failed.contains(name) {
+            registry.set_recovery_pending(name, true);
+            continue;
+        }
         let Ok(org) = orgintel.get(name).await else {
+            registry.set_recovery_pending(name, true);
+            failed.insert(name.clone());
             continue;
         };
         let container = running_companies
             .contains(name)
             .then(|| runtime::container_name(name));
-        let interrupted = org
-            .list_running_work_attempts()
-            .await
-            .map(|attempts| {
-                attempts
-                    .into_iter()
-                    .map(|attempt| attempt.work_id)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let interrupted = match org.list_running_work_attempts().await {
+            Ok(attempts) => attempts.into_iter().map(|attempt| attempt.work_id).collect::<Vec<_>>(),
+            Err(error) => {
+                tracing::warn!(company = name, "could not inspect interrupted attempts: {error:#}");
+                registry.set_recovery_pending(name, true);
+                failed.insert(name.clone());
+                continue;
+            }
+        };
         recover_unsupervised_attempts(
             &org,
             registry,
@@ -1111,7 +1133,9 @@ pub async fn sweep_orphans(
                 }
             }
         }
+        registry.set_recovery_pending(name, false);
     }
+    failed.into_iter().collect()
 }
 
 /// Close every running Attempt that no process in this daemon supervises. Its
@@ -1181,6 +1205,18 @@ pub async fn recover_unsupervised_attempts(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recovery_pending_is_scoped_to_the_affected_company() {
+        let registry = super::StaffRegistry::default();
+        registry.set_recovery_pending("affected_test", true);
+        assert!(registry.recovery_pending("affected_test"));
+        assert!(!registry.has_capacity("affected_test"));
+        assert!(!registry.recovery_pending("other_test"));
+        assert!(registry.has_capacity("other_test"));
+        registry.set_recovery_pending("affected_test", false);
+        assert!(registry.has_capacity("affected_test"));
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn actor_resource_reservations_bound_concurrent_starts_and_release() {
         let registry = super::StaffRegistry::default();

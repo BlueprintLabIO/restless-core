@@ -216,3 +216,19 @@ its marker was removed. The daemon build also passed. This improves recovery
 visibility and preserves evidence, but staff startup currently only logs the
 failure and still proceeds: per-owner admission and retry are not yet wired to
 this result. The late Docker-start race remains open.
+
+The prototype now holds the affected company when agent or gate orphan
+inspection fails, retries that company's recovery in the background, blocks
+its scans, agent admissions and queued heavy-job starts, and wakes scheduling
+when recovery succeeds. Other companies retain admission and owner APIs remain
+available. Failure to read interrupted Attempts also retains the hold. A
+local two-company test using daemon SHA-256
+5a193f895527d3c3ea5059a4ca21ce841fe41ad8739c5e81957e8546dc103ff9 injected an
+invalid agent marker during restart: the affected company's job waited, the
+other company's job ran, and the held job ran once after the marker was
+removed; both owner APIs responded and fixture cleanup succeeded. The scoped
+registry test passed on the earlier build before the additional database
+error branch. This is two companies on one local plane, not multiple production
+owners. It does not cover agents launching during pressure, late Docker starts,
+gate kill verification, failed Attempt settlement, stopped or replaced
+containers during retry, or a database error. Those remain release blockers.

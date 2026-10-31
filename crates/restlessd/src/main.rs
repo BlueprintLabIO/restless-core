@@ -548,7 +548,7 @@ async fn run() -> Result<()> {
                 .iter()
                 .map(|config| config.name.clone())
                 .collect::<Vec<_>>();
-            tokio::join!(
+            let (_, failed) = tokio::join!(
                 effect::sweep_orphans(&running_companies),
                 staff::sweep_orphans(
                     &recovery_daemon.orgintel,
@@ -557,6 +557,21 @@ async fn run() -> Result<()> {
                     &running_companies,
                 )
             );
+            for company in failed {
+                let daemon = std::sync::Arc::clone(&recovery_daemon);
+                let was_running = running_companies.contains(&company);
+                tokio::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        let companies = vec![company.clone()];
+                        let running = if was_running { companies.clone() } else { Vec::new() };
+                        if staff::sweep_orphans(&daemon.orgintel, &daemon.staff, &companies, &running).await.is_empty() {
+                            daemon.schedule_wake.notify_one();
+                            break;
+                        }
+                    }
+                });
+            }
         }
         tracing::info!(
             elapsed_ms = sweep_started.elapsed().as_millis(),

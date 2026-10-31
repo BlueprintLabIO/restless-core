@@ -858,6 +858,9 @@ pub async fn reconcile_pending(daemon: &crate::Daemon, companies: &[String]) -> 
         .iter()
         .filter(|job| job.3 == "created" && job.5 && !job.1.ends_with("-preparing"))
     {
+        if daemon.staff.recovery_pending(company) {
+            continue;
+        }
         // Serialize with owner stop, sleep and destruction through the same
         // per-company lifecycle lock used by those operations.
         let _company_guard = crate::runtime::company_start_guard(company).await;

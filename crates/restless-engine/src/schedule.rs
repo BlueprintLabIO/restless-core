@@ -499,6 +499,7 @@ async fn scan_all_companies(daemon: &Arc<Daemon>, in_flight: &InFlight) {
 }
 
 async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str) {
+    if daemon.staff.recovery_pending(company) { return; }
     // Hold one admission lease across observation, claim and dispatch. A
     // replacement therefore sees either this scan or the actor it launched,
     // never a false idle gap between them.
@@ -1577,6 +1578,10 @@ async fn run_exec_turn_with_lease(
 
 /// Fire a free-form Exec conversation. It never owns or mutates Work.
 async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, reason: &str) {
+    if daemon.staff.recovery_pending(company) {
+        in_flight.lock().expect("in-flight guard").queue(company, reason);
+        return;
+    }
     let Some(_lifecycle_lease) = daemon.lifecycle.try_enter() else {
         return;
     };
