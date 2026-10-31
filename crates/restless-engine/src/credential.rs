@@ -235,6 +235,37 @@ pub async fn store_reference(reference: &str, value: &str) -> Result<()> {
     }
 }
 
+/// Create a new Vault secret without replacing one created concurrently.
+/// Returns false when the destination is already occupied.
+pub async fn create_reference(reference: &str, value: &str) -> Result<bool> {
+    let value = normalize_secret_value(value)?;
+    let CredentialReference::Infisical(locator) = parse_reference(reference)? else {
+        bail!("a new company secret requires an Infisical destination");
+    };
+    let settings = InfisicalSettings::from_env()?;
+    infisical_ensure_folder(&settings, locator.path).await?;
+    let client = infisical_client()?;
+    let token = infisical_login(&client, &settings).await?;
+    let endpoint = infisical_endpoint(&settings.base_url, &["api", "v4", "secrets", locator.name])?;
+    let response = client.post(endpoint).bearer_auth(token).json(&serde_json::json!({
+        "projectId": settings.project_id,
+        "environment": settings.environment,
+        "secretPath": locator.path,
+        "secretValue": value,
+        "type": "shared",
+    })).send().await.context("create secret in Infisical")?;
+    if response.status().is_success() {
+        return Ok(true);
+    }
+    // The deployed Infisical version may answer a duplicate with 400 or 500.
+    // Verify presence without exposing the response body or overwriting it.
+    let status = response.status();
+    if infisical_get(&settings, &locator).await?.is_some() {
+        return Ok(false);
+    }
+    bail!("Infisical secret creation returned HTTP {}", status.as_u16())
+}
+
 /// Remove the secret a reference names, when its backend can. Restless keeps only references, so
 /// this is how a removed connection stops leaving its key behind. Returns false when the backend
 /// cannot delete (env:, broker-held sign-ins) or the delete failed; the caller says so.
