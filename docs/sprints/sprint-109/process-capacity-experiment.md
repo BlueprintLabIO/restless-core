@@ -261,3 +261,15 @@ recovery path, provider or multi-owner production, effect calls initiated
 outside actor admission, delayed Docker starts, failed Attempt settlement,
 stopped/replaced containers during retry, or fairness when all four recovery
 slots are busy; these remain release blockers.
+
+The memory part of per-company restart recovery has now been exercised using
+real cgroup counters and daemon SHA-256
+f52b9262f302705a608672982a445f4c78804c05c0f4d1749f9ae2df8312c8cd. In a
+disposable two-company local plane, one company's bounded 340 MiB synthetic
+working set exceeded its own soft threshold while the shared pool and peer
+remained below theirs. Its recovery and queued job waited; the peer's job ran
+and both owner endpoints responded. After the synthetic load was removed,
+recovery observed a deliberately invalid agent marker and continued to hold
+until it was removed; the queued job then ran exactly once. Cleanup reported
+no problems. This is not a production or multi-owner test and does not address
+the remaining agent-start, delayed Docker-start or Attempt-settlement gaps.
