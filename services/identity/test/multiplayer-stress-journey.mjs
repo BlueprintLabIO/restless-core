@@ -60,7 +60,9 @@ async function openDocument(who, documentId, firstLine) {
   await who.page.goto(`${core}/documents/${base.split("/").pop()}/${documentId}`);
   who.body = who.page.getByLabel("Collaborative document body");
   await who.body.waitFor({ timeout: 30000 });
-  await who.body.getByText(firstLine).first().waitFor({ timeout: 30000 });
+  // The storm may have rewritten any line, so later openings only wait for loaded text.
+  if (firstLine) await who.body.getByText(firstLine).first().waitFor({ timeout: 30000 });
+  else await until(async () => (await bodyText(who)).trim().length > 0, "document text loaded", 30);
 }
 /** Everyone shows the same document text; returns it. */
 async function converged(editors, label, seconds = 30) {
@@ -369,7 +371,7 @@ await run("multiplayer-stress", async () => {
 
   // 9. Core restarts (a plane update) with everyone's pages open: they reconnect by themselves,
   //    keep everything, double nothing, and live editing and chat carry on.
-  for (const who of [owner, alice]) await openDocument(who, documentId, "First line");
+  for (const who of [owner, alice]) await openDocument(who, documentId, null);
   const before = await converged([owner, alice], "before the restart");
   await restartCore();
   await caretAtEnd(owner, 0);

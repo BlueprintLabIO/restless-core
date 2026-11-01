@@ -194,6 +194,12 @@ export async function person(key) {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  // A failed script or API load explains a page stuck "Opening…"; kept for the failure report.
+  const failedRequests = [];
+  page.on("requestfailed", (request) => {
+    const url = new URL(request.url());
+    if (url.hostname === "plane.localhost") failedRequests.push(`${request.method()} ${url.pathname} ${request.failure()?.errorText ?? ""}`);
+  });
   const sockets = [];
   page.on("websocket", (socket) => sockets.push({ url: socket.url(), socket, closed: false }));
   page.on("websocket", (socket) =>
@@ -202,7 +208,7 @@ export async function person(key) {
       if (entry) entry.closed = true;
     }),
   );
-  const who = { key, ...people[key], context, page, errors, sockets };
+  const who = { key, ...people[key], context, page, errors, failedRequests, sockets };
   contexts.push(who);
   return who;
 }
@@ -468,6 +474,7 @@ export async function run(journey, body) {
     for (const who of contexts) {
       await shot(who, "failure");
       console.error(`${who.key} at ${who.page.url()}; page errors: ${JSON.stringify(who.errors)}`);
+      if (who.failedRequests.length) console.error(`${who.key} failed requests: ${JSON.stringify(who.failedRequests.slice(-20))}`);
     }
     throw error;
   } finally {
