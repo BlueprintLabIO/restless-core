@@ -5690,6 +5690,7 @@ async fn grant_owner_connection(
             "Could not grant this connection to the company.",
         );
     }
+    model_gateway::note_routes_changed();
     if should_make_default {
         follow_company_default(&state, &config, &default_before).await;
     }
@@ -14138,6 +14139,7 @@ async fn update_agent_intelligence(
             }
         }
         runtime::CompanyConfig::save(&state.daemon.root, &config)?;
+        model_gateway::note_routes_changed();
         if let Ok(mut claims) = state.daemon.in_flight.lock() {
             claims.record_usable_wake(&company);
         }

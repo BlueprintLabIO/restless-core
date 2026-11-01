@@ -197,6 +197,23 @@ static CREDENTIAL_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::
 /// A key behind an existing reference changed: the next fingerprint check reloads the gateway.
 pub fn note_credential_replaced() {
     CREDENTIAL_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    note_routes_changed();
+}
+
+/// Wakes the daemon's gateway watch (S109). It compares fingerprints every 5 s; an owner's
+/// switch asks it to look now, so a re-admission or reload starts at once rather than up to 5 s
+/// later, and the switch is served (and shown as served) seconds sooner.
+static ROUTES_CHANGED: std::sync::LazyLock<tokio::sync::Notify> =
+    std::sync::LazyLock::new(tokio::sync::Notify::new);
+
+/// A company's model route or credential changed: check what the gateway loads now.
+pub fn note_routes_changed() {
+    ROUTES_CHANGED.notify_one();
+}
+
+/// Resolves when a route change was noted since the last wait (or during it).
+pub async fn routes_changed() {
+    ROUTES_CHANGED.notified().await;
 }
 
 pub fn gateway_fingerprint(configs: &[CompanyConfig], account_oauth: &[String]) -> String {
@@ -5434,6 +5451,15 @@ mission = "Choose native intelligence"
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
         headers
+    }
+
+    #[tokio::test]
+    async fn a_route_change_wakes_the_gateway_watch_at_once() {
+        // Noted before anyone waits: the watch's next wait returns at once, not 5 s later.
+        note_routes_changed();
+        tokio::time::timeout(Duration::from_millis(200), routes_changed())
+            .await
+            .expect("a noted change wakes the watch");
     }
 
     #[test]

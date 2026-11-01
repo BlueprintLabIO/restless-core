@@ -397,7 +397,11 @@ async fn run() -> Result<()> {
                     let started_from = processes.fingerprint().to_owned();
                     let mut admitted_from = model_gateway::provider_fingerprint(&model_configs);
                     loop {
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        // An owner's switch wakes this at once; otherwise every 5 s.
+                        tokio::select! {
+                            () = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                            () = model_gateway::routes_changed() => {}
+                        }
                         if let Err(error) = processes.check_running() {
                             tracing::warn!("model service stopped; restarting: {error:#}");
                             if let Ok(current) = load_configs(&model_root) {
@@ -442,7 +446,11 @@ async fn run() -> Result<()> {
                     tracing::error!(
                         "model gateway unavailable; owner plane remains ready and retry is scheduled: {error:#}"
                     );
-                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    // A switch to a working connection retries at once, not 30 s later.
+                    tokio::select! {
+                        () = tokio::time::sleep(std::time::Duration::from_secs(30)) => {}
+                        () = model_gateway::routes_changed() => {}
+                    }
                     if let Ok(current) = load_configs(&model_root) {
                         model_configs = current;
                     }
