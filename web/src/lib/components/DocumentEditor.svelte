@@ -3124,6 +3124,11 @@
 		outline-offset: 2px;
 	}
 	/* A block's grip, beside the block under the pointer: quiet until reached for. */
+	/* Readers move and change nothing: no grip, whatever the drag plugin decides to show (list
+	 * items as their own targets made it appear before its node callback could hide it). */
+	:global(:has(> .ProseMirror[contenteditable='false']) .block-handle) {
+		display: none !important;
+	}
 	:global(.block-handle) {
 		position: relative;
 		display: grid;
