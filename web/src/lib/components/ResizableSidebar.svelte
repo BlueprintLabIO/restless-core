@@ -25,7 +25,7 @@
 		variable: '--sidebar-width',
 		min: 160,
 		minOther: 420,
-		defaultSize: 264
+		defaultSize: '--sidebar-w'
 	}}
 >
 	{@render children()}

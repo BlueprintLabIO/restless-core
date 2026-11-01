@@ -1021,6 +1021,9 @@
 			inset: 0;
 			height: auto;
 			max-height: 100%;
+			/* It fills the card, whose frame is its edge; a second frame would start its header a
+			 * pixel below the other panes' (S109 F1). */
+			border: 0;
 			border-radius: 0;
 			box-shadow: none;
 			animation: none;
@@ -1098,8 +1101,8 @@
 		grid-template-columns: auto minmax(0, 1fr);
 		align-items: center;
 		gap: var(--space-2);
-		min-height: 44px;
-		padding: 7px 9px;
+		min-height: var(--pane-head-h);
+		padding: var(--space-1) 9px;
 		border-bottom: 1px solid var(--border);
 	}
 	.inspector-bar button {

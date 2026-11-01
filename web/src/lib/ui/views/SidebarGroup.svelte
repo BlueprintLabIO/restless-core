@@ -88,7 +88,7 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		height: 30px;
+		height: var(--row-h-compact);
 		padding: 0 4px 0 8px;
 		border-radius: var(--radius-control);
 		color: var(--text-secondary);

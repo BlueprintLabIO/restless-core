@@ -9750,6 +9750,62 @@ impl OrgIntel {
         .unwrap_or_else(|| "owner".to_string());
         // A co-editing invitation is not a grant. Share edit access first.
         require_access(&mut tx, document, &owner, DocumentAccess::Edit).await?;
+        // One item per thing (S109 B3): asking again about a document that already has an open
+        // request amends that request, which keeps its place in the Inbox, instead of raising a
+        // second item beside it.
+        let open = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM native_document_collaboration_requests \
+             WHERE document_id=$1 AND requested_owner_actor_id=$2 AND resolved_at IS NULL \
+               AND id<>$3 FOR UPDATE",
+        )
+        .bind(document)
+        .bind(&owner)
+        .bind(key)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(open) = open {
+            let amended = sqlx::query_as::<_, DocumentCollaborationRequest>(
+                "UPDATE native_document_collaboration_requests \
+                 SET summary=$2,requested_by_actor_id=$3,revision=revision+1,amended_at=now(), \
+                     amended_by_key=$4 \
+                 WHERE id=$1 AND amended_by_key IS DISTINCT FROM $4 RETURNING *",
+            )
+            .bind(open)
+            .bind(&summary)
+            .bind(actor)
+            .bind(key)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let row = match amended {
+                Some(row) => {
+                    append_document_event(
+                        &mut tx,
+                        "document.collaboration.amended.v1",
+                        document,
+                        actor,
+                        json!({"request_id":open,"amended_by_key":key}),
+                    )
+                    .await?;
+                    row
+                }
+                // The same amendment again: answer what it already made.
+                None => {
+                    sqlx::query_as::<_, DocumentCollaborationRequest>(
+                        "SELECT * FROM native_document_collaboration_requests WHERE id=$1",
+                    )
+                    .bind(open)
+                    .fetch_one(&mut *tx)
+                    .await?
+                }
+            };
+            if row.requested_by_actor_id != actor || row.summary != summary {
+                return Err(DocumentError::Conflict(
+                    "collaboration key was already used with a different request".into(),
+                ));
+            }
+            tx.commit().await?;
+            return Ok(row);
+        }
         let inserted = sqlx::query("INSERT INTO native_document_collaboration_requests (id,document_id,requested_by_actor_id,requested_owner_actor_id,summary) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING")
             .bind(key).bind(document).bind(actor).bind(&owner).bind(&summary).execute(&mut *tx).await?.rows_affected() > 0;
         let row = sqlx::query_as::<_, DocumentCollaborationRequest>(
@@ -9758,10 +9814,16 @@ impl OrgIntel {
         .bind(key)
         .fetch_one(&mut *tx)
         .await?;
+        // A later ask may have amended this request since; replaying the first ask still answers it.
+        let amended: bool = sqlx::query_scalar(
+            "SELECT amended_at IS NOT NULL FROM native_document_collaboration_requests WHERE id=$1",
+        )
+        .bind(key)
+        .fetch_one(&mut *tx)
+        .await?;
         if row.document_id != document
-            || row.requested_by_actor_id != actor
             || row.requested_owner_actor_id != owner
-            || row.summary != summary
+            || (!amended && (row.requested_by_actor_id != actor || row.summary != summary))
         {
             return Err(DocumentError::Conflict(
                 "collaboration key was already used with a different request".into(),

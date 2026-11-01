@@ -592,6 +592,18 @@ impl OrgIntel {
         Ok(binding)
     }
 
+    /// Brand and voice proposals waiting for the owner's OK, oldest first: the owner meets them in
+    /// the Inbox as well as on Brand (S109 B2).
+    pub async fn pending_identity_proposals(&self) -> Result<Vec<IdentityProposalRow>> {
+        Ok(sqlx::query_as::<_, IdentityProposalRow>(
+            "SELECT id,created_by,rationale,expected_predecessor,state,decided_by,authority_record_id,\
+             decision_rationale,created_at,decided_at FROM company_identity_proposals \
+             WHERE state='pending' ORDER BY created_at,id",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// Drift findings nobody has decided, each with the Work and label of the artifact it
     /// affects: the owner meets them in the Inbox as well as on Brand.
     pub async fn undecided_identity_drift(

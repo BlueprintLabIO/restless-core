@@ -2415,7 +2415,7 @@
 	.thread-head {
 		min-height: var(--pane-head-h);
 		gap: 9px;
-		padding: 9px 14px;
+		padding: var(--space-1) 14px;
 		border-bottom: 1px solid var(--border);
 		background: color-mix(in srgb, var(--highlight) 48%, transparent);
 		box-shadow: var(--bevel-subtle);

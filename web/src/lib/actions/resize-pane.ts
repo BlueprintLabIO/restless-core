@@ -11,7 +11,8 @@ export type PaneResize = {
 	side?: 'start' | 'end';
 	min?: number;
 	minOther?: number;
-	defaultSize: number | ((width: number) => number);
+	/** Pixels, a function of the container's width, or a grid token such as `--sidebar-w`. */
+	defaultSize: number | `--${string}` | ((width: number) => number);
 	enabled?: boolean;
 	breakpoint?: number;
 };
@@ -49,6 +50,12 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 		read();
 		layout();
 	});
+	function fallbackSize() {
+		const size = options.defaultSize;
+		if (typeof size === 'function') return size(node.clientWidth);
+		if (typeof size === 'number') return size;
+		return parseFloat(getComputedStyle(node).getPropertyValue(size)) || 0;
+	}
 	function bounds() {
 		const width = node.clientWidth;
 		return {
@@ -74,10 +81,7 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 			return;
 		}
 		const { min, max } = bounds();
-		const fallback =
-			typeof options.defaultSize === 'function'
-				? options.defaultSize(node.clientWidth)
-				: options.defaultSize;
+		const fallback = fallbackSize();
 		// Keep an automatic layout change from moving a pane being read or edited.
 		if (previousDefault !== fallback) {
 			heldDefault =
@@ -129,10 +133,7 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 	}
 	function reset() {
 		heldDefault = null;
-		const fallback =
-			typeof options.defaultSize === 'function'
-				? options.defaultSize(node.clientWidth)
-				: options.defaultSize;
+		const fallback = fallbackSize();
 		const { min, max } = bounds();
 		glideTo(Math.max(min, Math.min(max, fallback)), () => {
 			saved = null;

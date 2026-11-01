@@ -7,6 +7,7 @@
 	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { beforeNavigate, goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { tick } from 'svelte';
 	import {
@@ -62,8 +63,11 @@
 
 	const current = $derived(brandStatements(view, releaseEvidence(view, view.current_release?.id)));
 
-	/* Which proposal is shown on the document. The first one, until the owner chooses. */
-	let chosen = $state<string | null | undefined>(undefined);
+	/* Which proposal is shown on the document. The one the Inbox opened (?proposal=), otherwise the
+	 * first one, until the owner chooses. */
+	let chosen = $state<string | null | undefined>(
+		page.url.searchParams.get('proposal') ?? undefined
+	);
 	const previewing = $derived(
 		chosen !== undefined && (chosen === null || view.pending_proposals.some((p) => p.id === chosen))
 			? chosen

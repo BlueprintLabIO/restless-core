@@ -391,8 +391,10 @@ async fn list_for_you(
     } else {
         Vec::new()
     };
+    // The Inbox holds what only this person can do: FYI notices (changes, shares) go to the daily
+    // digest in their Exec chat instead (S109 B3).
     match org
-        .for_you_page_showing(
+        .inbox_page_showing(
             principal.actor_id(),
             before.as_ref(),
             query.limit.unwrap_or(DEFAULT_FOR_YOU_PAGE),
@@ -1018,7 +1020,7 @@ mod tests {
             .await
             .unwrap();
 
-        let state = RoomApiState::fixed(HashMap::from([(company.clone(), org)]), url);
+        let state = RoomApiState::fixed(HashMap::from([(company.clone(), org.clone())]), url);
         let app = |actor: &str, role: &str| {
             let principal = RequestPrincipal::from_verified(&VerifiedIdentity {
                 user: format!("user-{actor}"),
@@ -1047,18 +1049,32 @@ mod tests {
         let (status, body) = request(&alex, Method::GET, path.clone(), None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
-            body["unread_count"], 2,
-            "the mention, and being given the document"
+            body["unread_count"], 1,
+            "the mention counts; being given the document is a notice for the daily digest"
         );
-        let shared = body["items"]
-            .as_array()
-            .unwrap()
+        assert!(
+            body["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["kind"] != "share"),
+            "a share is not in the Inbox (S109 B3)"
+        );
+        let notices = org
+            .for_you_notices(
+                "alex",
+                chrono::Utc::now() - chrono::Duration::days(1),
+                chrono::Utc::now(),
+            )
+            .await
+            .unwrap();
+        let shared = notices
             .iter()
-            .find(|item| item["kind"] == "share")
-            .expect("Alex hears he was given Board notes");
-        assert_eq!(shared["excerpt"], "Can comment");
+            .find(|notice| notice.kind == "share")
+            .expect("Alex hears he was given Board notes in the digest");
+        assert_eq!(shared.excerpt, "Can comment");
         assert_eq!(
-            shared["href"],
+            href(&company, shared),
             format!("/{company}/library/documents?document={private}")
         );
         let item = &body["items"][0];
@@ -1101,7 +1117,7 @@ mod tests {
         assert_eq!(status, StatusCode::NO_CONTENT);
         assert_eq!(
             request(&alex, Method::GET, path.clone(), None).await.1["unread_count"],
-            2
+            1
         );
         let (status, _) = request(
             &bianca,
@@ -1116,11 +1132,11 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
-            2,
+            1,
             "Bianca's archive is her own"
         );
         let (_, body) = request(&alex, Method::GET, format!("{path}?unread=true"), None).await;
-        assert_eq!(body["items"].as_array().unwrap().len(), 2);
+        assert_eq!(body["items"].as_array().unwrap().len(), 1);
 
         // Inbox marks are the person's own.
         let marks = format!("/companies/{company}/inbox-marks");

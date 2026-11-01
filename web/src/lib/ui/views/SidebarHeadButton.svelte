@@ -27,8 +27,8 @@
 	.head-button {
 		display: inline-grid;
 		place-items: center;
-		width: 30px;
-		height: 30px;
+		width: var(--row-h-compact);
+		height: var(--row-h-compact);
 		padding: 0;
 		border: 1px solid var(--edge-control);
 		border-radius: var(--radius-pane);

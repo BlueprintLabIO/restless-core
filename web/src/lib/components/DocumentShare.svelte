@@ -322,8 +322,8 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 6px;
-		min-height: var(--pane-head-h, 52px);
-		padding: 8px 12px 8px 16px;
+		min-height: var(--pane-head-h);
+		padding: var(--space-1) 12px var(--space-1) 16px;
 		border-bottom: 1px solid var(--border);
 	}
 	h2 {
