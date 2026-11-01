@@ -225,4 +225,6 @@ export interface ThreadMessage {
 	/** A key that stays the same when a just-sent message gets its saved id, so it is not redrawn. */
 	clientKey?: string;
 	contextPath?: string | null;
+	/** Sent behind a reply under way: it waits for that reply to end (S109 F7). */
+	queued?: boolean;
 }
