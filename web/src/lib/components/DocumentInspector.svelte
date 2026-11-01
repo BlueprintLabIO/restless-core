@@ -1804,9 +1804,16 @@
 					</h2>
 				</header>
 			{/if}
-			{#if editing && canJudge}<p class="pending-draft">Waiting for edits to finish saving.</p>{/if}
+			<!-- Said without taking a line: the line came and went while the document connected,
+			     moving the review below it (S109 C7). The controls stay disabled meanwhile. -->
+			<p class="sr-only" role="status">
+				{editing && canJudge ? 'Waiting for edits to finish saving.' : ''}
+			</p>
 			{#if requestedReview}
-				<section class="review-request current">
+				<section
+					class="review-request current"
+					title={editing && canJudge ? 'Waiting for edits to finish saving.' : undefined}
+				>
 					{#if !requestedReviewId}
 						<header>
 							<span class="review-pulse"></span><strong>Review requested</strong><time
@@ -2557,13 +2564,6 @@
 	.inline-notice {
 		margin: 0;
 		padding: 8px 12px;
-		background: color-mix(in srgb, var(--surface-work) 6%, var(--surface));
-		color: var(--text-secondary);
-	}
-	.pending-draft {
-		margin: 0;
-		padding: 8px 12px;
-		border-bottom: 1px solid color-mix(in srgb, var(--surface-work) 20%, var(--border));
 		background: color-mix(in srgb, var(--surface-work) 6%, var(--surface));
 		color: var(--text-secondary);
 	}

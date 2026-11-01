@@ -4,7 +4,7 @@
 	 * applied changes unfold here with their Undo, and the waiting requests filter the Inbox.
 	 * Nothing on a quiet day. */
 	import { createQuery } from '@tanstack/svelte-query';
-	import { directionDigest } from '$lib/model/direction';
+	import { directionDigestQuery } from '$lib/model/direction';
 	import AppliedChanges from './AppliedChanges.svelte';
 
 	let {
@@ -19,15 +19,7 @@
 		onrequests?: (only: boolean) => void;
 	} = $props();
 
-	const digest = createQuery(() => ({
-		queryKey: ['direction-digest', companyId],
-		queryFn: () => directionDigest(companyId),
-		enabled: Boolean(companyId),
-		staleTime: 60_000,
-		refetchInterval: 5 * 60_000,
-		refetchIntervalInBackground: false,
-		retry: false
-	}));
+	const digest = createQuery(() => directionDigestQuery(companyId));
 	const applied = $derived(digest.data?.applied ?? []);
 	const waiting = $derived(digest.data?.requests_waiting.length ?? 0);
 	const plural = (count: number, one: string, many: string) =>

@@ -824,14 +824,18 @@
 	let outputRevision: string | null = null;
 	let outputEpoch = 0;
 	let outputSkippedReported = false;
-	const outputIncomplete = $derived(outputFilesTruncated || outputSkippedNames > 0 || outputStale || outputReadFailed);
-	const folderListingHint = $derived(outputReadFailed
-		? 'Files could not be read. Try again.'
-		: outputStale
-		? 'Files changed. Refresh the list to continue.'
-		: outputSkippedNames > 0
-		? `Some file names cannot be displayed.${outputFilesTruncated ? ' More older files are available.' : ''}`
-		: `Showing ${outputFiles.length} files; more older files are available`);
+	const outputIncomplete = $derived(
+		outputFilesTruncated || outputSkippedNames > 0 || outputStale || outputReadFailed
+	);
+	const folderListingHint = $derived(
+		outputReadFailed
+			? 'Files could not be read. Try again.'
+			: outputStale
+				? 'Files changed. Refresh the list to continue.'
+				: outputSkippedNames > 0
+					? `Some file names cannot be displayed.${outputFilesTruncated ? ' More older files are available.' : ''}`
+					: `Showing ${outputFiles.length} files; more older files are available`
+	);
 	function reportSkippedNames(count: number) {
 		outputSkippedNames = count;
 		if (count > 0 && !outputSkippedReported) toast('Some file names cannot be displayed.');
@@ -851,7 +855,8 @@
 		outputReadFailed = true;
 		if (outputFailureToast !== null) dismissToast(outputFailureToast);
 		outputFailureToast = toast('Files could not be read. Try again.', {
-			tone: 'failure', action: { label: 'Try again', run: () => refreshOutputs() }
+			tone: 'failure',
+			action: { label: 'Try again', run: () => refreshOutputs() }
 		});
 	}
 
@@ -859,7 +864,8 @@
 		if (outputStale) return;
 		outputStale = true;
 		outputStaleToast = toast('Files changed. Refresh the list to continue.', {
-			persist: true, action: { label: 'Refresh', run: () => refreshOutputs() }
+			persist: true,
+			action: { label: 'Refresh', run: () => refreshOutputs() }
 		});
 	}
 	async function refreshOutputs() {
@@ -896,7 +902,11 @@
 		try {
 			const result = await readLibraryOutputs(company, undefined, cursor);
 			if (company !== companyId || epoch !== outputEpoch) return;
-			if (result.truncated && (!result.next || (result.next.path === cursor.path && result.next.modified === cursor.modified))) {
+			if (
+				result.truncated &&
+				(!result.next ||
+					(result.next.path === cursor.path && result.next.modified === cursor.modified))
+			) {
 				throw new Error('The next file page could not be read.');
 			}
 			const seen = new Set(outputFiles.map((file) => file.path));
@@ -937,35 +947,42 @@
 				if (!controller.signal.aborted) fileModified = times;
 			});
 			if (owner && !untrack(() => outputLoadingMore))
-				void readLibraryOutputs(company, controller.signal).then((result) => {
-					if (!controller.signal.aborted && epoch === outputEpoch) {
-						if (result.stale) {
-							if (!outputPagesLoaded) {
+				void readLibraryOutputs(company, controller.signal)
+					.then((result) => {
+						if (!controller.signal.aborted && epoch === outputEpoch) {
+							if (result.stale) {
+								if (!outputPagesLoaded) {
+									outputFiles = result.files;
+									outputFilesTruncated = result.truncated;
+									outputCursor = result.next;
+									outputRevision = result.revision;
+									reportSkippedNames(result.skippedNames);
+								}
+								if (!outputReadFailed) reportOutputFailure();
+								return;
+							}
+							clearOutputFailure();
+							if (
+								outputPagesLoaded &&
+								outputRevision &&
+								result.revision &&
+								outputRevision !== result.revision
+							) {
+								markOutputsStale();
+							} else if (!outputPagesLoaded && !outputStale) {
+								reportSkippedNames(result.skippedNames);
+								outputRevision = result.revision;
 								outputFiles = result.files;
 								outputFilesTruncated = result.truncated;
 								outputCursor = result.next;
-								outputRevision = result.revision;
-								reportSkippedNames(result.skippedNames);
 							}
-							if (!outputReadFailed) reportOutputFailure();
-							return;
 						}
-						clearOutputFailure();
-						if (outputPagesLoaded && outputRevision && result.revision && outputRevision !== result.revision) {
-							markOutputsStale();
-						} else if (!outputPagesLoaded && !outputStale) {
-							reportSkippedNames(result.skippedNames);
-							outputRevision = result.revision;
-							outputFiles = result.files;
-							outputFilesTruncated = result.truncated;
-							outputCursor = result.next;
+					})
+					.catch(() => {
+						if (!controller.signal.aborted && epoch === outputEpoch && !outputReadFailed) {
+							reportOutputFailure();
 						}
-					}
-				}).catch(() => {
-					if (!controller.signal.aborted && epoch === outputEpoch && !outputReadFailed) {
-						reportOutputFailure();
-					}
-				});
+					});
 		};
 		read();
 		const timer = setInterval(read, 60_000);
@@ -1473,15 +1490,15 @@
 			: key === 'folders'
 				? 'Folders'
 				: key === 'notes'
-				? 'Working notes'
-				: key === 'pinned'
-				? 'Pinned'
-				: key === 'yours'
-					? 'From you'
-					: (FILTERS.find((item) => item.key === key)?.label ??
-						(FILE_KINDS.includes(key as LibraryFileKind)
-							? LIBRARY_KIND_LABEL[key as LibraryFileKind]
-							: 'All files'));
+					? 'Working notes'
+					: key === 'pinned'
+						? 'Pinned'
+						: key === 'yours'
+							? 'From you'
+							: (FILTERS.find((item) => item.key === key)?.label ??
+								(FILE_KINDS.includes(key as LibraryFileKind)
+									? LIBRARY_KIND_LABEL[key as LibraryFileKind]
+									: 'All files'));
 
 	const filterHref = (key: Filter, collection = '') => {
 		const url = new URLSearchParams();
@@ -1726,7 +1743,11 @@
 						icon={FolderOpen}
 						active={filter === 'folders' && !fileOpen && !uploadFile}
 						count={outputIncomplete ? null : folderEntries.length}
-						reading={outputReadFailed ? '—' : outputIncomplete ? `${folderEntries.length}+` : undefined}
+						reading={outputReadFailed
+							? '—'
+							: outputIncomplete
+								? `${folderEntries.length}+`
+								: undefined}
 						readingTitle={outputIncomplete ? folderListingHint : undefined}
 						title={outputIncomplete
 							? folderListingHint
@@ -1821,8 +1842,7 @@
 					href={filterHref('archived')}
 					class="library-filters-end"
 					class:active={filter === 'archived' && !collectionParam}
-					aria-current={filter === 'archived' && !collectionParam ? 'page' : undefined}
-					>Archived</a
+					aria-current={filter === 'archived' && !collectionParam ? 'page' : undefined}>Archived</a
 				>
 			</nav>
 		{/snippet}
@@ -1912,17 +1932,18 @@
 			>
 				<header class="head">
 					<h1>{filterLabel(filter)}</h1>
-					<span class="head-count"
+					<span
+						class="head-count"
 						title={filter === 'folders' && outputIncomplete ? folderListingHint : undefined}
 						>{filter === 'folders' && outputReadFailed && !query && !byParam && !sinceParam
 							? '—'
 							: filter === 'folders' && outputIncomplete && !query && !byParam && !sinceParam
-							? `${shown.length}+`
-							: ((!query && !collectionParam && !byParam && !sinceParam && filter === 'docs'
-								? counts.docs
-								: !query && !collectionParam && !byParam && !sinceParam && filter === 'all'
-									? counts.all
-									: shown.length) || '')}</span
+								? `${shown.length}+`
+								: (!query && !collectionParam && !byParam && !sinceParam && filter === 'docs'
+										? counts.docs
+										: !query && !collectionParam && !byParam && !sinceParam && filter === 'all'
+											? counts.all
+											: shown.length) || ''}</span
 					>
 					{#if filter === 'yours' && keptUsage}<span
 							class="usage"
@@ -2038,7 +2059,10 @@
 				</header>
 
 				<div class="body">
-					{#if loading && !entries.length}
+					<!-- Until every source has answered once, the list's final layout as a skeleton: a
+					     list drawn from the first source to answer grew rows in place as the others
+					     arrived (S109 C7). -->
+					{#if loading}
 						<Skeleton label="Loading the Library" variant="list" count={5} />
 					{:else if shown.length}
 						<div class="table-head" role="toolbar" aria-label="Sort and filter">
@@ -2236,34 +2260,36 @@
 						<div class="searching"><Pending label="Searching inside documents" /></div>
 					{:else}
 						<Empty
-							title={filter === 'folders' && outputFilesTruncated && (query || byParam || sinceParam)
+							title={filter === 'folders' &&
+							outputFilesTruncated &&
+							(query || byParam || sinceParam)
 								? 'No matches in loaded files'
 								: byParam || sinceParam
-								? 'Nothing matches these filters'
-								: query
-									? 'Nothing matches that search'
-									: filter === 'review'
-										? 'Nothing is waiting for your review'
-										: filter === 'archived'
-											? 'Nothing is archived'
-											: filter === 'yours'
-												? 'Nothing from you yet'
-												: filter === 'notes'
-													? 'No working notes'
-													: 'Nothing here yet'}
+									? 'Nothing matches these filters'
+									: query
+										? 'Nothing matches that search'
+										: filter === 'review'
+											? 'Nothing is waiting for your review'
+											: filter === 'archived'
+												? 'Nothing is archived'
+												: filter === 'yours'
+													? 'Nothing from you yet'
+													: filter === 'notes'
+														? 'No working notes'
+														: 'Nothing here yet'}
 							info={filter === 'folders' && outputFilesTruncated && (query || byParam || sinceParam)
 								? 'Load older files to continue searching.'
 								: filter === 'folders' && outputReadFailed
-								? 'Files could not be read. Try again.'
-								: filter === 'folders' && outputSkippedNames > 0
-								? 'Some file names cannot be displayed.'
-								: filter === 'yours'
-								? 'Files you add here or send in a conversation are kept here.'
-								: filter === 'notes'
-								? NOTES_HINT
-								: query && !searchesDocuments && filter !== 'archived'
-									? 'This view matches titles and file names. All files also searches inside documents.'
-									: 'Documents, sheets and everything the team makes, such as sites, decks and images, appear here as they work.'}
+									? 'Files could not be read. Try again.'
+									: filter === 'folders' && outputSkippedNames > 0
+										? 'Some file names cannot be displayed.'
+										: filter === 'yours'
+											? 'Files you add here or send in a conversation are kept here.'
+											: filter === 'notes'
+												? NOTES_HINT
+												: query && !searchesDocuments && filter !== 'archived'
+													? 'This view matches titles and file names. All files also searches inside documents.'
+													: 'Documents, sheets and everything the team makes, such as sites, decks and images, appear here as they work.'}
 						>
 							{#snippet action()}{#if byParam || sinceParam}<a
 										class="btn small"
@@ -2302,7 +2328,11 @@
 						</button>
 						{#if outputLoadFailure}<span role="status">{outputLoadFailure}</span>{/if}
 					{:else if filter === 'folders' && outputFilesTruncated && outputCursor}
-						<button class="more" disabled={outputLoadingMore} onclick={() => void loadMoreOutputs()}>
+						<button
+							class="more"
+							disabled={outputLoadingMore}
+							onclick={() => void loadMoreOutputs()}
+						>
 							{outputLoadingMore ? 'Loading…' : 'Load older files'}
 						</button>
 						{#if outputLoadFailure}<span role="status">{outputLoadFailure}</span>{/if}

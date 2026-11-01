@@ -1,0 +1,271 @@
+{
+  "note": "Known jank the zero-jank gate (multiplayer-jank-journey.mjs) tolerates until fixed. Each entry names the visit (role/state/width/load/surface, * matches one part), the kind, the element and the measured maximum; a failure above 1.5x that value, on another element or in another visit fails the gate. Remove an entry when its fix lands; the gate notes entries it no longer observes.",
+  "entries": [
+    {
+      "visit": "*/*/desktop/*/apps",
+      "kind": "grid",
+      "element": "the panes' headers end on one line",
+      "max": 9,
+      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
+    },
+    {
+      "visit": "*/*/desktop/*/card-decision",
+      "kind": "grid",
+      "element": "the panes' headers end on one line",
+      "max": 13.5,
+      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
+    },
+    {
+      "visit": "*/*/desktop/*/card-request",
+      "kind": "grid",
+      "element": "the panes' headers end on one line",
+      "max": 8,
+      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
+    },
+    {
+      "visit": "*/*/desktop/*/card-spend",
+      "kind": "grid",
+      "element": "the panes' headers end on one line",
+      "max": 52.3,
+      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
+    },
+    {
+      "visit": "*/*/desktop/*/card-update",
+      "kind": "grid",
+      "element": "the panes' headers end on one line",
+      "max": 8,
+      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
+    },
+    {
+      "visit": "*/*/desktop/*/company",
+      "kind": "grid",
+      "element": "the panes' headers end on one line",
+      "max": 48.2,
+      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
+    },
+    {
+      "visit": "*/*/desktop/*/inbox",
+      "kind": "grid",
+      "element": "the panes' headers end on one line",
+      "max": 52.3,
+      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
+    },
+    {
+      "visit": "*/*/desktop/*/library",
+      "kind": "grid",
+      "element": "the panes' headers end on one line",
+      "max": 9,
+      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
+    },
+    {
+      "visit": "*/*/desktop/*/work",
+      "kind": "grid",
+      "element": "the panes' headers end on one line",
+      "max": 9,
+      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
+    },
+    {
+      "visit": "*/*/desktop/*/apps",
+      "kind": "grid",
+      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
+      "max": 94.69999999999999,
+      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
+    },
+    {
+      "visit": "*/*/desktop/*/card-decision",
+      "kind": "grid",
+      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
+      "max": 18.69999999999999,
+      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
+    },
+    {
+      "visit": "*/*/desktop/*/card-request",
+      "kind": "grid",
+      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
+      "max": 18.69999999999999,
+      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
+    },
+    {
+      "visit": "*/*/desktop/*/card-spend",
+      "kind": "grid",
+      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
+      "max": 18.69999999999999,
+      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
+    },
+    {
+      "visit": "*/*/desktop/*/card-update",
+      "kind": "grid",
+      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
+      "max": 14.300000000000011,
+      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
+    },
+    {
+      "visit": "*/*/desktop/*/company",
+      "kind": "grid",
+      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
+      "max": 94.69999999999999,
+      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
+    },
+    {
+      "visit": "*/*/desktop/*/inbox",
+      "kind": "grid",
+      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
+      "max": 18.69999999999999,
+      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
+    },
+    {
+      "visit": "*/*/desktop/*/library",
+      "kind": "grid",
+      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
+      "max": 94.69999999999999,
+      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
+    },
+    {
+      "visit": "*/*/desktop/*/people",
+      "kind": "grid",
+      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
+      "max": 94.69999999999999,
+      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
+    },
+    {
+      "visit": "*/*/desktop/*/work",
+      "kind": "grid",
+      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
+      "max": 94.69999999999999,
+      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
+    },
+    {
+      "visit": "*/*/desktop/*/library",
+      "kind": "layout-shift",
+      "element": "div.app-mount > div.toasts.bridge-tokens",
+      "max": 0.0019,
+      "todo": "Sprint 109 C5/C7: failure toasts stack upward as each failing read reports; one grouped notice per outage."
+    },
+    {
+      "visit": "*/*/phone/*/library",
+      "kind": "layout-shift",
+      "element": "div.app-mount > div.toasts.bridge-tokens",
+      "max": 0.0312,
+      "todo": "Sprint 109 C5/C7: failure toasts stack upward as each failing read reports; one grouped notice per outage."
+    },
+    {
+      "visit": "*/*/desktop/*/apps",
+      "kind": "layout-shift",
+      "element": "div.exr-panel > div.exr-chat > div.exr-msgs > div.exr-empty",
+      "max": 0.0021,
+      "todo": "Sprint 109 C7: Exec rail empty state still settles after a slow navigation to Apps."
+    },
+    {
+      "visit": "*/*/desktop/*/apps",
+      "kind": "layout-shift",
+      "element": "div.hc-field > div.hc-toolbar > div.hc-slot > div.exec-context-line",
+      "max": 0,
+      "todo": "Sprint 109 C7: Exec rail empty state still settles after a slow navigation to Apps."
+    },
+    {
+      "visit": "*/*/phone/*/company",
+      "kind": "layout-shift",
+      "element": "div.section-body.group > div.item.interactive > div.item-row > span.item-trailing",
+      "max": 0.0019,
+      "todo": "Sprint 109 C7: a Company section reading widens its row's trailing value when its slow read lands."
+    },
+    {
+      "visit": "*/*/phone/*/card-update",
+      "kind": "movement",
+      "element": "aside.document-inspector > div.inspector-body.review-body > header.inspector-head > h2",
+      "max": 2,
+      "todo": "Sprint 109 C7: the member's review card inspector settles by 2px after slow reads."
+    },
+    {
+      "visit": "*/*/phone/*/card-update",
+      "kind": "movement",
+      "element": "aside.document-inspector > div.inspector-body.review-body > section.proposal-section > header",
+      "max": 2,
+      "todo": "Sprint 109 C7: the member's review card inspector settles by 2px after slow reads."
+    },
+    {
+      "visit": "*/*/phone/*/card-update",
+      "kind": "movement",
+      "element": "aside.document-inspector > div.inspector-body.review-body > section.review-request.current > header",
+      "max": 2,
+      "todo": "Sprint 109 C7: the member's review card inspector settles by 2px after slow reads."
+    },
+    {
+      "visit": "*/*/desktop/*/people",
+      "kind": "movement",
+      "element": "div.conversation-workspace > section.conversation-main > div.conversation-empty.cockpit-pane > h2",
+      "max": 1,
+      "todo": "Sprint 109 C7: 1px settle of a pane header after the first reads land."
+    },
+    {
+      "visit": "*/*/desktop/*/inbox",
+      "kind": "movement",
+      "element": "div.detail-content > header.head > div.title > h1",
+      "max": 1,
+      "todo": "Sprint 109 C7: 1px settle of a pane header after the first reads land."
+    },
+    {
+      "visit": "*/*/phone/*/card-update",
+      "kind": "movement",
+      "element": "div.inspector-body.review-body > section.review-request.current > label.field > textarea",
+      "max": 2,
+      "todo": "Sprint 109 C7: the member's review card inspector settles by 2px after slow reads."
+    },
+    {
+      "visit": "*/*/phone/*/card-update",
+      "kind": "movement",
+      "element": "div.preview-content > div.documents-screen.embedded.inspector-open > section.inspector-pane.cockpit-pane > aside.document-inspector",
+      "max": 2,
+      "todo": "Sprint 109 C7: the member's review card inspector settles by 2px after slow reads."
+    },
+    {
+      "visit": "*/*/phone/*/card-update",
+      "kind": "movement",
+      "element": "div.preview-content > div.documents-screen.embedded.inspector-open > section.inspector-pane.cockpit-pane > header.inspector-bar.has-inbox",
+      "max": 2,
+      "todo": "Sprint 109 C7: the member's review card inspector settles by 2px after slow reads."
+    },
+    {
+      "visit": "*/*/desktop/*/inbox",
+      "kind": "movement",
+      "element": "section.cockpit-pane.attention-focus > article.inbox-detail > div.detail-content > header.head",
+      "max": 1,
+      "todo": "Sprint 109 C7: 1px settle of a pane header after the first reads land."
+    },
+    {
+      "visit": "*/*/phone/*/card-update",
+      "kind": "movement",
+      "element": "section.inspector-pane.cockpit-pane > aside.document-inspector > div.inspector-body.review-body > header.inspector-head",
+      "max": 2,
+      "todo": "Sprint 109 C7: the member's review card inspector settles by 2px after slow reads."
+    },
+    {
+      "visit": "*/*/desktop/*/card-update",
+      "kind": "movement",
+      "element": "section.inspector-pane.cockpit-pane > aside.document-inspector",
+      "max": 34,
+      "todo": "Sprint 109 C7: the review card's footer actions arrive after slow reads and shorten the inspector by 34px (intermittent, 2 of 4 runs)."
+    },
+    {
+      "visit": "*/*/desktop/*/*",
+      "kind": "movement",
+      "element": "div.exr-panel > div.exr-chat",
+      "max": 1,
+      "todo": "Sprint 109 C7: the Exec rail's transcript and composer settle 1px sideways on a member's first load (intermittent)."
+    },
+    {
+      "visit": "*/*/phone/*/card-spend",
+      "kind": "layout-shift",
+      "element": "article.inbox-detail > div.detail-content > div.body > div.folds",
+      "max": 0.0521,
+      "todo": "Sprint 109 C7: the Spend card's folds shift on a slow cold load at phone width (seen once in four runs)."
+    },
+    {
+      "visit": "*/*/phone/*/card-spend",
+      "kind": "movement",
+      "element": "header.head",
+      "max": 1,
+      "todo": "Sprint 109 C7: 1px settle of a pane header after the first reads land."
+    }
+  ]
+}

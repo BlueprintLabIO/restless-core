@@ -12,11 +12,14 @@
 	import { agentRouteState, intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { companiesQuery } from '$lib/model/queries.svelte';
+	import { settingQuery } from '$lib/model/setting.svelte';
 	import {
 		createConnection,
 		readReusableConnections,
+		reusableConnectionsKey,
 		useAccountConnection,
-		type ReusableConnection
+		type ReusableConnection,
+		type ReusableConnections
 	} from '$lib/model/provider';
 	import { PROVIDER_LABELS } from '$lib/model/provider-labels';
 
@@ -35,39 +38,37 @@
 	const catalog = modelCatalog();
 	const companies = companiesQuery();
 	const intelligence = untrack(() => intelligenceQuery(companyId));
-	let reusable = $state<ReusableConnection[]>([]);
-	let loaded = $state(false);
+	/* The account's connections are a cached read that holds the cockpit's first reveal
+	 * (first-paint-hold.ts): the card appears in its final form, never as a status line that
+	 * grows into the form a moment later (S109 C7). A failed read offers the paste form. */
+	const reusableSource = settingQuery<ReusableConnections>({
+		key: () => reusableConnectionsKey(companyId),
+		read: (signal) => readReusableConnections(signal),
+		retry: false,
+		poll: false
+	});
+	const loaded = $derived(!reusableSource.loading);
+	const reusable = $derived(
+		reusableSource.view
+			? usableAccountConnections(
+					reusableSource.view.connections,
+					reusableSource.view.includedProviders
+				)
+			: []
+	);
 	/* Keys belong to the account. Where the account lives on this computer a key can be pasted here;
 	 * on Cloud the account page holds them. */
-	let canPaste = $state(true);
-	let manageUrl = $state('/account/settings/accounts');
+	const canPaste = $derived((reusableSource.view?.scope ?? 'account') === 'account');
+	const manageUrl = $derived(reusableSource.view?.manageUrl ?? '/account/settings/accounts');
 	let busy = $state(false);
 	let waiting = $state(false);
 	let failure = $state('');
-	let pasting = $state(false);
+	/* The person's own choice between a saved connection and pasting; until then, paste when there
+	 * is nothing saved to use. */
+	let pastingChoice = $state<boolean | null>(null);
+	const pasting = $derived(pastingChoice ?? (canPaste && !reusable.length));
 	let provider = $state('anthropic');
 	let secret = $state('');
-
-	$effect(() => {
-		let live = true;
-		void readReusableConnections()
-			.then((view) => {
-				if (!live) return;
-				reusable = usableAccountConnections(view.connections, view.includedProviders);
-				canPaste = view.scope === 'account';
-				manageUrl = view.manageUrl;
-				pasting = canPaste && !reusable.length;
-				loaded = true;
-			})
-			.catch(() => {
-				if (!live) return;
-				pasting = true;
-				loaded = true;
-			});
-		return () => {
-			live = false;
-		};
-	});
 
 	const PROVIDERS = Object.keys(PROVIDER_LABELS);
 	function defaultModel(id: string, kind: 'api_key' | 'oauth' = 'api_key') {
@@ -172,8 +173,10 @@
 					</li>
 				{/each}
 			</ul>
-			{#if canPaste}<button type="button" class="connect-link" onclick={() => (pasting = true)}
-					>Paste a new API key instead</button
+			{#if canPaste}<button
+					type="button"
+					class="connect-link"
+					onclick={() => (pastingChoice = true)}>Paste a new API key instead</button
 				>{:else}<a class="connect-link" href={manageUrl}>Add a key in your account</a>{/if}
 		{:else if !canPaste}
 			<p class="connect-note">
@@ -206,7 +209,7 @@
 					{#if reusable.length}<button
 							type="button"
 							class="btn small"
-							onclick={() => (pasting = false)}>Use a saved connection</button
+							onclick={() => (pastingChoice = false)}>Use a saved connection</button
 						>{/if}
 				</FormFoot>
 			</form>

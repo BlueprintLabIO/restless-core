@@ -7,6 +7,7 @@
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item } from '$lib/ui/page';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
 	import { useCompanySetup } from '$lib/model/company-setup-rows.svelte';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
@@ -87,121 +88,128 @@
 	{#snippet actions()}{#if setup.owner}<a class="btn small" href={`${setup.href('charter')}#name`}
 				>Name & logo</a
 			>{/if}{/snippet}
-	{#if purpose}<div class="company-purpose">
-			<div class="company-purpose-copy"><Markdown text={purpose} /></div>
-			<a href={setup.href('charter')}>Charter <ChevronRight size={14} aria-hidden="true" /></a>
-		</div>{/if}
-	{#if setup.owner}
-		<p class="company-facts">
-			<a
-				href={setup.href('health')}
-				class:alert={setup.health && setup.health !== 'healthy'}
-				title="Checks on the company computer, model and tools"
-				><i aria-hidden="true" class="dot {setup.health ?? 'unknown'}"></i>{setup.health ===
-				'healthy'
-					? 'Healthy'
-					: setup.health === 'unavailable'
-						? 'Health unavailable'
-						: setup.health
-							? 'Needs attention'
-							: 'Checking…'}</a
-			>
-			{#if spendLine}<span aria-hidden="true">·</span><a href={setup.href('limits')}>{spendLine}</a
-				><InfoTip text={spendWhy} />{/if}
-			{#if working != null}<span aria-hidden="true">·</span><a
-					href={`/${companyId}/people`}
-					title="People working for this company right now"
-					>{working ? `${plural(working, 'person', 'people')} working` : 'Nobody working now'}</a
-				>{/if}
-		</p>
+	<!-- The overview appears once its sources have answered: the facts line and the setup tasks
+	     arriving a read at a time pushed everything below them down (S109 C7). -->
+	{#if !setup.settled}
+		<Skeleton label="Loading the company overview" variant="page" />
+	{:else}
+		{#if purpose}<div class="company-purpose">
+				<div class="company-purpose-copy"><Markdown text={purpose} /></div>
+				<a href={setup.href('charter')}>Charter <ChevronRight size={14} aria-hidden="true" /></a>
+			</div>{/if}
+		{#if setup.owner}
+			<p class="company-facts">
+				<a
+					href={setup.href('health')}
+					class:alert={setup.health && setup.health !== 'healthy'}
+					title="Checks on the company computer, model and tools"
+					><i aria-hidden="true" class="dot {setup.health ?? 'unknown'}"></i>{setup.health ===
+					'healthy'
+						? 'Healthy'
+						: setup.health === 'unavailable'
+							? 'Health unavailable'
+							: setup.health
+								? 'Needs attention'
+								: 'Checking…'}</a
+				>
+				{#if spendLine}<span aria-hidden="true">·</span><a href={setup.href('limits')}
+						>{spendLine}</a
+					><InfoTip text={spendWhy} />{/if}
+				{#if working != null}<span aria-hidden="true">·</span><a
+						href={`/${companyId}/people`}
+						title="People working for this company right now"
+						>{working ? `${plural(working, 'person', 'people')} working` : 'Nobody working now'}</a
+					>{/if}
+			</p>
 
-		{#if setup.todos.length}
-			<Section title={`${setup.todos.length} to finish setting up`} group>
-				{#each setup.todos as row (row.key)}
-					{@const Icon = row.icon}
-					<!-- The task says what to do; the section beside it carries the current value. -->
-					<Item title={row.task ?? row.label} href={row.href}>
-						{#snippet leading()}<Icon size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
-						{#snippet trailing()}<ChevronRight
-								size={14}
-								strokeWidth={1.8}
-								aria-label={row.value}
-							/>{/snippet}
-					</Item>
-				{/each}
-			</Section>
-		{:else}
-			<div class="company-current">
-				{#if setup.health === 'unavailable' || setup.rows.some((row) => row.unavailable)}
-					<a class="current-action" href={setup.href('health')}
-						><span
-							><strong>Company details unavailable</strong><span
-								>Open Health to check the connection and try again.</span
-							></span
-						><ChevronRight size={16} aria-hidden="true" /></a
-					>
-				{:else if setup.health && setup.health !== 'healthy'}
-					<a class="current-action" href={setup.href('health')}
-						><span
-							><strong>Review company health</strong><span>A current check needs attention.</span
-							></span
-						><ChevronRight size={16} aria-hidden="true" /></a
-					>
-				{:else if setup.entry?.card?.decisions_waiting}
-					<a class="current-action" href={`/${encodeURIComponent(companyId)}`}
-						><span
-							><strong>{plural(setup.entry.card.decisions_waiting, 'decision')} waiting</strong
-							><span>Review what the company has prepared for you.</span></span
-						><ChevronRight size={16} aria-hidden="true" /></a
-					>
-				{:else if setup.health === 'healthy'}
-					<a class="current-action" href={`/${encodeURIComponent(companyId)}/work`}
-						><span
-							><strong>No setup tasks outstanding</strong><span
-								>{working
-									? `${plural(working, 'person', 'people')} working. View current outcomes.`
-									: 'View the company’s current work and outcomes.'}</span
-							></span
-						><ChevronRight size={16} aria-hidden="true" /></a
-					>
-				{:else}<p class="company-done">Checking the company's current state…</p>{/if}
-			</div>
+			{#if setup.todos.length}
+				<Section title={`${setup.todos.length} to finish setting up`} group>
+					{#each setup.todos as row (row.key)}
+						{@const Icon = row.icon}
+						<!-- The task says what to do; the section beside it carries the current value. -->
+						<Item title={row.task ?? row.label} href={row.href}>
+							{#snippet leading()}<Icon size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+							{#snippet trailing()}<ChevronRight
+									size={14}
+									strokeWidth={1.8}
+									aria-label={row.value}
+								/>{/snippet}
+						</Item>
+					{/each}
+				</Section>
+			{:else}
+				<div class="company-current">
+					{#if setup.health === 'unavailable' || setup.rows.some((row) => row.unavailable)}
+						<a class="current-action" href={setup.href('health')}
+							><span
+								><strong>Company details unavailable</strong><span
+									>Open Health to check the connection and try again.</span
+								></span
+							><ChevronRight size={16} aria-hidden="true" /></a
+						>
+					{:else if setup.health && setup.health !== 'healthy'}
+						<a class="current-action" href={setup.href('health')}
+							><span
+								><strong>Review company health</strong><span>A current check needs attention.</span
+								></span
+							><ChevronRight size={16} aria-hidden="true" /></a
+						>
+					{:else if setup.entry?.card?.decisions_waiting}
+						<a class="current-action" href={`/${encodeURIComponent(companyId)}`}
+							><span
+								><strong>{plural(setup.entry.card.decisions_waiting, 'decision')} waiting</strong
+								><span>Review what the company has prepared for you.</span></span
+							><ChevronRight size={16} aria-hidden="true" /></a
+						>
+					{:else if setup.health === 'healthy'}
+						<a class="current-action" href={`/${encodeURIComponent(companyId)}/work`}
+							><span
+								><strong>No setup tasks outstanding</strong><span
+									>{working
+										? `${plural(working, 'person', 'people')} working. View current outcomes.`
+										: 'View the company’s current work and outcomes.'}</span
+								></span
+							><ChevronRight size={16} aria-hidden="true" /></a
+						>
+					{:else}<p class="company-done">Checking the company's current state…</p>{/if}
+				</div>
+			{/if}
 		{/if}
-	{/if}
 
-	<div class="setup-all">
-		<!-- Where the section list steps out, its search comes here. -->
-		<SidebarSearch bind:value={setup.query} placeholder="Search settings" />
-		{#each setup.matching as group (group.label)}
-			<Section title={group.label} group>
-				{#each group.rows as row (row.key)}
-					{@const Icon = row.icon}
-					<Item title={row.label} href={row.href}>
-						{#snippet leading()}<Icon size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
-						{#snippet trailing()}{#if row.reading}<span class="row-value" title={row.tooltip}
-									>{row.reading}</span
-								>{/if}<ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />{/snippet}
-					</Item>
-				{/each}
+		<div class="setup-all">
+			<!-- Where the section list steps out, its search comes here. -->
+			<SidebarSearch bind:value={setup.query} placeholder="Search settings" />
+			{#each setup.matching as group (group.label)}
+				<Section title={group.label} group>
+					{#each group.rows as row (row.key)}
+						{@const Icon = row.icon}
+						<Item title={row.label} href={row.href}>
+							{#snippet leading()}<Icon size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+							{#snippet trailing()}{#if row.reading}<span class="row-value" title={row.tooltip}
+										>{row.reading}</span
+									>{/if}<ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+						</Item>
+					{/each}
+				</Section>
+			{:else}
+				<p class="company-done">No settings match.</p>
+			{/each}
+		</div>
+
+		{#if setup.owner}
+			<Section
+				title="Export and archive"
+				info="Take everything the company holds with you, or stop it for now. Archived companies can be restored, opened read-only or deleted from your companies."
+				group
+			>
+				<Item title="Download export" href={companyExportHref(companyId)} download>
+					{#snippet leading()}<Download size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+				</Item>
+				<Item title={archiving ? 'Archiving…' : 'Archive company'} onclick={archive}>
+					{#snippet leading()}<Archive size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+				</Item>
 			</Section>
-		{:else}
-			<p class="company-done">No settings match.</p>
-		{/each}
-	</div>
-
-	{#if setup.owner}
-		<Section
-			title="Export and archive"
-			info="Take everything the company holds with you, or stop it for now. Archived companies can be restored, opened read-only or deleted from your companies."
-			group
-		>
-			<Item title="Download export" href={companyExportHref(companyId)} download>
-				{#snippet leading()}<Download size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
-			</Item>
-			<Item title={archiving ? 'Archiving…' : 'Archive company'} onclick={archive}>
-				{#snippet leading()}<Archive size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
-			</Item>
-		</Section>
+		{/if}
 	{/if}
 </Page>
 
