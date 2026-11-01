@@ -13,7 +13,7 @@ const serviceDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repo = resolve(serviceDir, "..", "..");
 // The protocol journey is the default; the multiplayer journey drives three
 // browser accounts through the same isolated plane and cleanup.
-const journeys = { "core-journey.mjs": 240, "multiplayer-journey.mjs": 900 };
+const journeys = { "core-journey.mjs": 240, "multiplayer-journey.mjs": 900, "multiplayer-stress-journey.mjs": 1200 };
 const journeyName = process.env.RESTLESS_TEST_JOURNEY ?? "core-journey.mjs";
 const journeySeconds = journeys[journeyName];
 const required = [
@@ -157,7 +157,7 @@ async function removeNamedVolume(name) {
 }
 
 if (!journeySeconds) fail(`unknown RESTLESS_TEST_JOURNEY ${journeyName}`);
-if (journeyName === "multiplayer-journey.mjs") required.push("RESTLESS_BROWSER_EXECUTABLE");
+if (journeyName.startsWith("multiplayer")) required.push("RESTLESS_BROWSER_EXECUTABLE");
 for (const name of required) if (!process.env[name]) fail(`missing ${name}`);
 const adminFile = process.env.RESTLESS_TEST_DATABASE_URL_FILE;
 const daemon = process.env.RESTLESS_TEST_DAEMON;
@@ -205,8 +205,15 @@ async function cleanup() {
     for (const id of ids) await shell("docker", ["rm", "-f", id]);
   });
   await attempt(() => removeNamedContainer(`restless-${namespace}-co-${company}`));
-  // The company's desktop runs beside it (restless-<ns>-pc-<company>) and holds the same volume.
-  await attempt(() => removeNamedContainer(`restless-${namespace}-pc-${company}`));
+  // The company's computer (restless-<ns>-pc-<company>) and its volumes: left behind, one per run
+  // piled up on the host (26 October).
+  await attempt(async () => {
+    const prefix = `restless-${namespace}-pc-`;
+    const names = (await shell("docker", ["ps", "-a", "--format", "{{.Names}}", "--filter", `name=${prefix}`])).split(/\s+/).filter((name) => name.startsWith(prefix));
+    for (const name of names) await shell("docker", ["rm", "-f", name]);
+    const volumes = (await shell("docker", ["volume", "ls", "-q", "--filter", `name=${prefix}`])).split(/\s+/).filter((name) => name.startsWith(prefix));
+    for (const volume of volumes) await shell("docker", ["volume", "rm", volume]);
+  });
   await attempt(() => removeNamedVolume(`restless-${namespace}-vol-${company}`));
   await attempt(() => removeNamedVolume(`restless-${namespace}-att-${company}`));
   // An account's browser (S98) the journey started, should it stop before removing the account:
@@ -244,6 +251,8 @@ async function cleanup() {
     admin = undefined;
   }
   await rm(state, { recursive: true, force: true }).catch((error) => errors.push(error));
+  for (const error of errors) console.error();
+  for (const error of errors) console.error(`cleanup: ${error?.message ?? error}`);
   if (errors.length) throw new AggregateError(errors, "isolated Core cleanup failed");
   console.log("PASS isolated identity Core containers, volume, databases and roles removed");
 }
@@ -265,6 +274,9 @@ try {
     if (process.env[name]) environment[name] = process.env[name];
   if (process.env.RESTLESS_COCKPIT_DIR) environment.RESTLESS_COCKPIT_DIR = process.env.RESTLESS_COCKPIT_DIR;
   if (process.env.RESTLESS_BROWSER_EXECUTABLE) environment.RESTLESS_BROWSER_EXECUTABLE = process.env.RESTLESS_BROWSER_EXECUTABLE;
+  // The stress journey's seed and size, so a failing storm replays exactly.
+  for (const name of ["RESTLESS_MP_SEED", "RESTLESS_MP_ROUNDS", "RESTLESS_MP_STRICT"])
+    if (process.env[name]) environment[name] = process.env[name];
   Object.assign(environment, {
     RESTLESS_PROFILE: "dev",
     RESTLESS_HOME: state,
