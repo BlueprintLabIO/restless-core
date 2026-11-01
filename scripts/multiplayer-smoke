@@ -15,14 +15,19 @@
 #   RESTLESS_NATIVE_DOCUMENTS_IMAGE  installed Documents image; otherwise built from this checkout
 #   RESTLESS_IDENTITY_TEST_OUTPUT    new absolute directory to keep the evidence in
 #   --skip-build                     reuse $CARGO_TARGET_DIR (or target)/debug/restlessd, web/build and node_modules
+#   --stress                         run the stress journey instead: cursors, one-spot typing, a seeded
+#                                    edit storm (RESTLESS_MP_SEED replays it), offline edits, access lost
+#                                    mid-edit, racing renames, sheets, group-chat bursts, a Core restart
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 skip_build=0
+journey=multiplayer-journey.mjs
 for argument in "$@"; do
   case "$argument" in
     --skip-build) skip_build=1 ;;
-    *) echo "usage: scripts/multiplayer-smoke [--skip-build]" >&2; exit 2 ;;
+    --stress) journey=multiplayer-stress-journey.mjs ;;
+    *) echo "usage: scripts/multiplayer-smoke [--skip-build] [--stress]" >&2; exit 2 ;;
   esac
 done
 
@@ -54,6 +59,8 @@ fi
 if (( ! skip_build )); then
   "$root/scripts/restless-cargo" build -p restlessd
   npm --prefix "$root/services/identity" ci --ignore-scripts
+  # Core runs Native Sheets in a Node worker from this checkout (sheet_commands.rs).
+  npm --prefix "$root/services/native-sheets" ci --ignore-scripts
   npm --prefix "$root/web" ci --ignore-scripts
   npm --prefix "$root/web" run build
 fi
@@ -79,7 +86,7 @@ if [[ -z "${RESTLESS_BROWSER_EXECUTABLE:-}" ]]; then
 fi
 
 export RESTLESS_TEST_DAEMON="${CARGO_TARGET_DIR:-$root/target}/debug/restlessd"
-export RESTLESS_TEST_JOURNEY=multiplayer-journey.mjs
+export RESTLESS_TEST_JOURNEY="$journey"
 status=0
 (cd "$root/services/identity" && node test/run-core.mjs) || status=$?
 if [[ -x "$root/scripts/restless-reap" ]]; then
