@@ -401,15 +401,18 @@
 		const { doc } = editor.state;
 		let found: { node: ProseMirrorNode; pos: number } | null = null;
 		if (typeof blockId === 'string')
-			doc.forEach((node, offset) => {
-				if (!found && node.attrs.block_id === blockId) found = { node, pos: offset };
+			doc.descendants((node, offset) => {
+				if (found || node.isInline) return false;
+				if (node.attrs.block_id === blockId) found = { node, pos: offset };
+				return !found;
 			});
 		if (found) return found;
 		const node = blockPos < doc.content.size ? doc.nodeAt(blockPos) : null;
 		return node && blockId === null ? { node, pos: blockPos } : null;
 	}
 
-	/** Open a top-level block's actions beside an anchor (its drag handle, or the block itself). */
+	/** Open a block's actions beside an anchor (its drag handle, or the block itself): a top-level
+	 * block, or one item of a list. */
 	export function openBlockMenu(target: { pos: number; anchor: DOMRect }): void {
 		const node = editor?.isEditable ? editor.state.doc.nodeAt(target.pos) : null;
 		if (!node) return;
@@ -467,8 +470,9 @@
 		void blockOpen;
 		const block = currentBlock();
 		if (!editor || !block) return false;
-		const index = editor.state.doc.resolve(block.pos).index(0);
-		return step < 0 ? index > 0 : index < editor.state.doc.childCount - 1;
+		const at = editor.state.doc.resolve(block.pos);
+		const other = at.parent.maybeChild(at.index() + step);
+		return !!other && (at.depth === 0 || other.type === block.node.type);
 	}
 
 	function duplicate(instance: Editor, node: ProseMirrorNode, pos: number): void {
@@ -502,8 +506,11 @@
 
 	function remove(instance: Editor, node: ProseMirrorNode, pos: number): void {
 		const { state } = instance;
+		const at = state.doc.resolve(pos);
+		/* A list's only item takes the list with it. */
+		if (at.depth > 0 && at.parent.childCount === 1) return remove(instance, at.parent, at.before());
 		const tr =
-			state.doc.childCount === 1
+			at.depth === 0 && state.doc.childCount === 1
 				? state.tr.replaceWith(pos, pos + node.nodeSize, state.schema.nodes.paragraph.create())
 				: state.tr.delete(pos, pos + node.nodeSize);
 		tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(pos, tr.doc.content.size))));
