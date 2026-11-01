@@ -8,6 +8,7 @@
 	import { spendReportQuery, usd, tokenCount, costBasis } from '$lib/model/spend.svelte';
 	import { formatMoment } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 
 	const company = $derived(page.params.companyId ?? '');
 	const principal = $derived(companyPrincipalQuery(company));
@@ -38,12 +39,29 @@
 	const maximum = $derived(Math.max(1, ...groups.map((group) => group.totals.tokens)));
 	const workHref = (id: string) =>
 		`/${encodeURIComponent(company)}/work?goal=${encodeURIComponent(id)}`;
+
+	/* A refresh that failed over figures already shown is a toast with Retry, never a banner that
+	 * pushes them down; the "!" by the title brings it back. A first read that failed is the page. */
+	const refreshWarning = toastWhile(
+		() =>
+			!!report.failure &&
+			!!view &&
+			!!totals && {
+				text: failureSentence(report.failure, 'Token consumption could not be refreshed.'),
+				tone: 'failure',
+				dedupeKey: `tokens-refresh:${company}`,
+				action: { label: 'Retry', run: () => report.refresh() }
+			}
+	);
 </script>
 
 <CompanyTitle title="Tokens" companyId={company} />
 <Page
 	title="Tokens"
 	info="Token consumption by employee, model and time. API-equivalent values are estimates; actual business income and expenses are in Accounting."
+	warning={refreshWarning.active
+		? { label: 'Token consumption could not be refreshed', show: refreshWarning.show }
+		: null}
 >
 	{#snippet actions()}
 		<button class="btn small" disabled={report.reading} onclick={() => void report.refresh()}
@@ -60,7 +78,7 @@
 		{#if model}<button class="btn small" onclick={() => (model = '')}>All models ×</button>{/if}
 		<a class="btn small" href={`/${company}/company/resources#spend`}>Limits</a>
 	</div>
-	{#if report.failure}<Notice
+	{#if report.failure && !(view && totals)}<Notice
 			tone="danger"
 			title={failureSentence(report.failure, 'Token consumption could not be refreshed.')}
 		/>{/if}

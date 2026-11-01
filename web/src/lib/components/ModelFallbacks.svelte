@@ -18,7 +18,7 @@
 		routeSentence
 	} from '$lib/model/model-failover';
 	import { saveModelFailover, type ProviderStatus } from '$lib/model/provider';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 
 	let {
 		companyId,
@@ -90,6 +90,8 @@
 		next.splice(index + by, 0, model);
 		void save(next, 'Fallback order saved');
 	}
+	/* A change that failed is a toast, never a banner that pushes the next section down. */
+	toastWhile(() => !!failure && { text: 'Nothing changed', tone: 'failure', details: failure });
 </script>
 
 <Section
@@ -199,5 +201,4 @@
 			</form>
 		{/if}
 	{/if}
-	{#if failure}<Notice tone="danger" title="Nothing changed">{failure}</Notice>{/if}
 </Section>

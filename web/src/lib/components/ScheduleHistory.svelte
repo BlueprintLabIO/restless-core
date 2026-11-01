@@ -6,7 +6,7 @@
 	import { Dot, Notice } from '$lib/ui/page';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import {
 		recoverScheduleRun,
 		scheduleHistory,
@@ -87,6 +87,8 @@
 			busy = '';
 		}
 	}
+	/* A change that failed is a toast, never a banner that pushes the next schedule down. */
+	toastWhile(() => !!failure && { text: failure, tone: 'failure' });
 </script>
 
 {#if canManage}
@@ -156,7 +158,6 @@
 			</ul>
 		{/if}
 	</details>
-	{#if failure}<Notice tone="danger" title="Nothing changed">{failure}</Notice>{/if}
 {/if}
 
 <style>

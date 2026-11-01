@@ -3,11 +3,11 @@
 	 * paths the payment adapter reads), check it live, and set up an allowance with the account
 	 * it pays from and its payees. A payee is a beneficiary that already exists with the
 	 * provider; Exec asks for a new one in the Inbox. */
-	import { Row, Item, Notice, Segmented } from '$lib/ui/page';
+	import { Row, Item, Segmented } from '$lib/ui/page';
 	import Field from '$lib/ui/forms/Field.svelte';
 	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { formatMoment } from '$lib/ui/time';
 	import {
 		probePaymentRail,
@@ -150,6 +150,25 @@
 			addSaving = false;
 		}
 	}
+	/* Outcomes are toasts, never banners that push the allowances down. While the connect form
+	 * is open its own error line speaks instead. */
+	toastWhile(
+		() => !!error && !connecting && { text: 'Nothing changed', tone: 'failure', details: error }
+	);
+	toastWhile(() =>
+		checked?.probe
+			? {
+					text: 'The provider answered',
+					details: `Both keys signed in and read ${checked.probe.account_ref} at ${formatMoment(checked.probe.observed_at)}. No money moved.`
+				}
+			: checked?.probe_error
+				? {
+						text: 'Saved, but the live check failed',
+						tone: 'failure',
+						details: checked.probe_error
+					}
+				: null
+	);
 </script>
 
 <Row
@@ -274,16 +293,6 @@
 		/>
 	</form>
 {/if}
-{#if error && !connecting}<Notice tone="danger" title="Nothing changed">{error}</Notice>{/if}
-{#if checked?.probe}<Notice
-		tone="success"
-		title="The provider answered"
-		details={`Both keys signed in and read ${checked.probe.account_ref} at ${formatMoment(checked.probe.observed_at)}. No money moved.`}
-	/>{:else if checked?.probe_error}<Notice
-		tone="warning"
-		title="Saved, but the live check failed"
-		details={checked.probe_error}
-	/>{/if}
 {#if provider}
 	{#if !adding}<Item title="New payment allowance" meta="One currency, its account and payees">
 			{#snippet actions()}<button

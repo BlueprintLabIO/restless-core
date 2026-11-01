@@ -18,7 +18,7 @@
 	import { issueDesktopTicket, redeemDesktopTicket } from '$lib/model/attention';
 	import { DesktopControl } from '$lib/model/desktop-control.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { recoverCompany, sleepCompany } from '$lib/model/company';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import {
@@ -501,6 +501,14 @@
 
 	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
 	holdQueries(() => [source, attention, browserProjection]);
+	/* In the live computer a failure is a toast: a banner above the screen would push the desktop
+	 * down and resize it under the pointer. The portal's floating error speaks outside it. */
+	toastWhile(
+		() =>
+			!filesView &&
+			!!focus &&
+			!!(error || control.error) && { text: error || control.error, tone: 'failure' }
+	);
 </script>
 
 <CompanyTitle title="Computer" {companyId} />
@@ -609,9 +617,6 @@
 			</div>
 		</header>
 		<div class="desktop-notices">
-			{#if error || control.error}<div class="computer-error" role="alert">
-					{error || control.error}
-				</div>{/if}
 			{#if signIn}<div class="computer-task" role="status">
 					Finish the Claude sign-in in the company browser. Settings shows the account once it
 					completes.

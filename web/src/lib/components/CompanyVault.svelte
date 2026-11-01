@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import Field from '$lib/ui/forms/Field.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item, Notice, Empty, Dot } from '$lib/ui/page';
@@ -171,6 +171,22 @@
 			busy = false;
 		}
 	}
+	/* A change that failed is a toast; so is a refresh that failed over secrets already shown,
+	 * which the "!" by the title brings back. Neither pushes the vault down. A first read that
+	 * failed is the page itself and stays in place. */
+	toastWhile(() => !!saveError && { text: saveError, tone: 'failure' });
+	const refreshWarning = toastWhile(
+		() =>
+			!saveError &&
+			!!source.failure &&
+			!!view && {
+				text: 'The vault could not be refreshed',
+				tone: 'failure',
+				details: error,
+				dedupeKey: `vault-refresh:${companyId}`,
+				action: { label: 'Retry', run: refresh }
+			}
+	);
 </script>
 
 <CompanyTitle title="Vault" {companyId} />
@@ -178,6 +194,9 @@
 <Page
 	title="Vault"
 	info="Company secrets, kept in the company's secure storage. You see their names, never their values."
+	warning={refreshWarning.active
+		? { label: 'The vault could not be refreshed', show: refreshWarning.show }
+		: null}
 >
 	{#snippet actions()}
 		<span
@@ -216,7 +235,11 @@
 		>
 	{/snippet}
 
-	{#if error}<Notice tone="danger" title="Could not read the vault" details={error}>
+	{#if source.failure && !view}<Notice
+			tone="danger"
+			title="Could not read the vault"
+			details={failureSentence(source.failure, 'Could not read the vault.')}
+		>
 			{#snippet actions()}<button class="btn small" onclick={refresh} disabled={busy}>Retry</button
 				>{/snippet}
 		</Notice>{/if}

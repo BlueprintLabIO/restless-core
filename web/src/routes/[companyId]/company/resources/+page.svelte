@@ -1,7 +1,7 @@
 <script lang="ts">
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { hostPlace, planeStatus } from '$lib/model/appliance';
-	import { Page, Section, Item, Notice, Empty } from '$lib/ui/page';
+	import { Page, Section, Item, Empty } from '$lib/ui/page';
 	import AppWindow from '@lucide/svelte/icons/app-window';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
@@ -16,6 +16,7 @@
 	import { companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
 	/* An admin reads what the company spends; the owner also sets what it may do, and only the
@@ -66,6 +67,28 @@
 		}
 	}
 	holdQueries(() => [source, principal]);
+	/* Outcomes and stale reads are toasts, never banners that push the sections down; the "!" by
+	 * the title brings back a stale read's warning. */
+	toastWhile(
+		() =>
+			!!launchError && {
+				text: 'The resource could not be opened',
+				tone: 'failure',
+				details: launchError
+			}
+	);
+	toastWhile(() => !!nativeNotice && { text: nativeNotice });
+	const staleWarning = toastWhile(
+		() =>
+			!!view &&
+			source.status === 'stale' && {
+				text: 'Showing the last values read',
+				tone: 'failure',
+				dedupeKey: `resources-stale:${companyId}`,
+				...(source.failure ? { details: failureSentence(source.failure, '') || null } : {}),
+				action: { label: 'Retry', run: () => source.refresh() }
+			}
+	);
 	/* Telegram moved to Notifications; an old link to it still arrives. */
 	$effect(() => {
 		if (page.url.hash === '#telegram')
@@ -78,6 +101,9 @@
 <Page
 	title="Resources"
 	info="Compute, AI usage and the limits on what the company can spend and do."
+	warning={staleWarning.active
+		? { label: 'Showing the last values read', show: staleWarning.show }
+		: null}
 >
 	{#snippet actions()}
 		{#if owner}<nav class="jump" aria-label="Sections on this page">
@@ -89,10 +115,6 @@
 	{#if principal.view && !owner}
 		<CompanyLimits section="spend" />
 	{:else if view}
-		{#if source.status === 'stale'}<Notice tone="warning" title="Showing the last values read">
-				{#snippet actions()}<button class="btn small" onclick={() => source.refresh()}>Retry</button
-					>{/snippet}
-			</Notice>{/if}
 		{#if owner}<CompanyCompute {companyId} runtime={view.computer.runtime} />
 			<CompanyAiUsage {companyId} />{/if}
 		<CompanyLimits section="spend" />
@@ -127,10 +149,6 @@
 				{/if}
 			</Section>
 			<Publications {companyId} items={view.resources.items} onchanged={() => source.refresh()} />
-			{#if launchError}<Notice tone="danger" title="The resource could not be opened"
-					>{launchError}</Notice
-				>{/if}
-			{#if nativeNotice}<Notice tone="success" title={nativeNotice} />{/if}
 			{#if embedded}
 				<Section title={embedded.label} group={false}>
 					{#snippet actions()}<button

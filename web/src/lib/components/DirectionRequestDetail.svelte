@@ -7,9 +7,8 @@
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import AttentionFooter from './AttentionFooter.svelte';
 	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
-	import { dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
+	import { dismissToast, toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
-	import { Notice } from '$lib/ui/page';
 	import { celebrate } from '$lib/ui/celebrate';
 	import { failureSentence } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
@@ -126,6 +125,8 @@
 				return '';
 		}
 	});
+	/* An answer that failed is a toast, never a banner that pushes the request down. */
+	toastWhile(() => !!error && { text: error, tone: 'failure' });
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -156,7 +157,6 @@
 					<dd>{current.reason}</dd>{/if}
 			</dl>
 
-			{#if error}<Notice tone="danger" title={error} />{/if}
 			{#if outcome}<p class="outcome" data-state={current.state} role="status">{outcome}</p>{/if}
 		{/if}
 	</div>

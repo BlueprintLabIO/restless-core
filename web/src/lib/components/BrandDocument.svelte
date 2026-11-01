@@ -4,6 +4,7 @@
 	 * as suggested changes on the same document. Saving creates a new attributed
 	 * version; earlier work keeps the version it started with, and the evidence
 	 * behind each statement stays reachable from its hover. */
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
@@ -31,7 +32,7 @@
 	import { documentFileName } from '$lib/model/documents';
 	import { sendActorMessage } from '$lib/model/attention';
 	import { companiesQuery } from '$lib/model/queries.svelte';
-	import { Section, Notice, Empty } from '$lib/ui/page';
+	import { Section, Empty } from '$lib/ui/page';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
@@ -478,6 +479,9 @@
 		window.addEventListener('beforeunload', warn);
 		return () => window.removeEventListener('beforeunload', warn);
 	});
+	/* Outcomes are toasts, never banners that push the brand down. */
+	toastWhile(() => !!error && { text: 'That was not saved', tone: 'failure', details: error });
+	toastWhile(() => !!notice && { text: notice });
 </script>
 
 <Section group={false}>
@@ -517,8 +521,6 @@
 			>
 		{/if}
 	{/snippet}
-	{#if error}<Notice tone="danger" title="That was not saved">{error}</Notice>{/if}
-	{#if notice}<Notice tone="success" title={notice} />{/if}
 
 	{#if !editing && view.pending_proposals.length}
 		<div class="suggestions" aria-label="Suggested changes">
