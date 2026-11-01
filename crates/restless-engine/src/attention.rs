@@ -2128,6 +2128,79 @@ async fn publication_items(
     Ok(items)
 }
 
+/// A brand or voice proposal waiting for the owner's OK, as one Inbox item that opens it on Brand,
+/// where each proposed line is accepted or set aside in place.
+fn identity_proposal_item(
+    company: &str,
+    actors: &HashMap<String, AttentionActorRef>,
+    proposal: restless_orgintel::IdentityProposalRow,
+) -> AttentionItem {
+    let author = actors.get(&proposal.created_by).cloned();
+    let who = author.as_ref().map_or_else(
+        || proposal.created_by.clone(),
+        |actor| actor.display.clone(),
+    );
+    let rationale = proposal.rationale.trim();
+    AttentionItem {
+        id: format!("orgintel:identity_proposal:{}", proposal.id),
+        work_id: None,
+        source: AttentionSource {
+            plane: "orgintel",
+            kind: "identity_proposal".into(),
+            reference: proposal.id.to_string(),
+            party: None,
+            call_key: None,
+        },
+        category: "decision".into(),
+        title: "A brand change waits for your OK".into(),
+        what_happened: if rationale.is_empty() {
+            format!("{who} proposed a change to the company's brand and voice.")
+        } else {
+            format!("{who} proposed a change to the company's brand and voice: {rationale}")
+        },
+        why_it_matters:
+            "Agents write and design under the current brand. Nothing changes until you accept it."
+                .into(),
+        recommendation: "Read the proposed lines on Brand, then accept or set aside each one."
+            .into(),
+        requested_action: "Accept or set aside the proposed lines.".into(),
+        if_no_action: "The brand stays as it is.".into(),
+        uncertainty: None,
+        deadline: None,
+        brief_status: "source-authored",
+        brief_author: author.clone(),
+        briefed_at: Some(proposal.created_at),
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: author,
+        runtime_attach: None,
+        review_target: None,
+        review_version: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        account_use: None,
+        account_request: None,
+        request_fields: None,
+        setting_proposal: None,
+        owner_replies: Vec::new(),
+        actions: vec![AttentionAction {
+            id: "open-identity-proposal".into(),
+            label: "Open on Brand".into(),
+            role: "inspect",
+            consequence: "Opens the proposal on Company › Brand.".into(),
+            next_state: "Deciding every proposed line clears this item.".into(),
+            href: Some(format!(
+                "/{company}/company/identity?proposal={}",
+                proposal.id
+            )),
+        }],
+        can_continue: true,
+        preparing: false,
+        created_at: proposal.created_at,
+    }
+}
+
 /// The charter draft Exec left for the owner, as one Inbox item that opens the charter itself.
 async fn charter_item(
     config: &CompanyConfig,
@@ -3339,6 +3412,16 @@ async fn project_queue(
                 }
             }
             Err(error) => tracing::warn!(%error, "brand drift attention unavailable"),
+        }
+        // A brand or voice proposal waits for the owner's OK on Brand: everything waiting on the
+        // owner is an Inbox item, not only what a page shows (S109 B2).
+        match org.pending_identity_proposals().await {
+            Ok(proposals) => {
+                for proposal in proposals {
+                    items.push(identity_proposal_item(&config.name, &actors, proposal));
+                }
+            }
+            Err(error) => tracing::warn!(%error, "brand proposals unavailable"),
         }
         let contacts = conversation_actors
             .iter()
@@ -5898,5 +5981,50 @@ mod person_queue_tests {
             );
         }
         org.drop_schema().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod identity_proposal_tests {
+    use super::*;
+
+    #[test]
+    fn a_brand_proposal_waiting_for_an_ok_is_an_inbox_item_that_opens_it_on_brand() {
+        let id = uuid::Uuid::new_v4();
+        let actors = HashMap::from([(
+            "exec".to_string(),
+            AttentionActorRef {
+                id: "exec".into(),
+                display: "Exec".into(),
+                role: "exec".into(),
+            },
+        )]);
+        let item = identity_proposal_item(
+            "acme",
+            &actors,
+            restless_orgintel::IdentityProposalRow {
+                id,
+                created_by: "exec".into(),
+                rationale: "Plainer words on the pricing page".into(),
+                expected_predecessor: None,
+                state: restless_orgintel::IdentityProposalState::Pending,
+                decided_by: None,
+                authority_record_id: None,
+                decision_rationale: String::new(),
+                created_at: Utc::now(),
+                decided_at: None,
+            },
+        );
+        assert_eq!(item.id, format!("orgintel:identity_proposal:{id}"));
+        assert_eq!(item.source.kind, "identity_proposal");
+        assert_eq!(item.category, "decision");
+        assert_eq!(
+            item.what_happened,
+            "Exec proposed a change to the company's brand and voice: Plainer words on the pricing page"
+        );
+        assert_eq!(
+            item.actions[0].href.as_deref(),
+            Some(format!("/acme/company/identity?proposal={id}").as_str())
+        );
     }
 }
