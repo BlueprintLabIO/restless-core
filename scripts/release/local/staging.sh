@@ -43,9 +43,17 @@ up() {
   http = true
   insecure = true
 EOF
+  # Builds resolve through public resolvers: WSL's forwarded DNS answered "transient error" to
+  # the engine's builds mid-release (2 November). An engine made before that is made again; its
+  # cache is on the volume.
+  if docker inspect "$ENGINE" >/dev/null 2>&1 \
+    && [ "$(docker inspect -f '{{len .HostConfig.Dns}}' "$ENGINE")" = 0 ]; then
+    docker rm -f "$ENGINE" >/dev/null
+  fi
   if ! docker inspect "$ENGINE" >/dev/null 2>&1; then
     docker volume create restless-dagger-engine-state >/dev/null
     docker run -d --name "$ENGINE" --restart unless-stopped --privileged --network "$NETWORK" \
+      --dns 1.1.1.1 --dns 8.8.8.8 \
       -v restless-dagger-engine-state:/var/lib/dagger \
       -v "$CONFIG_DIR/engine.toml:/etc/dagger/engine.toml:ro" "$ENGINE_IMAGE" >/dev/null
   else
