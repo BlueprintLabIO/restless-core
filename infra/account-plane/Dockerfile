@@ -120,6 +120,8 @@ RUN npm install -g bun@1.3.14 \
     && node -e 'const fs=require("node:fs"); const source=require("/tmp/restless-host-tools.json"); fs.writeFileSync(process.env.BUN_INSTALL+"/install/global/package.json", JSON.stringify({overrides:source.overrides}));' \
     && bun install -g "@oh-my-pi/pi-coding-agent@${OMP_VERSION}" \
     && rm /tmp/restless-host-tools.json \
+    # Fail here, not at the release scan, if an omp bump brings a zod 3 copy back.
+    && test -z "$(find ${BUN_INSTALL}/install/global/node_modules -path '*/zod/package.json' -exec grep -lE '"version": "3\.' {} +)" \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
     # bun's download cache is a second copy of every package (the image scan counts each one), and
     # nothing reads it at runtime.
