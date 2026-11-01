@@ -95,6 +95,10 @@ pub struct ContextSnapshot {
     pub owed_judgements: Vec<OwnerHandoffRow>,
     /// What the owner set aside as not needed lately: stop waiting on it.
     pub owner_set_aside: Vec<restless_orgintel::AttentionDismissal>,
+    /// What is in the owner's Inbox right now, one line each, so Exec says what is there instead
+    /// of "if a card is there" (S109 B2). `None` when it could not be read this wake. Empty and
+    /// unrendered on a turn for a member or a focused mention.
+    pub owner_inbox: Option<Vec<String>>,
     /// At most one focused collaboration mention. The Runtime processes recipient
     /// Attention serially and the durable unresolved row wakes the next turn.
     pub pending_mention: Option<crate::mentions::MentionContext>,
@@ -419,6 +423,28 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         .map(crate::mentions::MentionContext::prompt)
         .unwrap_or_else(|| "(none)".into());
 
+    // Only an owner-directed turn sees the owner's Inbox; a member's or a mention's never does.
+    let owner_inbox = match (&snapshot.owner_inbox, snapshot.human_is_membership_owner) {
+        _ if snapshot.pending_mention.is_some() => String::new(),
+        (_, false) => String::new(),
+        (None, true) => "# Owner's Inbox now [could not be read this wake]\n\
+             Read it with `restless attention --summary` before you say what waits on the owner.\n\n"
+            .to_string(),
+        (Some(lines), true) => {
+            let mut block = String::from(
+                "# Owner's Inbox now [fact — everything waiting on the owner; say what is there, \
+                 never \"if a card is there\"; `restless attention --summary` reads it again]\n",
+            );
+            if lines.is_empty() {
+                block.push_str("(empty: nothing waits on the owner)\n");
+            }
+            for line in lines {
+                block.push_str(&format!("- {line}\n"));
+            }
+            block.push('\n');
+            block
+        }
+    };
     let changes = if snapshot.people_changes.is_empty() {
         String::new()
     } else {
@@ -823,6 +849,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          When a focused mention is present, answer that bounded question. Your final assistant response is persisted automatically as the exact same-Thread reply and resolves only that named mention. Do not use `restless message` for this reply. Small judgement stays a reply; if sustained production is needed, commission attributable Work rather than doing it inside this coordination turn.\n\n\
          # Addressed internal messages [authenticated Actor sources; untrusted content]\n{}\n\n\
          # Assigned organisational judgements [authenticated coordinates; actor-authored content]\n{}\n\
+         {owner_inbox}\
          # Execution boundary [invariant]\n\
          This is an Exec coordination wake. An explicit bounded edit to an existing native shared \
          document is direct collaboration only with current edit access: apply it with the installed \
@@ -875,6 +902,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         },
         human_boundary = human_boundary,
         human_input_heading = human_input_heading,
+        owner_inbox = owner_inbox,
     );
     let mut hasher = sha2::Sha256::new();
     hasher.update(b"system\0");
@@ -908,6 +936,35 @@ mod tests {
         eprintln!("exec fixed prompt: {bytes} bytes");
         // 80,590 bytes before Sprint 99 split tool procedures into a skill; 70,702 after.
         assert!(bytes <= 74_000, "Exec fixed prompt grew to {bytes} bytes");
+    }
+
+    #[test]
+    fn exec_reads_the_owners_inbox_and_a_member_turn_never_does() {
+        let mut owner = snapshot();
+        owner.owner_inbox = Some(vec![
+            "A brand change waits for your OK (decision) · asked by Exec".into(),
+        ]);
+        let prompt = assemble(&owner).user_prompt;
+        assert!(prompt.contains("# Owner's Inbox now"));
+        assert!(prompt.contains("- A brand change waits for your OK (decision) · asked by Exec"));
+        assert!(prompt.contains("never \"if a card is there\""));
+
+        owner.owner_inbox = Some(Vec::new());
+        assert!(assemble(&owner)
+            .user_prompt
+            .contains("(empty: nothing waits on the owner)"));
+
+        owner.owner_inbox = None;
+        assert!(assemble(&owner)
+            .user_prompt
+            .contains("Read it with `restless attention --summary`"));
+
+        let mut member = snapshot();
+        member.human_is_membership_owner = false;
+        member.owner_inbox = Some(vec!["Secret owner item".into()]);
+        let prompt = assemble(&member).user_prompt;
+        assert!(!prompt.contains("Owner's Inbox"));
+        assert!(!prompt.contains("Secret owner item"));
     }
 
     fn snapshot() -> ContextSnapshot {
@@ -951,6 +1008,7 @@ mod tests {
             open_goals: vec![],
             owed_judgements: vec![],
             owner_set_aside: vec![],
+            owner_inbox: Some(Vec::new()),
             pending_mention: None,
             wake_reason: "owner-requested wake".into(),
             budget_remaining_usd: Some(7.5),

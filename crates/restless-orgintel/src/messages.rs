@@ -10,7 +10,7 @@ fn work_conversation_actor(owner: &str, lead: Option<&str>, actor: &str) -> bool
     actor == "exec" || actor == owner || lead == Some(actor)
 }
 
-fn validate_conversation_body(body: &str) -> Result<()> {
+pub(crate) fn validate_conversation_body(body: &str) -> Result<()> {
     if body.trim().is_empty() || body.len() > MAX_CONVERSATION_MESSAGE_BYTES {
         return Err(OrgIntelError::InvalidWork(format!(
             "a conversation message must contain 1 to {MAX_CONVERSATION_MESSAGE_BYTES} UTF-8 bytes"
@@ -3184,7 +3184,7 @@ async fn link_owner_attachments_in_tx(
 /// lease fence. Productive Work and human/service messages have no cognitive
 /// lease and use their explicit Room path; a live agent conversation cannot bypass
 /// its token through the ordinary CLI/message helper.
-async fn reject_unfenced_owner_output_in_tx(
+pub(crate) async fn reject_unfenced_owner_output_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     actor_id: &str,
 ) -> Result<()> {

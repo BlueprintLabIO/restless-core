@@ -1681,6 +1681,24 @@ fn protocol_blocked(reason: impl Into<String>) -> TerminationDecision {
     clippy::too_many_arguments,
     reason = "snapshot IO keeps company, authority, immediate focus and budget inputs explicit"
 )]
+/// One owner Inbox item as Exec reads it: what it asks, its kind, who asked and since when. A
+/// handoff carries its id, which `ownerNeedHandoff` and `restless work` commands take.
+fn owner_inbox_line(item: &crate::attention::AttentionItem) -> String {
+    let mut line = format!("{} ({})", item.title.trim(), item.category);
+    if let Some(actor) = &item.responsible_actor {
+        line.push_str(&format!(" · asked by {}", actor.display));
+    }
+    line.push_str(&format!(" · since {}", ago(item.created_at)));
+    if item.source.kind == "owner_handoff" {
+        line.push_str(&format!(" · handoff {}", item.source.reference));
+    }
+    let ask = item.requested_action.trim();
+    if !ask.is_empty() {
+        line.push_str(&format!(" · {}", ask.chars().take(160).collect::<String>()));
+    }
+    line
+}
+
 async fn gather_snapshot(
     container: &str,
     org: &OrgIntel,
@@ -1809,6 +1827,26 @@ async fn gather_snapshot(
         .into_iter()
         .filter(|item| item.dismissed_at >= week_ago)
         .collect();
+    // What waits on the owner right now, so Exec says what is in the Inbox rather than "if a card
+    // is there" (S109 B2). Only an owner-directed turn reads it; a slow read is skipped, not waited
+    // on, and the prompt then says to read it with the CLI.
+    let owner_inbox = if pending_mention.is_some() || !human_is_membership_owner {
+        Some(Vec::new())
+    } else {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            crate::attention::project(config, authority, Some(org)),
+        )
+        .await
+        {
+            Ok(Ok(view)) => Some(view.items.iter().take(25).map(owner_inbox_line).collect()),
+            Ok(Err(error)) => {
+                tracing::warn!(company = %config.name, "owner Inbox unreadable for Exec: {error:#}");
+                None
+            }
+            Err(_) => None,
+        }
+    };
     // What people changed in settings in the last three days: a raised limit, a new name, another
     // model. Exec otherwise carries on as if what it last saw still held (14 October report).
     let people_changes = {
@@ -1889,6 +1927,7 @@ async fn gather_snapshot(
         owner_actor_id: owner_actor_id.to_string(),
         human_is_membership_owner,
         owner_set_aside,
+        owner_inbox,
         operating_rules: crate::context::COMPANY_OPERATING_RULES.to_string(),
         mission: config.mission.clone(),
         legal_identity,

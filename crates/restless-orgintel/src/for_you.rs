@@ -23,6 +23,32 @@ const MAX_FOR_YOU_PAGE: i64 = 50;
 const MAX_FOR_YOU_UNREAD: i64 = 100;
 const MAX_FOR_YOU_READ_KEYS: usize = 100;
 const MAX_INBOX_MARKS: usize = 200;
+/// The daily digest names this many notices at most; the rest are counted.
+const MAX_NOTICE_DIGEST_ITEMS: usize = 200;
+
+/// FYI notices (S109 B3): someone changed a document or sheet the person follows, or shared one
+/// with them. None of it is the person's to do, so notices stay out of the Inbox and its count and
+/// reach the person once a day as a short digest in their Exec chat.
+pub const FOR_YOU_NOTICE_KINDS: &[&str] = &["change", "share"];
+
+/// Which kinds a read includes: everything, what the Inbox holds (no notices), or only notices.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ForYouKinds {
+    #[default]
+    All,
+    Inbox,
+    Notices,
+}
+
+impl ForYouKinds {
+    fn code(self) -> i32 {
+        match self {
+            Self::All => 0,
+            Self::Inbox => 1,
+            Self::Notices => 2,
+        }
+    }
+}
 const EXCERPT_CHARS: i32 = 280;
 
 /// Documents a person follows: an explicit choice wins, otherwise creating, editing, commenting
@@ -550,6 +576,7 @@ impl OrgIntel {
         limit: i64,
         show: ForYouShow,
         source: Source,
+        kinds: ForYouKinds,
     ) -> DocumentResult<Vec<ForYouItem>> {
         // A person's own mark can make an item unread again or archive it until something new
         // happens there.
@@ -570,6 +597,7 @@ impl OrgIntel {
              FROM marked \
              WHERE ($2::timestamptz IS NULL OR (marked.at,marked.key)<($2,$3)) \
                AND (NOT $5 OR marked.unread) AND marked.archived=$9 \
+               AND ($10=0 OR ($10=1)<>(marked.kind=ANY($11))) \
              ORDER BY marked.at DESC,marked.key DESC LIMIT $4"
         ))
         .bind(viewer)
@@ -581,6 +609,8 @@ impl OrgIntel {
         .bind(EXCERPT_CHARS)
         .bind(source.sheet)
         .bind(show == ForYouShow::Archived)
+        .bind(kinds.code())
+        .bind(FOR_YOU_NOTICE_KINDS)
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter()
@@ -716,6 +746,74 @@ impl OrgIntel {
         limit: i64,
         show: ForYouShow,
     ) -> DocumentResult<ForYouPage> {
+        self.page_of(viewer, before, limit, show, ForYouKinds::All)
+            .await
+    }
+
+    /// One page of what the Inbox holds of For you: everything but FYI notices, which go to the
+    /// daily digest instead (S109 B3). Its unread count is "things only you can do".
+    pub async fn inbox_page_showing(
+        &self,
+        viewer: &str,
+        before: Option<&ForYouCursor>,
+        limit: i64,
+        show: ForYouShow,
+    ) -> DocumentResult<ForYouPage> {
+        self.page_of(viewer, before, limit, show, ForYouKinds::Inbox)
+            .await
+    }
+
+    /// The FYI notices for this person whose latest activity falls in `(after, through]`,
+    /// newest first, each still readable by them. Archived ones stay out; read state does not
+    /// matter, since notices are no longer in the Inbox to be read there.
+    pub async fn for_you_notices(
+        &self,
+        viewer: &str,
+        after: DateTime<Utc>,
+        through: DateTime<Utc>,
+    ) -> DocumentResult<Vec<ForYouItem>> {
+        let mut readable = HashMap::new();
+        let mut kept = Vec::new();
+        // Everything at or before `through`: the cursor is exclusive, and no key sorts below "".
+        let mut cursor = Some(ForYouCursor {
+            at: through + chrono::Duration::microseconds(1),
+            key: String::new(),
+        });
+        while kept.len() < MAX_NOTICE_DIGEST_ITEMS {
+            let rows = self
+                .for_you_rows(
+                    viewer,
+                    cursor.as_ref(),
+                    MAX_FOR_YOU_PAGE,
+                    ForYouShow::Current,
+                    Source::default(),
+                    ForYouKinds::Notices,
+                )
+                .await?;
+            let exhausted = (rows.len() as i64) < MAX_FOR_YOU_PAGE
+                || rows.last().is_none_or(|row| row.at <= after);
+            cursor = rows.last().map(|row| ForYouCursor {
+                at: row.at,
+                key: row.key.clone(),
+            });
+            let fresh = rows.into_iter().filter(|row| row.at > after).collect();
+            kept.extend(self.readable_for_you(viewer, fresh, &mut readable).await?);
+            if exhausted {
+                break;
+            }
+        }
+        kept.truncate(MAX_NOTICE_DIGEST_ITEMS);
+        Ok(kept)
+    }
+
+    async fn page_of(
+        &self,
+        viewer: &str,
+        before: Option<&ForYouCursor>,
+        limit: i64,
+        show: ForYouShow,
+        kinds: ForYouKinds,
+    ) -> DocumentResult<ForYouPage> {
         if !(1..=MAX_FOR_YOU_PAGE).contains(&limit) {
             return Err(DocumentError::Invalid(format!(
                 "limit must be between 1 and {MAX_FOR_YOU_PAGE}"
@@ -729,7 +827,14 @@ impl OrgIntel {
         // second look further back to fill.
         for _ in 0..4 {
             let rows = self
-                .for_you_rows(viewer, cursor.as_ref(), limit + 1, show, Source::default())
+                .for_you_rows(
+                    viewer,
+                    cursor.as_ref(),
+                    limit + 1,
+                    show,
+                    Source::default(),
+                    kinds,
+                )
                 .await?;
             exhausted = rows.len() as i64 <= limit;
             cursor = rows.last().map(|row| ForYouCursor {
@@ -752,7 +857,10 @@ impl OrgIntel {
         } else {
             cursor
         };
-        let unread_count = self.unread_for_you(viewer, &mut readable).await?.len() as i64;
+        let unread_count = self
+            .unread_for_you(viewer, &mut readable, kinds)
+            .await?
+            .len() as i64;
         Ok(ForYouPage {
             items,
             unread_count,
@@ -764,6 +872,7 @@ impl OrgIntel {
         &self,
         viewer: &str,
         readable: &mut HashMap<Uuid, bool>,
+        kinds: ForYouKinds,
     ) -> DocumentResult<Vec<ForYouItem>> {
         let unread = self
             .for_you_rows(
@@ -772,6 +881,7 @@ impl OrgIntel {
                 MAX_FOR_YOU_UNREAD,
                 ForYouShow::Unread,
                 Source::default(),
+                kinds,
             )
             .await?;
         self.readable_for_you(viewer, unread, readable).await
@@ -780,7 +890,8 @@ impl OrgIntel {
     /// What is unread for this person right now, newest first, each still readable by them. The
     /// hosted email projection reads this, so an item opened anywhere is never emailed.
     pub async fn unread_for_you_items(&self, viewer: &str) -> DocumentResult<Vec<ForYouItem>> {
-        self.unread_for_you(viewer, &mut HashMap::new()).await
+        self.unread_for_you(viewer, &mut HashMap::new(), ForYouKinds::All)
+            .await
     }
 
     /// Marks items read for this person on every device. Unknown keys are harmless; malformed ones
@@ -929,6 +1040,7 @@ impl OrgIntel {
                     document: Some(document_id),
                     sheet: None,
                 },
+                ForYouKinds::Notices,
             )
             .await?
             .into_iter()

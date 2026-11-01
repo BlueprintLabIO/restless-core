@@ -513,6 +513,16 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         if let Err(error) = crate::away::end_if_over(&daemon.authority, &org, company).await {
             tracing::warn!(company, "could not end a finished away: {error:#}");
         }
+        // FYI notices are not in the Inbox: each person gets them once a day in their Exec chat
+        // (S109 B3). This needs no model or computer, so a sleeping company still sends it.
+        match org
+            .post_notice_digests(company, notice_digest_every())
+            .await
+        {
+            Ok(0) => {}
+            Ok(written) => tracing::info!(company, written, "wrote daily notice digests"),
+            Err(error) => tracing::warn!(company, "could not write notice digests: {error:#}"),
+        }
     }
     // A just-created company has no intelligence route. Keep durable work and
     // messages untouched until the owner explicitly selects one; never let a
@@ -1867,6 +1877,17 @@ mod tests {
 /// How long judgement may wait on a person before Exec reminds them, and before it goes to the
 /// owner. One and two days; `RESTLESS_PERSON_REMIND_AFTER_SECS` and
 /// `RESTLESS_PERSON_ESCALATE_AFTER_SECS` shorten them for tests.
+/// How often each person's digest of FYI notices is written: daily, unless a test sets it.
+fn notice_digest_every() -> chrono::Duration {
+    chrono::Duration::seconds(
+        std::env::var("RESTLESS_NOTICE_DIGEST_EVERY_SECS")
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(24 * 3600),
+    )
+}
+
 fn person_wait_limits() -> (chrono::Duration, chrono::Duration) {
     let seconds = |name: &str, default: i64| {
         std::env::var(name)

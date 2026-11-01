@@ -62,6 +62,7 @@
 	} from '$lib/model/setting-homes';
 	import { inlineHabit, noteInlineAnswer } from '$lib/model/inline-habits';
 	import InlineBrandDrift from './inbox/InlineBrandDrift.svelte';
+	import InlineBrandProposal from './inbox/InlineBrandProposal.svelte';
 	import InlineMachine from './inbox/InlineMachine.svelte';
 	import InlineReconnect from './inbox/InlineReconnect.svelte';
 	import InlineStartComputer from './inbox/InlineStartComputer.svelte';
@@ -292,6 +293,7 @@
 	);
 	const spendSurface = $derived(SPEND_KINDS.includes(item.source.kind));
 	const driftSurface = $derived(item.source.kind === 'identity_drift');
+	const proposalSurface = $derived(item.source.kind === 'identity_proposal');
 	const machineSurface = $derived(item.source.kind === 'machine_offline');
 	const reconnectSurface = $derived(item.source.kind === 'connection_sign_in');
 	const startSurface = $derived(
@@ -310,6 +312,7 @@
 		modelSurface ||
 			spendSurface ||
 			driftSurface ||
+			proposalSurface ||
 			machineSurface ||
 			reconnectSurface ||
 			startSurface
@@ -556,6 +559,8 @@
 			return settingHome(companyId, PROPOSAL_HOMES[item.settingProposal.setting] ?? 'limits');
 		if (modelSurface) return settingHome(companyId, 'intelligence');
 		if (driftSurface) return settingHome(companyId, 'brand', { id: item.source.reference });
+		if (proposalSurface)
+			return settingHome(companyId, 'brand', { proposal: item.source.reference });
 		if (machineSurface || startSurface) return settingHome(companyId, 'computer');
 		/* An app's token is kept in the company Vault, as its card says; one home, not two. */
 		if (
@@ -908,6 +913,12 @@
 						{#if driftSurface}<InlineBrandDrift
 								{companyId}
 								finding={item.source.reference}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
+						{#if proposalSurface}<InlineBrandProposal
+								{companyId}
+								proposal={item.source.reference}
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}

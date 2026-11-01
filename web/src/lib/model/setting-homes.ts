@@ -22,7 +22,7 @@ const company = (id: string, path: string) => `/${encodeURIComponent(id)}/compan
 export function settingHome(
 	companyId: string,
 	key: HomeKey,
-	detail: { id?: string; name?: string } = {}
+	detail: { id?: string; name?: string; proposal?: string } = {}
 ): SettingHome {
 	switch (key) {
 		case 'limits':
@@ -35,7 +35,11 @@ export function settingHome(
 				label: 'Company › Brand',
 				href: company(
 					companyId,
-					detail.id ? `/identity?drift=${encodeURIComponent(detail.id)}` : '/identity'
+					detail.proposal
+						? `/identity?proposal=${encodeURIComponent(detail.proposal)}`
+						: detail.id
+							? `/identity?drift=${encodeURIComponent(detail.id)}`
+							: '/identity'
 				)
 			};
 		case 'computer':
