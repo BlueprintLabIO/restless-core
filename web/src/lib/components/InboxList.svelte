@@ -142,7 +142,7 @@
 	const skip = (item: AttentionItem) => {
 		const who = attentionAsker(item);
 		if (skipsByHandoff(item)) void skipHandoffSoon(client, companyId, item);
-		else void setAsideInboxItem(client, companyId, item.id, who);
+		else void setAsideInboxItem(client, companyId, item, who);
 	};
 	const canDiscuss = (item: AttentionItem) =>
 		item.actions.some((action) => action.id === 'chat-lead');

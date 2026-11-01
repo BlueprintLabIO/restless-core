@@ -46,6 +46,7 @@ import { getCompanyPrincipal, type CompanyPrincipal } from './query-persistence'
 import type { ThreadMessage } from './view';
 import { changes, pollEvery } from './connection.svelte';
 import { hintTouches, parseHint } from './steady';
+import { restoringCards } from './inbox-restore';
 
 export type QuerySourceStatus = 'unknown' | 'live' | 'stale';
 export type ActivityTransport = 'idle' | 'connecting' | 'live' | 'reconnecting';
@@ -247,7 +248,9 @@ export function attentionQuery(
 	});
 	const query = createQuery(() => ({
 		queryKey: queryKeys.attention(currentCompany()),
-		queryFn: ({ queryKey, signal }) => getAttention(queryKey[1], signal),
+		// A card being restored by Undo stays in its place until the source has it back.
+		queryFn: async ({ queryKey, signal }) =>
+			restoringCards.over(queryKey[1], await getAttention(queryKey[1], signal)),
 		// The ordinary refresh and manual retry already repair this read.
 		// Repeating a stalled first read hides every surface for several deadlines.
 		retry: false,
@@ -322,12 +325,14 @@ export async function refreshAttention(client: QueryClient, companyId: string) {
 	await invalidateAttentionReads(client, companyId);
 }
 
-/** A confirmed decision leaves the queue without waiting for a full company read. */
+/** A confirmed decision leaves the queue without waiting for a full company read.
+ * `decidedHere` moves an open detail straight on to the next card, with no empty frame between
+ * and no "no longer in the Inbox" notice. */
 export async function removeConfirmedAttention(
 	client: QueryClient,
 	companyId: string,
 	itemId: string,
-	pendingHandoffDecision = false
+	decidedHere = false
 ) {
 	const queryKey = queryKeys.attention(companyId);
 	// An older in-flight read must not put the decided card back into the queue.
@@ -337,7 +342,7 @@ export async function removeConfirmedAttention(
 		(view) =>
 			view && {
 				...view,
-				...(pendingHandoffDecision
+				...(decidedHere
 					? { pendingDecisionItems: [...new Set([...(view.pendingDecisionItems ?? []), itemId])] }
 					: {}),
 				items: view.items.filter((item) => item.id !== itemId)

@@ -607,7 +607,9 @@ export async function approvalAction(
 				...(note ? { owner_note: note } : {}),
 				...(answer.changesRequested ? { changes_requested: true } : {})
 			}),
-			credentials: 'same-origin'
+			credentials: 'same-origin',
+			// A decision given as the tab closes still arrives.
+			keepalive: true
 		}
 	);
 	if (!response.ok) throw await ownerError(response);
@@ -711,6 +713,7 @@ export async function restoreAttention(
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			credentials: 'same-origin',
+			keepalive: true,
 			body: JSON.stringify({ item_id: itemId })
 		}
 	);
@@ -731,6 +734,7 @@ export async function dismissAttention(companyId: string, itemId: string): Promi
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			credentials: 'same-origin',
+			keepalive: true,
 			body: JSON.stringify({ item_id: itemId })
 		}
 	);
