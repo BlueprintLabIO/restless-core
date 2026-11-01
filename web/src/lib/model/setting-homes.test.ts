@@ -11,6 +11,7 @@ test('every Company home a card names opens beside the item or on its own page',
 		assert.ok(home.label.startsWith('Company › '));
 		assert.ok(inboxPreviewTarget('ui_test', home.href, origin), `${key} previews in the Inbox`);
 	}
+	assert.equal(settingHome('ui_test', 'vault').href, '/ui_test/company/vault');
 	for (const key of ['computer', 'schedules'] as const)
 		assert.equal(inboxPreviewTarget('ui_test', settingHome('ui_test', key).href, origin), null);
 });

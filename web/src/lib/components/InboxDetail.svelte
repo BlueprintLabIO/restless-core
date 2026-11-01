@@ -44,6 +44,7 @@
 		deadlineAt
 	} from '$lib/model/attention-presentation';
 	import { getInboxMarks } from '$lib/model/for-you';
+	import { CATALOGUE } from '$lib/model/apps';
 	import SnoozeChoices from './SnoozeChoices.svelte';
 	import InlineAppRequest from './inbox/InlineAppRequest.svelte';
 	import InlineAccountRequest from './inbox/InlineAccountRequest.svelte';
@@ -221,6 +222,19 @@
 	const requestApprove = $derived(accountAsk ? action('approve') : undefined);
 	const requestLimits = $derived(accountAsk ? action('approve-with-limits') : undefined);
 	const requestDeny = $derived(accountAsk ? action('deny') : undefined);
+	/* The owner answers an account request in its card's form, so the ask names that form rather
+	 * than Settings' approve-with-limits route. */
+	const ownerAccountAsk = $derived(!!item.accountRequest && !canPassToOwner);
+	const askText = $derived.by(() => {
+		const ask = item.accountRequest;
+		if (!ask || canPassToOwner) return item.requestedAction;
+		if (ask.account_id) return 'Approve as asked, or set its access below and give it. Or deny.';
+		if (ask.kind === 'website_login' || ask.kind === 'browser_profile')
+			return 'Sign in below, then choose what the company may do there. Or deny.';
+		if (ask.kind === 'api' || ask.kind === 'github')
+			return `Add ${kindPhrase(ask.kind)} below, or choose one you hold, then choose what the company may do with it. Or deny.`;
+		return item.requestedAction;
+	});
 	const open = $derived(action('open-outcome'));
 	const review = $derived(item.actions.some((candidate) => candidate.id === 'accept-review'));
 	let requestingReviewChanges = $state(false),
@@ -303,6 +317,7 @@
 					(candidate) =>
 						candidate.href &&
 						candidate.role !== 'conversation' &&
+						!(ownerAccountAsk && candidate.id === 'approve-with-limits') &&
 						!(candidate.id === 'open-external-human-step' && canSetAside && !item.preparing)
 				)
 	);
@@ -541,6 +556,12 @@
 		if (modelSurface) return settingHome(companyId, 'intelligence');
 		if (driftSurface) return settingHome(companyId, 'brand', { id: item.source.reference });
 		if (machineSurface || startSurface) return settingHome(companyId, 'computer');
+		/* An app's token is kept in the company Vault, as its card says; one home, not two. */
+		if (
+			appRequest &&
+			CATALOGUE.find((entry) => entry.key === appRequest.catalogueKey)?.auth === 'token'
+		)
+			return settingHome(companyId, 'vault');
 		if (reconnectSurface || item.accountRequest || appRequest)
 			return settingHome(companyId, 'accounts');
 		if (
@@ -791,7 +812,7 @@
 								will appear here when ready.
 							</p>
 						{:else}
-							<div class="ask"><Markdown text={item.requestedAction} /></div>
+							<div class="ask"><Markdown text={askText} /></div>
 						{/if}
 						{#if item.accountUse}<AccountUseNote
 								use={item.accountUse}
