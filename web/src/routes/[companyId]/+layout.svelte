@@ -64,7 +64,11 @@
 		companyPrincipalQuery,
 		conversationQuery
 	} from '$lib/model/queries.svelte';
-	import { agentRouteState, intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import {
+		agentRouteState,
+		intelligenceQuery,
+		routeActionLabel
+	} from '$lib/model/intelligence.svelte';
 	import { affectsCompany, watchIntelligenceChanges } from '$lib/model/intelligence-events';
 	import { onMount } from 'svelte';
 	import { startLinkLabel } from '$lib/model/company-start';
@@ -1798,10 +1802,8 @@
 			conversationStatus={railConversation.status}
 			conversationFailed={Boolean(railConversation.failure)}
 			onrefreshConversation={() => void railConversation.refresh()}
-			needsProvider={railRouteState === 'needs_connection' || railRouteState === 'unavailable'}
-			providerLabel={railRouteState === 'needs_connection'
-				? 'Connect a model'
-				: 'Check model connection'}
+			needsProvider={!!routeActionLabel(railRouteState)}
+			providerLabel={routeActionLabel(railRouteState) ?? 'Check model connection'}
 			contextLabel={currentContext.label}
 			{contextLabelFor}
 			contextKind={currentContext.kind}
