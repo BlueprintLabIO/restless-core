@@ -453,7 +453,7 @@
 		}
 		acting = true;
 		try {
-			if (await setAsideInboxItem(client, companyId, item.id, skipWho)) onleave?.();
+			if (await setAsideInboxItem(client, companyId, item, skipWho)) onleave?.();
 		} finally {
 			acting = false;
 		}
@@ -603,11 +603,13 @@
 		if (!target) throw new Error('This request has no approval target. Refresh and try again.');
 		return target;
 	};
+	/* A grant acts as soon as Authority records it, so the card leaves on that answer, straight onto
+	 * the next one. Its Undo window needs an Authority-held pending grant (C1, instant-decisions.md). */
 	const approve = (always = false) =>
 		run(
 			async () => {
 				await approvalAction(companyId, 'grant', approvalTarget(always));
-				await removeConfirmedAttention(client, companyId, item.id);
+				await removeConfirmedAttention(client, companyId, item.id, true);
 			},
 			always ? 'Approved. It won’t ask again.' : 'Approved',
 			'The approval was not recorded. Try again.',
@@ -626,7 +628,7 @@
 					note: reason,
 					changesRequested: changes
 				});
-				await removeConfirmedAttention(client, companyId, item.id);
+				await removeConfirmedAttention(client, companyId, item.id, true);
 			},
 			changes
 				? 'Changes sent to Exec'
@@ -947,7 +949,7 @@
 								answers={outcomeAnswers}
 								workId={item.workId}
 								ondone={(receipt) =>
-									void setAsideInboxItem(client, companyId, item.id).then(() =>
+									void setAsideInboxItem(client, companyId, item).then(() =>
 										completedInline(receipt)
 									)}
 							/>{/if}

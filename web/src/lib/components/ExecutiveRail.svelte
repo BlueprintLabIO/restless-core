@@ -41,7 +41,14 @@
 	import PanelRightClose from '@lucide/svelte/icons/panel-right-close';
 	import Reply from '@lucide/svelte/icons/reply';
 	import X from '@lucide/svelte/icons/x';
-	import { SvelteDate } from 'svelte/reactivity';
+	import { SvelteDate, SvelteMap, SvelteSet } from 'svelte/reactivity';
+	import Clock from '@lucide/svelte/icons/clock';
+	import {
+		queuedMessages,
+		queuedRowState,
+		queuedScheduleLabel,
+		turnUnderWay
+	} from '$lib/model/queued-sends';
 	import { tick } from 'svelte';
 	import Plus from '@lucide/svelte/icons/plus';
 	import RotateCw from '@lucide/svelte/icons/rotate-cw';
@@ -92,7 +99,7 @@
 	import { MAX_UPLOAD_BYTES, MAX_UPLOAD_FILES } from '$lib/model/attachments';
 
 	let {
-		messages = [],
+		messages: heldMessages = [],
 		participantName = 'Exec',
 		participantId = 'exec',
 		participantRole = 'Executive',
@@ -218,6 +225,19 @@
 		/** Pages in earlier messages; resolves to how many arrived. */
 		onloadearlier?: (() => Promise<number>) | null;
 	} = $props();
+	/* Messages sent behind the reply under way wait above the composer, not in the transcript:
+	 * they are not sent yet (S109 F7). One taken back to edit or cancelled leaves at once. */
+	const withdrawn = new SvelteSet<string>();
+	const queuedSends = $derived(
+		queuedMessages(heldMessages, turn, turnWorking(turn)).filter(
+			(message) => !withdrawn.has(message.id)
+		)
+	);
+	const messages = $derived.by(() => {
+		if (!queuedSends.length && !withdrawn.size) return heldMessages;
+		const waiting = new Set(queuedSends.map((message) => message.id));
+		return heldMessages.filter((message) => !waiting.has(message.id) && !withdrawn.has(message.id));
+	});
 	let focusedFor = 0;
 	$effect(() => {
 		if (!focusMessage || focusMessage === focusedFor) return;
@@ -867,6 +887,55 @@
 			retracting = false;
 		}
 	}
+	/* A queued message is cancelled, or taken back to the composer to edit, until the agent's
+	 * next turn takes it. Each row says what is happening on its own line; a failure stays there
+	 * with the reason, and the same buttons try again. */
+	const queueBusy = new SvelteSet<string>();
+	const queueFailed = new SvelteMap<string, string>();
+	let queueAnnouncement = $state('');
+	/* An edited message goes back in the queue when sent, whichever send it uses, while the
+	 * reply it waited for is still under way. */
+	let requeueEdit = $state(false);
+	const canWithdrawQueued = $derived(canOperate && isDirectTopic && !!directRoom);
+	async function withdrawQueued(message: ThreadMessage, edit: boolean) {
+		const id = messageNumericId(message.id);
+		if (!canWithdrawQueued || id <= 0 || queueBusy.has(message.id)) return;
+		queueBusy.add(message.id);
+		queueFailed.delete(message.id);
+		queueAnnouncement = '';
+		try {
+			expectRemoval(message.id);
+			await deleteRoomMessage(companyId, directRoom, id, crypto.randomUUID());
+			withdrawn.add(message.id);
+			if (edit) {
+				handIn(message.text);
+				requeueEdit = true;
+				queueAnnouncement = 'Back in the composer. It queues again when you send it.';
+			} else {
+				queueAnnouncement = `Cancelled. ${participantName} will not get it.`;
+				askNotice = queueAnnouncement;
+			}
+			onrefreshConversation?.();
+		} catch (cause) {
+			const reason = failureSentence(
+				cause,
+				`That message could not be ${edit ? 'taken back' : 'cancelled'}; ${participantName} may already have it.`
+			);
+			queueFailed.set(message.id, reason);
+			queueAnnouncement = reason;
+		} finally {
+			queueBusy.delete(message.id);
+		}
+	}
+	/* What the conversation no longer holds needs no hiding. */
+	$effect(() => {
+		const held = new Set(heldMessages.map((message) => message.id));
+		for (const id of withdrawn) if (!held.has(id)) withdrawn.delete(id);
+		for (const id of queueFailed.keys()) if (!held.has(id)) queueFailed.delete(id);
+	});
+	$effect(() => {
+		if (!turnWorking(turn)) requeueEdit = false;
+	});
 	/* Once it has been read (or work on it started), the last message can no longer be taken
 	 * back, but it can still be corrected: the composer opens with its words to edit, under a
 	 * line saying this replaces it, so the agent reads the correction as superseding it. */
@@ -1244,7 +1313,11 @@
 				: `Attach at most ${MAX_UPLOAD_FILES} files to one message.`;
 			return;
 		}
-		scrollReset += 1;
+		/* Sent behind the reply under way, it waits above the composer: the transcript and the
+		 * reply streaming in it stay exactly where the reader has them. */
+		const interrupting = working && interruptNext && !requeueEdit;
+		const queueing = turnUnderWay(turn?.live?.phase) && !interrupting;
+		if (!queueing) scrollReset += 1;
 		sending = true;
 		askError = '';
 		askNotice = '';
@@ -1277,13 +1350,13 @@
 				files,
 				includeContext,
 				newFocusPending,
-				working && interruptNext,
+				interrupting,
 				skills,
 				retryCommandId && retryBody === outgoing ? retryCommandId : undefined
 			);
 			// Your message rises to the top of the transcript and the reply grows beneath it.
 			await tick();
-			scrollEl?.dispatchEvent(new Event('chat-scroll-anchor'));
+			if (!queueing) scrollEl?.dispatchEvent(new Event('chat-scroll-anchor'));
 			const outcome = await delivery;
 			if (outcome.error) {
 				composer = sent;
@@ -1300,6 +1373,7 @@
 				retryCommandId = null;
 				retryBody = '';
 				goalCreatedFor = '';
+				requeueEdit = false;
 				askNotice = outcome.notice ?? leftForLater;
 			}
 		} catch (cause) {
@@ -1684,12 +1758,6 @@
 								{/if}
 							</div>
 						{/if}
-						{#if message.from === 'you' && working && turn && !message.readAt && messageNumericId(message.id) > turn.triggerMessageId}<p
-								class="queued"
-								title={`${participantName} reads it after the current reply`}
-							>
-								Queued
-							</p>{/if}
 						{#if answeredAt(i)}<p class="answered" title={message.intent?.ownerNeed ?? ''}>
 								<Check size={12} aria-hidden="true" /> You answered · {answeredAt(i)}
 							</p>{/if}
@@ -1827,6 +1895,47 @@
 								: 'Jump to latest ↓'}</button
 						>{/if}
 				</div>
+				<!-- Queued sends wait here, not in the transcript: each is one fixed-height row saying
+				     when it goes, with Edit and Cancel; its state changes in place (S109 F7). -->
+				<p class="sr-only" role="status">{queueAnnouncement}</p>
+				{#if queuedSends.length}
+					<ol class="queued-sends" aria-label={`Queued for ${participantName}`}>
+						{#each queuedSends as message (message.clientKey ?? message.id)}
+							{@const rowState = queuedRowState(message, queueBusy, queueFailed)}
+							<li
+								class="queued-send"
+								data-state={rowState}
+								title={queueFailed.get(message.id) ??
+									`Sends when ${participantName} finishes the current reply`}
+							>
+								<Clock size={13} strokeWidth={2} aria-hidden="true" />
+								<span class="queued-when">{queuedScheduleLabel(rowState)}</span>
+								<span class="queued-text">{excerptOf(message.text) || 'Attachment'}</span>
+								{#if canWithdrawQueued}
+									<span class="queued-actions">
+										<button
+											type="button"
+											disabled={rowState === 'queuing' ||
+												rowState === 'cancelling' ||
+												message.attachments.length > 0}
+											aria-label="Edit this queued message"
+											title={message.attachments.length
+												? 'A message with files can be cancelled and sent again, not edited'
+												: 'Take it back into the composer to change it'}
+											onclick={() => void withdrawQueued(message, true)}>Edit</button
+										><button
+											type="button"
+											disabled={rowState === 'queuing' || rowState === 'cancelling'}
+											aria-label="Cancel this queued message"
+											title={`Cancel it; ${participantName} never gets it`}
+											onclick={() => void withdrawQueued(message, false)}>Cancel</button
+										>
+									</span>
+								{/if}
+							</li>
+						{/each}
+					</ol>
+				{/if}
 				<form class="exr-composer" onsubmit={submitAsk} {@attach clearOfToastsOnPhone}>
 					{#if quoting}
 						<div class="quoting">
@@ -2170,6 +2279,72 @@
 		cursor: default;
 	}
 
+	/* Queued sends: not sent yet, so never drawn as a message. A dashed outline and a clock say
+	 * "waiting"; every row is one fixed height, its state changing in its own fixed slot. Three
+	 * rows show; more scroll inside, so the composer never climbs further. */
+	.queued-sends {
+		flex: none;
+		display: grid;
+		gap: var(--chat-space-meta);
+		max-height: calc(3 * 28px + 2 * var(--chat-space-meta));
+		margin: 0;
+		padding: 0 var(--space-3) var(--chat-space-meta);
+		overflow-y: auto;
+		list-style: none;
+	}
+	.queued-send {
+		display: grid;
+		grid-template-columns: 13px 16ch minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 6px;
+		box-sizing: border-box;
+		height: 28px;
+		padding: 0 4px 0 8px;
+		border: 1px dashed var(--border-strong);
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.queued-when {
+		overflow: hidden;
+		color: var(--text-secondary);
+		font-weight: 500;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+	}
+	.queued-send[data-state='failed'] .queued-when {
+		color: var(--state-danger);
+	}
+	.queued-text {
+		min-width: 0;
+		overflow: hidden;
+		color: var(--text-secondary);
+		white-space: nowrap;
+		text-overflow: ellipsis;
+	}
+	.queued-actions {
+		display: flex;
+		gap: 2px;
+	}
+	.queued-actions button {
+		height: 22px;
+		padding: 0 6px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-secondary);
+		font: 500 var(--t-label) var(--font-ui);
+		cursor: pointer;
+	}
+	.queued-actions button:hover:not(:disabled) {
+		background: var(--surface-hover);
+		color: var(--ink);
+	}
+	.queued-actions button:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
 	.quoting {
 		display: flex;
 		align-items: center;
@@ -2227,13 +2402,6 @@
 	.open-fields .btn {
 		grid-column: 1 / -1;
 		justify-self: start;
-	}
-	/* A message sent while the reply is still being written waits, said on the message itself. */
-	.queued {
-		margin: calc(-1 * var(--chat-space-item)) 14px var(--chat-space-meta);
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		text-align: right;
 	}
 	.answered {
 		display: flex;

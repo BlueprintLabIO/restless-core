@@ -4,6 +4,9 @@
 		title: string;
 		/** One quiet line: run state, gates, outputs. */
 		signal?: string;
+		/** Why it waits and on whom, in one line. Any string, even an empty one, reserves the line
+		 * so the card never grows when it arrives; leave it out on cards that never wait. */
+		waiting?: string;
 		status: 'proposed' | 'active' | 'blocked' | 'completed' | (string & {});
 		ownerName: string;
 		revision: number;
@@ -81,6 +84,9 @@
 					<strong title={item.title} style:view-transition-name={`work-title-${item.id}`}
 						>{item.title}</strong
 					>
+					{#if item.waiting !== undefined}<span class="waiting" title={item.waiting || undefined}
+							>{item.waiting}</span
+						>{/if}
 					{#if item.signal}<p>{item.signal}</p>{/if}
 					<footer>
 						<span
@@ -219,6 +225,17 @@
 		overflow-wrap: anywhere;
 		font-size: var(--t-body);
 		line-height: 1.35;
+	}
+	.board-item .waiting {
+		display: block;
+		height: 1.4em;
+		margin-top: 6px;
+		overflow: hidden;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		line-height: 1.4;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.board-item p {
 		display: -webkit-box;

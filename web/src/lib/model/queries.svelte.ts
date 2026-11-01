@@ -8,6 +8,7 @@ import { openLiveEvents } from './live-events.ts';
  */
 
 import { getApplianceStatus } from './appliance';
+import { nextFollow, turnUnderWay } from './queued-sends';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 import { onMount } from 'svelte';
 import type { QueryClient } from '@tanstack/svelte-query';
@@ -46,6 +47,7 @@ import { getCompanyPrincipal, type CompanyPrincipal } from './query-persistence'
 import type { ThreadMessage } from './view';
 import { changes, pollEvery } from './connection.svelte';
 import { hintTouches, parseHint } from './steady';
+import { restoringCards } from './inbox-restore';
 
 export type QuerySourceStatus = 'unknown' | 'live' | 'stale';
 export type ActivityTransport = 'idle' | 'connecting' | 'live' | 'reconnecting';
@@ -247,7 +249,9 @@ export function attentionQuery(
 	});
 	const query = createQuery(() => ({
 		queryKey: queryKeys.attention(currentCompany()),
-		queryFn: ({ queryKey, signal }) => getAttention(queryKey[1], signal),
+		// A card being restored by Undo stays in its place until the source has it back.
+		queryFn: async ({ queryKey, signal }) =>
+			restoringCards.over(queryKey[1], await getAttention(queryKey[1], signal)),
 		// The ordinary refresh and manual retry already repair this read.
 		// Repeating a stalled first read hides every surface for several deadlines.
 		retry: false,
@@ -322,12 +326,14 @@ export async function refreshAttention(client: QueryClient, companyId: string) {
 	await invalidateAttentionReads(client, companyId);
 }
 
-/** A confirmed decision leaves the queue without waiting for a full company read. */
+/** A confirmed decision leaves the queue without waiting for a full company read.
+ * `decidedHere` moves an open detail straight on to the next card, with no empty frame between
+ * and no "no longer in the Inbox" notice. */
 export async function removeConfirmedAttention(
 	client: QueryClient,
 	companyId: string,
 	itemId: string,
-	pendingHandoffDecision = false
+	decidedHere = false
 ) {
 	const queryKey = queryKeys.attention(companyId);
 	// An older in-flight read must not put the decided card back into the queue.
@@ -337,7 +343,7 @@ export async function removeConfirmedAttention(
 		(view) =>
 			view && {
 				...view,
-				...(pendingHandoffDecision
+				...(decidedHere
 					? { pendingDecisionItems: [...new Set([...(view.pendingDecisionItems ?? []), itemId])] }
 					: {}),
 				items: view.items.filter((item) => item.id !== itemId)
@@ -631,6 +637,9 @@ export function conversationQuery(
 	/* A sent message keeps the key it was drawn with once its saved id arrives. */
 	const sentKeys = new Map<string, string>();
 	let followingMessageId = $state<number | null>(null);
+	/* Messages sent behind the reply under way, without interrupting it (S109 F7). The reply
+	 * stays followed until it ends; then the agent's next turn takes these together. */
+	let queuedIds = $state<number[]>([]);
 	let stop: (() => void) | null = null;
 	let uncertainCommand: {
 		id: string;
@@ -694,12 +703,26 @@ export function conversationQuery(
 
 	$effect(() => {
 		const conversation = query.data as ActorConversation | undefined;
-		const last = conversation?.messages.at(-1);
-		if (last?.from_actor === viewerActorId && queryEnabled(followLiveActivity)) {
-			follow(last.id, last.created_at);
+		const held = conversation?.messages ?? [];
+		const last = held.at(-1);
+		/* A queued message that is gone (cancelled, or taken back to edit) waits for nothing. */
+		const waiting = queuedIds.filter(
+			(id) => held.some((message) => message.id === id) || pending?.id === String(id)
+		);
+		if (waiting.length !== queuedIds.length) queuedIds = waiting;
+		const next = nextFollow({
+			lastFromViewer: last?.from_actor === viewerActorId ? last.id : null,
+			queued: waiting,
+			following: followingMessageId,
+			phase: live?.phase
+		});
+		if (next !== null && queryEnabled(followLiveActivity)) {
+			if (waiting.includes(next)) queuedIds = [];
+			const message = held.find((entry) => entry.id === next);
+			follow(next, message?.created_at ?? new Date());
 			return;
 		}
-		if (last && last.from_actor !== viewerActorId) {
+		if (last && last.from_actor !== viewerActorId && !waiting.length) {
 			if (live?.phase === 'complete' || live?.phase === 'failed' || live?.phase === 'unavailable') {
 				stop?.();
 				stop = null;
@@ -789,7 +812,10 @@ export function conversationQuery(
 			const messages = [...earlier, ...held].map((message) => {
 				const thread = threadMessage(message, actorDisplay, viewerActorId);
 				const key = sentKeys.get(thread.id);
-				return key ? { ...thread, clientKey: key } : thread;
+				const queued = queuedIds.includes(message.id);
+				return key || queued
+					? { ...thread, ...(key ? { clientKey: key } : {}), ...(queued ? { queued } : {}) }
+					: thread;
 			});
 			return pending && !messages.some((message) => message.id === pending?.id)
 				? [...messages, pending]
@@ -943,7 +969,10 @@ export function conversationQuery(
 			};
 			const sentAt = new Date();
 			const optimisticId = `optimistic:${clientCommandId}`;
+			/* Sent without interrupting a reply under way: it waits behind that reply. */
+			const queueBehind = !interrupt && followingMessageId !== null && turnUnderWay(live?.phase);
 			pending = {
+				...(queueBehind ? { queued: true } : {}),
 				id: optimisticId,
 				from: 'you',
 				author: 'You',
@@ -1041,7 +1070,12 @@ export function conversationQuery(
 				pending.clientKey = optimisticId;
 				pending.id = String(result.messageId);
 			}
-			if (queryEnabled(followLiveActivity)) follow(result.messageId, sentAt);
+			if (queueBehind) queuedIds = [...queuedIds, result.messageId];
+			else {
+				/* An interruption's turn takes every waiting message with it. */
+				if (interrupt) queuedIds = [];
+				if (queryEnabled(followLiveActivity)) follow(result.messageId, sentAt);
+			}
 			void client.invalidateQueries({ queryKey: key });
 			void client.invalidateQueries({ queryKey: ['recent-direct-conversations', companyId] });
 			return result;

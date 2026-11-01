@@ -11,6 +11,7 @@
 		title,
 		label,
 		meta,
+		note,
 		href,
 		download = false,
 		onclick,
@@ -29,6 +30,10 @@
 		 * look alone (unread, snoozed, its kind). Defaults to the title. */
 		label?: string;
 		meta?: string | null;
+		/** One quiet sub-row under the title, such as why the row waits and on whom. Any string,
+		 * even an empty one, reserves the line, so a row never grows when its note arrives; pass
+		 * nothing for rows that never carry one. */
+		note?: string | null;
 		href?: string;
 		/** The link saves a file rather than opening a page. */
 		download?: boolean;
@@ -57,6 +62,7 @@
 	class:unread
 	class:dim
 	class:stacked
+	class:noted={note !== undefined && note !== null}
 	class:interactive={!!href || !!onclick}
 >
 	<div class="item-row">
@@ -73,6 +79,9 @@
 		<span class="item-main">
 			<span class="item-title" use:truncatedTitle={title}>{title}</span>
 			{#if meta}<span class="item-meta" use:truncatedTitle={meta}>{meta}</span>{/if}
+			{#if note !== undefined && note !== null}<span class="item-note" use:truncatedTitle={note}
+					>{note}</span
+				>{/if}
 		</span>
 		{#if trailing}<span class="item-trailing">{@render trailing()}</span>{/if}
 		{#if actions}<span class="item-actions">{@render actions()}</span>{/if}
@@ -159,6 +168,22 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	/* The note takes a line of its own under the title and meta, always one line high. */
+	.noted .item-main {
+		flex-wrap: wrap;
+		row-gap: 1px;
+	}
+	.item-note {
+		flex: 1 0 100%;
+		height: 1.4em;
+		min-width: 0;
+		overflow: hidden;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		line-height: 1.4;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	.item-trailing {
 		display: flex;
 		align-items: center;
@@ -229,6 +254,9 @@
 			gap: 1px;
 			align-items: stretch;
 		}
+		.item-note {
+			flex: none;
+		}
 		.item-row {
 			padding-left: 14px;
 		}
@@ -257,6 +285,9 @@
 		line-height: 1.35;
 		white-space: normal;
 		overflow-wrap: anywhere;
+	}
+	.stacked .item-note {
+		flex: none;
 	}
 	.stacked .item-meta {
 		flex: none;

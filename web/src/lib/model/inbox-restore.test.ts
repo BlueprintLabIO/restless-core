@@ -1,0 +1,59 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { placeOf, reinstate, RestoringCards } from './inbox-restore.ts';
+
+const rows = (...ids: string[]) => ids.map((id) => ({ id }));
+const ids = (items: { id: string }[]) => items.map((row) => row.id);
+
+test('Undo puts a skipped card back under the card it sat below', () => {
+	const queue = rows('a', 'b', 'c');
+	const place = placeOf(queue, queue[1]);
+	assert.deepEqual(ids(reinstate(rows('a', 'c'), place)), ['a', 'b', 'c']);
+	// New cards arrived meanwhile: it still follows its old neighbour.
+	assert.deepEqual(ids(reinstate(rows('x', 'a', 'c'), place)), ['x', 'a', 'b', 'c']);
+});
+
+test('a card that led the queue leads it again', () => {
+	const queue = rows('a', 'b');
+	assert.deepEqual(ids(reinstate(rows('b'), placeOf(queue, queue[0]))), ['a', 'b']);
+});
+
+test('when its neighbour has gone too, the card returns to its old index', () => {
+	const queue = rows('a', 'b', 'c', 'd');
+	const place = placeOf(queue, queue[2]);
+	assert.deepEqual(ids(reinstate(rows('a', 'd'), place)), ['a', 'd', 'c']);
+	assert.deepEqual(ids(reinstate(rows('a', 'd', 'e'), place)), ['a', 'd', 'c', 'e']);
+	assert.deepEqual(ids(reinstate([], place)), ['c']);
+});
+
+test('the source copy wins over the kept one', () => {
+	const fresh = { id: 'b', title: 'newer' };
+	const place = placeOf([{ id: 'a' }, { id: 'b', title: 'older' }], { id: 'b', title: 'older' });
+	const items = reinstate([{ id: 'a' }, fresh], place);
+	assert.equal(items.length, 2);
+	assert.equal(items[1], fresh);
+});
+
+test('a read landing before the restore keeps the card; release lets the source decide', () => {
+	const cards = new RestoringCards();
+	const queue = rows('a', 'b', 'c');
+	const release = cards.keep('acme', placeOf(queue, queue[1]));
+	const stale = { items: rows('a', 'c'), pendingDecisionItems: ['b', 'other'] };
+	const shown = cards.over('acme', stale);
+	assert.deepEqual(ids(shown.items), ['a', 'b', 'c']);
+	assert.deepEqual(shown.pendingDecisionItems, ['other']);
+	// Other companies' reads are untouched, and so is the read itself.
+	assert.equal(cards.over('other', stale), stale);
+	assert.deepEqual(ids(stale.items), ['a', 'c']);
+	release();
+	assert.equal(cards.over('acme', stale), stale);
+});
+
+test('a second Undo of the same card is not released by the first', () => {
+	const cards = new RestoringCards();
+	const queue = rows('a', 'b');
+	const first = cards.keep('acme', placeOf(queue, queue[1]));
+	cards.keep('acme', placeOf(queue, queue[1]));
+	first();
+	assert.deepEqual(ids(cards.over('acme', { items: rows('a') }).items), ['a', 'b']);
+});

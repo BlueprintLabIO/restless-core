@@ -14,7 +14,13 @@ import {
 import { fetchAppRequests } from '$lib/model/app-requests';
 import { failureSentence } from '$lib/model/failure';
 import { setInboxMarks, withMarks, type InboxMark, type InboxMarkChange } from '$lib/model/for-you';
-import { queryKeys, refreshAttention } from '$lib/model/queries.svelte';
+import {
+	queryKeys,
+	refreshAttention,
+	removeConfirmedAttention
+} from '$lib/model/queries.svelte';
+import { placeOf, restoringCards } from '$lib/model/inbox-restore';
+import type { AttentionView } from '$lib/model/attention';
 import type { AttentionItem } from '$lib/model/view';
 import { getCompanyPrincipal } from '$lib/model/query-persistence';
 
@@ -57,32 +63,55 @@ export function wakeInboxItem(client: QueryClient, companyId: string, itemId: st
 }
 
 /** Skip: off the Inbox and kept under Skipped, with Undo. Whoever asked stops waiting.
- * True when it was skipped. */
+ * True when it was skipped. The skip is saved before the card leaves (a set-aside row is the
+ * whole decision, so there is no later window to wait out); the card then leaves at once and the
+ * full company read follows in the background. Undo puts the card back in its place at once and
+ * keeps it there while the restore travels. */
 export async function setAsideInboxItem(
 	client: QueryClient,
 	companyId: string,
-	itemId: string,
+	item: AttentionItem,
 	who = 'Whoever asked'
 ): Promise<boolean> {
-	let done = false;
+	const key = queryKeys.attention(companyId);
+	const place = placeOf(client.getQueryData<AttentionView>(key)?.items ?? [], item);
 	try {
-		await dismissAttention(companyId, itemId);
-		done = true;
-		toast(`Skipped. ${who} carries on without it.`, {
-			undo: async () => {
-				try {
-					await restoreAttention(companyId, itemId);
-				} catch (cause) {
-					toast(failureSentence(cause, 'That was not restored.'), { tone: 'failure' });
-				}
-				await refreshAttention(client, companyId);
-			}
-		});
+		await dismissAttention(companyId, item.id);
 	} catch (cause) {
 		toast(failureSentence(cause, 'That was not skipped.'), { tone: 'failure' });
+		void refreshAttention(client, companyId);
+		return false;
 	}
-	await refreshAttention(client, companyId);
-	return done;
+	await removeConfirmedAttention(client, companyId, item.id, true);
+	toast(`Skipped. ${who} carries on without it.`, {
+		undo: async () => {
+			const release = restoringCards.keep(companyId, place);
+			client.setQueryData<AttentionView>(
+				key,
+				(view) => view && restoringCards.over(companyId, view)
+			);
+			let back = false;
+			try {
+				back = (await restoreAttention(companyId, item.id)).waiting !== false;
+				if (!back) toast('Already resolved. There was nothing to bring back.');
+			} catch (cause) {
+				toast(failureSentence(cause, 'That was not restored.'), { tone: 'failure' });
+			}
+			if (!back) {
+				release();
+				client.setQueryData<AttentionView>(
+					key,
+					(view) => view && { ...view, items: view.items.filter((row) => row.id !== item.id) }
+				);
+			}
+			try {
+				await refreshAttention(client, companyId);
+			} finally {
+				release();
+			}
+		}
+	});
+	return true;
 }
 
 export const inboxItemHref = (companyId: string, itemId: string) =>

@@ -41,6 +41,7 @@
 	import { celebrate } from '$lib/ui/celebrate';
 	import InboxUpdate from './InboxUpdate.svelte';
 	import { inboxFeed } from '$lib/model/inbox-feed';
+	import { inboxWaitingLine } from '$lib/work/waiting';
 	import DirectionToday from './DirectionToday.svelte';
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import { getInboxMarks, type InboxMarkChange } from '$lib/model/for-you';
@@ -142,7 +143,7 @@
 	const skip = (item: AttentionItem) => {
 		const who = attentionAsker(item);
 		if (skipsByHandoff(item)) void skipHandoffSoon(client, companyId, item);
-		else void setAsideInboxItem(client, companyId, item.id, who);
+		else void setAsideInboxItem(client, companyId, item, who);
 	};
 	const canDiscuss = (item: AttentionItem) =>
 		item.actions.some((action) => action.id === 'chat-lead');
@@ -396,7 +397,7 @@
 							stacked
 							title={attentionTitle(item)}
 							label={`${unreadNow ? 'Unread. ' : ''}${attentionKindLabel(item)}: ${attentionTitle(item)}${snoozedNow ? '. Snoozed' : ''}`}
-							meta={item.preparing ? 'Being prepared' : attentionAsker(item)}
+							meta={inboxWaitingLine(item)}
 							href={href(item.id)}
 							selected={selectedId === item.id}
 							unread={unreadNow}
