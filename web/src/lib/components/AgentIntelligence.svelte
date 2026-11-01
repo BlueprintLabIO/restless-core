@@ -4,11 +4,11 @@
 	import { connectionLabel, modelLabel } from '$lib/model/intelligence-labels';
 	import { failureSentence } from '$lib/model/failure';
 	import {
-		assignModel,
+		connectionUnavailable,
 		intelligenceQuery,
+		optimisticAssign,
 		type IntelligenceAgent
 	} from '$lib/model/intelligence.svelte';
-	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { Section, Item, Notice, Empty } from '$lib/ui/page';
 	import Bot from '@lucide/svelte/icons/bot';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
@@ -17,6 +17,7 @@
 
 	let { companyId }: { companyId: string } = $props();
 	const source = $derived(intelligenceQuery(companyId));
+	const assign = optimisticAssign();
 	let editing = $state(''),
 		busy = $state(false),
 		error = $state(''),
@@ -82,18 +83,15 @@
 		busy = true;
 		error = '';
 		try {
-			await assignModel(companyId, 'default', {
+			await assign(companyId, 'default', {
 				connection: included.id,
 				model,
 				reset: false,
 				revision: source.view.revision
 			});
-			await source.refresh();
-			announceIntelligenceChange(companyId);
 			notice = 'Intelligence saved. Applies to the next session.';
 		} catch (cause) {
 			error = failureSentence(cause, 'Could not save assignment.');
-			await source.refresh();
 		} finally {
 			busy = false;
 		}
@@ -116,6 +114,7 @@
 	{:else}
 		{#each shownRows as agent (agent.id)}
 			{@const name = agent.id === 'exec' ? 'Exec' : agent.name}
+			{@const unavailable = connectionUnavailable(source.view, agent.assignment?.connection)}
 			<Item
 				title={name}
 				meta={`${
@@ -128,7 +127,7 @@
 					!agent.assignment && agent.id !== 'default' && !defaultConnection
 						? 'Not chosen yet'
 						: modelLabel(agent.assignment?.model ?? agent.effective_model)
-				}`}
+				}${unavailable ? ' · Unavailable' : ''}`}
 				selected={editing === agent.id}
 			>
 				{#snippet leading()}<Bot size={15} strokeWidth={1.8} />{/snippet}
@@ -153,8 +152,8 @@
 							{companyId}
 							view={source.view}
 							agentId={agent.id}
-							onsaved={async (receipt) => {
-								await source.refresh();
+							onsaved={(receipt) => {
+								/* The list already shows the choice; a re-read follows in the background. */
 								editing = '';
 								notice = receipt;
 							}}
