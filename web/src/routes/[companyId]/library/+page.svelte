@@ -51,6 +51,7 @@
 	import FileType from '@lucide/svelte/icons/file-type';
 	import Film from '@lucide/svelte/icons/film';
 	import NotebookText from '@lucide/svelte/icons/notebook-text';
+	import NotebookPen from '@lucide/svelte/icons/notebook-pen';
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import Upload from '@lucide/svelte/icons/upload';
 	import FolderUp from '@lucide/svelte/icons/folder-up';
@@ -66,6 +67,7 @@
 		LibraryOpenError,
 		downloadHref,
 		fileAtPath,
+		isWorkingNote,
 		libraryFileHref,
 		libraryFileById,
 		replacedFile,
@@ -202,6 +204,8 @@
 	/* Who can open a kept file, said where files are added and listed. */
 	const YOURS_HINT =
 		'Files you add here or send in a conversation open only for you, and for whoever is in that conversation. To share one with the team, send it in a conversation, or open a Word, Excel or CSV file as a document or sheet and share that.';
+	const NOTES_HINT =
+		'Plans, journals and scratch files agents keep while they work, out of the other views.';
 	const keptRows = $derived(
 		(kept?.attachments ?? []).filter((row) => !viewer || row.sender_actor_id === viewer)
 	);
@@ -349,6 +353,7 @@
 		| 'archived'
 		| 'yours'
 		| 'folders'
+		| 'notes'
 		| LibraryFileKind;
 	const filter = $derived((page.url.searchParams.get('show') as Filter) || 'all');
 	const openFileId = $derived(page.url.searchParams.get('file') ?? '');
@@ -1007,7 +1012,9 @@
 		};
 	};
 	const rawEntries = $derived<Entry[]>([
-		...files.filter((file) => !isRetired(file)).map((file) => fileEntry(file)),
+		...files
+			.filter((file) => !isRetired(file) && !isWorkingNote(file))
+			.map((file) => fileEntry(file)),
 		...keptEntries,
 		...documents.summaries
 			.filter((summary) => summary.document.status !== 'archived')
@@ -1016,6 +1023,13 @@
 	]);
 	const archivedFiles = $derived(archivedLibraryFiles.map((file) => fileEntry(file, true)));
 	const entries = $derived(rawEntries.map(organised));
+	/* Agents' working notes (plans, journals, scratch) stay out of every default view and are read
+	 * in their own (S109-G5); one waiting on the owner's review is still listed there. */
+	const noteEntries = $derived<Entry[]>(
+		files
+			.filter((file) => !isRetired(file) && isWorkingNote(file))
+			.map((file) => organised(fileEntry(file)))
+	);
 	const archivedEntries = $derived<Entry[]>(
 		[
 			...archivedDocs.map((summary) => docEntry(summary, true)),
@@ -1092,8 +1106,9 @@
 		docs: docTotal,
 		sheets: count('sheet'),
 		yours: keptEntries.length,
-		review: entries.filter((entry) => entry.review).length,
-		archived: archivedEntries.length
+		review: [...entries, ...noteEntries].filter((entry) => entry.review).length,
+		archived: archivedEntries.length,
+		notes: noteEntries.length
 	});
 	/* Documents and Sheets are always places; a file kind appears once Work has made one. */
 	const fileKinds = $derived(
@@ -1122,7 +1137,12 @@
 	});
 	const pinned = $derived(
 		pins
-			.map((key) => entries.find((entry) => pinKey(entry) === key) ?? pinnedExtra[key])
+			.map(
+				(key) =>
+					entries.find((entry) => pinKey(entry) === key) ??
+					noteEntries.find((entry) => pinKey(entry) === key) ??
+					pinnedExtra[key]
+			)
 			.filter((entry): entry is Entry => !!entry)
 	);
 
@@ -1224,6 +1244,7 @@
 		filter === 'all' ||
 		filter === 'archived' ||
 		filter === 'pinned' ||
+		filter === 'notes' ||
 		(filter === 'docs' && entry.kind === 'doc') ||
 		(filter === 'sheets' && entry.kind === 'sheet') ||
 		(filter === 'yours' && entry.kind === 'upload') ||
@@ -1237,7 +1258,11 @@
 					? pinned
 					: filter === 'folders'
 						? folderEntries
-						: entries;
+						: filter === 'notes'
+							? noteEntries
+							: filter === 'review'
+								? [...entries, ...noteEntries]
+								: entries;
 		const local = pool
 			.filter(
 				(entry) =>
@@ -1382,6 +1407,8 @@
 			? collectionParam
 			: key === 'folders'
 				? 'Folders'
+				: key === 'notes'
+				? 'Working notes'
 				: key === 'pinned'
 				? 'Pinned'
 				: key === 'yours'
@@ -1648,6 +1675,14 @@
 					count={counts.yours || null}
 					title={YOURS_HINT}
 				/>
+				{#if counts.notes || filter === 'notes'}<SidebarRow
+						href={filterHref('notes')}
+						label="Working notes"
+						icon={NotebookPen}
+						active={filter === 'notes' && !fileOpen && !uploadFile}
+						count={counts.notes || null}
+						title={NOTES_HINT}
+					/>{/if}
 			</SidebarGroup>
 			{#if collections.length}
 				<SidebarGroup label="Collections">
@@ -1697,7 +1732,7 @@
 				aria-label="Library"
 				hidden={!!(openFileId || openUploadId || openPath)}
 			>
-				{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && (folderEntries.length || outputSkippedNames || outputReadFailed) ? [{ key: 'folders' as Filter, label: outputReadFailed ? 'Folders —' : `Folders ${folderEntries.length}${outputIncomplete ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
+				{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && (folderEntries.length || outputSkippedNames || outputReadFailed) ? [{ key: 'folders' as Filter, label: outputReadFailed ? 'Folders —' : `Folders ${folderEntries.length}${outputIncomplete ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(counts.notes || filter === 'notes' ? [{ key: 'notes' as Filter, label: 'Working notes' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
 					<a
 						href={filterHref(item.key)}
 						title={item.key === 'folders' && outputIncomplete ? folderListingHint : undefined}
@@ -2175,7 +2210,9 @@
 											? 'Nothing is archived'
 											: filter === 'yours'
 												? 'Nothing from you yet'
-												: 'Nothing here yet'}
+												: filter === 'notes'
+													? 'No working notes'
+													: 'Nothing here yet'}
 							info={filter === 'folders' && outputFilesTruncated && (query || byParam || sinceParam)
 								? 'Load older files to continue searching.'
 								: filter === 'folders' && outputReadFailed
@@ -2184,6 +2221,8 @@
 								? 'Some file names cannot be displayed.'
 								: filter === 'yours'
 								? 'Files you add here or send in a conversation are kept here.'
+								: filter === 'notes'
+								? NOTES_HINT
 								: query && !searchesDocuments && filter !== 'archived'
 									? 'This view matches titles and file names. All files also searches inside documents.'
 									: 'Documents, sheets and everything the team makes, such as sites, decks and images, appear here as they work.'}
@@ -2198,7 +2237,7 @@
 										class="btn small"
 										type="button"
 										onclick={() => creator?.pick()}>Upload files</button
-									>{:else if !query && filter !== 'review' && filter !== 'archived'}<button
+									>{:else if !query && filter !== 'review' && filter !== 'archived' && filter !== 'notes'}<button
 										class="btn small"
 										type="button"
 										onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
