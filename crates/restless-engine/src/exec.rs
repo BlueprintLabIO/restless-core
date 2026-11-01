@@ -2825,6 +2825,7 @@ mod tests {
             false,
             Some(hook),
             &CancellationToken::new(),
+            None,
         )
         .await
         .unwrap();
@@ -2860,6 +2861,7 @@ mod tests {
             false,
             Some(hook),
             &CancellationToken::new(),
+            None,
         )
         .await
         .unwrap();
