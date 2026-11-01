@@ -6,6 +6,7 @@ import type {
 	WorkGraphSnapshot,
 	WorkRow
 } from '$lib/model/generated/orgintel';
+import { compareAttempts, newestAttempt } from '$lib/work/status';
 
 export type OfficePresence =
 	'observed' | 'in-motion' | 'waiting' | 'available' | 'stale' | 'unknown' | 'unavailable';
@@ -54,14 +55,7 @@ function stableHash(value: string): number {
 
 function attemptsFor(work: WorkRow | null, graph: WorkGraphSnapshot): WorkAttemptRow[] {
 	if (!work) return [];
-	return graph.attempts
-		.filter((attempt) => attempt.work_id === work.id)
-		.toSorted(
-			(a, b) =>
-				a.revision - b.revision ||
-				a.attempt_no - b.attempt_no ||
-				Date.parse(a.started_at) - Date.parse(b.started_at)
-		);
+	return graph.attempts.filter((attempt) => attempt.work_id === work.id).toSorted(compareAttempts);
 }
 
 function latestAttemptFor(work: WorkRow | null, graph: WorkGraphSnapshot): WorkAttemptRow | null {
@@ -72,16 +66,10 @@ function observedAttemptFor(
 	person: CockpitPerson,
 	graph: WorkGraphSnapshot
 ): WorkAttemptRow | null {
-	return (
-		graph.attempts
-			.filter((attempt) => attempt.actor_id === person.actor_id && attempt.state === 'running')
-			.toSorted(
-				(a, b) =>
-					a.revision - b.revision ||
-					a.attempt_no - b.attempt_no ||
-					Date.parse(a.started_at) - Date.parse(b.started_at)
-			)
-			.at(-1) ?? null
+	return newestAttempt(
+		graph.attempts.filter(
+			(attempt) => attempt.actor_id === person.actor_id && attempt.state === 'running'
+		)
 	);
 }
 
