@@ -8,7 +8,7 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { staleRefreshMessage } from '$lib/ui/feedback/stale-warning';
+	import { staleRefreshMessage } from '$lib/model/stale-warning';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { page } from '$app/state';
 	import Monitor from '@lucide/svelte/icons/monitor';
