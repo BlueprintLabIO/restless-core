@@ -108,6 +108,7 @@
 	import { keepCompanyTabTitle } from '$lib/model/company-tab-title';
 	import { forYouSentence, getInboxMarks, newlyUnread, unreadMarks } from '$lib/model/for-you';
 	import { createQuery } from '@tanstack/svelte-query';
+	import { directionDigestQuery } from '$lib/model/direction';
 	import { inboxMarksKey } from '$lib/components/inbox-actions';
 	import { forYouSource, provideForYou } from '$lib/model/for-you.svelte';
 
@@ -285,6 +286,10 @@
 		staleTime: 10_000,
 		refetchInterval: pollEvery(60_000)
 	}));
+	/* The Inbox's Today line reads the direction digest. Read with the cockpit, so the line is
+	 * already there when the Inbox opens rather than arriving above its rows and pushing them
+	 * down (S109 C7). */
+	createQuery(() => ({ ...directionDigestQuery(companyId), enabled: !!principal }));
 	let markClock = $state(Date.now());
 	onMount(() => {
 		const timer = setInterval(() => (markClock = Date.now()), 30_000);

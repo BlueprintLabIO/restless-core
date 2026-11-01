@@ -1,7 +1,10 @@
 import { springEase } from '$lib/ui/motion';
+import { preferences } from '$lib/model/preferences.svelte';
+import type { PreferenceKey } from '$lib/model/preferences';
 /** Resize one existing pane without introducing a second layout tree. */
 export type PaneResize = {
-	key: string;
+	/** Where the width is kept: one key per area, the same in every company (S109 F2). */
+	key: PreferenceKey;
 	label: string;
 	target: string;
 	variable: string;
@@ -32,23 +35,20 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 	const position = node.style.position;
 	if (getComputedStyle(node).position === 'static') node.style.position = 'relative';
 	node.append(handle);
-	const storageKey = () => `restless:pane:${options.key}`;
 	function read() {
-		try {
-			const value = Number(localStorage.getItem(storageKey()));
-			saved = Number.isFinite(value) && value > 0 ? value : null;
-		} catch {
-			saved = null;
-		}
+		const value = Number(preferences.peek(options.key));
+		saved = Number.isFinite(value) && value > 0 ? value : null;
 	}
 	function persist() {
-		try {
-			if (saved === null) localStorage.removeItem(storageKey());
-			else localStorage.setItem(storageKey(), String(saved));
-		} catch {
-			/* Storage may be unavailable in private mode. */
-		}
+		preferences.set(options.key, saved === null ? null : Math.round(saved));
 	}
+	/* A width chosen on another device arrives with the plane's answer; one being dragged or
+	 * gliding here stays under the person's hand. */
+	const stopListening = preferences.listen(() => {
+		if (dragging || glide) return;
+		read();
+		layout();
+	});
 	function bounds() {
 		const width = node.clientWidth;
 		return {
@@ -106,6 +106,7 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 	let glide = 0;
 	function glideTo(target: number, settle: () => void) {
 		cancelAnimationFrame(glide);
+		glide = 0;
 		const from = current;
 		if (
 			window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
@@ -120,7 +121,10 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 			saved = from + (target - from) * springEase(t);
 			layout();
 			if (t < 1) glide = requestAnimationFrame(step);
-			else settle();
+			else {
+				glide = 0;
+				settle();
+			}
 		});
 	}
 	function reset() {
@@ -145,6 +149,7 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 	function down(event: PointerEvent) {
 		if (event.button !== 0) return;
 		cancelAnimationFrame(glide);
+		glide = 0;
 		event.preventDefault();
 		handle.focus();
 		startX = event.clientX;
@@ -213,6 +218,7 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 			layout();
 		},
 		destroy() {
+			stopListening();
 			cancelAnimationFrame(glide);
 			end();
 			observer.disconnect();

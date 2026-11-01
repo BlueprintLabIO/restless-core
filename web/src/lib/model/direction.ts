@@ -74,6 +74,20 @@ export function directionDigest(companyId: string, day?: string): Promise<Direct
 	return read(path(companyId, `digest${day ? `?day=${encodeURIComponent(day)}` : ''}`));
 }
 
+/** Today's digest as one cached read: the Inbox's Today line shows it, and the company layout
+ * reads it with the cockpit so the line never arrives after the rows below it (S109 C7). */
+export function directionDigestQuery(companyId: string) {
+	return {
+		queryKey: ['direction-digest', companyId] as const,
+		queryFn: () => directionDigest(companyId),
+		enabled: Boolean(companyId),
+		staleTime: 60_000,
+		refetchInterval: 5 * 60_000,
+		refetchIntervalInBackground: false,
+		retry: false as const
+	};
+}
+
 /** What a change touched, in a few words: "the Site Renovation Studio brief". */
 export function targetPhrase(target: DirectionTarget | null): string {
 	if (!target) return '';

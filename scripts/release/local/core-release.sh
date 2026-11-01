@@ -43,6 +43,11 @@ if [ "$qualify" = yes ]; then
   # Without the release secrets, like every test.
   env -i HOME="$HOME" USER="${USER:-}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" TERM="${TERM:-dumb}" \
     "$root/scripts/release/local/connections-smoke.sh"
+  log "zero-jank gate"
+  # Sprint 109 C7: every surface and card, loading, empty, failure and populated, at desktop and
+  # phone widths, against an isolated company; also without the release secrets.
+  env -i HOME="$HOME" USER="${USER:-}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" TERM="${TERM:-dumb}" \
+    "$root/scripts/release/local/jank-gate.sh"
 fi
 
 log "publish into staging ($platform)"

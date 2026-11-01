@@ -18,6 +18,10 @@
 #   --stress                         run the stress journey instead: cursors, one-spot typing, a seeded
 #                                    edit storm (RESTLESS_MP_SEED replays it), offline edits, access lost
 #                                    mid-edit, racing renames, sheets, group-chat bursts, a Core restart
+#   --jank                           run the zero-jank gate instead (Sprint 109 C7): every primary surface
+#                                    and Inbox card, empty/populated/slow/failure, cold/warm/nav, 1440 and
+#                                    390 wide; fails on layout shift, unstyled frames or edges off the grid
+#                                    not listed in services/identity/test/jank-allowlist.json
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -27,7 +31,8 @@ for argument in "$@"; do
   case "$argument" in
     --skip-build) skip_build=1 ;;
     --stress) journey=multiplayer-stress-journey.mjs ;;
-    *) echo "usage: scripts/multiplayer-smoke [--skip-build] [--stress]" >&2; exit 2 ;;
+    --jank) journey=multiplayer-jank-journey.mjs ;;
+    *) echo "usage: scripts/multiplayer-smoke [--skip-build] [--stress|--jank]" >&2; exit 2 ;;
   esac
 done
 

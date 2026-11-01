@@ -901,7 +901,7 @@
 			<div
 				class="work-detail-layout"
 				use:resizePane={{
-					key: `${companyId}:work-detail`,
+					key: 'pane.work-detail',
 					label: 'Resize Work facts pane',
 					target: '.work-detail-rail',
 					variable: '--work-facts-w',

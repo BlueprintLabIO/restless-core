@@ -4,6 +4,7 @@
 	import Dialog from '$lib/ui/controls/Dialog.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
+	import { preferences } from '$lib/model/preferences.svelte';
 	/* Work: the company's goals and the work under them.
 	 *
 	 * The side panel lists goals as links; choosing one narrows the list and
@@ -117,13 +118,32 @@
 	type WorkItem = WorkRow | CollaborationWork;
 
 	/* The goal and view live in the address, so a filtered view can be shared,
-	 * reloaded and reached again with Back. */
+	 * reloaded and reached again with Back. An address without a view or order shows the
+	 * person's own choice, the same in every company (S109 F2). */
 	const selectedGoal = $derived(page.url.searchParams.get('goal') ?? '');
-	const view = $derived(page.url.searchParams.get('view') === 'list' ? 'list' : 'board');
+	const VIEWS = ['list', 'board'] as const;
+	const SORTS = ['recent', 'priority'] as const;
+	function addressed<T extends string>(name: string, allowed: readonly T[]): T | null {
+		const value = page.url.searchParams.get(name);
+		return allowed.includes(value as T) ? (value as T) : null;
+	}
+	const view = $derived(
+		addressed('view', VIEWS) ?? preferences.choice('work.view', VIEWS, 'board')
+	);
 	/* Who does it, what state it is in, and whether priority leads: filters kept in the address. */
 	const ownerFilter = $derived(page.url.searchParams.get('owner') ?? '');
 	const statusFilter = $derived(page.url.searchParams.get('status') ?? '');
-	const sort = $derived(page.url.searchParams.get('sort') === 'priority' ? 'priority' : 'recent');
+	const sort = $derived(
+		addressed('sort', SORTS) ?? preferences.choice('work.sort', SORTS, 'recent')
+	);
+	function chooseView(value: string) {
+		preferences.set('work.view', value === 'list' ? 'list' : null);
+		setQuery('view', value === 'list' ? 'list' : '');
+	}
+	function chooseSort(value: 'recent' | 'priority') {
+		preferences.set('work.sort', value === 'priority' ? 'priority' : null);
+		setQuery('sort', value === 'priority' ? 'priority' : '');
+	}
 	const stoppedView = $derived(selectedGoal === 'stopped');
 	function setQuery(key: string, value: string) {
 		const url = new URL(page.url);
@@ -1116,13 +1136,13 @@
 							{#snippet trigger()}<span
 									>{sort === 'priority' ? 'Priority first' : 'Recent first'}</span
 								>{/snippet}
-							<button type="button" onclick={() => setQuery('sort', '')}
+							<button type="button" onclick={() => chooseSort('recent')}
 								><span>Recent first</span>{#if sort === 'recent'}<Check
 										size={14}
 										aria-label="Current"
 									/>{/if}</button
 							>
-							<button type="button" onclick={() => setQuery('sort', 'priority')}
+							<button type="button" onclick={() => chooseSort('priority')}
 								><span>Priority first</span>{#if sort === 'priority'}<Check
 										size={14}
 										aria-label="Current"
@@ -1154,7 +1174,7 @@
 								{ value: 'list', label: 'List' },
 								{ value: 'board', label: 'Board' }
 							]}
-							onchange={(value) => setQuery('view', value === 'list' ? 'list' : '')}
+							onchange={chooseView}
 						/>
 					</div>
 				</div>

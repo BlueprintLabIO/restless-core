@@ -28,6 +28,7 @@
 	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
 	import SidebarEmpty from '$lib/ui/views/SidebarEmpty.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import type { SidebarTone } from '$lib/ui/views/SidebarRow.svelte';
 	import {
 		AlreadyMember,
@@ -363,6 +364,7 @@
 	let coreMembers = $state<CoreMembersView | null>(null);
 	let issuerMembers = $state<IssuerMembersView | null>(null);
 	let membersFor = '';
+	let membersRead = $state(false);
 	async function loadMembers(target = companyId) {
 		try {
 			const core = await getCoreMembers(target);
@@ -375,15 +377,27 @@
 			issuerMembers = issuer;
 		} catch {
 			if (target === companyId) issuerMembers = null;
+		} finally {
+			if (target === companyId) membersRead = true;
 		}
 	}
 	$effect(() => {
 		const target = companyId;
 		if (!canManageMembers || membersFor === target) return;
 		membersFor = target;
+		membersRead = false;
 		void loadMembers(target);
 	});
 	const invitations = $derived<IssuerInvitation[]>(issuerMembers?.invitations ?? []);
+	/* The directory is drawn from several reads (people and teams, colleagues and invitations,
+	 * group chats); until each has answered once it is a skeleton, so sections never arrive one by
+	 * one and push the rest down (S109 C7). */
+	const directoryReady = $derived(
+		(owner ? cockpit.status !== 'unknown' : collaboration.status !== 'unknown') &&
+			rooms.status !== 'unknown' &&
+			archived.settled &&
+			(!canManageMembers || membersRead)
+	);
 	function membershipFor(actorId: string): IssuerMember | null {
 		const core = coreMembers?.members.find((member) => member.actor_id === actorId);
 		if (!core || !issuerMembers) return null;
@@ -1092,7 +1106,7 @@
 	class:selected={explicitSelection}
 	class:with-work={workOpen && !!headerPerson}
 	use:resizePane={{
-		key: `${companyId}:sidebar:people`,
+		key: 'pane.sidebar.people',
 		label: 'Resize the People sidebar',
 		target: '.conversation-index',
 		variable: '--sidebar-width',
@@ -1368,7 +1382,9 @@
 					{@render personMenu(person)}
 				</div>
 			{/snippet}
-			{#if filter === 'everyone'}
+			{#if filter === 'everyone' && !directoryReady}
+				<Skeleton label="Loading people" variant="list" count={5} />
+			{:else if filter === 'everyone'}
 				{#if execShown}
 					<section class="directory-section executive-section" aria-label="Executive">
 						{@render directoryPerson(directoryExec!, 'executive')}

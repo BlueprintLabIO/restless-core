@@ -222,7 +222,7 @@
 				class:with-inspector={inspectorOpen}
 				class:wide={width >= 850}
 				use:resizePane={{
-					key: `${companyId}:attention-document`,
+					key: 'pane.attention-document',
 					label: 'Resize document discussion',
 					target: '.document-discussion',
 					variable: '--discussion-width',

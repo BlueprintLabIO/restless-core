@@ -326,6 +326,7 @@ pub struct RequestPrincipal {
     membership_role: String,
     company: Option<String>,
     cache_partition: String,
+    person: String,
     decision_principal: restless_orgintel::HumanDecisionPrincipal,
 }
 
@@ -336,6 +337,7 @@ impl RequestPrincipal {
             membership_role: "owner".into(),
             company: None,
             cache_partition: "local-owner-v1".into(),
+            person: "local-owner".into(),
             decision_principal: restless_orgintel::HumanDecisionPrincipal {
                 actor_id: "owner".into(),
                 owner_account: None,
@@ -368,6 +370,17 @@ impl RequestPrincipal {
                 .unwrap_or_default()
                 .to_be_bytes(),
         );
+        // The person, apart from which company or membership this session is for: one account
+        // at its issuer is the same person in every company on this plane.
+        let mut person = Sha256::new();
+        for part in [
+            "restless-person-v1",
+            identity.issuer.as_deref().unwrap_or("local"),
+            identity.user.as_str(),
+        ] {
+            person.update(part.as_bytes());
+            person.update([0]);
+        }
         let decision_principal = restless_orgintel::HumanDecisionPrincipal {
             actor_id: actor_id.clone(),
             owner_account: (identity.scope == CompanyScope::Owner).then(|| identity.owner.clone()),
@@ -387,7 +400,14 @@ impl RequestPrincipal {
             membership_role: identity.role.clone(),
             company,
             cache_partition: format!("{:x}", partition.finalize()),
+            person: format!("{:x}", person.finalize()),
         })
+    }
+
+    /// A stable, opaque name for the signed-in person: the same for the owner's account session
+    /// and for each of a member's company sessions on this plane. Safe as a file name.
+    pub fn person_key(&self) -> &str {
+        &self.person
     }
 
     pub fn actor_id(&self) -> &str {
@@ -2632,6 +2652,66 @@ mod tests {
                 .cache_partition(),
             partition
         );
+    }
+
+    #[test]
+    fn one_person_is_one_key_in_every_company_and_session() {
+        let member = VerifiedIdentity {
+            user: "user".into(),
+            issuer: Some("https://cloud.restless.test".into()),
+            owner: Uuid::new_v4().to_string(),
+            scope: CompanyScope::Company {
+                company: "aris".into(),
+            },
+            role: "member".into(),
+            actor: Some("human-1".into()),
+            company_id: Some(Uuid::new_v4()),
+            cell_id: Some(Uuid::new_v4()),
+            membership_id: Some("membership-1".into()),
+            membership_version: Some(2),
+            display_name: None,
+        };
+        let key = RequestPrincipal::from_verified(&member)
+            .unwrap()
+            .person_key()
+            .to_string();
+        assert_eq!(key.len(), 64);
+        assert!(key.bytes().all(|byte| byte.is_ascii_hexdigit()));
+
+        // The same account in another company, under another actor and membership.
+        let mut elsewhere = member.clone();
+        elsewhere.scope = CompanyScope::Company {
+            company: "reno".into(),
+        };
+        elsewhere.actor = Some("human-9".into());
+        elsewhere.membership_id = Some("membership-2".into());
+        elsewhere.membership_version = Some(7);
+        let principal = RequestPrincipal::from_verified(&elsewhere).unwrap();
+        assert_eq!(principal.person_key(), key);
+        assert_ne!(
+            principal.cache_partition(),
+            RequestPrincipal::from_verified(&member)
+                .unwrap()
+                .cache_partition()
+        );
+
+        let mut someone_else = member.clone();
+        someone_else.user = "other-user".into();
+        assert_ne!(
+            RequestPrincipal::from_verified(&someone_else)
+                .unwrap()
+                .person_key(),
+            key
+        );
+        let mut other_issuer = member;
+        other_issuer.issuer = Some("https://elsewhere.test".into());
+        assert_ne!(
+            RequestPrincipal::from_verified(&other_issuer)
+                .unwrap()
+                .person_key(),
+            key
+        );
+        assert_eq!(RequestPrincipal::local_owner().person_key(), "local-owner");
     }
 
     #[test]

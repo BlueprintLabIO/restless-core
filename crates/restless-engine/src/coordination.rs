@@ -600,30 +600,49 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                     "document-review-request has no authenticated Runtime actor",
                 );
             };
-            match daemon.orgintel.get(company).await {
-                Ok(org) => match org
-                    .request_document_review(restless_orgintel::RequestDocumentReview {
-                        document_id,
+            let org = match daemon.orgintel.get(company).await {
+                Ok(org) => org,
+                Err(error) => return Response::err(format!("{error:#}")),
+            };
+            // Sprint 109 D4: the exact named version a person is asked to review must read as
+            // finished work; refuse before the review exists, never after.
+            let readiness = match org
+                .get_document_version_for_actor(document_id, named_version_id, actor_id)
+                .await
+            {
+                Ok(named) => {
+                    document_commands::ensure_owner_ready(
+                        &org,
                         actor_id,
-                        command_id,
-                        expected_document_version,
-                        expected_current_version_id: named_version_id,
-                        summary,
-                        reviewer_actor_id: None,
-                        work_dependency: Some(
-                            restless_orgintel::DocumentWorkReviewDependencyInput {
-                                work_id,
-                                attempt_id,
-                                expected_work_revision,
-                                reviewer_actor_id,
-                            },
-                        ),
-                    })
+                        Some(document_id),
+                        &named.version.content_json,
+                    )
                     .await
-                {
-                    Ok(review) => Response::ok_serialized(review),
-                    Err(error) => Response::err(format!("{error:#}")),
-                },
+                }
+                Err(error) => Err(error.into()),
+            };
+            if let Err(error) = readiness {
+                return Response::err(format!("{error:#}"));
+            }
+            match org
+                .request_document_review(restless_orgintel::RequestDocumentReview {
+                    document_id,
+                    actor_id,
+                    command_id,
+                    expected_document_version,
+                    expected_current_version_id: named_version_id,
+                    summary,
+                    reviewer_actor_id: None,
+                    work_dependency: Some(restless_orgintel::DocumentWorkReviewDependencyInput {
+                        work_id,
+                        attempt_id,
+                        expected_work_revision,
+                        reviewer_actor_id,
+                    }),
+                })
+                .await
+            {
+                Ok(review) => Response::ok_serialized(review),
                 Err(error) => Response::err(format!("{error:#}")),
             }
         }

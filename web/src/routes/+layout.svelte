@@ -28,6 +28,8 @@
 	import { registerServiceWorkerWhereLocal } from '$lib/model/service-worker-registration';
 	import { knownPlaneOwner } from '$lib/model/known-role';
 	import { reportBrowserLocale } from '$lib/model/browser-locale';
+	import { syncPreferences, viewPreferenceStore } from '$lib/model/preferences.svelte';
+	import { provideViewPreferences } from '$lib/ui/preferences.svelte';
 	import { dev } from '$app/environment';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 
@@ -207,6 +209,9 @@
 		/* The company browsers follow the owner's timezone and language. */
 		if (knownPlaneOwner()) void reportBrowserLocale().catch(() => {});
 	});
+	/* Widths, views, filters and folds are the person's, on every device (S109 F2). */
+	provideViewPreferences(viewPreferenceStore);
+	onMount(syncPreferences);
 
 	onMount(() => {
 		let backgrounded = document.visibilityState === 'hidden';

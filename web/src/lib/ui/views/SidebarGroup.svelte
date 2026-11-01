@@ -6,6 +6,7 @@
 	import type { Component, Snippet } from 'svelte';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import InfoTip from '../controls/InfoTip.svelte';
+	import { viewPreferences } from '../preferences.svelte';
 
 	let {
 		label,
@@ -31,24 +32,15 @@
 		children?: Snippet;
 	} = $props();
 
-	/* Folding is a per-viewer convenience, remembered where the browser allows. */
-	const storageKey = $derived(`sidebar-fold:${label}`);
-	let open = $state(true);
-	$effect(() => {
-		try {
-			open = localStorage.getItem(storageKey) !== 'closed';
-		} catch {
-			open = true;
-		}
-	});
+	/* Folding is the person's choice, kept by label in one set wherever the section appears. */
+	const preferences = viewPreferences();
+	const folds = $derived((preferences.get('folds') ?? {}) as Record<string, boolean>);
+	const open = $derived(!folds[label]);
 	function toggle() {
-		open = !open;
-		try {
-			if (open) localStorage.removeItem(storageKey);
-			else localStorage.setItem(storageKey, 'closed');
-		} catch {
-			/* Folding still works for this visit. */
-		}
+		const next = { ...folds };
+		if (open) next[label] = true;
+		else delete next[label];
+		preferences.set('folds', Object.keys(next).length ? next : null);
 	}
 </script>
 

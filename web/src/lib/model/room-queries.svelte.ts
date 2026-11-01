@@ -101,6 +101,10 @@ export function archivedRoomsQuery(companyId: string, enabled: () => boolean) {
 		get rooms() {
 			return query.data?.rooms ?? [];
 		},
+		/** The list has answered once (or failed, or is not read for this viewer). */
+		get settled() {
+			return query.data !== undefined || query.isError || !enabled();
+		},
 		/** Whether the viewer owns this archived group, and so may restore it. */
 		owns(roomId: string) {
 			return query.data?.ownedRoomIds.includes(roomId) ?? false;
