@@ -69,6 +69,9 @@ const routes = [
 
 	['home', '/'],
 	['attention', `/${company}`],
+	['attention-skipped', `/${company}?filter=skipped`],
+	['attention-done', `/${company}?filter=done`],
+	['attention-all', `/${company}?filter=all`],
 	['work', `/${company}/work`],
 	['work-board', `/${company}/work?view=board`],
 	...(workId ? [['work-item', `/${company}/work/${workId}`]] : []),
@@ -121,11 +124,15 @@ try {
 			const page = await context.newPage();
 			const errors = [],
 				expectedErrors = [];
-			const expectedMissing = 'SvelteKitError: Not found: ' + path;
+			// Production minification can rename SvelteKitError. Match the exact
+			// missing path on the first line, not the compiler-dependent class name.
+			const expectedMissing = 'Not found: ' + path;
 			function recordError(message, source = '') {
+				const firstLine = message.split('\n', 1)[0];
+				const missingPrefix = firstLine.slice(0, -expectedMissing.length);
 				if (
 					name === 'not-found' &&
-					(message.startsWith(expectedMissing) ||
+					((firstLine.endsWith(expectedMissing) && /^[\w$]+: $/.test(missingPrefix)) ||
 						(source === origin + path &&
 							message ===
 								'Failed to load resource: the server responded with a status of 404 (Not Found)'))
@@ -136,8 +143,14 @@ try {
 			page.on('pageerror', (e) => recordError(e.message));
 			page.on('console', (m) => m.type() === 'error' && recordError(m.text(), m.location().url));
 			await page
-				.goto(origin + path, { waitUntil: 'networkidle' })
+				.goto(origin + path, { waitUntil: 'domcontentloaded' })
 				.catch((e) => errors.push(String(e)));
+			// Background recovery reads can remain in flight on a usable page.
+			// Observe the actual reveal; a loading screen is never a passing capture.
+			await page
+				.locator('.boot')
+				.waitFor({ state: 'hidden', timeout: 20_000 })
+				.catch(() => errors.push('Workspace did not reveal its content or recovery state'));
 			await page.waitForTimeout(700);
 			if (name === 'not-found') {
 				await page

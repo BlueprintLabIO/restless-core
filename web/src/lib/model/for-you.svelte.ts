@@ -2,6 +2,7 @@
  * notices; the Inbox lists it; a document or sheet marks its own changes read. Everyone shares
  * this one query rather than polling the same endpoint on several clocks. */
 import { createInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/svelte-query';
+import { pollEvery } from './connection.svelte';
 import { getContext, setContext } from 'svelte';
 import {
 	archiveForYou,
@@ -61,7 +62,7 @@ export function forYouSource(
 		enabled: Boolean(companyId() && actorId()),
 		staleTime: 5_000,
 		gcTime: 10 * 60_000,
-		refetchInterval: REFRESH_MS,
+		refetchInterval: pollEvery(REFRESH_MS),
 		refetchIntervalInBackground: background()
 	}));
 	/* Polling on while hidden (desktop notices) asks for the first page only: an infinite query

@@ -1,4 +1,5 @@
 import { ownerRequest } from './setting.svelte';
+import { pollEvery } from './connection.svelte';
 import { ownerJson } from './failure';
 import { bootFetch } from './boot-fetch.ts';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -26,6 +27,8 @@ export type IntelligenceAgent = {
 };
 export type IntelligenceView = {
 	revision: string;
+	/** The observed Exec admission issue; it does not describe another agent's assigned route. */
+	company_issue?: string | null;
 	default: { connection: string; model: string } | null;
 	/** With no default chosen, the connection serving the company's base model. */
 	base_default?: { connection: string; model: string } | null;
@@ -34,32 +37,7 @@ export type IntelligenceView = {
 	agents: IntelligenceAgent[];
 };
 
-export type AgentRouteState =
-	'checking' | 'ready' | 'starting' | 'needs_connection' | 'unavailable';
-
-/** The selected route for this agent, distinct from whether OrgIntel can
- * address the agent or whether a model call will ultimately succeed. */
-export function agentRouteState(view: IntelligenceView | null, actorId: string): AgentRouteState {
-	if (!view || view.has_connections === null) return 'checking';
-	const agent = view.agents.find((row) => row.id === actorId);
-	if (!agent) return 'checking';
-	const selected = agent.assignment ?? view.default ?? view.base_default ?? null;
-	let connection = selected
-		? view.connections.find((row) => row.id === selected.connection)
-		: undefined;
-	if (!connection && selected?.connection.startsWith('direct:')) {
-		const provider = selected.connection.slice('direct:'.length);
-		connection = view.connections.find((row) => row.kind === 'direct' && row.provider === provider);
-	}
-	if (!connection && !selected) {
-		const provider = agent.effective_model.split('/')[0];
-		connection = agent.effective_model.startsWith('native-')
-			? view.connections.find((row) => row.id === `harness:${agent.harness}`)
-			: view.connections.find((row) => row.kind === 'direct' && row.provider === provider);
-	}
-	if (connection) return connection.loaded ? 'ready' : 'starting';
-	return view.has_connections ? 'unavailable' : 'needs_connection';
-}
+export { agentRouteState, type AgentRouteState } from './intelligence-route';
 
 export function intelligenceQuery(company: string, enabled: () => boolean = () => true) {
 	const client = useQueryClient();
@@ -74,8 +52,13 @@ export function intelligenceQuery(company: string, enabled: () => boolean = () =
 		enabled: enabled(),
 		staleTime: 5000,
 		// Events handle known changes. Poll for CLI and broker changes made
-		// outside this browser, without making a sign-in wait a full minute.
-		refetchInterval: 15_000
+		// outside this browser: quickly only while a sign-in can be under way (no
+		// connection yet, or one still loading), so it never waits a full minute.
+		refetchInterval: (query: { state: { data: IntelligenceView | undefined } }) => {
+			const view = query.state.data;
+			const settling = !view?.has_connections || view.connections.some((row) => !row.loaded);
+			return settling ? 15_000 : pollEvery(120_000)();
+		}
 	}));
 	return {
 		get view() {

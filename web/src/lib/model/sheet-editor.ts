@@ -652,6 +652,9 @@ export function mountSheet(
 				retained!.focus({ preventScroll: true });
 		}
 	}
+	/* Each retry is a check and a new socket through the edge, which has a daily cap (23 Oct), so a
+	 * session that keeps failing waits longer each time, up to 30 s. A message resets it. */
+	let retryDelay = 1500;
 	function connect() {
 		if (disposed || blocked) return;
 		status({ state: 'connecting', access });
@@ -671,6 +674,7 @@ export function mountSheet(
 		const stale = () => disposed || blocked || socket !== current;
 		current.onmessage = async (event) => {
 			if (stale()) return;
+			retryDelay = 1500;
 			try {
 				const envelope = JSON.parse(event.data);
 				if (envelope.type === 'ERROR') {
@@ -771,7 +775,8 @@ export function mountSheet(
 				/* A transient outage retains pending work for this identity. */
 			}
 			if (stale()) return;
-			timer = setTimeout(connect, 1500);
+			timer = setTimeout(connect, retryDelay);
+			retryDelay = Math.min(retryDelay * 2, 30_000);
 		};
 	}
 	connect();

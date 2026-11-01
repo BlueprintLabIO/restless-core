@@ -8,7 +8,7 @@ export const libraryKinds = ['ui', 'office', 'issuer'];
 export const issuerSources = ['issuer.mjs', 'membership-sql.mjs', 'core-request.mjs'];
 const shared = ['LICENSE', 'dagger.json', '.dagger/package.json', '.dagger/tsconfig.json',
   '.dagger/src/index.ts', '.dagger/src/libraries.ts', '.dagger/src/publish.ts',
-  '.github/workflows/ui-artifact-release.yml', 'scripts/release/pack-library.mjs',
+  'scripts/release/pack-library.mjs',
   'scripts/release/check-library.mjs', 'scripts/release/library-release.mjs',
   'scripts/release/verify-library.mjs', 'scripts/release/install-dagger.sh', 'scripts/release/library-inputs.mjs',
   'web/scripts/package-provenance.mjs', 'web/scripts/package-inputs.mjs'];

@@ -11,6 +11,7 @@ const COMPANY_SECTIONS: Record<string, string> = {
 	identity: 'company/identity',
 	intelligence: 'company/provider',
 	limits: 'company/resources',
+	resources: 'company/resources',
 	members: 'company/members',
 	schedules: 'company/schedules',
 	vault: 'company/vault',

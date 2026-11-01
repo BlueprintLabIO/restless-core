@@ -228,23 +228,40 @@ async fn connect_egress(target: &str, hosts: &[String]) -> Result<TcpStream> {
     let addresses: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
         .await?
         .collect();
-    let public = addresses.into_iter().find(|address| match address.ip() {
+    let public = addresses
+        .into_iter()
+        .find(|address| egress_address_allowed(address.ip()));
+    let address = public.context("that site resolves only to a private address")?;
+    Ok(TcpStream::connect(address).await?)
+}
+
+/// Whether a resolved address is on the public internet: never this computer, its networks, a
+/// shared or link-local range, or a multicast group. The plane's own egress proxy uses it too.
+pub fn egress_address_allowed(address: std::net::IpAddr) -> bool {
+    // DNS can return ::ffff:127.0.0.1. Linux connects it to IPv4 loopback, so checking it only
+    // against IPv6's ::1/ULA/link-local ranges would let an allowed site reach this computer.
+    match address.to_canonical() {
         std::net::IpAddr::V4(ip) => {
+            let octets = ip.octets();
+            let shared = octets[0] == 100 && (64..=127).contains(&octets[1]);
             !(ip.is_loopback()
                 || ip.is_private()
                 || ip.is_link_local()
                 || ip.is_unspecified()
-                || ip.is_broadcast())
+                || ip.is_broadcast()
+                || ip.is_multicast()
+                || octets[0] == 0
+                || shared)
         }
         std::net::IpAddr::V6(ip) => {
             !(ip.is_loopback()
                 || ip.is_unspecified()
+                || ip.is_multicast()
                 || (ip.segments()[0] & 0xfe00) == 0xfc00
-                || (ip.segments()[0] & 0xffc0) == 0xfe80)
+                || (ip.segments()[0] & 0xffc0) == 0xfe80
+                || (ip.segments()[0] & 0xffc0) == 0xfec0)
         }
-    });
-    let address = public.context("that site resolves only to a private address")?;
-    Ok(TcpStream::connect(address).await?)
+    }
 }
 
 /// The computer itself, as seen from the helper's container: `host.docker.internal` where Docker
@@ -447,37 +464,45 @@ pub async fn link_once(paired: &Paired, socket: &Path, state_path: &Path) -> Res
                     );
                 }
             }
-            Message::Text(text) => match serde_json::from_str::<Control>(&text) {
-                Ok(Control::Settings {
-                    machine_id,
-                    allowed_images,
-                    plane_ports,
-                    egress_hosts,
-                    apps: owned,
-                }) => {
-                    *egress.write().unwrap() = egress_hosts;
-                    *apps.write().unwrap() = owned;
-                    let helper_address = match join_machine_network(&proxy, &machine_id).await {
-                        Ok(address) => Some(address),
-                        Err(error) => {
-                            tracing::warn!(%error, "could not join the machine network");
-                            None
-                        }
-                    };
-                    *scope.write().unwrap() = Scope {
+            Message::Text(text) => {
+                match serde_json::from_str::<Control>(&text) {
+                    Ok(Control::Settings {
                         machine_id,
                         allowed_images,
-                        helper_address,
-                    };
-                    plane_listeners(&link, &plane_ports, &mut listeners);
+                        plane_ports,
+                        egress_hosts,
+                        apps: owned,
+                    }) => {
+                        // The pairing, stored on this computer, owns its label scope. The plane
+                        // cannot select another pairing's labels to adopt its containers or data.
+                        if machine_id != paired.machine_id {
+                            tracing::warn!("the plane changed this computer's pairing identity; refusing settings");
+                            break;
+                        }
+                        *egress.write().unwrap() = egress_hosts;
+                        *apps.write().unwrap() = owned;
+                        let helper_address = match join_machine_network(&proxy, &machine_id).await {
+                            Ok(address) => Some(address),
+                            Err(error) => {
+                                tracing::warn!(%error, "could not join the machine network");
+                                None
+                            }
+                        };
+                        *scope.write().unwrap() = Scope {
+                            machine_id,
+                            allowed_images,
+                            helper_address,
+                        };
+                        plane_listeners(&link, &plane_ports, &mut listeners);
+                    }
+                    Ok(Control::Removed) => {
+                        let _ = std::fs::remove_file(state_path);
+                        ended = Ended::Removed;
+                        break;
+                    }
+                    Ok(Control::Heartbeat { .. }) | Err(_) => {}
                 }
-                Ok(Control::Removed) => {
-                    let _ = std::fs::remove_file(state_path);
-                    ended = Ended::Removed;
-                    break;
-                }
-                Ok(Control::Heartbeat { .. }) | Err(_) => {}
-            },
+            }
             Message::Close(_) => break,
             _ => {}
         }
@@ -511,7 +536,45 @@ pub async fn run(paired: Paired, socket: PathBuf, state_path: PathBuf) -> Result
 
 #[cfg(test)]
 mod egress_tests {
-    use super::egress_target;
+    use super::{egress_address_allowed, egress_target};
+
+    #[test]
+    fn resolved_sites_cannot_reach_local_networks_through_ipv4_mapped_ipv6() {
+        for address in [
+            "127.0.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.100.100.100",
+            "0.1.2.3",
+            "224.0.0.1",
+            "::ffff:127.0.0.1",
+            "::ffff:192.168.1.1",
+            "::ffff:169.254.169.254",
+            "::ffff:100.100.100.100",
+            "::1",
+            "::",
+            "fe80::1",
+            "fc00::1",
+            "fec0::1",
+            "ff02::1",
+        ] {
+            assert!(
+                !egress_address_allowed(address.parse().unwrap()),
+                "local destination accepted: {address}"
+            );
+        }
+        for address in [
+            "1.1.1.1",
+            "8.8.8.8",
+            "::ffff:1.1.1.1",
+            "2606:4700:4700::1111",
+        ] {
+            assert!(
+                egress_address_allowed(address.parse().unwrap()),
+                "public destination refused: {address}"
+            );
+        }
+    }
 
     #[test]
     fn only_named_sites_on_web_ports_go_out_through_the_machine() {
@@ -540,5 +603,60 @@ mod egress_tests {
             None,
             "no hosts named, nothing opens"
         );
+    }
+}
+
+#[cfg(test)]
+mod pairing_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn settings_cannot_replace_the_locally_paired_identity() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            for control in [
+                Control::Settings {
+                    machine_id: "another-pairing".into(),
+                    allowed_images: vec![],
+                    plane_ports: vec![],
+                    egress_hosts: vec![],
+                    apps: vec![],
+                },
+                Control::Removed,
+            ] {
+                let _ = socket
+                    .send(Message::Text(
+                        serde_json::to_string(&control).unwrap().into(),
+                    ))
+                    .await;
+            }
+            let _ = socket.next().await;
+        });
+        let paired = Paired {
+            plane: format!("http://{address}"),
+            machine_id: "local-pairing".into(),
+            label: "audit fixture".into(),
+            credential: "fixture-credential".into(),
+        };
+        // Neither path exists, and no Docker service or real pairing is involved.
+        let ended = tokio::time::timeout(
+            Duration::from_secs(5),
+            link_once(
+                &paired,
+                Path::new("/nonexistent/restless-audit/docker.sock"),
+                Path::new("/nonexistent/restless-audit/pairing.json"),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(
+            matches!(ended, Ended::Dropped),
+            "foreign settings must end the link before further control messages"
+        );
+        server.abort();
     }
 }

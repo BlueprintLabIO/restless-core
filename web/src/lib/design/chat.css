@@ -277,6 +277,8 @@
  * button in the slot's column and pushed the chips onto a second, indented row. */
 .bridge-root .hc-toolbar {
 	min-width: 0;
+	/* The 32px command trigger comes and goes as the draft changes. */
+	min-height: 40px;
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
@@ -419,20 +421,6 @@
 	gap: 6px;
 }
 
-.bridge-root .hc-hint {
-	position: absolute;
-	right: 8px;
-	bottom: calc(100% + 6px);
-	padding: 2px 8px;
-	border: 1px solid var(--border);
-	border-radius: 999px;
-	background: var(--surface-raised);
-	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-ui);
-	white-space: nowrap;
-	pointer-events: none;
-}
-
 .bridge-root .hc-send {
 	width: 28px;
 	height: 28px;
@@ -572,6 +560,10 @@
 	color: var(--text-tertiary);
 }
 
+.bridge-root .hc-guide.disabled {
+	visibility: hidden;
+}
+
 .bridge-root .hc-guide kbd {
 	display: inline-block;
 	min-width: 1.4em;
@@ -640,6 +632,7 @@
  * worth of target. */
 @media (pointer: coarse) {
 	.bridge-root .hc-toolbar {
+		min-height: 52px;
 		gap: 2px;
 	}
 	.bridge-root .hc-field .attach-btn,

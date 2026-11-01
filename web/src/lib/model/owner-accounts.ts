@@ -130,7 +130,7 @@ export const ACCOUNT_KINDS: { kind: AccountKind; label: string; mark: string; hi
 		kind: 'github',
 		label: 'GitHub',
 		mark: 'GH',
-		hint: 'Repositories, issues and pull requests, with a GitHub token.'
+		hint: 'Repositories, issues and pull requests, through the Restless GitHub App or a token.'
 	},
 	{
 		kind: 'mcp_tool',

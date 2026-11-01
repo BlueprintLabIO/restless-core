@@ -2,6 +2,7 @@
 
 use super::types::{owner_handoff_source_fingerprint, validate_owner_brief};
 use super::*;
+use sqlx::FromRow as _;
 
 const MAX_HANDOFF_CONTEXT_BYTES: usize = 64 * 1024;
 
@@ -435,7 +436,7 @@ impl OrgIntel {
         state: OwnerHandoffState,
         resolution: &str,
     ) -> Result<()> {
-        self.resolve_handoff(id, "owner", state, resolution, false, false, false)
+        self.resolve_handoff(id, "owner", state, resolution, false, false, false, None)
             .await
             .map(|_| ())
     }
@@ -452,13 +453,14 @@ impl OrgIntel {
             false,
             true,
             false,
+            None,
         )
         .await
         .map(|_| ())
     }
 
     /// Record that the person a ready human step is assigned to has done it. The handoff must be
-    /// owed by `actor_id`; payments and judgements keep their dedicated actions.
+    /// owed by `actor_id`; judgements keep their dedicated actions.
     pub async fn complete_human_step_as(
         &self,
         id: Uuid,
@@ -473,6 +475,7 @@ impl OrgIntel {
             false,
             true,
             false,
+            None,
         )
         .await
         .map(|_| ())
@@ -497,6 +500,7 @@ impl OrgIntel {
             true,
             false,
             false,
+            None,
         )
         .await
     }
@@ -512,9 +516,18 @@ impl OrgIntel {
         state: OwnerHandoffState,
         resolution: &str,
     ) -> Result<()> {
-        self.resolve_handoff(id, resolved_by, state, resolution, false, false, false)
-            .await
-            .map(|_| ())
+        self.resolve_handoff(
+            id,
+            resolved_by,
+            state,
+            resolution,
+            false,
+            false,
+            false,
+            None,
+        )
+        .await
+        .map(|_| ())
     }
 
     /// The owner answered a handoff owed to them in their conversation with Exec instead of on
@@ -607,6 +620,8 @@ impl OrgIntel {
                     OwnerReviewDecision::Accepted,
                     &answer_text,
                     true,
+                    None,
+                    None,
                 )
                 .await
             }
@@ -617,6 +632,8 @@ impl OrgIntel {
                     OwnerReviewDecision::ChangesRequested,
                     &answer_text,
                     true,
+                    None,
+                    None,
                 )
                 .await
             }
@@ -632,14 +649,14 @@ impl OrgIntel {
                 } else {
                     OwnerHandoffState::Declined
                 };
-                self.resolve_handoff(id, "owner", state, &answer_text, false, false, true)
+                self.resolve_handoff(id, "owner", state, &answer_text, false, false, true, None)
                     .await
                     .map(|_| ())
             }
         }
     }
 
-    async fn resolve_handoff(
+    pub(super) async fn resolve_handoff(
         &self,
         id: Uuid,
         resolved_by: &str,
@@ -649,6 +666,7 @@ impl OrgIntel {
         owner_human_step_completion: bool,
         // The owner's own words from conversation stand in for the card's authored brief.
         owner_words: bool,
+        pending_decision: Option<Uuid>,
     ) -> Result<bool> {
         if matches!(
             state,
@@ -681,10 +699,7 @@ impl OrgIntel {
             crate::actors::lock_work_accountability_for_update_in_tx(&mut tx, candidate_work_id)
                 .await?;
         let row = sqlx::query(
-            "SELECT work_id,attempt_id,category,state,requested_action,prepared_state, \
-                    resume_condition,assigned_to,owner_brief,brief_source_fingerprint \
-             FROM owner_handoffs \
-             WHERE id=$1 AND work_id=$2 AND state IN ('pending','preparing') FOR UPDATE",
+            "SELECT * FROM owner_handoffs WHERE id=$1 AND work_id=$2 AND state IN ('pending','preparing') FOR UPDATE",
         )
         .bind(id)
         .bind(candidate_work_id)
@@ -720,13 +735,13 @@ impl OrgIntel {
                     "a human step cannot be marked done while it is still being prepared".into(),
                 ));
             }
-            if matches!(
-                category,
-                OwnerHandoffCategory::OwnerJudgement | OwnerHandoffCategory::PaymentConfirmation
-            ) {
+            // A payment made on a provider's own page (a registrar, a government form) with the
+            // person's own card is a human step like any other: they did it, they say so. A
+            // payment Restless holds is confirmed with its provider; the cockpit API refuses
+            // those before they reach here, since Authority, not OrgIntel, knows them.
+            if category == OwnerHandoffCategory::OwnerJudgement {
                 return Err(OrgIntelError::InvalidWork(
-                    "owner judgements, reviews and payments must use their dedicated source action"
-                        .into(),
+                    "owner judgements and reviews must use their dedicated source action".into(),
                 ));
             }
         }
@@ -767,6 +782,22 @@ impl OrgIntel {
                     "outcome_review must use accept or request-changes semantics".into(),
                 ));
             }
+        }
+        if let Some(pending_id) = pending_decision {
+            let action = if owner_human_step_completion {
+                HandoffDecision::CompleteHumanStep
+            } else {
+                HandoffDecision::Skip
+            };
+            crate::handoff_decisions::admit_pending_handoff_decision_in_tx(
+                &mut tx,
+                pending_id,
+                &OwnerHandoffRow::from_row(&row)?,
+                accountability.revision,
+                resolved_by,
+                &action,
+            )
+            .await?;
         }
         sqlx::query(
             "UPDATE owner_handoffs SET state=$2, resolution=$3, resolved_at=now() WHERE id=$1",
@@ -823,6 +854,9 @@ impl OrgIntel {
         .bind(state == OwnerHandoffState::Resolved)
         .execute(&mut *tx)
         .await?;
+        if let Some(id) = pending_decision {
+            crate::handoff_decisions::complete_pending_handoff_decision_in_tx(&mut tx, id).await?;
+        }
         tx.commit().await?;
         Ok(true)
     }
@@ -849,19 +883,35 @@ impl OrgIntel {
         decision: OwnerReviewDecision,
         feedback: &str,
     ) -> Result<()> {
-        self.decide_review(id, reviewer, decision, feedback, false)
+        self.decide_review(id, reviewer, decision, feedback, false, None, None)
+            .await
+    }
+
+    /// Decide only the authored review/candidate this client received. Checks and mutation share
+    /// the existing Work/handoff locks, so another client cannot refresh it between them.
+    pub async fn decide_review_as_seen(
+        &self,
+        id: Uuid,
+        reviewer: &str,
+        decision: OwnerReviewDecision,
+        feedback: &str,
+        version: &OwnerReviewVersion,
+    ) -> Result<()> {
+        self.decide_review(id, reviewer, decision, feedback, false, Some(version), None)
             .await
     }
 
     /// `owner_words`: the owner decided in conversation, so their own words stand in for the
     /// card's authored brief.
-    async fn decide_review(
+    pub(super) async fn decide_review(
         &self,
         id: Uuid,
         reviewer: &str,
         decision: OwnerReviewDecision,
         feedback: &str,
         owner_words: bool,
+        expected: Option<&OwnerReviewVersion>,
+        pending_decision: Option<Uuid>,
     ) -> Result<()> {
         let feedback = feedback.trim();
         if decision == OwnerReviewDecision::ChangesRequested && feedback.is_empty() {
@@ -883,9 +933,7 @@ impl OrgIntel {
             crate::actors::lock_work_accountability_for_update_in_tx(&mut tx, candidate_work_id)
                 .await?;
         let row = sqlx::query(
-            "SELECT work_id,attempt_id,category,requested_action,prepared_state, \
-                    resume_condition,assigned_to,owner_brief,brief_source_fingerprint \
-             FROM owner_handoffs \
+            "SELECT * FROM owner_handoffs \
              WHERE id=$1 AND work_id=$2 AND state='pending' FOR UPDATE",
         )
         .bind(id)
@@ -912,6 +960,42 @@ impl OrgIntel {
             return Err(OrgIntelError::InvalidWork(
                 "this review is still assigned below you, or is waiting on someone else".into(),
             ));
+        }
+        if let Some(pending_id) = pending_decision {
+            crate::handoff_decisions::admit_pending_handoff_decision_in_tx(
+                &mut tx,
+                pending_id,
+                &OwnerHandoffRow::from_row(&row)?,
+                accountability.revision,
+                reviewer,
+                &HandoffDecision::AcceptReview {
+                    feedback: feedback.into(),
+                },
+            )
+            .await?;
+        }
+        if let Some(expected) = expected {
+            let current = OwnerHandoffRow::from_row(&row)?.conversation_input();
+            let artifact_id = sqlx::query_scalar::<_, Uuid>(
+                "SELECT id FROM artifact_refs WHERE work_id=$1 AND state='available' \
+                 AND kind='review_target' AND ($2::uuid IS NULL OR attempt_id=$2) \
+                 ORDER BY created_at DESC,id DESC LIMIT 1",
+            )
+            .bind(work_id)
+            .bind(row.get::<Option<Uuid>, _>("attempt_id"))
+            .fetch_optional(&mut *tx)
+            .await?;
+            if expected.handoff != current
+                || expected.work_revision != accountability.revision
+                || expected.artifact_id != artifact_id
+            {
+                return Err(OrgIntelError::ReviewChanged);
+            }
+            if decision == OwnerReviewDecision::Accepted && artifact_id.is_none() {
+                return Err(OrgIntelError::InvalidWork(
+                    "this outcome needs a prepared preview before it can be accepted".into(),
+                ));
+            }
         }
         if !owner_words {
             let brief: Option<serde_json::Value> = row.get("owner_brief");
@@ -1045,6 +1129,9 @@ impl OrgIntel {
             OwnerReviewDecision::ChangesRequested => {
                 invalidate_from(&mut tx, work_id, reviewer, feedback).await?;
             }
+        }
+        if let Some(id) = pending_decision {
+            crate::handoff_decisions::complete_pending_handoff_decision_in_tx(&mut tx, id).await?;
         }
         tx.commit().await?;
         Ok(())

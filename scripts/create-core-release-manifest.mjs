@@ -72,7 +72,8 @@ function validateRelease(release) {
   exactKeys(release, ['core_version', 'source_revision', 'images', 'contracts', 'deployment'], 'contract-set release');
   match(release.core_version, /^[A-Za-z0-9._+-]{1,64}$/, 'contract-set release core_version');
   match(release.source_revision, SOURCE_REVISION, 'contract-set release source_revision');
-  exactKeys(release.images, ['account_plane', 'company_runtime', 'native_documents'], 'contract-set release images');
+  exactKeys(release.images, ['account_plane', 'company_runtime', 'native_documents', ...('cockpit' in release.images ? ['cockpit'] : [])], 'contract-set release images');
+  if ('cockpit' in release.images) match(release.images.cockpit, OCI_DIGEST, 'contract-set release cockpit image');
   match(release.images.account_plane, OCI_DIGEST, 'contract-set release account_plane image');
   match(release.images.company_runtime, OCI_DIGEST, 'contract-set release company_runtime image');
   match(release.images.native_documents, OCI_DIGEST, 'contract-set release native_documents image');

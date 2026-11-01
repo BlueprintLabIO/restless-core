@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile, writeFile } from 'node:fs/promises';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { readCoreReleaseTuple, createCompanyCollaborationContractSet } from '../create-company-collaboration-contract-set.mjs';
@@ -7,7 +7,10 @@ import { createCoreReleaseManifest } from '../create-core-release-manifest.mjs';
 
 const [sourceRoot, outputRoot, revision, platform] = process.argv.slice(2);
 const images = {};
-for (const [component, key] of [['account-plane', 'account_plane'], ['company-runtime', 'company_runtime'], ['native-documents-collaboration', 'native_documents']]) {
+// The cockpit ships as its own image from S104 on; it is in the bundle when publish made one.
+const cockpitShipped = await access(join(outputRoot, 'images', 'cockpit.json')).then(() => true, () => false);
+for (const [component, key] of [['account-plane', 'account_plane'], ['company-runtime', 'company_runtime'],
+  ['native-documents-collaboration', 'native_documents'], ...(cockpitShipped ? [['cockpit', 'cockpit']] : [])]) {
   const record = JSON.parse(await readFile(join(outputRoot, 'images', `${component}.json`)));
   if (record.source_revision !== revision || record.platform !== platform) throw new Error(`${component}: qualification scope differs from the release`);
   for (const [folder, field] of [['scans', 'scan_sha256'], ['sboms', 'sbom_sha256']]) {
@@ -17,7 +20,8 @@ for (const [component, key] of [['account-plane', 'account_plane'], ['company-ru
   images[key] = record.reference;
 }
 const release = await readCoreReleaseTuple({ sourceRoot, sourceRevision: revision,
-  accountPlaneImage: images.account_plane, companyRuntimeImage: images.company_runtime, nativeDocumentsImage: images.native_documents });
+  accountPlaneImage: images.account_plane, companyRuntimeImage: images.company_runtime, nativeDocumentsImage: images.native_documents,
+  cockpitImage: images.cockpit });
 const contract = await createCompanyCollaborationContractSet({ sourceRoot, outputRoot, release });
 const manifest = await createCoreReleaseManifest({ contractSetManifestPath: contract.manifestPath, outputRoot, platforms: [platform] });
 await writeFile(join(outputRoot, 'assembly.json'), `${JSON.stringify({ revision, platform, images,

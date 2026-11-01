@@ -21,6 +21,7 @@
 	} from '$lib/model/open-question';
 	import { untrack, type Snippet } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
+	import { clearOfToastsOnPhone, dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	/* One contextual conversation rail. It normally belongs to the Exec; while
 	 * the owner focuses a review it belongs to that Work's accountable lead.
@@ -597,6 +598,20 @@
 		);
 		return () => clearTimeout(timer);
 	});
+	// Notices must not change the space available to the conversation or composer.
+	$effect(() => {
+		const notice = askNotice;
+		const undoable = noticeUndo?.notice === notice;
+		const waiting = notice === leftForLater;
+		if (!notice) return;
+		const id = untrack(() =>
+			toast(notice, {
+				persist: waiting,
+				...(undoable ? { undo: () => void undoCommand(), expiresAt: Date.now() + 20_000 } : {})
+			})
+		);
+		return () => untrack(() => dismissToast(id));
+	});
 	const commandLogKey = $derived(`restless:exec-commands:${companyId}`);
 	let commandLog = $state<CommandRecord[]>([]);
 	$effect(() => {
@@ -693,6 +708,50 @@
 	});
 	function retryNow() {
 		onrefreshConversation?.();
+	}
+
+	// Keep transient failures out of the chat's flow. The reserved tool slot
+	// makes a dismissed warning discoverable without moving the header.
+	let chatErrorToast: number | undefined;
+	let reconnectToast: number | undefined;
+	function showChatError(message: string, key: string) {
+		if (chatErrorToast !== undefined) dismissToast(chatErrorToast);
+		chatErrorToast = toast(message, { tone: 'failure', dedupeKey: `chat-error:${key}` });
+	}
+	function showReconnect(key: string) {
+		if (reconnectToast !== undefined) dismissToast(reconnectToast);
+		reconnectToast = toast('Reconnecting. The last loaded messages are still available.', {
+			tone: 'failure',
+			dedupeKey: `chat-reconnect:${key}`,
+			action: { label: 'Try again', run: retryNow }
+		});
+	}
+	const warningKey = $derived(`${companyId}:${participantId}:${currentTopicKey}`);
+	$effect(() => {
+		const message = askError;
+		const key = warningKey;
+		if (!message) return;
+		untrack(() => showChatError(message, key));
+		return () =>
+			untrack(() => {
+				if (chatErrorToast !== undefined) dismissToast(chatErrorToast);
+				chatErrorToast = undefined;
+			});
+	});
+	$effect(() => {
+		const show = reconnecting;
+		const key = warningKey;
+		if (!show) return;
+		untrack(() => showReconnect(key));
+		return () =>
+			untrack(() => {
+				if (reconnectToast !== undefined) dismissToast(reconnectToast);
+				reconnectToast = undefined;
+			});
+	});
+	function showChatWarnings() {
+		if (askError) showChatError(askError, warningKey);
+		if (reconnecting) showReconnect(warningKey);
 	}
 
 	/* The newest ask still unanswered: only a reply quoting it, or a newer ask, closes it. */
@@ -1255,7 +1314,9 @@
 
 	/* A company that never had a model and one whose model connection stopped are different
 	 * situations: say which, in a few words, and name the one action that fixes it. */
-	const neverConnected = $derived(!providerLabel.startsWith('Reconnect'));
+	const neverConnected = $derived(
+		providerLabel === 'Connect a model' || providerLabel === 'Connect intelligence'
+	);
 	/* Only the owner connects models. A teammate is told who can fix it, with no button to a page
 	 * they cannot open. */
 	const ownerFixes = $derived(membershipRole === 'owner');
@@ -1298,6 +1359,15 @@
 >
 	<div class="exr-inner">
 		{#snippet conversationTools()}<div class="exr-tools">
+				<span class="exr-warning-slot"
+					>{#if askError || reconnecting}<button
+							type="button"
+							class="exr-tool exr-warning"
+							aria-label="Show conversation problem"
+							title="Conversation needs attention"
+							onclick={showChatWarnings}>!</button
+						>{/if}</span
+				>
 				{#if newFocusAvailable}
 					<button
 						type="button"
@@ -1463,15 +1533,6 @@
 			{:else if !needsProvider && connectionStatus === 'unavailable'}
 				<p class="exr-connection-notice" role="status">
 					A conversation route for {participantName} is not available in the latest company status.
-				</p>
-			{/if}
-			{#if reconnecting}
-				<p class="exr-reconnecting" role="status">
-					<i aria-hidden="true"></i><span
-						title="The last loaded messages stay readable while the connection comes back. It retries by itself."
-						>Reconnecting… showing the last loaded messages</span
-					>
-					<button type="button" class="exr-retry" onclick={retryNow}>Try again</button>
 				</p>
 			{/if}
 			<div class="exr-chat">
@@ -1722,11 +1783,7 @@
 									onclick={correct}>Correct</button
 								><span aria-hidden="true">·</span>{/if}{receipt}
 						</p>{/if}
-					{#if setupPending}
-						<p class="exr-setup-pending" role="status">
-							Message saved. {participantName} can reply after intelligence access is restored.
-						</p>
-					{:else if shownTurn}<ConversationTurnDock
+					{#if !setupPending && shownTurn}<ConversationTurnDock
 							{participantName}
 							turn={shownTurn}
 							onstop={null}
@@ -1768,7 +1825,10 @@
 							readOnly={membershipRole !== 'owner'}
 						/>{/if}
 				{/if}
-				<form class="exr-composer" onsubmit={submitAsk}>
+				<p class="model-reply-state" role="status">
+					{needsProvider ? 'The model can’t reply now. Your message will wait.' : ''}
+				</p>
+				<form class="exr-composer" onsubmit={submitAsk} {@attach clearOfToastsOnPhone}>
 					{#if quoting}
 						<div class="quoting">
 							<Reply size={13} aria-hidden="true" />
@@ -1790,8 +1850,8 @@
 						uploadProgress={sending ? uploadProgress : null}
 						bind:selectedSkills={composerSkills}
 						options={[...options.value, ...references]}
-						interruptible={working && !setupPending}
-						onstop={stopTurn}
+						interruptible={working && !needsProvider && connected}
+						onstop={working && !needsProvider && connected ? stopTurn : null}
 						bind:interrupt={interruptNext}
 						actionLabel={retryCommandId ? 'Retry send · it cannot be sent twice' : ''}
 						disabled={!canOperate || sending || !onask}
@@ -1845,17 +1905,6 @@
 							{/if}
 						{/snippet}
 					</Composer>
-					{#if askError}
-						<p class="exr-error" role="alert">{askError}</p>
-					{/if}
-					{#if askNotice}
-						<p class="exr-notice" role="status">
-							{askNotice}{#if noticeUndo?.notice === askNotice}
-								<button type="button" class="exr-undo" onclick={() => void undoCommand()}
-									>Undo</button
-								>{/if}
-						</p>
-					{/if}
 				</form>
 			</div>
 		</div>
@@ -1863,6 +1912,19 @@
 </aside>
 
 <style>
+	.exr-warning-slot {
+		width: 28px;
+		height: 28px;
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.exr-warning {
+		color: var(--state-danger);
+		font-weight: 700;
+	}
+
 	.provider-connect-inline {
 		width: 100%;
 		max-width: 320px;
@@ -1883,17 +1945,6 @@
 		flex: none;
 		color: var(--text-secondary);
 		font-family: var(--font-mono);
-	}
-	.exr-undo {
-		margin-left: 6px;
-		padding: 0;
-		border: 0;
-		background: none;
-		color: var(--ink);
-		font: inherit;
-		font-weight: 600;
-		text-decoration: underline;
-		cursor: pointer;
 	}
 	.jump-anchor {
 		position: relative;
@@ -2417,15 +2468,13 @@
 		text-align: center;
 		animation: focus-arrive var(--motion-disclosure) var(--ease-standard) both;
 	}
-	.exr-setup-pending {
-		margin: var(--space-3);
-		padding: var(--space-3);
-		border: 1px solid var(--border-soft);
-		border-radius: var(--radius-control);
-		background: var(--surface-pane);
+	.model-reply-state {
+		margin: 0;
+		padding-inline: var(--space-3);
+		min-height: 2.6em;
 		color: var(--text-secondary);
 		font-size: var(--t-label);
-		line-height: 1.5;
+		line-height: 1.3;
 	}
 	@keyframes focus-arrive {
 		from {
@@ -2447,51 +2496,6 @@
 		color: var(--text-secondary);
 		font-size: var(--t-label);
 		line-height: 1.45;
-	}
-	.exr-reconnecting {
-		display: flex;
-		flex: none;
-		align-items: center;
-		gap: 8px;
-		margin: 0;
-		padding: 6px 14px;
-		border-bottom: 1px solid var(--border-soft);
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		animation: exr-reconnecting-in var(--motion-disclosure, 180ms) var(--ease-out, ease-out) both;
-	}
-	.exr-reconnecting i {
-		flex: none;
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: var(--state-warning, #b26a00);
-		animation: exr-pulse 1.4s ease-in-out infinite;
-	}
-	.exr-reconnecting span {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.exr-reconnecting .exr-retry {
-		margin: 0 0 0 auto;
-	}
-	@keyframes exr-reconnecting-in {
-		from {
-			opacity: 0;
-		}
-	}
-	@keyframes exr-pulse {
-		50% {
-			opacity: 0.35;
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.exr-reconnecting,
-		.exr-reconnecting i {
-			animation: none;
-		}
 	}
 	.exr-retry {
 		flex: none;

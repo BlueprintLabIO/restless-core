@@ -182,7 +182,23 @@ async fn handle(pool: &PgPool, mut stream: TcpStream, peer: IpAddr) -> Result<()
             }
         }
     } else {
-        match TcpStream::connect((host.as_str(), port)).await {
+        // The proxy runs on the plane's host network, so a direct connection may only reach the
+        // public internet: never the host's loopback, another company's container or the LAN.
+        let public = match tokio::net::lookup_host((host.as_str(), port)).await {
+            Ok(addresses) => addresses
+                .into_iter()
+                .find(|address| restless_machine::machine::egress_address_allowed(address.ip())),
+            Err(_) => None,
+        };
+        let Some(address) = public else {
+            return reply(
+                &mut stream,
+                "403 Forbidden",
+                &format!("{host} is not a public internet address."),
+            )
+            .await;
+        };
+        match TcpStream::connect(address).await {
             Ok(mut upstream) => {
                 stream
                     .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")

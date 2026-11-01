@@ -27,6 +27,11 @@
 </script>
 
 <script lang="ts">
+	import {
+		documentDecisionsQuery,
+		documentDecisionDraftQuery,
+		queueDocumentDecision
+	} from '$lib/model/document-decisions.svelte';
 	import type { Snippet } from 'svelte';
 	import { composing } from '$lib/primitives/composer-keys';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
@@ -65,7 +70,6 @@
 		invalidateDocument
 	} from '$lib/model/document-queries.svelte';
 	import {
-		acceptDocumentReview,
 		acceptDocumentRevisionProposal,
 		commentContent,
 		createDocumentCommentThread,
@@ -178,6 +182,7 @@
 	}: Props = $props();
 
 	const client = useQueryClient();
+	const decisions = documentDecisionsQuery(() => companyId);
 	const documentId = $derived(view.document.id);
 	const threads = documentCommentThreadsQuery(
 		() => companyId,
@@ -347,6 +352,20 @@
 				review.status === 'requested' && (!requestedReviewId || review.id === requestedReviewId)
 		) ?? null
 	);
+	const recoveredDraft = documentDecisionDraftQuery(
+		() => companyId,
+		() => documentId,
+		() => requestedReview?.id ?? ''
+	);
+	let restoredReviewInput = '';
+	const reviewPending = $derived(
+		decisions.data?.items.some(
+			(item) =>
+				item.document_id === documentId &&
+				item.request_id === requestedReview?.id &&
+				item.state === 'pending'
+		) ?? false
+	);
 	const openProposals = $derived(
 		proposals.proposals.filter((proposal) => proposal.status === 'proposed')
 	);
@@ -392,6 +411,12 @@
 			requestedReview?.requested_by_actor_id !== viewerActorId
 	);
 	const mayRequestChanges = $derived(canRequestChanges || canCommentChanges);
+	const assignedReviewer = $derived(
+		requestedDependency?.reviewer_actor_id ?? requestedReview?.reviewer_actor_id
+	);
+	const canAcceptCurrentReview = $derived(
+		canResolveDocument && (!assignedReviewer || assignedReviewer === viewerActorId)
+	);
 
 	/* What a block comment is about, quoted: the live page first (newest), then the saved version. */
 	function blockQuote(blockId: string | null): string | null {
@@ -504,6 +529,20 @@
 		oncommenttargetchange(null);
 	});
 
+	$effect(() => {
+		const key =
+			companyId + ':' + documentId + ':' + (requestedReview?.id ?? '') + ':' + viewerActorId;
+		const data = recoveredDraft.data;
+		if (!requestedReview || !recoveredDraft.isSuccess || key === restoredReviewInput) return;
+		restoredReviewInput = key;
+		if (data?.draft) {
+			untrack(() => {
+				if (!reviewNote.trim()) reviewNote = data.draft!.decision.feedback;
+				const defaultName = `Reviewed ${new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`;
+				if (reviewName === defaultName) reviewName = data.draft!.decision.accepted_version_name;
+			});
+		}
+	});
 	/* Open threads first; resolved ones wait behind their own tab, with Re-open. */
 	let threadFilter = $state<'open' | 'resolved'>('open');
 	const shownThreads = $derived(
@@ -959,7 +998,14 @@
 	}
 
 	async function acceptReview(): Promise<void> {
-		if (!requestedReview || !reviewName.trim() || !online || !canResolveDocument || reviewBusy)
+		if (
+			!requestedReview ||
+			!reviewName.trim() ||
+			!online ||
+			!canAcceptCurrentReview ||
+			reviewBusy ||
+			reviewPending
+		)
 			return;
 		const target = { companyId, documentId };
 		const input = {
@@ -968,7 +1014,7 @@
 			expectedDocumentVersion: view.document.version,
 			expectedReviewVersion: requestedReview.version,
 			acceptedVersionName: reviewName.trim(),
-			feedback: canRequestChanges ? reviewNote.trim() : ''
+			feedback: canRequestChanges || canCommentChanges ? reviewNote.trim() : ''
 		};
 		const attempt = pendingDocumentMutation(
 			reviewAcceptAttempt,
@@ -979,38 +1025,32 @@
 		reviewBusy = true;
 		reviewFailure = '';
 		reviewNotice = '';
-		let mutationSucceeded = false;
 		try {
-			/* Not bound to Work, a note has nowhere to go with the decision: it is posted first,
-			 * and the version is not accepted if the note could not be. */
-			if (canCommentChanges && reviewNote.trim() && !(await postReviewNote(''))) return;
-			const result = await acceptDocumentReview(
+			const saved = await queueDocumentDecision(
+				client,
 				attempt.input.target.companyId,
 				attempt.input.target.documentId,
 				attempt.input.reviewId,
-				attempt.input.expectedDocumentVersion,
-				attempt.input.expectedReviewVersion,
-				attempt.input.acceptedVersionName,
 				attempt.command.id,
-				attempt.input.feedback
+				{
+					kind: 'accept_review',
+					expected_document_version: attempt.input.expectedDocumentVersion,
+					expected_review_version: attempt.input.expectedReviewVersion,
+					accepted_version_name: attempt.input.acceptedVersionName,
+					feedback: attempt.input.feedback
+				}
 			);
-			mutationSucceeded = true;
-			reviews.acceptResolution(attempt.input.target, result);
 			if (isCurrentTarget(target)) {
 				reviewAcceptAttempt = null;
-				reviewNote = '';
+				if (saved.state === 'failed')
+					reviewFailure = saved.problem ?? 'Open the current request before deciding.';
+				// Retain the form while pending/undone; the document transaction posts its note only at commit.
 			}
-			await refreshDocument(attempt.input.target);
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			if (mutationSucceeded) {
-				reviewNotice =
-					'Review accepted, but this view could not fully refresh. Reload to see the latest state.';
-			} else {
-				reviewFailure = failureSentence(cause, 'The review was not accepted.');
-				if (!isRetryableDocumentFailure(cause)) reviewAcceptAttempt = null;
-			}
+			reviewFailure = failureSentence(cause, 'The review decision could not be saved.');
+			if (!isRetryableDocumentFailure(cause)) reviewAcceptAttempt = null;
 		} finally {
 			if (isCurrentTarget(target)) reviewBusy = false;
 		}
@@ -1369,7 +1409,11 @@
 		<button
 			type="button"
 			class="btn primary"
-			disabled={!online || editing || reviewBusy || !reviewName.trim()}
+			disabled={!online ||
+				!canAcceptCurrentReview ||
+				reviewBusy ||
+				reviewPending ||
+				!reviewName.trim()}
 			onclick={() => void acceptReview()}>{reviewBusy ? 'Saving…' : 'Accept this version'}</button
 		>
 	</div>
@@ -1753,40 +1797,44 @@
 		</div>
 	{:else if panel === 'review'}
 		<div class="inspector-body review-body">
-			<header class="inspector-head">
-				<h2 title="Ask someone to judge the saved document, and decide on changes agents propose">
-					Review
-				</h2>
-			</header>
+			{#if !requestedReviewId}
+				<header class="inspector-head">
+					<h2 title="Ask someone to judge the saved document, and decide on changes agents propose">
+						Review
+					</h2>
+				</header>
+			{/if}
 			{#if editing && canJudge}<p class="pending-draft">Waiting for edits to finish saving.</p>{/if}
 			{#if requestedReview}
 				<section class="review-request current">
-					<header>
-						<span class="review-pulse"></span><strong>Review requested</strong><time
-							datetime={requestedReview.created_at}>{shortDate(requestedReview.created_at)}</time
-						>
-					</header>
-					<p>{requestedReview.summary}</p>
-					<dl>
-						<div>
-							<dt>Requested by</dt>
-							<dd>{actorName(requestedReview.requested_by_actor_id)}</dd>
-						</div>
-						{#if requestedReview.reviewer_actor_id}
+					{#if !requestedReviewId}
+						<header>
+							<span class="review-pulse"></span><strong>Review requested</strong><time
+								datetime={requestedReview.created_at}>{shortDate(requestedReview.created_at)}</time
+							>
+						</header>
+						<p>{requestedReview.summary}</p>
+						<dl>
 							<div>
-								<dt>Asked of</dt>
-								<dd>{actorName(requestedReview.reviewer_actor_id)}</dd>
+								<dt>Requested by</dt>
+								<dd>{actorName(requestedReview.requested_by_actor_id)}</dd>
 							</div>
-						{/if}
-						<div>
-							<dt>Version</dt>
-							<dd>
-								{requestedReview.requested_version_id === view.current_version.version.id
-									? `v${view.current_version.version.version_number}`
-									: 'Earlier version'}
-							</dd>
-						</div>
-					</dl>
+							{#if requestedReview.reviewer_actor_id}
+								<div>
+									<dt>Asked of</dt>
+									<dd>{actorName(requestedReview.reviewer_actor_id)}</dd>
+								</div>
+							{/if}
+							<div>
+								<dt>Version</dt>
+								<dd>
+									{requestedReview.requested_version_id === view.current_version.version.id
+										? `v${view.current_version.version.version_number}`
+										: 'Earlier version'}
+								</dd>
+							</div>
+						</dl>
+					{/if}
 					{#if canJudge}
 						<label class="field"
 							><span title="History lists the accepted version under this name">Version name</span

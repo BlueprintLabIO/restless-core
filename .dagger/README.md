@@ -1,8 +1,9 @@
 # Core delivery
 
-GitHub Actions schedules the pinned Dagger module; the module owns qualification,
-image construction, exact-image checks, scanning and release sealing. The existing
-`immutable-core-release.yml` identity on `main` remains the trusted publisher.
+`scripts/release/local/core-release.sh` and `library-release.sh` drive the pinned Dagger module
+on the owner's computer (ADR 0010 in restless-cloud); the module owns qualification, image
+construction, exact-image checks, scanning and release sealing with the release key
+(`release/signing.pub`).
 
 Source qualification is read-only:
 

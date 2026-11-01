@@ -29,6 +29,11 @@ test('Company › X links anywhere; a bare section name only on a Needs you line
 	);
 });
 
+test('Resources links to the renamed page while saved Limits text remains supported', () => {
+    assert.equal(linkCockpitPlaces('Open Company → Resources.', root), 'Open [Company → Resources](/reno/company/resources).');
+    assert.equal(linkCockpitPlaces('Open Company → Limits.', root), 'Open [Company → Limits](/reno/company/resources).');
+});
+
 test('links, code and fenced blocks are left alone', () => {
 	const already = 'See [Company › Charter](/elsewhere) and `Company › Limits`.';
 	assert.equal(linkCockpitPlaces(already, root), already);

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { pollEvery } from '$lib/model/connection.svelte';
 	import { readAccountCompanies, type AccountCompany } from '$lib/model/account-companies';
 	import { setupTabs } from '$lib/model/company-setup-steps';
 	import { companySetup, takeSetupHandoff } from '$lib/model/company-setup.svelte';
@@ -23,6 +24,8 @@
 	import { conversationAsked } from '$lib/model/embedded-conversations.svelte';
 	import { linkPreference } from '$lib/model/link-preference.svelte';
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
+	import PendingHandoffDecisions from '$lib/components/PendingHandoffDecisions.svelte';
+	import PendingDocumentDecisions from '$lib/components/PendingDocumentDecisions.svelte';
 	import { referenceOptions } from '$lib/model/composer-options.svelte';
 	import type ExecutiveRailView from '$lib/components/ExecutiveRail.svelte';
 	import { presence } from '$lib/model/presence.svelte';
@@ -98,7 +101,7 @@
 		type RetainedAttachment
 	} from '$lib/model/attachments';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	import { keepCountInTitle } from '$lib/model/title-count';
+	import { keepCompanyTabTitle } from '$lib/model/company-tab-title';
 	import { forYouSentence, getInboxMarks, newlyUnread, unreadMarks } from '$lib/model/for-you';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { inboxMarksKey } from '$lib/components/inbox-actions';
@@ -230,6 +233,17 @@
 		return stored === null || stored === 'open';
 	}
 	let execRailOpen = $state(initialRail(page.params.companyId ?? ''));
+	// A desktop rail becomes a full-screen overlay at the compact breakpoint.
+	// Close it on that transition so it does not suddenly cover the current page;
+	// the person can still open the conversation explicitly on the phone.
+	onMount(() => {
+		const compact = window.matchMedia('(max-width: 980px)');
+		const changed = (event: MediaQueryListEvent) => {
+			if (event.matches) execRailOpen = false;
+		};
+		compact.addEventListener('change', changed);
+		return () => compact.removeEventListener('change', changed);
+	});
 	let railCompany = page.params.companyId ?? '';
 	let focusRailRestore = $state<boolean | null>(null);
 	let startupStalled = $state(false);
@@ -265,7 +279,7 @@
 		queryFn: () => getInboxMarks(companyId),
 		enabled: !!principal,
 		staleTime: 10_000,
-		refetchInterval: 30_000
+		refetchInterval: pollEvery(60_000)
 	}));
 	let markClock = $state(Date.now());
 	onMount(() => {
@@ -535,11 +549,9 @@
 			? person
 			: '';
 	});
-	const railActorId = $derived(
-		wideActor || (focusedAttention?.responsibleActor?.id ?? chosenTopic?.actorId ?? 'exec')
-	);
+	const railActorId = $derived(wideActor || chosenTopic?.actorId || 'exec');
 	const railWorkId = $derived(
-		wideActor ? undefined : (focusedAttention?.workId ?? chosenTopic?.workId)
+		wideActor || railActorId === 'exec' ? undefined : chosenTopic?.workId
 	);
 	const railTopicKey = $derived(
 		wideActor
@@ -564,7 +576,7 @@
 			companyId,
 			railActorId,
 			railWorkId,
-			wideActor ? undefined : focusedAttention?.id,
+			undefined,
 			() => !!principal,
 			principal?.actor_id ?? 'owner',
 			true,
@@ -572,21 +584,14 @@
 		)
 	);
 	const railActorName = $derived(
-		railActorId === 'exec'
-			? 'Exec'
-			: (focusedAttention?.responsibleActor?.display ??
-					railConversation.actor?.display ??
-					personName(railActorId))
+		railActorId === 'exec' ? 'Exec' : (railConversation.actor?.display ?? personName(railActorId))
 	);
-	const railActorRole = $derived(
-		focusedAttention || railActorId !== 'exec' ? 'Responsible lead' : 'Executive'
-	);
+	const railActorRole = $derived(railActorId !== 'exec' ? 'Responsible lead' : 'Executive');
 	const providerIssue = $derived(
 		companies.find((company) => company.id === companyId)?.unstartable_reason ?? ''
 	);
 	const railRouteState = $derived(agentRouteState(intelligence.view, railActorId));
 	const railConnectionStatus = $derived.by(() => {
-		if (providerIssue) return 'unavailable';
 		/* A member has no owner cockpit projection; whether Exec can think is the model route. */
 		if (!ownerAccess) {
 			if (intelligence.error) return 'error';
@@ -721,8 +726,14 @@
 	$effect(() => {
 		const authenticated = principal;
 		if (!authenticated || mayOpenCompanyRoute(companyId, page.url.pathname, authenticated)) return;
-		toast(refusedRouteReason(companyId, page.url.pathname));
-		void goto(collaboratorHome(companyId), { replaceState: true });
+		const reason = refusedRouteReason(companyId, page.url.pathname);
+		const home = collaboratorHome(companyId);
+		// The toast reads and writes its own reactive list. It is an effect's
+		// outcome, not a dependency that should repeatedly send this person home.
+		untrack(() => {
+			toast(reason);
+			void goto(home, { replaceState: true });
+		});
 	});
 	/* Until intelligence is connected the rail can only say so, and the start
 	 * blocker already says it on Attention. Start it closed once so the work
@@ -884,19 +895,6 @@
 		} catch (cause) {
 			return failureSentence(cause, 'It could not be retried. Send the message again instead.');
 		}
-	}
-
-	function closeFocusedContext() {
-		if (!focusedAttention) return;
-		/* On small screens the executive rail is a full-workspace overlay. Closing
-		 * it must reveal the focused outcome underneath, not also discard that
-		 * outcome's URL context. The actor button can reopen the same lead and
-		 * decision controls without rebuilding any review state. */
-		if (typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches) {
-			execRailOpen = false;
-			return;
-		}
-		void goto(`/${companyId}?item=${encodeURIComponent(focusedAttention.id)}`);
 	}
 
 	/* What the next rail message will be linked to, by name: the Work, Goal,
@@ -1077,9 +1075,8 @@
 		);
 	});
 
-	/* The tab title leads with what needs the person, from the same count as the Inbox badge. */
-	const needsYouCount = $derived(tabs.find((tab) => tab.key === 'attention')?.badge ?? 0);
-	$effect(() => keepCountInTitle(needsYouCount));
+	/* Nested pages may set their own title; the tab always identifies the company. */
+	$effect(() => keepCompanyTabTitle(companyName || rememberedName(companyId) || 'Restless'));
 
 	/* The Apps dot: a sign-in to renew, a tool to review, or an app Exec asked
 	 * for. Checked on arrival, on every move and once a minute. Know-how
@@ -1759,6 +1756,8 @@
 </script>
 
 <CompanyQueryPersistence {companyId} />
+<PendingHandoffDecisions {companyId} />
+<PendingDocumentDecisions {companyId} />
 
 {#snippet executiveRail(wide = false, header?: Snippet<[Snippet, Snippet]>)}
 	{#if ExecutiveRail}
@@ -1781,10 +1780,10 @@
 			conversationStatus={railConversation.status}
 			conversationFailed={Boolean(railConversation.failure)}
 			onrefreshConversation={() => void railConversation.refresh()}
-			needsProvider={!!providerIssue ||
-				railRouteState === 'needs_connection' ||
-				railRouteState === 'unavailable'}
-			providerLabel={providerIssue ? startLinkLabel(providerIssue) : 'Connect intelligence'}
+			needsProvider={railRouteState === 'needs_connection' || railRouteState === 'unavailable'}
+			providerLabel={railRouteState === 'needs_connection'
+				? 'Connect a model'
+				: 'Check model connection'}
 			contextLabel={currentContext.label}
 			{contextLabelFor}
 			contextKind={currentContext.kind}
@@ -1814,15 +1813,8 @@
 			)}
 			open={wide || execRailOpen}
 			onask={askRail}
-			review={focusedReview && !wide
-				? {
-						id: focusedReview.id,
-						onback: closeFocusedContext
-					}
-				: null}
-			workContext={focusedAttention && !wide
-				? { onback: closeFocusedContext, title: focusedAttention.title }
-				: null}
+			review={null}
+			workContext={null}
 		/>{/if}
 {/snippet}
 
@@ -1866,7 +1858,7 @@
 		execUnread={!!execUnreadRow && !(execRailOpen && railActorId === 'exec')}
 		execWorking={railActorId === 'exec' &&
 			(railConversation.working || !!railConversation.ambientTurn)}
-		execUnavailable={!!providerIssue}
+		execUnavailable={railConnectionStatus === 'unavailable'}
 		railOpen={execRailOpen}
 		immersive={immersiveComputer}
 		blocked={startupBlocking}

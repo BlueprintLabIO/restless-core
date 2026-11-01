@@ -26,6 +26,10 @@
 	let surface = $state<HTMLDivElement>();
 	let socket: WebSocket | null = null;
 	let retry: ReturnType<typeof setTimeout> | undefined;
+	/* Every reconnect is a request through the edge, which has a daily cap (23 Oct: the app went
+	 * down when it ran out). So a feed that keeps failing waits longer each time, up to 30 s, and
+	 * a hidden tab does not reconnect until it is shown again. */
+	let retryDelay = 1500;
 	let closed = false;
 	let claiming = false;
 	let lastMove = 0;
@@ -81,6 +85,7 @@
 				if (note.type === 'page') pageUrl = note.url ?? '';
 				return;
 			}
+			retryDelay = 1500;
 			const previous = frame;
 			frame = URL.createObjectURL(event.data as Blob);
 			if (previous) URL.revokeObjectURL(previous);
@@ -90,16 +95,26 @@
 			if (socket !== next) return;
 			socket = null;
 			status = 'lost';
-			if (!closed) retry = setTimeout(connect, 1500);
+			if (closed || document.hidden) return;
+			retry = setTimeout(connect, retryDelay);
+			retryDelay = Math.min(retryDelay * 2, 30_000);
 		};
+	}
+
+	function reconnectWhenShown() {
+		if (document.hidden || closed || socket || !clientId) return;
+		clearTimeout(retry);
+		connect();
 	}
 
 	$effect(() => {
 		if (!clientId) return;
 		closed = false;
 		connect();
+		document.addEventListener('visibilitychange', reconnectWhenShown);
 		return () => {
 			closed = true;
+			document.removeEventListener('visibilitychange', reconnectWhenShown);
 			clearTimeout(retry);
 			socket?.close();
 			socket = null;

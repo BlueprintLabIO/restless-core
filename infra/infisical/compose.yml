@@ -7,6 +7,10 @@ services:
   backend:
     image: infisical/infisical:v0.162.19
     restart: unless-stopped
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    cpus: 2
+    pids_limit: 256
     depends_on:
       db:
         condition: service_healthy
@@ -16,6 +20,7 @@ services:
       - ${RESTLESS_INFISICAL_RUNTIME_ENV:?set by provision.sh}
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: ${RESTLESS_INFISICAL_NODE_OPTIONS:---max-old-space-size=768}
     ports:
       - "127.0.0.1:${RESTLESS_INFISICAL_PORT:-7793}:8080"
     networks:
@@ -26,6 +31,10 @@ services:
   db:
     image: postgres:14.17-alpine
     restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1
+    pids_limit: 256
     env_file:
       - ${RESTLESS_INFISICAL_RUNTIME_ENV:?set by provision.sh}
     healthcheck:
@@ -43,6 +52,10 @@ services:
   redis:
     image: redis:7.4.2-alpine
     restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
     command: ["redis-server", "--appendonly", "yes"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

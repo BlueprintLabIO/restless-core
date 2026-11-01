@@ -71,10 +71,14 @@ export async function responseFailure(response: Response): Promise<OwnerFailure>
 	return Object.assign(new Error(message), { status: response.status, code, serverMessage });
 }
 
-/** Throw the classified error for a non-OK response, otherwise parse its JSON. */
+/** Throw the classified error for a non-OK response, otherwise parse its JSON. A change the owner
+ * plane confirms with no body (204) succeeded: reading JSON from it would turn a saved change into
+ * "That did not save" (Settings › Computers said a removed computer was not removed). */
 export async function ownerJson<T>(response: Response): Promise<T> {
 	if (!response.ok) throw await responseFailure(response);
-	return (await response.json()) as T;
+	if (response.status === 204) return undefined as T;
+	const text = await response.text();
+	return (text ? JSON.parse(text) : undefined) as T;
 }
 
 function isTransportFailure(error: unknown): boolean {
@@ -102,6 +106,10 @@ export function failureKind(error: unknown): FailureKind {
 	if (status === 403) return 'access';
 	if (status === 404 || status === 410) return 'missing';
 	if (status === 409 || status === 412) return 'conflict';
+	// The edge in front of every plane refuses with a plain-text 429 when its own limit is spent
+	// (Cloudflare 1027, 23 Oct): nothing behind it answers, so that is an outage the app-level
+	// notice speaks for, not one pane being asked to slow down.
+	if (status === 429 && !failure?.serverMessage) return 'unreachable';
 	if (status === 408 || status === 425 || status === 429) return 'busy';
 	if (status >= 400 && status < 500) return 'rejected';
 	// Without a JSON body the answer came from a proxy, not the daemon: the

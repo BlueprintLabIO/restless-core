@@ -876,9 +876,17 @@ impl SpendStore {
     /// Native-harness use recorded at or after `since`.
     #[must_use]
     pub fn native_usage_since(&self, company_id: &str, since: DateTime<Utc>) -> NativeUsage {
-        let Ok(state) = self.state.lock() else {
-            return NativeUsage::default();
-        };
+        self.native_usage_since_checked(company_id, since)
+            .unwrap_or_default()
+    }
+
+    /// Admission must distinguish a zero total from a ledger it could not read.
+    pub fn native_usage_since_checked(
+        &self,
+        company_id: &str,
+        since: DateTime<Utc>,
+    ) -> GatewayResult<NativeUsage> {
+        let state = self.state.lock().map_err(|_| GatewayError::Upstream)?;
         let mut usage = NativeUsage::default();
         let native_turns = state
             .records
@@ -899,7 +907,7 @@ impl SpendStore {
                 None => usage.turns_without_estimate += 1,
             }
         }
-        usage
+        Ok(usage)
     }
 
     /// Append one accounted call, fsync, then update the in-memory total.

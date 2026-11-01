@@ -14,7 +14,7 @@
 const SHOW_DELAY_MS = 450;
 const WARM_MS = 500;
 const HIDE_GRACE_MS = 140;
-const FADE_MS = 120;
+const FADE_FALLBACK_MS = 1000;
 const GAP = 8;
 const MARGIN = 8;
 /* A frame's title names it for assistive technology; it is not a hint. Hovering a document or
@@ -70,9 +70,20 @@ export function tooltips(root: HTMLElement) {
 		return true;
 	}
 
+	function cancelClose() {
+		clearTimeout(closeTimer);
+		tip.removeEventListener('transitionend', finishFade);
+	}
+
+	function finishFade(event?: TransitionEvent) {
+		if (event && (event.target !== tip || event.propertyName !== 'opacity')) return;
+		cancelClose();
+		if (!tip.hasAttribute('data-open') && tip.matches(':popover-open')) tip.hidePopover();
+	}
+
 	function show() {
 		if (!target || !text || redundant(target)) return;
-		clearTimeout(closeTimer);
+		cancelClose();
 		tip.textContent = text;
 		if (!tip.matches(':popover-open')) tip.showPopover();
 		place();
@@ -92,11 +103,15 @@ export function tooltips(root: HTMLElement) {
 		if (tip.matches(':popover-open')) {
 			lastHidden = performance.now();
 			// Fade first; the top layer releases the tip once the fade has run.
+			cancelClose();
 			delete tip.dataset.open;
-			clearTimeout(closeTimer);
-			closeTimer = setTimeout(() => {
-				if (!tip.dataset.open && tip.matches(':popover-open')) tip.hidePopover();
-			}, FADE_MS);
+			if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+				finishFade();
+			} else {
+				tip.addEventListener('transitionend', finishFade);
+				// A removed or interrupted transition cannot fire transitionend.
+				closeTimer = setTimeout(() => finishFade(), FADE_FALLBACK_MS);
+			}
 		}
 		restore();
 		target = null;
@@ -171,7 +186,7 @@ export function tooltips(root: HTMLElement) {
 	return {
 		destroy() {
 			hide();
-			clearTimeout(closeTimer);
+			cancelClose();
 			root.removeEventListener('pointerover', enter);
 			root.removeEventListener('pointerout', leave);
 			root.removeEventListener('pointerdown', hide, true);

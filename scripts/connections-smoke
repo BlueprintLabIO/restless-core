@@ -289,8 +289,8 @@ class Smoke:
             self.plane = Plane(root / 'plane', self.namespace, daemon_bin, image, {
                 'RESTLESS_OMP_BIN': omp,
                 'RESTLESS_SOURCE_ROOT': str(repo),
-                'RESTLESS_SMOKE_MODEL_KEY': 'sk-smoke-' + secrets.token_hex(8),
-                'RESTLESS_SMOKE_FIXTURE_TOKEN': 'fixture-stdio-' + secrets.token_hex(8),
+                'SMOKE_RESTLESS_MODEL_KEY': 'sk-smoke-' + secrets.token_hex(8),
+                'SMOKE_RESTLESS_FIXTURE_TOKEN': 'fixture-stdio-' + secrets.token_hex(8),
                 # Trust the fixture's plugin host only in the process under test.
                 'GIT_SSL_CAINFO': str(self.fixture.cert),
             })
@@ -334,7 +334,7 @@ class Smoke:
     def assertions(self):
         e = self.evidence
         body = (f'name = "{self.company}"\nmodel = "{MODEL}"\nspend_ceiling_usd = 0\n\n'
-                '[credentials]\n"model.inference" = "env:RESTLESS_SMOKE_MODEL_KEY"\n')
+                '[credentials]\n"model.inference" = "env:SMOKE_RESTLESS_MODEL_KEY"\n')
         self.plane.create_company(self.company, body)
         self.plane.wait_for_port(self.plane.relay_port, 120)
         self.plane.raw(self.company, {'cmd': 'up'}, timeout=600)
@@ -623,7 +623,7 @@ class Smoke:
         source = (fixture_dir / 'stdio.cjs').read_text()
         status, added = self.owner('/tool-connections', {'kind': 'local', 'name': 'notes-local', 'command': 'node',
                                                          'args': ['-e', source],
-                                                         'env': {'FIXTURE_TOKEN': 'env:RESTLESS_SMOKE_FIXTURE_TOKEN'}})
+                                                         'env': {'FIXTURE_TOKEN': 'env:SMOKE_RESTLESS_FIXTURE_TOKEN'}})
         expect(status == 200, f'add local: {status} {added}')
         connection = added['connection']
         expect(connection['status'] == 'working', f'local connection: {connection["status"]} ({connection.get("failure")})')
@@ -640,7 +640,7 @@ class Smoke:
         source = (fixture_dir / 'stdio.cjs').read_text()
         status, added = self.owner('/tool-connections', {'kind': 'local', 'name': 'memory-local', 'command': 'node',
                                                          'args': ['-e', source],
-                                                         'env': {'FIXTURE_TOKEN': 'env:RESTLESS_SMOKE_FIXTURE_TOKEN'}})
+                                                         'env': {'FIXTURE_TOKEN': 'env:SMOKE_RESTLESS_FIXTURE_TOKEN'}})
         expect(status == 200 and added['connection']['status'] == 'working', f'add memory-local: {status} {added}')
         status, granted = self.owner('/tool-connections/memory-local/grant',
                                      {'grantee': '*', 'tools': [{'tool': name, 'class': 'reads'}

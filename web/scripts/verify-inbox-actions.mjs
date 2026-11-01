@@ -125,8 +125,14 @@ try {
 				await footer.getByRole('button', { name: 'Cancel', exact: true }).click();
 			}
 			if (kind === 'handoff') {
-				/* Skip is one click with Undo, so it is found, never pressed: nothing is answered. */
-				await footer.getByRole('button', { name: 'Skip', exact: true }).waitFor();
+				/* Skip is secondary. Open its menu, find it, and close without answering. */
+				const more = footer.locator('summary[aria-label="More"]');
+				await more.click();
+				await page
+					.getByRole('button', { name: 'Skip', exact: true })
+					.filter({ visible: true })
+					.waitFor();
+				await more.click();
 				const replyBox = footer.getByRole('textbox', { name: /^Reply to / });
 				if (await replyBox.count()) {
 					await replyBox.fill('Long reply context. '.repeat(80));

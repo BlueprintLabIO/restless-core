@@ -32,17 +32,27 @@
 	let {
 		columns,
 		footer,
-		label = 'Work board'
+		label = 'Work board',
+		onopen
 	}: {
 		columns: BoardColumn[];
 		/** Per-column footer, for controls that belong to the container (for example history). */
 		footer?: Snippet<[BoardColumn]>;
 		label?: string;
+		/** Opens a card in place instead of following its link. */
+		onopen?: (item: BoardItem) => void;
 	} = $props();
 </script>
 
 <!-- A region of column sections, each named by its heading; a card reads as its own words. -->
-<div class="work-board" role="region" aria-label={label} style:--columns={columns.length}>
+<div
+	class="work-board"
+	role="region"
+	aria-label={label}
+	style:--board-tracks={columns
+		.map(() => 'minmax(180px, 1fr)')
+		.join(' ')}
+>
 	{#each columns as column (column.key)}
 		<section class="board-column" class:lead={column.lead} aria-labelledby={`${id}-${column.key}`}>
 			<header>
@@ -57,9 +67,16 @@
 					in:listIn
 					out:listOut
 					href={item.href}
+					onclick={onopen
+						? (event) => {
+								if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+								event.preventDefault();
+								onopen(item);
+							}
+						: undefined}
 				>
 					{#if item.needsYou}<span class="needs-you-badge">Needs you</span>{/if}
-					<strong style:view-transition-name={`work-title-${item.id}`}>{item.title}</strong>
+					<strong title={item.title} style:view-transition-name={`work-title-${item.id}`}>{item.title}</strong>
 					{#if item.signal}<p>{item.signal}</p>{/if}
 					<footer>
 						<span>{item.ownerName}</span>
@@ -82,8 +99,8 @@
 		min-width: 0;
 		min-height: 0;
 		display: grid;
-		/* Four columns fit beside the full-width sidebar and the Exec rail; a narrower pane scrolls. */
-		grid-template-columns: repeat(var(--columns, 4), minmax(150px, 1fr));
+		/* Equal tracks prevent columns from resizing as work moves between them. */
+		grid-template-columns: var(--board-tracks);
 		overflow: auto;
 	}
 
@@ -179,7 +196,12 @@
 		font-weight: 600;
 	}
 	.board-item strong {
-		display: block;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+		overflow-wrap: anywhere;
 		font-size: var(--t-body);
 		line-height: 1.35;
 	}
@@ -201,6 +223,15 @@
 		margin-top: 10px;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
+	}
+	.board-item footer span:first-child {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.board-item footer span:last-child:not(:first-child) {
+		flex-shrink: 0;
 	}
 
 	.column-empty {

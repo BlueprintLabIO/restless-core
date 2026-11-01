@@ -140,6 +140,16 @@ try {
   await db.query(
     "UPDATE owner_handoffs SET assigned_to=NULL WHERE requested_action='Confirm the isolated Inbox footer test step'",
   );
+  // A real attached computer, rather than a missing-attachment placeholder, catches the old CSS
+  // rule that folded away the entire Inbox whenever the desktop finished connecting.
+  await db.query(
+    "INSERT INTO work (id,owner_id,title,outcome,status,resolution,priority,commissioned_by) SELECT $1,'exec',$2,'The Inbox remains navigable beside a real company computer','blocked','Waiting for the isolated computer review',1,'exec' WHERE NOT EXISTS (SELECT 1 FROM work WHERE title=$2)",
+    [randomUUID(), "Inbox computer navigation verification"],
+  );
+  await db.query(
+    "INSERT INTO owner_handoffs (id,work_id,requested_by,assigned_to,category,requested_action,prepared_state,resume_condition) SELECT $1,w.id,'exec','exec','owner_judgement',$2,'The isolated company computer is ready for a navigation layout check. No external provider action is requested.','The owner reviews the synthetic computer fixture' FROM work w WHERE w.title='Inbox computer navigation verification' AND NOT EXISTS (SELECT 1 FROM owner_handoffs WHERE work_id=w.id AND state='pending')",
+    [randomUUID(), "Inspect the isolated company computer"],
+  );
   const daemon = (request) =>
     new Promise((resolve, reject) => {
       const socket = createConnection(join(home, "restlessd.sock"));
@@ -166,6 +176,16 @@ try {
       });
       socket.on("error", reject);
     });
+  const computer = await db.query("SELECT h.id,h.owner_brief FROM owner_handoffs h JOIN work w ON w.id=h.work_id WHERE w.title='Inbox computer navigation verification' AND h.state='pending'");
+  if (computer.rowCount && !computer.rows[0].owner_brief) {
+    const id=computer.rows[0].id;
+    await db.query("UPDATE owner_handoffs SET assigned_to='exec' WHERE id=$1",[id]);
+    await daemon({cmd:"work-handoff-prepare-brief",id,as_actor:"exec",owner_kind:"decision",
+      headline:"Inspect the isolated company computer",situation:"The real isolated computer is attached for the Inbox navigation check.",
+      impact:"The Inbox and filter must remain usable when the computer connects.",
+      recommendation:"Inspect the computer beside the Inbox.",no_action:"The synthetic fixture stays paused."});
+    await daemon({cmd:"work-handoff-escalate",id,as_actor:"exec",reason:"The synthetic fixture requires owner review of the computer layout."});
+  }
   const goalTitle = "Completed goal for owner reliability test";
   let listed = await daemon({ cmd: "goals" });
   let goals = Array.isArray(listed) ? listed : listed.goals;
@@ -300,13 +320,16 @@ try {
   let sheet=sheets.find(row=>row.title==="Inbox preview sheet");
   if(!sheet) sheet=await json("/sheets",{id:randomUUID(),title:"Inbox preview sheet",visibility:"company"});
 
-  const mentionText="Inbox preview mention verification: please review this document.";
+  // A mention's projection must come from an actual mention node, including in fixtures.
+  const mentionLead="Inbox preview mention verification: please review this document.";
+  const mentionText=mentionLead+" @Owner";
+  await db.query("UPDATE native_document_comments SET mentioned_actor_ids=ARRAY[]::text[],deleted_at=COALESCE(deleted_at,now()) WHERE document_id=$1 AND plain_text=$2 AND author_actor_id='exec' AND mentioned_actor_ids=ARRAY['owner']",[nativeDoc.id,mentionLead]);
   const priorMention=await db.query("SELECT id FROM native_document_comments WHERE document_id=$1 AND plain_text=$2 AND author_actor_id='exec' AND deleted_at IS NULL",[nativeDoc.id,mentionText]);
   if(!priorMention.rowCount) {
     const template=await db.query("SELECT id FROM native_document_comments WHERE document_id=$1 AND plain_text=$2 AND deleted_at IS NULL",[nativeDoc.id,mentionText]);
-    if(!template.rowCount) await json("/documents/"+nativeDoc.id+"/comments",{block_id:null,content_json:{type:"doc",content:[{type:"paragraph",attrs:{block_id:randomUUID()},content:[{type:"text",text:mentionText}]}]}});
+    if(!template.rowCount) await json("/documents/"+nativeDoc.id+"/comments",{block_id:null,content_json:{type:"doc",content:[{type:"paragraph",attrs:{block_id:randomUUID()},content:[{type:"text",text:mentionLead+" "},{type:"mention",attrs:{actor_id:"owner",label:"Owner"}}]}]}});
     // Actor-authored fixture, created with its final identity; existing comment identity stays immutable.
-    await db.query("INSERT INTO native_document_comments (id,document_id,thread_id,author_actor_id,content_json,plain_text,content_hash,mentioned_actor_ids) SELECT $3,document_id,thread_id,'exec',content_json,plain_text,content_hash,ARRAY['owner'] FROM native_document_comments WHERE document_id=$1 AND plain_text=$2 AND deleted_at IS NULL ORDER BY created_at LIMIT 1",[nativeDoc.id,mentionText,randomUUID()]);
+    await db.query("INSERT INTO native_document_comments (id,document_id,thread_id,author_actor_id,content_json,plain_text,content_hash,mentioned_actor_ids) SELECT $3,document_id,thread_id,'exec',content_json,plain_text,content_hash,mentioned_actor_ids FROM native_document_comments WHERE document_id=$1 AND plain_text=$2 AND deleted_at IS NULL ORDER BY created_at LIMIT 1",[nativeDoc.id,mentionText,randomUUID()]);
   }
   let kept=await json("/attachments?limit=100");
   if(!kept.attachments.some(row=>row.canonical_name==="Inbox preview kept.png")) {
@@ -322,7 +345,7 @@ try {
     "[Open brand and voice](/"+company+"/company/identity)",
     "[Open a kept file](/"+company+"/library?upload="+(await json("/attachments?limit=100")).attachments.find(row=>row.canonical_name==="Inbox preview kept.png").attachment_id+")"
   ].join("\n\n");
-  for(const scenario of ["accept-1440","accept-390","changes-1440","changes-390","site"]) {
+  for(const scenario of ["accept-1440","accept-390","changes-1440","changes-390","site","version"]) {
     const title="Inbox outcome "+scenario+" verification";
     const existing=await db.query("SELECT h.id,h.owner_brief FROM owner_handoffs h JOIN work w ON w.id=h.work_id WHERE w.title=$1 AND h.state='pending'",[title]);
     if(existing.rowCount) {
@@ -336,9 +359,10 @@ try {
     }
     const workId=randomUUID(),handoffId=randomUUID();
     await db.query("INSERT INTO work (id,owner_id,title,outcome,status,resolution,priority,commissioned_by) VALUES ($1,'studio-direction',$2,'The owner reviews the exact prepared outcome in Inbox','blocked','Waiting for the owner review',10,'exec')",[workId,title]);
-    const file=scenario==="site"?"site.html":"notes.md";
+    const interactive=["site","version"].includes(scenario);
+    const file=interactive?"site.html":"notes.md";
     for(const [kind,uri,label] of [
-      ["review_target",fixtureDir+"/"+file,scenario==="site"?"Prepared interactive outcome":"Prepared review notes"],
+      ["review_target",fixtureDir+"/"+file,interactive?"Prepared interactive outcome":"Prepared review notes"],
       ["image",fixtureDir+"/shape.svg","Inbox preview shape.svg"],
       ["site",fixtureDir+"/site.html","Interactive preview.html"]
     ]) await db.query("INSERT INTO artifact_refs (id,kind,uri,created_by,work_id,label) VALUES ($1,$2,$3,'studio-design',$4,$5)",[randomUUID(),kind,uri,workId,label]);

@@ -34,7 +34,7 @@ toml = "0.8"
 tracing = "0.1"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 hmac = "0.12"
 sha1 = "0.10"
 tokio-tungstenite = "0.26"
@@ -47,6 +47,8 @@ http = "1"
 bytes = "1"
 hyper-util = { version = "0.1", features = ["tokio", "server", "service", "http1"] }
 rustls = "0.23"
+ring = "0.17"
+pem = "3"
 rcgen = "0.13"
 tower = { version = "0.5", features = ["util"] }
 ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl", "serde-json-impl"] }
@@ -73,3 +75,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Compile speed only; see the note above derive_more. Requested on the
 # proc-macro side so testing this crate alone shares the stack build graph.
 syn = { version = "3", default-features = false, features = ["extra-traits"] }
+
+[dev-dependencies]
+# Test-only RSA key generation, using the same maintained crypto provider as rustls.
+aws-lc-rs = "1"

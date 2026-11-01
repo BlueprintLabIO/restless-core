@@ -44,6 +44,7 @@ pub mod email;
 pub mod entry;
 pub mod exec;
 pub mod finance;
+pub mod github_app;
 pub mod health;
 pub mod home_egress;
 pub mod inbound;

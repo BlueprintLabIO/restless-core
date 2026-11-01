@@ -27,10 +27,13 @@ mod constitution;
 mod culture;
 mod decisions;
 mod document_copies;
+mod document_decisions;
 mod documents;
 mod events;
 mod for_you;
 mod goals_work;
+mod handoff_decisions;
+mod human_decisions;
 mod identity;
 mod invocations;
 mod library_items;
@@ -60,9 +63,12 @@ pub use comment_search::*;
 pub use completion_repairs::*;
 pub use decisions::*;
 pub use document_copies::*;
+pub use document_decisions::*;
 pub use documents::*;
 pub use events::EventReplayPage;
 pub use for_you::*;
+pub use handoff_decisions::*;
+pub use human_decisions::*;
 pub use invocations::*;
 pub use library_items::*;
 pub use library_pins::*;
@@ -377,9 +383,19 @@ impl OrgIntel {
             })
             .connect(database_url)
             .await?;
-        sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {company}"))
-            .execute(&admin)
+        // Startup and an owner command can discover the same new company.
+        // IF NOT EXISTS is not concurrency-safe for PostgreSQL namespace DDL:
+        // both callers can pass its lookup before either insert commits.
+        let mut schema_tx = admin.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("restless-orgintel-schema:{company}"))
+            .execute(&mut *schema_tx)
             .await?;
+        sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {company}"))
+            .execute(&mut *schema_tx)
+            .await?;
+        schema_tx.commit().await?;
+        // SQLx takes its own migration lock after the namespace exists.
         MIGRATOR.run(&admin).await?;
         admin.close().await;
 

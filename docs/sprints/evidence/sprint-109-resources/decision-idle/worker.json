@@ -1,0 +1,13 @@
+{
+  "scenarios": [
+    "handoff restart preserves deadline and applies once",
+    "handoff normal deadline applies once",
+    "handoff Undo keeps source unchanged after deadline",
+    "document restart preserves deadline and applies once",
+    "document normal deadline applies once",
+    "document Undo keeps source unchanged after deadline"
+  ],
+  "daemonSha256": "6be9a1fc96ba0a12a46a4d0fe4132f69b8d3483667d6159e1205f8ae9ed8eedb",
+  "status": "pass",
+  "cleanupProblems": []
+}

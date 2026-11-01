@@ -1,0 +1,7 @@
+{
+  "slice": "restless-s109accountpressure.slice",
+  "memoryMax": "6442450944",
+  "cpuMax": "300000 100000",
+  "memoryEvents": "low 0\nhigh 3275\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+  "temporarySliceRemoved": true
+}

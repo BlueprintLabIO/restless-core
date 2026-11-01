@@ -1,6 +1,6 @@
 /** The shared local/CI implementation of Core qualification and construction. */
 import { availableParallelism } from 'node:os';
-import { dag, Container, Directory, Platform, Secret, argument, object, func } from '@dagger.io/dagger';
+import { dag, CacheSharingMode, Container, Directory, Platform, Secret, argument, object, func } from '@dagger.io/dagger';
 
 import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage, verifyCockpitImage } from './verify.js';
 import { assertScanPeriod, hasInputImage, publishImage, node, timed, timingsFile, verifyBuildInputs, verifyImageInspection, type Timing } from './publish.js';
@@ -10,12 +10,12 @@ import { library, publishLibrary, reuseLibrary, sealLibrary } from './libraries.
 const NODE_IMAGE = 'node:24.18.1-alpine3.23@sha256:c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110';
 const RUST_IMAGE = 'rust:1-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0';
 const EXCLUDES = ['**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/__pycache__/**', '**/.git/**', '**/.env', '**/.env.*'];
-const ACCOUNT_INPUTS = ['infra/account-plane/Dockerfile', 'Cargo.toml', 'Cargo.lock', 'crates/**',
+const ACCOUNT_INPUTS = ['infra/account-plane/Dockerfile', 'infra/host-tools/package.json', 'Cargo.toml', 'Cargo.lock', 'crates/**',
   'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py',
   'docs/COMPANY_OPERATING_RULES.md', 'services/native-sheets/package.json', 'services/native-sheets/package-lock.json',
   'services/native-sheets/src/**', 'services/native-sheets/NOTICE', 'services/identity/package.json',
   'services/identity/package-lock.json', 'services/identity/src/**', 'services/identity/public/**', 'services/identity/scripts/**'];
-const RUNTIME_INPUTS = ['infra/company-image/**', 'Cargo.toml', 'Cargo.lock', 'crates/**',
+const RUNTIME_INPUTS = ['infra/company-image/**', 'infra/host-tools/package.json', 'Cargo.toml', 'Cargo.lock', 'crates/**',
   'tools/scenario/restless-scenario.mjs', 'tools/web-review/restless-web-review.mjs', 'tools/codex-runner/**'];
 const RUST_INPUTS = ['infra/rust-binaries/Dockerfile', 'Cargo.toml', 'Cargo.lock', 'crates/**',
   'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py',
@@ -41,8 +41,10 @@ function cockpit(source: Directory): Container {
 function rust(source: Directory): Container {
   return dag.container().from(RUST_IMAGE)
     .withEnvVariable('CARGO_BUILD_JOBS', cargoJobs()).withEnvVariable('CARGO_INCREMENTAL', '0')
-    .withMountedCache('/usr/local/cargo/registry', dag.cacheVolume('restless-core-cargo-registry-v1'))
-    .withMountedCache('/usr/local/cargo/git', dag.cacheVolume('restless-core-cargo-git-v1'))
+    // Cargo's download lock is $CARGO_HOME/.package-cache, outside these volumes, so concurrent
+    // pipelines unpacked the same crate at once (release run 40199351038). Dagger serialises them.
+    .withMountedCache('/usr/local/cargo/registry', dag.cacheVolume('restless-core-cargo-registry-v1'), { sharing: CacheSharingMode.Locked })
+    .withMountedCache('/usr/local/cargo/git', dag.cacheVolume('restless-core-cargo-git-v1'), { sharing: CacheSharingMode.Locked })
     .withMountedCache('/src/target', dag.cacheVolume('restless-core-cargo-check-v1'))
     .withDirectory('/src', source, { include: ['Cargo.toml', 'Cargo.lock', 'crates/**', 'contracts/**', 'docs/COMPANY_OPERATING_RULES.md',
       'docs/sprints/sprint-36/contract/v1/*.json',
@@ -65,7 +67,9 @@ export async function runtimeToolsContext(source: Directory): Promise<Directory>
   const end = dockerfile.search(/^FROM .* AS runtime-layer-build$/m);
   if (start < 0 || end <= start) throw new Error('company Dockerfile no longer has the expected runtime-tools stages');
   return dag.directory().withDirectory('/', source, {
-    include: ['infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs'],
+    include: ['infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs',
+      // The runtime-tools stage pins the broker install to the same overrides as the host tools.
+      'infra/host-tools/package.json'],
   }).withNewFile('infra/company-image/Dockerfile', dockerfile.slice(start, end));
 }
 
@@ -76,10 +80,10 @@ export class RestlessCore {
   async deliverLibraries(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
       '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
-      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!release/signing.pub',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, epoch: string, scanPeriod: string, username: string, password: Secret,
-    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string, publish: boolean = true, concurrency: number = 2,
+    signingKey: Secret, signingPassword: Secret, publish: boolean = true, concurrency: number = 2,
   ): Promise<Directory> {
     if (!/^[0-9a-f]{40}$/.test(revision) || !/^\d+$/.test(epoch)) throw new Error('delivery requires exact checkout revision/epoch');
     if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 3) throw new Error('library concurrency must be between 1 and 3');
@@ -99,7 +103,7 @@ export class RestlessCore {
         const receipt = JSON.parse(await payload.file('library-receipt.json').contents());
         // Reuse already admitted the signed OCI payload and exact input/day.
         // It performs no mutation or duplicate signing of the existing artifact.
-        if (!receipt.reused) payload = await this.sealLibrary(source, payload, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
+        if (!receipt.reused) payload = await this.sealLibrary(source, payload, username, password, signingKey, signingPassword);
         results.push({kind, payload, receipt});
       }
     }));
@@ -113,7 +117,7 @@ export class RestlessCore {
   @func()
   verifyLibraryInputs(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
-      '!.dagger/**', '!dagger.json', '!.github/workflows/ui-artifact-release.yml',
+      '!.dagger/**', '!dagger.json',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory,
   ): Container {
@@ -126,7 +130,7 @@ export class RestlessCore {
   library(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
       '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
-      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, kind: string, revision: string, epoch: string, scanPeriod: string,
   ): Promise<Directory> {
@@ -138,7 +142,7 @@ export class RestlessCore {
   async publishLibrary(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
       '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
-      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!release/signing.pub',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, kind: string, revision: string, epoch: string, scanPeriod: string,
     username: string, password: Secret): Promise<Directory> {
@@ -149,19 +153,19 @@ export class RestlessCore {
     return publishLibrary(payload, kind, revision, scanPeriod, username, password, source);
   }
 
-  /** Sign a product package with the UI workflow's exact main identity. */
+  /** Sign a product package with the release key. */
   @func()
   sealLibrary(
-    @argument({ ignore: ['**', '!scripts/release/verify-library.mjs'] })
+    @argument({ ignore: ['**', '!scripts/release/verify-library.mjs', '!release/signing.pub'] })
     source: Directory, artifacts: Directory, username: string, password: Secret,
-    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string): Promise<Directory> {
-    return sealLibrary(source, artifacts, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
+    signingKey: Secret, signingPassword: Secret): Promise<Directory> {
+    return sealLibrary(source, artifacts, username, password, signingKey, signingPassword);
   }
 
   /** Build the reusable desktop/agent tool base without importing Rust or UI. */
   @func()
   runtimeTools(
-    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/browser-sbom.mjs'] })
+    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/browser-sbom.mjs', '!infra/host-tools/package.json'] })
     source: Directory, platform: string = 'linux/amd64',
   ): Promise<Container> {
     checkPlatform(platform);
@@ -198,14 +202,14 @@ export class RestlessCore {
   /** Construct the canonical Runtime, optionally reusing an admitted tool base. */
   @func()
   async companyRuntime(
-    @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!infra/company-image/**',
+    @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!infra/company-image/**', '!infra/host-tools/package.json',
       '!tools/scenario/restless-scenario.mjs', '!tools/web-review/restless-web-review.mjs', '!tools/codex-runner/**',
       'infra/company-image/test_supervision_contract.py', '**/node_modules/**', '**/target/**', '**/__pycache__/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, platform: string = 'linux/amd64', toolsImage: string = '', binaries?: Directory,
   ): Promise<Container> {
     checkPlatform(platform);
     if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('company Runtime requires exact source provenance');
-    if (toolsImage && !/^ghcr\.io\/blueprintlabio\/restless-runtime-tools@sha256:[0-9a-f]{64}$/.test(toolsImage)) {
+    if (toolsImage && !/^172\.30\.255\.2:5000\/blueprintlabio\/restless-runtime-tools@sha256:[0-9a-f]{64}$/.test(toolsImage)) {
       throw new Error('Runtime tool base must be an exact Core OCI digest');
     }
     const [cargo, release, entry] = await Promise.all([
@@ -257,7 +261,7 @@ export class RestlessCore {
   /** Check the Runtime artifact's binary linkage and exact release metadata. */
   @func()
   async verifyCompanyRuntime(
-    @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!infra/company-image/**',
+    @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!infra/company-image/**', '!infra/host-tools/package.json',
       '!tools/scenario/restless-scenario.mjs', '!tools/web-review/restless-web-review.mjs', '!tools/codex-runner/**',
       'infra/company-image/test_supervision_contract.py', '**/node_modules/**', '**/target/**', '**/__pycache__/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, platform: string = 'linux/amd64', toolsImage: string = '', binaries?: Directory,
@@ -280,37 +284,21 @@ export class RestlessCore {
       timed(timings, 'rust check and boundary tests', () => rust(source).withExec(['cargo', 'check', '--workspace', '--locked'])
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'company_projection::tests'])
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync()),
+      timed(timings, 'paired machine isolation tests', () => rust(source)
+        .withExec(['cargo', 'test', '--locked', '-p', 'restless-machine']).sync()),
       timed(timings, 'cockpit check and build', () => cockpit(source).sync()),
       timed(timings, 'cockpit unit tests', () => project(source, 'web').withExec(['npm', 'test']).sync()),
       timed(timings, 'browser overlays', () => this.verifyOverlays(source).sync()),
+      timed(timings, 'chat warning motion', () => this.verifyChatWarning(source).sync()),
       timed(timings, 'ui artifact consumer', () => this.verifyUiArtifact(source).sync()),
       timed(timings, 'native documents check and build', () => project(source, 'services/native-documents-collaboration')
         .withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']).sync()),
       timed(timings, 'native sheets tests', () => project(source, 'services/native-sheets').withExec(['npm', 'test']).sync()),
-      timed(timings, 'workflow lint', () => this.verifyWorkflow(source).sync()),
       timed(timings, 'issuer artifact', () => this.issuer(source).sync()),
       timed(timings, 'release contracts', () => this.verifyRelease(source)),
     ]);
-    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build and browser overlays, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports, workflow lint and versioned release contracts\n'
+    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build, browser overlays and chat warning motion, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports and versioned release contracts\n'
       + `timings ${JSON.stringify(timings)}`;
-  }
-
-  /** Check workflow wiring with the same pinned tool used by Cloud. */
-  @func()
-  verifyWorkflow(
-    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
-    source: Directory,
-  ): Container {
-    return dag.container().from('rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667')
-      .withDirectory('/src/.github', source.directory('.github')).withWorkdir('/src')
-      .withExec(['/bin/sh', '-ec',
-        `if grep -RInE '(^|[[:space:]])("[^"]*/)?dagger"?[[:space:]]' .github/workflows | grep -v -- '--silent'; then
-          printf '%s\\n' 'GitHub Actions Dagger calls must use --silent to keep runner inventory out of logs.' >&2
-          exit 1
-        fi`])
-      .withExec(['actionlint', '-oneline', '-config-file', '.github/actionlint.yaml',
-        '.github/workflows/immutable-core-release.yml', '.github/workflows/identity-image.yml',
-        '.github/workflows/ui-artifact-release.yml']);
   }
 
   /** Build the architecture-independent cockpit once per actual UI inputs. */
@@ -347,10 +335,25 @@ export class RestlessCore {
       .withExec(['/bin/sh', '-ec',
         'node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173 > /tmp/restless-overlay-vite.log 2>&1 & server_pid=$!; '
         + 'trap \'kill -TERM "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true\' EXIT; '
-        + 'node --input-type=module -e \'let ready=false; for(let i=0;i<60;i++){try{const r=await fetch("http://127.0.0.1:5173/gallery/shell",{signal:AbortSignal.timeout(1000)}); await r.arrayBuffer(); if(r.ok){ready=true; break}}catch{} await new Promise(r=>setTimeout(r,250))} if(!ready) throw new Error("overlay fixture did not start")\' '
+        // Up to two minutes: after a dependency bump Vite re-optimizes from cold, and the first
+        // request is what triggers its SSR bundling (release 7fd7a7f8 gave up after ~15 s).
+        + 'node --input-type=module -e \'let ready=false; const until=Date.now()+120000; while(Date.now()<until){try{const r=await fetch("http://127.0.0.1:5173/gallery/shell",{signal:AbortSignal.timeout(15000)}); await r.arrayBuffer(); if(r.ok){ready=true; break}}catch{} await new Promise(r=>setTimeout(r,500))} if(!ready) throw new Error("overlay fixture did not start")\' '
         + '|| { tail -60 /tmp/restless-overlay-vite.log; exit 1; }; '
         + 'node scripts/verify-overlays.mjs',
       ]);
+  }
+
+  /** Check that reconnect and send failures do not move the real chat component. */
+  @func()
+  verifyChatWarning(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
+    source: Directory,
+  ): Container {
+    const browser = dag.container().from(NODE_IMAGE).withExec(['/bin/sh', '-c',
+      'for i in 1 2 3; do timeout 300 apk add --no-cache chromium && exit 0; sleep 5; done; exit 1']);
+    return project(source, 'web', browser)
+      .withEnvVariable('RESTLESS_BROWSER_EXECUTABLE', '/usr/bin/chromium')
+      .withExec(['node', 'scripts/verify-chat-warning.mjs']);
   }
 
   /** Exercise the versioned release contracts before any registry mutation. */
@@ -434,16 +437,16 @@ export class RestlessCore {
     return artifacts.withNewFile('timings/publish.json', timingsFile(timings));
   }
 
-  /** Seal publication through the trusted Core main workflow. */
+  /** Seal publication with the release key (ADR 0010 in restless-cloud). */
   @func()
   seal(
     @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
     source: Directory, artifacts: Directory, revision: string, username: string, password: Secret,
-    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string,
+    signingKey: Secret, signingPassword: Secret,
     platform: string = 'linux/amd64',
   ): Promise<Directory> {
     checkPlatform(platform);
-    return sealRelease(source, artifacts, revision, platform, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
+    return sealRelease(source, artifacts, revision, platform, username, password, signingKey, signingPassword);
   }
 
   /** Exercise and export the bounded workbook engine independently of Rust. */
@@ -526,6 +529,22 @@ export class RestlessCore {
       .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
   }
 
+  /** A web-only update (S104): build, verify, scan and publish just the cockpit image. The caller
+   * signs it; Cloud swaps it onto the planes running the Core revision it was cut against. */
+  @func()
+  async publishCockpit(
+    @argument({ ignore: ['**', '!web/**', '!infra/cockpit/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, username: string, password: Secret, scanPeriod: string,
+    platform: string = 'linux/amd64',
+  ): Promise<Directory> {
+    checkPlatform(platform);
+    if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('cockpit publication requires exact source provenance');
+    assertScanPeriod(scanPeriod, 'pass the current UTC scan day');
+    return publishImage('cockpit', revision, platform as Platform, source.filter({ include: ['web/**', 'infra/cockpit/**'], exclude: EXCLUDES }),
+      async () => this.cockpitImage(source, revision, platform), async image => { console.log(await verifyCockpitImage(image)); },
+      username, password, scanPeriod);
+  }
+
   /** Install the cockpit image into an empty folder and confirm it reports itself in place. */
   @func()
   async verifyCockpit(
@@ -540,7 +559,7 @@ export class RestlessCore {
   accountPlane(
     @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!tools/codex-runner/**',
       '!tools/custom-harness/**', '!tools/harness-auth/**', '!tools/schedule-test-proxy.py',
-      '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
+      '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!infra/host-tools/package.json', '!services/native-sheets/package.json',
       '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
       '!services/identity/package.json', '!services/identity/package-lock.json', '!services/identity/src/**',
       '!services/identity/public/**', '!services/identity/scripts/**',
@@ -564,7 +583,7 @@ export class RestlessCore {
   async verifyAccountPlane(
     @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!tools/codex-runner/**',
       '!tools/custom-harness/**', '!tools/harness-auth/**', '!tools/schedule-test-proxy.py',
-      '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
+      '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!infra/host-tools/package.json', '!services/native-sheets/package.json',
       '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
       '!services/identity/package.json', '!services/identity/package-lock.json', '!services/identity/src/**',
       '!services/identity/public/**', '!services/identity/scripts/**',

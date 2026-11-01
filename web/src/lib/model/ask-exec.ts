@@ -13,6 +13,13 @@ export function askExec(draft?: unknown) {
 	);
 }
 
+/** The item is linked context in the existing Exec conversation, never a new thread. */
+export function askExecAboutItem(companyId: string, item: { id: string; title: string }) {
+	askExec(
+		`About [${item.title.replace(/[[\]]/gu, '')}](/${encodeURIComponent(companyId)}?item=${encodeURIComponent(item.id)}): `
+	);
+}
+
 /** A message as a draft asking the Exec to make it a piece of Work. */
 export function workDraftFrom(author: string, text: string): string {
 	const plain = text

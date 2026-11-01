@@ -518,7 +518,13 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
                 )
                 .await?;
         } else if let Some(usage) = ended_context {
-            acp::note_session_settled(&run.company, &run.actor, &run.responsibility, usage.used);
+            acp::note_session_settled(
+                &run.company,
+                &run.actor,
+                &run.responsibility,
+                usage.used,
+                acp::prompt_cache_ttl(run.worker_harness, model, auth.billing),
+            );
         }
 
         if let Some(kind) = failure_kind.filter(|kind| health::is_provider_failover_kind(*kind)) {
@@ -991,12 +997,55 @@ enum CompletionRepairOutcome {
     Blocked(String, Option<acp::TurnUsage>),
 }
 
+// A launch may fail after its prompt reached the provider. Preserve that
+// uncertainty before admitting another native turn under a token cap.
+async fn accounted_repair_launch<T>(
+    launch: impl std::future::Future<Output = Result<T>>,
+    timeout: std::time::Duration,
+    started: &std::sync::atomic::AtomicBool,
+    spend: &SpendLedger,
+    auth: &AgentAuth,
+    actor: &str,
+    responsibility: &str,
+    work_id: uuid::Uuid,
+    attempt_id: uuid::Uuid,
+) -> std::result::Result<Result<T>, tokio::time::error::Elapsed> {
+    let result = tokio::time::timeout(timeout, launch).await;
+    if !matches!(&result, Ok(Ok(_))) && started.load(std::sync::atomic::Ordering::Relaxed) {
+        if let Err(error) = spend.record_native_transcript(
+            auth,
+            actor,
+            responsibility,
+            Some(work_id),
+            Some(attempt_id),
+            &acp::TurnTranscript::default(),
+        ) {
+            tracing::error!(company = %auth.company, %error, "failed native completion correction usage could not be recorded");
+        }
+    }
+    result
+}
+
 impl StaffDrive {
+    fn record_prompt(&self, transcript: &acp::TurnTranscript) -> Result<()> {
+        self.spend.record_native_transcript(
+            &self.auth,
+            &self.actor,
+            &self.responsibility,
+            self.work_id,
+            self.attempt_id,
+            transcript,
+        )
+    }
+
     async fn repair_completion_envelope(&self, malformed: &str) -> CompletionRepairOutcome {
         use restless_orgintel::{
             CompletionRepairDecision, ModelInvocationAdmissionDecision, ModelInvocationOutcome,
             ModelInvocationSettlement, NewModelInvocationAdmission,
         };
+        if let Some(reason) = self.spend.native_turn_refusal(&self.company, &self.model) {
+            return CompletionRepairOutcome::Blocked(reason, None);
+        }
         let (Some(work_id), Some(attempt_id)) = (self.work_id, self.attempt_id) else {
             return CompletionRepairOutcome::Blocked(
                 "completion protocol is malformed; there is no claimed Work Attempt to repair"
@@ -1155,6 +1204,23 @@ impl StaffDrive {
                 );
             }
         };
+        let repair_admission = tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => Err(resumable_staff_summary("the owner interrupted the turn")),
+            admission = self.spend.admit_native_prompt(&self.company, &repair_auth.model) => admission,
+        };
+        let prompt_permit = match repair_admission {
+            Ok(permit) => permit,
+            Err(reason) => {
+                let _ = self.org.settle_model_invocation(&admission, ModelInvocationSettlement {
+                    outcome: ModelInvocationOutcome::Blocked,
+                    evidence: serde_json::json!({"phase":"completion_repair", "reason":"native_budget_unavailable"}),
+                }).await;
+                return CompletionRepairOutcome::Blocked(reason, None);
+            }
+        };
+        let prompt_started = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let launch_prompt_started = std::sync::Arc::clone(&prompt_started);
         let launch = async {
             if let Some(identity) = &self.hosted_identity {
                 let transport = crate::runtime_bridge::open_agent_transport(
@@ -1181,7 +1247,9 @@ impl StaffDrive {
                         let prompt = prompt.clone();
                         let cancellation = correction_cancellation.clone();
                         let enforce_budget = enforce_repair_budget;
+                        let prompt_started = std::sync::Arc::clone(&launch_prompt_started);
                         Box::pin(async move {
+                            prompt_started.store(true, std::sync::atomic::Ordering::Relaxed);
                             let end = session
                                 .prompt_live(
                                     &prompt,
@@ -1214,7 +1282,9 @@ impl StaffDrive {
                         let prompt = prompt.clone();
                         let cancellation = correction_cancellation.clone();
                         let enforce_budget = enforce_repair_budget;
+                        let prompt_started = std::sync::Arc::clone(&launch_prompt_started);
                         Box::pin(async move {
+                            prompt_started.store(true, std::sync::atomic::Ordering::Relaxed);
                             let end = session
                                 .prompt_live(
                                     &prompt,
@@ -1235,7 +1305,18 @@ impl StaffDrive {
                 .await
             }
         };
-        let launched = tokio::time::timeout(STAFF_TERMINATION_TIMEOUT, launch).await;
+        let launched = accounted_repair_launch(
+            launch,
+            STAFF_TERMINATION_TIMEOUT,
+            &prompt_started,
+            &self.spend,
+            &repair_auth,
+            &self.actor,
+            &responsibility,
+            work_id,
+            attempt_id,
+        )
+        .await;
         let (transcript, readiness) = match launched {
             Ok(Ok(result)) => result,
             Ok(Err(error)) => {
@@ -1275,6 +1356,30 @@ impl StaffDrive {
             acp::required_readiness_text(&readiness, "model").unwrap_or(&self.model);
         let session_id = acp::required_readiness_text(&readiness, "session_id").unwrap_or_default();
         let usage = transcript.usage;
+        if let Err(error) = self.spend.record_native_transcript(
+            &repair_auth,
+            &self.actor,
+            &responsibility,
+            Some(work_id),
+            Some(attempt_id),
+            &transcript,
+        ) {
+            tracing::error!(company = %self.company, %error, "native completion correction usage could not be recorded");
+            if let Err(settlement_error) = self.org.settle_model_invocation(
+                &admission,
+                ModelInvocationSettlement {
+                    outcome: ModelInvocationOutcome::Blocked,
+                    evidence: serde_json::json!({"phase":"completion_repair", "reason":"native_usage_unavailable"}),
+                },
+            ).await {
+                tracing::warn!(%settlement_error, "could not settle completion correction after usage failure");
+            }
+            return CompletionRepairOutcome::Blocked(
+                "[budget] Completion correction usage could not be recorded. This session has stopped.".into(),
+                usage,
+            );
+        }
+        drop(prompt_permit);
         let mut session_recorded = false;
         if let Ok(launch_id) = acp::required_readiness_text(&readiness, "launch_id") {
             if let (
@@ -1450,6 +1555,17 @@ impl StaffDrive {
         let mut repeats = 0u32;
         let mut continues = 0u32;
         loop {
+            let admission = tokio::select! {
+                biased;
+                () = self.cancellation.cancelled() => return Ok((
+                    Termination::Blocked, resumable_staff_summary("the owner interrupted the turn"), spent, None,
+                )),
+                admission = self.spend.admit_native_prompt(&self.company, &self.model) => admission,
+            };
+            let prompt_permit = match admission {
+                Ok(permit) => permit,
+                Err(reason) => return Ok((Termination::Blocked, reason, spent, None)),
+            };
             session.set_live_observer_enabled(true);
             // A person's direct message steers a running Work turn: the turn
             // stops at once and the message is handed to the same session as
@@ -1486,6 +1602,17 @@ impl StaffDrive {
             if let Some(steer) = steer {
                 steer.abort();
             }
+            if let Err(error) = self.record_prompt(end.transcript()) {
+                tracing::error!(company = %self.company, %error, "native turn usage could not be recorded");
+                return Ok((
+                    Termination::Blocked,
+                    "[budget] Native turn usage could not be recorded. This session has stopped."
+                        .into(),
+                    spent,
+                    None,
+                ));
+            }
+            drop(prompt_permit);
             if let Some(usage) = end.usage() {
                 spent.push(usage);
             }
@@ -1588,6 +1715,17 @@ impl StaffDrive {
                 continue;
             }
 
+            let admission = tokio::select! {
+                biased;
+                () = self.cancellation.cancelled() => return Ok((
+                    Termination::Blocked, resumable_staff_summary("the owner interrupted the turn"), spent, None,
+                )),
+                admission = self.spend.admit_native_prompt(&self.company, &self.model) => admission,
+            };
+            let prompt_permit = match admission {
+                Ok(permit) => permit,
+                Err(reason) => return Ok((Termination::Blocked, reason, spent, None)),
+            };
             session.set_live_observer_enabled(false);
             let end = tokio::time::timeout(
                 STAFF_TERMINATION_TIMEOUT,
@@ -1601,6 +1739,12 @@ impl StaffDrive {
             .await;
             let Ok(end) = end else {
                 let _ = session.cancel().await;
+                // The request may have reached the harness even though its
+                // result did not return. Preserve unknown native usage so a
+                // configured token cap cannot silently admit another turn.
+                if let Err(error) = self.record_prompt(&acp::TurnTranscript::default()) {
+                    tracing::error!(company = %self.company, %error, "timed-out native completion usage could not be recorded");
+                }
                 return Ok((
                     Termination::Blocked,
                     format!(
@@ -1611,6 +1755,16 @@ impl StaffDrive {
                     None,
                 ));
             };
+            if let Err(error) = self.record_prompt(end.transcript()) {
+                tracing::error!(company = %self.company, %error, "native completion usage could not be recorded");
+                return Ok((
+                    Termination::Blocked,
+                    "[budget] Native completion usage could not be recorded. This session has stopped.".into(),
+                    spent,
+                    None,
+                ));
+            }
+            drop(prompt_permit);
             if let Some(usage) = end.usage() {
                 spent.push(usage);
             }
@@ -1896,6 +2050,291 @@ mod loop_detection_tests {
             turn("Checking the page", &["browser"]),
             turn("Checking the page", &["browser", "shell"])
         );
+    }
+}
+
+#[cfg(test)]
+mod native_staff_cap_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[tokio::test]
+    async fn repair_failure_records_only_started_native_requests() {
+        for scenario in ["timeout", "error", "prelaunch", "success"] {
+            let root =
+                std::env::temp_dir().join(format!("restless-repair-cap-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(root.join("companies")).unwrap();
+            let company = "repair_cap_test";
+            std::fs::write(
+                root.join("companies").join(format!("{company}.toml")),
+                format!("name = \"{company}\"\nnative_monthly_token_limit = 1000\n"),
+            )
+            .unwrap();
+            let spend = SpendLedger::open(&root).unwrap();
+            let auth = AgentAuth {
+                model: "native-codex-oauth/test".into(),
+                effort: "medium".into(),
+                company: company.into(),
+                session_id: "test".into(),
+                coordination_token_env: String::new(),
+                coordination_token: String::new(),
+                gateway_token_env: String::new(),
+                gateway_token: String::new(),
+                gateway_url: String::new(),
+                billing: crate::model_gateway::ModelBilling::Subscription,
+            };
+            let started = std::sync::atomic::AtomicBool::new(false);
+            let launch = async {
+                if scenario != "prelaunch" {
+                    started.store(true, Ordering::Relaxed);
+                }
+                match scenario {
+                    "timeout" => std::future::pending::<Result<()>>().await,
+                    "error" | "prelaunch" => anyhow::bail!("transport failed"),
+                    _ => Ok(()),
+                }
+            };
+            let result = accounted_repair_launch(
+                launch,
+                std::time::Duration::from_millis(10),
+                &started,
+                &spend,
+                &auth,
+                "staff",
+                "repair",
+                uuid::Uuid::new_v4(),
+                uuid::Uuid::new_v4(),
+            )
+            .await;
+            match scenario {
+                "timeout" => assert!(result.is_err()),
+                "error" | "prelaunch" => assert!(result.unwrap().is_err()),
+                _ => assert!(result.unwrap().is_ok()),
+            }
+            let usage = spend.native_usage(company, chrono::Utc::now());
+            let expected = u64::from(matches!(scenario, "timeout" | "error"));
+            assert_eq!(
+                (usage.turns, usage.turns_without_tokens),
+                (expected, expected),
+                "{scenario}"
+            );
+            assert_eq!(
+                spend.native_turn_refusal(company, &auth.model).is_some(),
+                expected == 1
+            );
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    struct FakeNativeSession {
+        calls: AtomicUsize,
+        missing_usage: bool,
+        malformed_completion: bool,
+    }
+    impl CognitiveSession for FakeNativeSession {
+        fn readiness_observation(&self) -> serde_json::Value {
+            serde_json::json!({"launch_id": uuid::Uuid::new_v4().to_string(), "harness":"test", "harness_build":"test", "transport":"test", "model":"native-codex-oauth/test", "configured_effort":"medium", "session_id":"test", "resumed":false, "reconstructed":false})
+        }
+        fn set_live_observer_enabled(&self, _: bool) {}
+        fn cancel<'a>(
+            &'a self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn prompt_staff<'a>(
+            &'a self,
+            _: &'a str,
+            _: bool,
+            _: f64,
+            _: &'a CancellationToken,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>>
+        {
+            Box::pin(async move {
+                let call = self.calls.fetch_add(1, Ordering::SeqCst);
+                let mut transcript = acp::TurnTranscript::default();
+                transcript.text = if call == 0 {
+                    "Productive work completed".into()
+                } else if self.malformed_completion {
+                    "not a completion decision".into()
+                } else {
+                    r#"{"decision":"outcome_met","reason":"Done"}"#.into()
+                };
+                transcript.last_message_text = transcript.text.clone();
+                if !self.missing_usage {
+                    transcript.usage = Some(acp::TurnUsage {
+                        turn_id: transcript.turn_id(),
+                        used: 10,
+                        size: 1000,
+                        turn_tokens: Some(50),
+                        ..Default::default()
+                    });
+                }
+                acp::TurnEnd::Completed { transcript }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn native_staff_rechecks_before_completion_and_records_unknown_turns() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping native Staff cap scenario");
+            return;
+        };
+        let root = std::path::PathBuf::from(
+            std::env::var("RESTLESS_NATIVE_TEST_ROOT").expect("set an isolated test root"),
+        );
+        for (limits, missing, malformed, expected_calls, blocked, concurrent_exec) in [
+            (
+                "native_monthly_turn_limit = 1",
+                false,
+                false,
+                1,
+                true,
+                false,
+            ),
+            (
+                "native_monthly_token_limit = 40",
+                false,
+                false,
+                1,
+                true,
+                false,
+            ),
+            (
+                "native_monthly_token_limit = 100",
+                true,
+                false,
+                1,
+                true,
+                false,
+            ),
+            ("native_monthly_turn_limit = 2", false, true, 2, true, false),
+            (
+                "native_monthly_turn_limit = 2",
+                false,
+                false,
+                2,
+                false,
+                false,
+            ),
+            ("", false, false, 2, false, false),
+            ("native_monthly_turn_limit = 1", false, false, 0, true, true),
+        ] {
+            let company = format!(
+                "staffcap_{}_test",
+                &uuid::Uuid::new_v4().simple().to_string()[..10]
+            );
+            let work_root = root.join(&company);
+            std::fs::create_dir_all(work_root.join("companies")).unwrap();
+            std::fs::write(
+                work_root.join("companies").join(format!("{company}.toml")),
+                format!("name = \"{company}\"\n{limits}\n"),
+            )
+            .unwrap();
+            let org = restless_orgintel::OrgIntel::ensure(&url, &company)
+                .await
+                .unwrap();
+            org.ensure_actor("exec", "exec", "exec", "Exec")
+                .await
+                .unwrap();
+            let model = "native-codex-oauth/test";
+            let auth = AgentAuth {
+                model: model.into(),
+                effort: "medium".into(),
+                company: company.clone(),
+                session_id: "test".into(),
+                coordination_token_env: String::new(),
+                coordination_token: String::new(),
+                gateway_token_env: String::new(),
+                gateway_token: String::new(),
+                gateway_url: String::new(),
+                billing: crate::model_gateway::ModelBilling::Subscription,
+            };
+            let ledger = SpendLedger::open(&work_root).unwrap();
+            let session = FakeNativeSession {
+                calls: AtomicUsize::new(0),
+                missing_usage: missing,
+                malformed_completion: malformed,
+            };
+            let drive = StaffDrive {
+                event_actor: "exec".into(),
+                org: org.clone(),
+                work_id: None,
+                responsibility: "test".into(),
+                turn_prompt: "Do the work".into(),
+                attempt_id: None,
+                remaining_budget_usd: 0.0,
+                enforce_spend_budget: false,
+                turn_kind: StaffTurnKind::Work,
+                container: String::new(),
+                workdir: String::new(),
+                company: company.clone(),
+                actor: "exec".into(),
+                model: model.into(),
+                auth,
+                worker_harness: crate::runtime::AgentHarness::Codex,
+                runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+                hosted_identity: None,
+                capabilities: crate::capability::CapabilityIssuer::open(&work_root).unwrap(),
+                spend: ledger.clone(),
+                spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(0),
+                task: "Deliver".into(),
+                productive_invocation_id: uuid::Uuid::new_v4(),
+                termination_prompt: SPECIALIST_TERMINATION_PROMPT,
+                cancellation: CancellationToken::new(),
+            };
+            let result = if concurrent_exec {
+                let permit = ledger.admit_native_prompt(&company, model).await.unwrap();
+                let other_auth = drive.auth.clone();
+                let run = drive.run(&session);
+                tokio::pin!(run);
+                assert!(
+                    tokio::time::timeout(std::time::Duration::from_millis(50), &mut run)
+                        .await
+                        .is_err()
+                );
+                let mut transcript = acp::TurnTranscript::default();
+                transcript.usage = Some(acp::TurnUsage {
+                    turn_id: transcript.turn_id(),
+                    turn_tokens: Some(5),
+                    ..Default::default()
+                });
+                ledger
+                    .record_native_transcript(&other_auth, "exec", "test", None, None, &transcript)
+                    .unwrap();
+                drop(permit);
+                run.await.unwrap()
+            } else {
+                drive.run(&session).await.unwrap()
+            };
+            assert_eq!(
+                session.calls.load(Ordering::SeqCst),
+                expected_calls,
+                "{limits} missing={missing}"
+            );
+            assert_eq!(
+                matches!(result.0, Termination::Blocked),
+                blocked,
+                "{limits} missing={missing}: {}",
+                result.1
+            );
+            if malformed {
+                assert!(
+                    result.1.starts_with("[budget]"),
+                    "the correction must respect the native limit: {}",
+                    result.1
+                );
+            }
+            let recorded = ledger.native_usage(&company, chrono::Utc::now());
+            assert_eq!(
+                recorded.turns,
+                expected_calls as u64 + u64::from(concurrent_exec)
+            );
+            if missing {
+                assert_eq!(recorded.turns_without_tokens, 1);
+            }
+            org.drop_schema().await.unwrap();
+        }
     }
 }
 

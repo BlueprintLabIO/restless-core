@@ -1,0 +1,103 @@
+{
+  "startedAt": "2026-10-29T22:25:20.162207+00:00",
+  "checks": [
+    "live CPU/RAM edits; operator ceiling; zero and undersized memory rejection; stale edit; independent targets",
+    "daemon restart and container recreation retain both limits and company files",
+    "unsafe live RAM shrink remains pending; maintenance applies after usage falls",
+    "reset restores operator defaults without erasing the other target"
+  ],
+  "sourceRevision": "34e4d952a8848b253277a2742bc8369b78d45d72",
+  "workingTreeDirty": true,
+  "daemonSha256": "5a17a4900f8a3663f49d1913c1e6245299849d4cfeda66accd3ab9ed791dec88",
+  "image": "sha256:20fe9dbe057b41b020c98fa95d5bac890b4afd2455668e2a6dad760d847ab5ee",
+  "pendingLimitAdmission": "not exercised without shared pool",
+  "memoryEventDelta": {
+    "low": 0,
+    "high": 0,
+    "max": 0,
+    "oom": 0,
+    "oom_kill": 0,
+    "oom_group_kill": 0
+  },
+  "afterBackendChecks": {
+    "runtime": {
+      "minimum_memory_mib": 768,
+      "saved": null,
+      "effective": {
+        "cpu_millis": 1000,
+        "memory_mib": 2048
+      },
+      "maximum": {
+        "cpu_millis": 1000,
+        "memory_mib": 2048
+      },
+      "applied": {
+        "cpu_millis": 1000,
+        "memory_mib": 2048
+      },
+      "state": "running",
+      "pending": false
+    },
+    "computer": {
+      "minimum_memory_mib": 256,
+      "saved": null,
+      "effective": {
+        "cpu_millis": 1000,
+        "memory_mib": 768
+      },
+      "maximum": {
+        "cpu_millis": 1000,
+        "memory_mib": 768
+      },
+      "applied": {
+        "cpu_millis": 1000,
+        "memory_mib": 768
+      },
+      "state": "running",
+      "pending": false
+    }
+  },
+  "sharedPool": null,
+  "browser": "desktop/phone editor and reading/pending/error layout checks passed",
+  "finalLimits": {
+    "runtime": {
+      "minimum_memory_mib": 768,
+      "saved": null,
+      "effective": {
+        "cpu_millis": 1000,
+        "memory_mib": 2048
+      },
+      "maximum": {
+        "cpu_millis": 1000,
+        "memory_mib": 2048
+      },
+      "applied": {
+        "cpu_millis": 1000,
+        "memory_mib": 2048
+      },
+      "state": "running",
+      "pending": false
+    },
+    "computer": {
+      "minimum_memory_mib": 256,
+      "saved": null,
+      "effective": {
+        "cpu_millis": 1000,
+        "memory_mib": 768
+      },
+      "maximum": {
+        "cpu_millis": 1000,
+        "memory_mib": 768
+      },
+      "applied": {
+        "cpu_millis": 1000,
+        "memory_mib": 768
+      },
+      "state": "running",
+      "pending": false
+    }
+  },
+  "status": "pass",
+  "cleanupProblems": [],
+  "finishedAt": "2026-10-29T22:26:58.976572+00:00"
+}

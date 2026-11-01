@@ -66,6 +66,34 @@ async function until(check, label, seconds = 60) {
   throw Error(`Timed out: ${label}${last ? ` (${last.message})` : ""}`);
 }
 
+async function verifyRoomDisconnect(who, messageText) {
+  const message = who.page.getByText(messageText).first();
+  const composer = who.page.getByRole("textbox", { name: "Conversation message" });
+  await composer.fill("Draft held while offline");
+  await who.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const before = await message.boundingBox();
+  const composerBefore = await composer.boundingBox();
+  assert(before && composerBefore, `${who.key}: loaded message and composer have positions`);
+  try {
+    await who.context.setOffline(true);
+    await who.page.getByText("Showing the last loaded messages. Your draft stays on this device.").waitFor({ timeout: 10000 });
+    assert.equal(await composer.inputValue(), "Draft held while offline");
+    const after = await message.boundingBox();
+    assert(after && Math.abs(after.y - before.y) < 1, `${who.key}: reconnect must not move the message`);
+    const composerAfter = await composer.boundingBox();
+    assert(composerAfter && Math.abs(composerAfter.y - composerBefore.y) < 1, `${who.key}: reconnect moved the composer from ${composerBefore.y} to ${composerAfter?.y}`);
+    assert.equal(await who.page.locator(".degraded-strip").count(), 0);
+    if ((who.page.viewportSize()?.width ?? 0) <= 760) {
+      const notice = await who.page.getByText("Showing the last loaded messages. Your draft stays on this device.").boundingBox();
+      const form = await who.page.locator(".room-composer").first().boundingBox();
+      assert(notice && form && notice.y + notice.height <= form.y, `${who.key}: reconnect toast covers the phone composer`);
+    }
+  } finally {
+    await who.context.setOffline(false);
+    await composer.clear();
+  }
+}
+
 // ---------------------------------------------------------------- SMTP catcher
 // A loopback SMTP server that keeps every message. Nothing leaves the host.
 function decodeQuotedPrintable(text) {
@@ -154,6 +182,7 @@ function startDaemon(network, entry = {}) {
       RESTLESS_OWNER_ADDR: `127.0.0.1:${corePort}`,
       RESTLESS_ENTRY_MODE: network ? "network" : "local",
       RESTLESS_RUNTIME_MODE: "local",
+      RESTLESS_SHEETS_WORKER: join(repo, "services/native-sheets/src/worker.mjs"),
       ...entry,
     },
     stdio: ["ignore", logFd, logFd],
@@ -453,6 +482,23 @@ try {
   }
   const actors = new Set([owner, alice, bob].map((who) => who.principal.actor_id));
   assert.equal(actors.size, 3, "three people are three distinct Actors");
+  // Use a real, disposable goal to verify the Exec toast keeps Undo actionable.
+  const noticeGoal = await coreApi(owner, `${base}/goals`, { method: "POST", expected: 201, body: { objective: "Fixture notice goal" } });
+  await owner.page.goto(`${core}/${company}/work`);
+  await owner.page.locator("#bridge-exrail.open").waitFor({ state: "visible", timeout: 30000 });
+  const execInput = owner.page.locator("#bridge-exrail").getByRole("textbox", { name: "Ask Exec" });
+  await execInput.fill("/goal clear Fixture notice goal");
+  await owner.page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const execBefore = await execInput.boundingBox();
+  await execInput.press("Enter");
+  const actualNotice = owner.page.locator(".toast").filter({ hasText: "Closed the goal" });
+  await actualNotice.waitFor({ timeout: 15000 });
+  assert(Math.abs((await execInput.boundingBox()).y - execBefore.y) < 1, "real command notice must not move composer");
+  const closedGoal = (await coreApi(owner, `${base}/goals`)).goals.find(g => g.id === noticeGoal.goal_id);
+  assert(closedGoal?.closed_at, "the real goal closed");
+  await actualNotice.getByRole("button", { name: "Undo", exact: true }).click();
+  await until(async () => { const goal = (await coreApi(owner, `${base}/goals`)).goals.find(g => g.id === noticeGoal.goal_id); return !!goal && !goal.closed_at; }, "goal reopened", 15);
+  pass("Exec command toast keeps the composer steady and Undo reopens the actual goal");
   pass("both colleagues accepted by email link and entered as distinct member Actors");
 
   // 6b. What waited for Bob's address is his now, shared by the owner; Alice was never given it.
@@ -527,17 +573,58 @@ try {
     body: { kind: "group", title: "Launch room", command_id: randomUUID(), participant_actor_ids: [alice.principal.actor_id, bob.principal.actor_id] },
   });
   const roomUrl = `${core}/${company}/people?room=${room.id}`;
+  /* Every Room read and stream each person's browser makes, so a message that never shows says
+   * whose browser missed it and what that browser asked for. */
+  const started = Date.now();
+  const roomTraffic = new Map(editors.map((who) => [who.key, []]));
+  const tracers = editors.map((who) => [who, (response) => {
+    const url = response.url();
+    if (url.includes(`/rooms/${room.id}`)) {
+      const entry = { at: Date.now() - started, status: response.status(), url: url.slice(url.indexOf("/rooms/")) };
+      roomTraffic.get(who.key).push(entry);
+      if (url.includes("/messages?") && response.ok()) void response.json().then(page => { entry.messages = page.messages?.map(message => ({ id: message.id, body: message.body, parent: message.parent_message_id })); }).catch(() => {});
+    }
+  }]);
+  for (const [who, trace] of tracers) who.page.on("response", trace);
   for (const who of editors) {
     await who.page.goto(roomUrl);
     await who.page.getByRole("textbox", { name: "Conversation message" }).waitFor({ timeout: 30000 });
   }
   const chat = ["Owner: kickoff at nine.", "Alice: I will bring the draft."];
+  const sentAt = {};
   for (const [who, text] of [[owner, chat[0]], [alice, chat[1]]]) {
     const composer = who.page.getByRole("textbox", { name: "Conversation message" });
     await composer.fill(text);
     await composer.press("Enter");
+    sentAt[text] = Date.now() - started;
   }
-  for (const who of editors) for (const text of chat) await who.page.getByText(text).first().waitFor({ timeout: 20000 });
+  try {
+    for (const who of editors) for (const text of chat) await who.page.getByText(text).first().waitFor({ timeout: 20000 });
+  } catch (error) {
+    const report = { sentAt, people: {} };
+    for (const who of editors) {
+      report.people[who.key] = {
+        shown: await who.page.locator("article.room-message").allInnerTexts().catch(() => []),
+        stored: await coreApi(who, `${base}/rooms/${room.id}/messages`)
+          .then((page) => page.messages?.map((message) => message.body))
+          .catch((failure) => String(failure)),
+        traffic: roomTraffic.get(who.key),
+      };
+      await shot(who, "room-missing");
+    }
+    await writeFile(join(evidence, "room-missing.json"), JSON.stringify(report, null, 2));
+    throw error;
+  }
+  // A lost connection must not move loaded messages or discard a local draft.
+  for (const who of [owner, alice]) await verifyRoomDisconnect(who, chat[0]);
+  await owner.page.setViewportSize({ width: 390, height: 844 });
+  try {
+    await verifyRoomDisconnect(owner, chat[0]);
+  } finally {
+    await owner.page.setViewportSize({ width: 1280, height: 900 });
+  }
+  pass("owner and member keep their message positions and drafts when their room goes offline, including phone width");
+  for (const [who, trace] of tracers) who.page.off("response", trace);
   for (const who of editors) await shot(who, "room");
   pass("room chat typed by owner and a member appears live for all three people");
 
@@ -679,6 +766,38 @@ try {
     "a reaction on a comment is visible to the other person",
   );
   pass("a comment mention reached only Alice, her reply came back to the owner, and a reaction is shared");
+
+  // An assigned human member owns their Native Document Undo, even in an owner's company.
+  const undoDoc = await coreApi(owner, `${base}/documents`, {
+    method: "POST", expected: 201,
+    body: { title: "Member review Undo", kind: "brief", visibility: "participants", content_json: commentBody("The exact saved candidate."), reason: "Multiplayer Undo smoke" },
+  });
+  let undoView = await coreApi(owner, `${base}/documents/${undoDoc.document_id}`);
+  await coreApi(owner, `${base}/documents/${undoDoc.document_id}/participants/${alice.principal.actor_id}`, {
+    method: "PUT", body: { expected_document_version: undoView.document.version, access: "edit" },
+  });
+  undoView = await coreApi(owner, `${base}/documents/${undoDoc.document_id}`);
+  const undoReview = await coreApi(owner, `${base}/documents/${undoDoc.document_id}/reviews`, {
+    method: "POST", expected: 201,
+    body: { expected_document_version: undoView.document.version, expected_current_version_id: undoView.current_version.version.id, summary: "Alice judges this candidate", reviewer_actor_id: alice.principal.actor_id },
+  });
+  undoView = await coreApi(alice, `${base}/documents/${undoDoc.document_id}`);
+  const nativeInput = { id: randomUUID(), decision: { kind: "accept_review", expected_document_version: undoView.document.version, expected_review_version: undoReview.review.version, accepted_version_name: "Alice reviewed", feedback: "The member's private note" } };
+  const nativeQueue = `${base}/documents/${undoDoc.document_id}/reviews/${undoReview.review.id}/pending-decision`;
+  await coreApi(owner, nativeQueue, { method: "POST", body: { ...nativeInput, id: randomUUID() }, expected: 409 });
+  const nativePending = await coreApi(alice, nativeQueue, { method: "POST", body: nativeInput });
+  assert.equal(nativePending.state, "pending");
+  assert((await coreApi(alice, `${base}/document-decisions`)).items.some(item => item.id === nativePending.id));
+  assert(!(await coreApi(owner, `${base}/document-decisions`)).items.some(item => item.id === nativePending.id), "an owner cannot read the member's private decision receipts");
+  await coreApi(owner, `${base}/document-decisions/${nativePending.id}`, { method: "DELETE", expected: 404 });
+  await coreApi(alice, `${base}/document-decisions/${nativePending.id}`, { method: "DELETE" });
+  assert.equal((await coreApi(alice, nativeQueue, { method: "POST", body: nativeInput })).state, "canceled");
+  assert.equal((await coreApi(alice, `${base}/documents/${undoDoc.document_id}`)).document.status, "in_review");
+  const ownDraft = await coreApi(alice, `${base}/documents/${undoDoc.document_id}/reviews/${undoReview.review.id}/decision-draft`);
+  assert.equal(ownDraft.draft.decision.feedback, nativeInput.decision.feedback);
+  assert.equal((await coreApi(owner, `${base}/documents/${undoDoc.document_id}/reviews/${undoReview.review.id}/decision-draft`)).draft, null);
+  await coreApi(alice, `${base}/document-decisions/${nativePending.id}/seen`, { method: "POST" });
+  pass("assigned member's Native Document review queues and undoes with private recoverable input; another owner cannot decide or cancel it");
 
   const viewOnly = await coreApi(owner, `${base}/documents`, {
     method: "POST",
@@ -890,9 +1009,22 @@ try {
   await steadyEntry(owner, "owner");
   pass("the cockpit appears once, settled, for the owner and a member");
 
+  await owner.page.goto(`${core}/${company}?filter=all`);
+  await owner.page.getByRole("region", { name: "Skipped items", exact: true }).waitFor({ timeout: 15000 });
+  await owner.page.getByRole("region", { name: "Done items", exact: true }).waitFor({ timeout: 15000 });
+  await owner.page.locator('.inbox-head summary[aria-label="Filter Inbox: All"]').waitFor();
+  await alice.page.goto(`${core}/${company}?filter=all`);
+  await alice.page.getByRole("heading", { name: "Inbox", exact: true, level: 1 }).waitFor({ timeout: 15000 });
+  assert.equal(await alice.page.locator('.inbox-head summary[aria-label^="Filter Inbox:"]').count(), 0);
+  assert.equal(await alice.page.locator('.inbox-history, .set-aside').count(), 0, "the member never loads owner decision lists");
+  pass("the owner filters Open, Skipped, Done and All; a member never loads owner history or skipped lists");
+
   // 9h. An admin runs the day to day: the owner makes Bob an admin from Members. His screens,
   //     Company settings included, make no request he is refused; a member who tries what an
   //     admin may do is told who may.
+  // Bob's last page is still open on the Room. When his session ends it sends itself through the
+  // account, racing the visit below; park it so only this step moves him.
+  await bob.page.goto("about:blank");
   await owner.page.goto(`${core}/${company}/company/members`);
   const bobAccess = owner.page.locator(`select[aria-label="Access for ${people.bob.name}"]`);
   await bobAccess.waitFor({ timeout: 30000 });
@@ -925,6 +1057,103 @@ try {
   bob.page.off("response", watchAdmin);
   assert.deepEqual([...new Set(adminRefused)], [], "an admin's screens make no refused requests");
   await steadyEntry(bob, "admin");
+  await bob.page.goto(roomUrl);
+  await bob.page.getByText(chat[0]).first().waitFor({ timeout: 20000 });
+  await verifyRoomDisconnect(bob, chat[0]);
+  pass("admin keeps message position and draft when the room goes offline");
+  // Owner output paths stay private even when another person is an admin.
+  await daemonCommand({ cmd: "up", company });
+  const runtimeContainer = `restless-${process.env.RESTLESS_RESOURCE_NAMESPACE}-co-${company}`;
+  await new Promise((resolve, reject) => {
+    const child = spawn("docker", ["exec", "-u", "company", runtimeContainer, "sh", "-c",
+      "mkdir -p /company/outputs/role-check && printf test > /company/outputs/role-check/owner-only.txt"], { stdio: "ignore" });
+    child.once("error", reject);
+    child.once("exit", (code) => code === 0 ? resolve() : reject(Error(`could not seed Library role fixture: ${code}`)));
+  });
+  await until(async () => (await coreApi(owner, `${base}/library/outputs`)).files.some(file => file.path.endsWith("/role-check/owner-only.txt")),
+    "the owner can read the output listing", 45);
+  await owner.page.goto(`${core}/${company}/library?show=folders`);
+  await owner.page.locator('.item-title').getByText("role-check/owner-only.txt", { exact: true }).waitFor({ timeout: 30000 });
+  for (const who of [alice, bob]) {
+    await coreApi(who, `${base}/library/outputs`, { expected: 403 });
+    await coreApi(who, `${base}/library/outputs?modified=0&path=${encodeURIComponent('/company/outputs/role-check/owner-only.txt')}`, { expected: 403 });
+    const requests = [];
+    const observe = request => { if (new URL(request.url()).pathname === `${base}/library/outputs`) requests.push(request.url()); };
+    who.page.on("request", observe);
+    for (const width of [1280, 390]) {
+      await who.page.setViewportSize({ width, height: 900 });
+      await who.page.goto(`${core}/${company}/library`);
+      await who.page.getByRole("heading", { name: "All files", exact: true }).waitFor({ timeout: 30000 });
+      assert.equal(await who.page.getByText("role-check/owner-only.txt", { exact: true }).count(), 0);
+      assert.equal(await who.page.getByRole("link", { name: /^Folders/ }).count(), 0);
+    }
+    await who.page.setViewportSize({ width: 1280, height: 900 });
+    who.page.off("request", observe);
+    assert.deepEqual(requests, [], `${who.key}'s Library does not request owner output paths`);
+  }
+  pass("owner output pages are visible to the owner and remain unavailable to member and admin accounts");
+
+  // Resources uses the real verified accounts. Shared host observations are owner-only.
+  const computeReading = await coreApi(owner, `${base}/company/compute`);
+  assert.equal(computeReading.status, process.env.RESTLESS_WORKLOAD_CGROUP_PARENT ? "available" : "not_configured");
+  const ownerLimits = { cpu_millis: 500, memory_mib: 768 };
+  for (const target of ["runtime", "computer"]) {
+    const original = computeReading.limits[target].saved;
+    const changed = await coreApi(owner, `${base}/company/compute-limits/${target}`, {
+      method: "POST", body: {limits: ownerLimits, expected: original},
+    });
+    assert.deepEqual(changed[target].saved, ownerLimits);
+    await coreApi(owner, `${base}/company/compute-limits/${target}`, {
+      method: "POST", body: {limits: original, expected: ownerLimits},
+    });
+  }
+  await owner.page.goto(`${core}/${company}/company/resources`);
+  await owner.page.locator("#compute").waitFor();
+  await owner.page.locator("#ai-usage").waitFor();
+  for (const width of [1280, 390]) {
+    await owner.page.setViewportSize({ width, height: 900 });
+    if (width === 1280) await owner.page.locator("#bridge-exrail.open").waitFor({ state: "visible", timeout: 10000 });
+    if (width === 390) await owner.page.locator("#bridge-exrail.open").waitFor({ state: "hidden", timeout: 10000 });
+    const spend = owner.page.locator("#spend").first();
+    await spend.getByRole("button", { name: /Requests already in progress can add charges beyond the limit/ }).waitFor();
+    await spend.getByRole("button", { name: "Edit limit" }).click();
+    await owner.page.getByRole("button", { name: "Requests already in progress can add charges beyond this limit." }).waitFor();
+    await owner.page.getByRole("button", { name: "Cancel", exact: true }).click();
+  }
+  await owner.page.setViewportSize({ width: 1280, height: 900 });
+  await shot(owner, "resources");
+  for (const who of [alice, bob]) {
+    await coreApi(who, `${base}/company/compute`, { expected: 403 });
+    for (const target of ["runtime", "computer"]) {
+      await coreApi(who, `${base}/company/compute-limits/${target}`, {
+        method: "POST", body: {limits: ownerLimits, expected: null}, expected: 403,
+      });
+    }
+    const requests = [];
+    const observe = request => { if (new URL(request.url()).pathname === `${base}/company/compute`) requests.push(request.url()); };
+    who.page.on("request", observe);
+    await who.page.goto(`${core}/${company}/company/resources`);
+    if (who.principal.membership_role === "member") await who.page.waitForURL(core + "/" + company);
+    else await who.page.getByRole("heading", {name:"Spend", exact:true}).waitFor();
+    assert.equal(await who.page.locator("#compute").count(), 0);
+    assert.equal(await who.page.locator("#ai-usage").count(), 0);
+    assert.deepEqual(requests, [], "members and admins do not request owner host readings");
+    who.page.off("request", observe);
+    await shot(who, "resources");
+  }
+  pass("Resources shows compute and AI usage; the verified owner edits both compute limits while admin and member accounts cannot read or edit host resources");
+  // A company key is the owner's Authority operation, including the new Rename path.
+  for (const who of [alice, bob]) {
+    const reference = `infisical:/companies/${company}/s109-never-created`;
+    for (const [path, body] of [
+      ["/vault/secret", { binding: "s109-never-created", secret: "synthetic", revision: "stale", create: true }],
+      ["/vault/secret/rename", { reference, name: "s109-renamed", revision: "stale" }],
+      ["/vault/secret/delete", { reference, revision: "stale" }],
+    ]) {
+      await coreApi(who, `${base}${path}`, { method: "POST", body, expected: 403 });
+    }
+  }
+  pass("members and admins cannot create, rename or delete company Vault keys");
   const memberTries = await alice.context.request.fetch(`${core}${base}/company/logo`, {
     method: "DELETE",
     headers: { Origin: core },
@@ -1077,13 +1306,13 @@ try {
   //     company, read by its people without its secret; its own browser starts for the owner's
   //     sign-in and goes when the account is removed. Members cannot add or read accounts.
   // A company session cannot manage the owner's accounts and is told why; the owner opens
-  // "Logins and keys" on the account site, which enters account-wide and lands on Accounts.
+  // "Logins and keys" on the account site, which enters account-wide and lands on Settings › Accounts.
   const scoped = await owner.context.request.fetch(`${core}/api/accounts`, { failOnStatusCode: false });
   assert.equal(scoped.status(), 403, "a company session does not manage the owner's accounts");
   assert.match(await scoped.text(), /account owner/);
   await enterAccounts(owner);
   await owner.page.locator("#enter-account").click();
-  await owner.page.waitForURL((url) => url.origin === core && url.pathname === "/account/connections", { timeout: 30000 });
+  await owner.page.waitForURL((url) => url.origin === core && url.pathname === "/account/settings/accounts", { timeout: 30000 });
   await owner.page.getByRole("heading", { name: "Accounts" }).first().waitFor({ timeout: 30000 });
   await shot(owner, "accounts");
   {
@@ -1189,8 +1418,12 @@ try {
   // to the account site is not Bob's access.
   const openAtRemoval = bob.sockets.filter((item) => item.url.includes("/collaboration") && !item.closed);
   await owner.page.goto(`${core}/${company}/company/members`);
-  await owner.page.locator(`summary[aria-label="Access for ${people.bob.name}"]`).click();
+  // A row's actions show on hover (Item), as a person reaches them.
+  const bobMenu = owner.page.locator(`summary[aria-label="Access for ${people.bob.name}"]`);
+  await owner.page.locator(".item", { has: bobMenu }).hover();
+  await bobMenu.click();
   await owner.page.getByRole("button", { name: "Remove…" }).click();
+  await owner.page.locator(".item", { has: owner.page.getByRole("button", { name: "Remove access" }) }).hover();
   await owner.page.getByRole("button", { name: "Remove access" }).click();
   await owner.page.getByText(`${people.bob.name} no longer has access.`).waitFor();
   // Closed by Core, or gone with the page when it left for the account site (the browser reports no

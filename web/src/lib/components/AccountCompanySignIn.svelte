@@ -68,7 +68,7 @@
 				class="btn small"
 				href={computerHref}
 				onclick={() => prepareCompanyBrowser(company, `https://${site}`)}
-				>Sign in on {companies.length > 1 ? 'its' : `${companyName(company)}’s`} computer</a
+				>Sign in on {companies.length > 1 ? 'the chosen company’s' : `${companyName(company)}’s`} computer</a
 			>
 			<button type="button" class="btn small ghost" disabled={busy} onclick={() => void check()}
 				>{busy ? 'Checking…' : 'Check sign-in'}</button

@@ -1,6 +1,7 @@
 /* Reactions on the messages in view. A reaction is a stored signal: it
  * never sends a message or starts a turn. */
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+import { pollEvery } from './connection.svelte';
 import type { MessageReactionRow } from './generated/orgintel';
 import type { ConversationMessageView } from './generated/conversation';
 import { ownerJson } from './failure';
@@ -27,7 +28,7 @@ export function reactionsQuery(company: () => string, ids: () => number[], viewe
 		},
 		enabled: !!company() && ids().length > 0,
 		staleTime: 10_000,
-		refetchInterval: 30_000
+		refetchInterval: pollEvery(30_000)
 	}));
 	function summaryFor(messageId: string | number): ReactionSummary[] {
 		const id = Number(messageId);
@@ -80,7 +81,7 @@ export function roomPinsQuery(company: () => string, room: () => string, enabled
 		},
 		enabled: !!company() && !!room() && enabled(),
 		staleTime: 10_000,
-		refetchInterval: 60_000
+		refetchInterval: pollEvery(60_000)
 	}));
 	return {
 		/** Null until the list has loaded (or when it cannot be). */

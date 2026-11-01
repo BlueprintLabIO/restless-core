@@ -1,5 +1,5 @@
 <script lang="ts">
-	/* One account's use log (S98-10), inside Settings › Accounts › Manage: every use, newest
+	/* One account's use log (S98-10), its own view in Settings › Accounts (`?activity=`): every use, newest
 	 * first, as a sentence naming the agent and who asked. Filter by company, person and ability.
 	 * A use the owner was told about carries its notice with "Fine" and "Freeze"; Freeze pauses
 	 * that company's grant. Hidden until the owner plane serves the log. */
@@ -121,7 +121,6 @@
 {#if available}
 	<section class="activity" aria-label={`${account.label} activity`}>
 		<div class="activity-head">
-			<strong>Activity</strong>
 			<div class="filters">
 				<select bind:value={company} aria-label="Company">
 					<option value="">Every company</option>
@@ -213,10 +212,6 @@
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 8px;
-	}
-	.activity-head strong {
-		font-size: var(--t-label);
-		font-weight: 600;
 	}
 	.filters {
 		display: flex;

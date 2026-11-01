@@ -1,4 +1,5 @@
 import { createInfiniteQuery, createQuery, useQueryClient } from '@tanstack/svelte-query';
+import { pollEvery } from './connection.svelte';
 import type { InfiniteData, QueryClient } from '@tanstack/svelte-query';
 import {
 	failClosedDocumentRead,
@@ -128,7 +129,7 @@ export function documentsQuery(companyId: QueryId) {
 		getNextPageParam: (page: DocumentListPage) => cursorOrUndefined(page.next_cursor),
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
-		refetchInterval: DOCUMENT_REFRESH_MS,
+		refetchInterval: pollEvery(DOCUMENT_REFRESH_MS),
 		retry: retryDocumentRead
 	}));
 	return {
@@ -194,7 +195,7 @@ export function documentQuery(companyId: QueryId, documentId: QueryId) {
 	const query = createQuery(() => ({
 		...documentDetailOptions(client, queryId(companyId), queryId(documentId)),
 		enabled: Boolean(queryId(companyId) && queryId(documentId)),
-		refetchInterval: DOCUMENT_REFRESH_MS
+		refetchInterval: pollEvery(DOCUMENT_REFRESH_MS)
 	}));
 	return {
 		get view() {
@@ -305,7 +306,7 @@ export function documentCommentThreadsQuery(companyId: QueryId, documentId: Quer
 		getNextPageParam: (page: DocumentCommentThreadPage) => cursorOrUndefined(page.next_cursor),
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
-		refetchInterval: DOCUMENT_REFRESH_MS,
+		refetchInterval: pollEvery(DOCUMENT_REFRESH_MS),
 		retry: retryDocumentRead
 	}));
 	return {
@@ -392,7 +393,7 @@ export function documentCommentsQuery(companyId: QueryId, documentId: QueryId, t
 		getNextPageParam: (page: DocumentCommentPage) => cursorOrUndefined(page.next_cursor),
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
-		refetchInterval: DOCUMENT_REFRESH_MS,
+		refetchInterval: pollEvery(DOCUMENT_REFRESH_MS),
 		retry: retryDocumentRead
 	}));
 	return {
@@ -440,7 +441,7 @@ export function documentReviewsQuery(companyId: QueryId, documentId: QueryId) {
 		getNextPageParam: (page: DocumentReviewPage) => cursorOrUndefined(page.next_cursor),
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
-		refetchInterval: DOCUMENT_REFRESH_MS,
+		refetchInterval: pollEvery(DOCUMENT_REFRESH_MS),
 		retry: retryDocumentRead
 	}));
 	return {
@@ -514,7 +515,7 @@ export function documentProposalsQuery(companyId: QueryId, documentId: QueryId) 
 		getNextPageParam: (page: DocumentRevisionProposalPage) => cursorOrUndefined(page.next_cursor),
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
-		refetchInterval: DOCUMENT_REFRESH_MS,
+		refetchInterval: pollEvery(DOCUMENT_REFRESH_MS),
 		retry: retryDocumentRead
 	}));
 	return {

@@ -60,7 +60,7 @@ async fn judgement_from(org: &OrgIntel, by: &str, work: uuid::Uuid) -> uuid::Uui
 }
 
 #[tokio::test]
-async fn accountable_lead_can_reply_to_owner_for_staff_work() {
+async fn work_producer_lead_and_exec_can_reply_but_unrelated_staff_cannot() {
     let Some(org) = company("leadreply").await else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping lead-reply scenario");
         return;
@@ -99,8 +99,21 @@ async fn accountable_lead_can_reply_to_owner_for_staff_work() {
         .await
         .expect("the accountable lead speaks for Staff-owned Work");
     assert_eq!(org.message_work_id(message).await.unwrap(), Some(work));
+
+    // Conversation scope includes the producer and portfolio Exec as well as
+    // the accountable lead; it does not transfer production ownership.
+    for actor in ["gameplay-build", "exec"] {
+        let message = org
+            .send_work_message_to_owner(actor, work, "Here is the prepared outcome.")
+            .await
+            .expect("the producer and Exec share the Work conversation");
+        assert_eq!(org.message_work_id(message).await.unwrap(), Some(work));
+    }
+    org.ensure_actor("other-build", "staff", "builder", "Unrelated builder")
+        .await
+        .unwrap();
     assert!(org
-        .send_work_message_to_owner("exec", work, "I am not this Work's accountable lead.")
+        .send_work_message_to_owner("other-build", work, "I have no role in this Work.")
         .await
         .is_err());
 }

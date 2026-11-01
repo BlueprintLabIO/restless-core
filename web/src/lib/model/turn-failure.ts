@@ -6,7 +6,7 @@
 /** Where a person fixes a failure, as the words in the sentence and the cockpit path they link to. */
 export type TurnFailureFix = { label: string; path: string };
 const INTELLIGENCE: TurnFailureFix = { label: 'Company → Intelligence', path: 'company/provider' };
-const LIMITS: TurnFailureFix = { label: 'Company → Limits', path: 'company/resources#spend' };
+const LIMITS: TurnFailureFix = { label: 'Company → Resources', path: 'company/resources#spend' };
 
 const RULES: {
 	test: RegExp;
@@ -17,12 +17,12 @@ const RULES: {
 	{
 		test: /\[budget\][^]*?has spent \$[\d.,]+ of its \$([\d.,]+) ceiling/i,
 		say: (match) =>
-			`the company has reached its $${match[1]} spend limit. Raise it in Company → Limits.`,
+			`the company has reached its $${match[1]} spend limit. Raise it in Company → Resources.`,
 		fix: LIMITS
 	},
 	{
 		test: /\[budget\][^]*?native-harness (turns|tokens)/i,
-		say: 'the company has used its monthly native-harness allowance. Raise it in Company → Limits.',
+		say: 'the company has used its monthly native-harness allowance. Raise it in Company → Resources.',
 		fix: LIMITS
 	},
 	{

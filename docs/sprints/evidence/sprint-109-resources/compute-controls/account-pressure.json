@@ -1,0 +1,16 @@
+{
+  "actualRestlessJobs": 4,
+  "placement": "shared parent",
+  "capBytes": 805306368,
+  "memoryBytes": 754585600,
+  "memoryHighEvents": 3258,
+  "oomKills": 0,
+  "cpuQuota": 0.5,
+  "cpuSeconds": 4.902227,
+  "wallSeconds": 9.742406726999997,
+  "ownerHealthChecks": 16,
+  "ownerEntryChecks": 128,
+  "ownerEntryMaxMs": 2014.7467030000007,
+  "peerEntryChecks": 64,
+  "computeApi": "available"
+}

@@ -99,8 +99,27 @@ pub struct Probe {
 /// The company binding for its own Resend webhook signing secret.
 pub const RESEND_WEBHOOK_BINDING: &str = "resend.webhook";
 
+/// The sending integration owns this name; the Vault accepts its ordinary service name too.
+pub const RESEND_SEND_BINDING: &str = "resend.production";
+
+pub fn canonical_binding(binding: &str) -> &str {
+    match binding.trim() {
+        "resend" => RESEND_SEND_BINDING,
+        binding => binding,
+    }
+}
+
+/// Upgrade old company bindings without moving or reading secret values. A configured production
+/// binding wins a collision; the other value remains in the Vault as an unbound secret.
+pub fn migrate_bindings(bindings: &mut std::collections::BTreeMap<String, String>) {
+    if let Some(reference) = bindings.remove("resend") {
+        bindings.entry(RESEND_SEND_BINDING.into()).or_insert(reference);
+    }
+}
+
 /// Resolve one named binding for one governed child process.
 pub async fn resolve(config: &CompanyConfig, binding: &str) -> Result<String> {
+    let binding = canonical_binding(binding);
     if finance_binding(binding) {
         bail!(
             "finance credential bindings may only be resolved by the host-side Authority adapter"
@@ -214,6 +233,37 @@ pub async fn store_reference(reference: &str, value: &str) -> Result<()> {
             "hosted-model-relay:v1 is injected by the Cloud deployment boundary and cannot be written through Core"
         ),
     }
+}
+
+/// Create a new Vault secret without replacing one created concurrently.
+/// Returns false when the destination is already occupied.
+pub async fn create_reference(reference: &str, value: &str) -> Result<bool> {
+    let value = normalize_secret_value(value)?;
+    let CredentialReference::Infisical(locator) = parse_reference(reference)? else {
+        bail!("a new company secret requires an Infisical destination");
+    };
+    let settings = InfisicalSettings::from_env()?;
+    infisical_ensure_folder(&settings, locator.path).await?;
+    let client = infisical_client()?;
+    let token = infisical_login(&client, &settings).await?;
+    let endpoint = infisical_endpoint(&settings.base_url, &["api", "v4", "secrets", locator.name])?;
+    let response = client.post(endpoint).bearer_auth(token).json(&serde_json::json!({
+        "projectId": settings.project_id,
+        "environment": settings.environment,
+        "secretPath": locator.path,
+        "secretValue": value,
+        "type": "shared",
+    })).send().await.context("create secret in Infisical")?;
+    if response.status().is_success() {
+        return Ok(true);
+    }
+    // The deployed Infisical version may answer a duplicate with 400 or 500.
+    // Verify presence without exposing the response body or overwriting it.
+    let status = response.status();
+    if infisical_get(&settings, &locator).await?.is_some() {
+        return Ok(false);
+    }
+    bail!("Infisical secret creation returned HTTP {}", status.as_u16())
 }
 
 /// Remove the secret a reference names, when its backend can. Restless keeps only references, so
@@ -559,7 +609,18 @@ fn parse_infisical_locator(locator: &str) -> Result<InfisicalLocator<'_>> {
     })
 }
 
+/// Prefixes of the daemon's own configuration. An `env:` reference names a key someone put in the
+/// daemon's environment for a company to use; it never reads the plane's own bearers, database URL
+/// or vault identity, which an owner could otherwise send to an address of their choosing.
+const DAEMON_ENV_PREFIXES: [&str; 2] = ["RESTLESS_", "INFISICAL_"];
+
 fn read_env(locator: &str) -> Result<String> {
+    if DAEMON_ENV_PREFIXES
+        .iter()
+        .any(|prefix| locator.to_ascii_uppercase().starts_with(prefix))
+    {
+        bail!("{locator} is the daemon's own configuration, not a credential; use another variable name or an infisical: reference");
+    }
     let value = std::env::var(locator)
         .with_context(|| format!("{locator} is not set in the daemon environment"))?;
     if value.trim().is_empty() {
@@ -872,6 +933,7 @@ mod tests {
             credentials.insert((*capability).to_string(), (*reference).to_string());
         }
         CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,
@@ -955,6 +1017,21 @@ mod tests {
         assert!(!error.contains("WEBHOOK_SECRET_STAYS_HOST"), "{error}");
     }
 
+    #[tokio::test]
+    async fn env_references_never_read_the_daemons_own_configuration() {
+        for reference in [
+            "env:RESTLESS_PLANE_READINESS_TOKEN",
+            "env:restless_plane_database_url",
+            "env:INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET",
+        ] {
+            let error = format!("{:#}", resolve_reference(reference).await.unwrap_err());
+            assert!(
+                error.contains("daemon's own configuration"),
+                "{reference}: {error}"
+            );
+        }
+    }
+
     /// Each company's inbound events are verified with its own secret. A
     /// broken company binding must refuse, never fall back to the secret
     /// other companies share.
@@ -965,18 +1042,18 @@ mod tests {
         unsafe {
             std::env::set_var(
                 "RESTLESS_RESEND_WEBHOOK_CREDENTIAL",
-                "env:RESTLESS_TEST_RESEND_WEBHOOK_SHARED",
+                "env:TEST_RESTLESS_RESEND_WEBHOOK_SHARED",
             );
-            std::env::set_var("RESTLESS_TEST_RESEND_WEBHOOK_SHARED", "whsec-shared");
-            std::env::set_var("RESTLESS_TEST_RESEND_WEBHOOK_OWN", "whsec-own");
+            std::env::set_var("TEST_RESTLESS_RESEND_WEBHOOK_SHARED", "whsec-shared");
+            std::env::set_var("TEST_RESTLESS_RESEND_WEBHOOK_OWN", "whsec-own");
         }
         let own = config_with(&[(
             RESEND_WEBHOOK_BINDING,
-            "env:RESTLESS_TEST_RESEND_WEBHOOK_OWN",
+            "env:TEST_RESTLESS_RESEND_WEBHOOK_OWN",
         )]);
         assert_eq!(resolve_resend_webhook(&own).await.unwrap(), "whsec-own");
 
-        unsafe { std::env::remove_var("RESTLESS_TEST_RESEND_WEBHOOK_OWN") };
+        unsafe { std::env::remove_var("TEST_RESTLESS_RESEND_WEBHOOK_OWN") };
         let broken = resolve_resend_webhook(&own).await;
         assert!(broken.is_err(), "a broken binding resolved: {broken:?}");
 
@@ -986,7 +1063,7 @@ mod tests {
         );
         unsafe {
             std::env::remove_var("RESTLESS_RESEND_WEBHOOK_CREDENTIAL");
-            std::env::remove_var("RESTLESS_TEST_RESEND_WEBHOOK_SHARED");
+            std::env::remove_var("TEST_RESTLESS_RESEND_WEBHOOK_SHARED");
         }
     }
 
@@ -1024,12 +1101,12 @@ mod tests {
     #[tokio::test]
     async fn env_scheme_reads_the_daemon_environment() {
         // SAFETY: this variable is test-local and no other test names it.
-        unsafe { std::env::set_var("RESTLESS_TEST_CRED", "sk-test-value") };
+        unsafe { std::env::set_var("TEST_RESTLESS_CRED", "sk-test-value") };
         assert_eq!(
-            resolve_reference("env:RESTLESS_TEST_CRED").await.unwrap(),
+            resolve_reference("env:TEST_RESTLESS_CRED").await.unwrap(),
             "sk-test-value"
         );
-        unsafe { std::env::remove_var("RESTLESS_TEST_CRED") };
+        unsafe { std::env::remove_var("TEST_RESTLESS_CRED") };
     }
 
     #[tokio::test]
@@ -1047,7 +1124,7 @@ mod tests {
 
         let destination_error = format!(
             "{:#}",
-            promote_env_to_infisical("env:RESTLESS_TEST_CRED", "env:ZAI_API_KEY")
+            promote_env_to_infisical("env:TEST_RESTLESS_CRED", "env:ZAI_API_KEY")
                 .await
                 .unwrap_err()
         );

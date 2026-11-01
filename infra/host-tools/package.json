@@ -4,10 +4,16 @@
   "version": "0.0.0",
   "description": "Pinned model broker used by the source development launcher",
   "scripts": {
-    "postinstall": "node apply-pi-ai-patch.mjs"
+    "postinstall": "node apply-pi-ai-patch.mjs",
+    "test": "bash smoke-namespace",
+    "test:browser": "node tests/browser-compatibility.mjs",
+    "test:omp-browser": "bun tests/omp-browser-compatibility.mjs"
   },
   "dependencies": {
     "@oh-my-pi/pi-coding-agent": "18.8.6",
     "bun": "1.3.14"
+  },
+  "overrides": {
+    "puppeteer-core": "25.16.0"
   }
 }

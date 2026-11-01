@@ -35,6 +35,8 @@ import {
 	getBrowserStatus,
 	getCompany,
 	getCompanySpend,
+	getCompanyCompute,
+	type ComputeReading,
 	type BrowserStatus,
 	type CompanySpendView,
 	type CompanyView
@@ -246,6 +248,9 @@ export function attentionQuery(
 	const query = createQuery(() => ({
 		queryKey: queryKeys.attention(currentCompany()),
 		queryFn: ({ queryKey, signal }) => getAttention(queryKey[1], signal),
+		// The ordinary refresh and manual retry already repair this read.
+		// Repeating a stalled first read hides every surface for several deadlines.
+		retry: false,
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
@@ -308,6 +313,7 @@ async function invalidateAttentionReads(client: QueryClient, company: string) {
 
 /** One server-owned queue, refreshed in this window and other open cockpit tabs. */
 export async function refreshAttention(client: QueryClient, companyId: string) {
+	void client.invalidateQueries({ queryKey: ['handoff-decisions', companyId] });
 	if (typeof BroadcastChannel !== 'undefined') {
 		const channel = new BroadcastChannel('restless-attention');
 		channel.postMessage(companyId);
@@ -320,7 +326,8 @@ export async function refreshAttention(client: QueryClient, companyId: string) {
 export async function removeConfirmedAttention(
 	client: QueryClient,
 	companyId: string,
-	itemId: string
+	itemId: string,
+	pendingHandoffDecision = false
 ) {
 	const queryKey = queryKeys.attention(companyId);
 	// An older in-flight read must not put the decided card back into the queue.
@@ -330,6 +337,9 @@ export async function removeConfirmedAttention(
 		(view) =>
 			view && {
 				...view,
+				...(pendingHandoffDecision
+					? { pendingDecisionItems: [...new Set([...(view.pendingDecisionItems ?? []), itemId])] }
+					: {}),
 				items: view.items.filter((item) => item.id !== itemId)
 			}
 	);
@@ -348,7 +358,7 @@ export function companiesQuery(
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		// The list carries each company's card, so it refreshes as often as the portfolio did.
-		refetchInterval: 30_000,
+		refetchInterval: pollEvery(30_000),
 		refetchIntervalInBackground: background()
 	}));
 	return {
@@ -399,7 +409,7 @@ export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 		enabled: queryEnabled(enabled) && on(),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: 60_000,
+		refetchInterval: pollEvery(60_000),
 		refetchIntervalInBackground: false
 	});
 	/* The ordinary read always runs. A page that asks for a live credential
@@ -435,8 +445,37 @@ export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 	};
 }
 
-/** What the company spends, for an admin who reads it beside the owner; the owner reads it from
- * the whole company view. */
+/** Owner-only host counters, observed while Resources is visible. */
+export function companyComputeQuery(companyId: string, enabled: QueryEnabled = true) {
+	const client = useQueryClient();
+	const query = createQuery(() => ({
+		queryKey: ['company-compute', companyId],
+		queryFn: ({ signal }: { signal: AbortSignal }) => getCompanyCompute(companyId, signal),
+		enabled: queryEnabled(enabled),
+		staleTime: 10_000,
+		gcTime: 60_000,
+		retry: false,
+		refetchInterval: pollEvery(30_000),
+		refetchIntervalInBackground: false
+	}));
+	return {
+		get view() {
+			return (query.data as ComputeReading | undefined) ?? null;
+		},
+		get status() {
+			return statusOf(query);
+		},
+		get failure() {
+			return (query.error as Error | null) ?? null;
+		},
+		refresh: () => refresh(query),
+		async accept(view: ComputeReading) {
+			await client.cancelQueries({ queryKey: ['company-compute', companyId] });
+			client.setQueryData(['company-compute', companyId], view);
+		}
+	};
+}
+
 export function companySpendQuery(companyId: string, enabled: QueryEnabled = true) {
 	const query = createQuery(() => ({
 		queryKey: queryKeys.companySpend(companyId),
@@ -444,7 +483,7 @@ export function companySpendQuery(companyId: string, enabled: QueryEnabled = tru
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: 60_000,
+		refetchInterval: pollEvery(60_000),
 		refetchIntervalInBackground: false
 	}));
 	return {
@@ -924,7 +963,9 @@ export function conversationQuery(
 				})),
 				contextPath: contextPath ?? null
 			};
-			const localUrls = pending.attachments.flatMap((file) => (file.localUrl ? [file.localUrl] : []));
+			const localUrls = pending.attachments.flatMap((file) =>
+				file.localUrl ? [file.localUrl] : []
+			);
 			/* Long enough for the server's copy to replace them. */
 			const releaseLocal = () =>
 				window.setTimeout(() => localUrls.forEach((url) => URL.revokeObjectURL(url)), 120_000);
@@ -1047,6 +1088,7 @@ export function workActivityStream(companyId: string, actorId: string, workId: s
  * snapshot and replay; refetching its messages here as well only doubles the
  * same request and cancels one of them. */
 const ROOM_STREAM_OWNED = new Set(['room-messages', 'room-thread']);
+const HINT_GATHER_MS = 1_500;
 
 /**
  * One change stream per open company. Each hint refetches the company's
@@ -1082,21 +1124,34 @@ export function companyChangeStream(companyId: () => string, enabled: QueryEnabl
 			dropped = true;
 			void client.invalidateQueries({ queryKey: queryKeys.principal(company) });
 		};
+		/* A send and its reply, or a Work commission's several rows, arrive as a burst of hints;
+		 * each refetch of the screen is a dozen requests through the edge. So hints are gathered
+		 * for a moment and refetched once. A hidden tab only marks them stale, and catches up
+		 * once when it is shown (refetchOnWindowFocus). */
+		let pending = new Set<string>();
+		let flush: ReturnType<typeof setTimeout> | undefined;
 		source.addEventListener('change', (event) => {
 			/* A hint names what kind of thing changed, and only queries that kind can affect
 			 * refetch: a teammate's message never reloads settings, the principal or model
 			 * connections. An open Room's messages stay with the Room's own stream. A bare
 			 * `room_event` is not "only rooms": a message to the Exec is one too. */
-			const kinds = parseHint((event as MessageEvent).data);
-			void client.invalidateQueries({
-				predicate: (query) =>
-					query.queryKey.includes(company) &&
-					!ROOM_STREAM_OWNED.has(String(query.queryKey[0])) &&
-					hintTouches(kinds, query.queryKey),
-				refetchType: 'active'
-			});
+			for (const kind of parseHint((event as MessageEvent).data)) pending.add(kind);
+			if (flush) return;
+			flush = setTimeout(() => {
+				flush = undefined;
+				const kinds = [...pending];
+				pending = new Set();
+				void client.invalidateQueries({
+					predicate: (query) =>
+						query.queryKey.includes(company) &&
+						!ROOM_STREAM_OWNED.has(String(query.queryKey[0])) &&
+						hintTouches(kinds, query.queryKey),
+					refetchType: document.hidden ? 'none' : 'active'
+				});
+			}, HINT_GATHER_MS);
 		});
 		return () => {
+			clearTimeout(flush);
 			source.close();
 			changes.live = false;
 		};

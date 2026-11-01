@@ -252,18 +252,12 @@ API credentials can live in the Infisical vault, with only references kept in co
 
 ## Get started
 
-On macOS or Linux with Docker, one command installs the newest signed release as a service and
-opens it. On a Mac you need Docker Desktop or OrbStack, and `jq` (`brew install jq`). On
-Windows, run the same command in an Ubuntu (WSL2) terminal with systemd on.
+Restless runs as a service on macOS or Linux with Docker. On a Mac you need Docker Desktop or
+OrbStack, and `jq` (`brew install jq`); on Windows, use an Ubuntu (WSL2) terminal with systemd
+on. Install steps for the newest signed release are on [restless.run](https://restless.run).
 
-```sh
-curl -fsSL https://restless.run/install | bash
-```
-
-It verifies the release's signature, brings its own PostgreSQL if the machine has none, starts
-Restless at `http://127.0.0.1:7788` and opens it in your browser. On a server it prints the SSH
-port forward that reaches it instead. `restless.run/install` redirects to
-[`scripts/install-core.sh`](scripts/install-core.sh) on `main`; read it first if you prefer. Connect **Codex, Claude or an API provider** under
+Restless brings its own PostgreSQL if the machine has none and serves the office at
+`http://127.0.0.1:7788`. Connect **Codex, Claude or an API provider** under
 **Company → Intelligence**. Upgrades, backups and restores are in
 [self-hosting](docs/self-hosting.md).
 

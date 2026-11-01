@@ -2070,6 +2070,11 @@ async fn relay_pi_stream(
         }
     }
 
+    // Concrete Runtime tool objects carry local execution state, which is not
+    // part of pi-ai's Tool contract and is never consumed by the gateway.
+    // Remove it before the recursive model-id rewrite and upstream JSON parse.
+    let trimmed = trim_pi_tool_execution_state(&mut request);
+    let restored = restore_runtime_model_ids(&mut request, &grant.model);
     let mut upstream_request = state
         .http
         .post(format!(
@@ -2078,7 +2083,7 @@ async fn relay_pi_stream(
         ))
         .bearer_auth(state.upstream_for(&grant.company, provider).1)
         .header(CONTENT_TYPE, "application/json")
-        .body(if restore_runtime_model_ids(&mut request, &grant.model) {
+        .body(if trimmed || restored {
             Bytes::from(serde_json::to_vec(&request).expect("re-encode model request"))
         } else {
             body
@@ -2761,7 +2766,7 @@ async fn relay_anthropic_count_tokens(
                 .get("user-agent")
                 .and_then(|value| value.to_str().ok())
                 .filter(|value| value.starts_with("claude-cli/") && value.len() <= 160)
-                .unwrap_or("claude-cli/2.1.293");
+                .unwrap_or("claude-cli/2.1.296");
             upstream_request
                 .bearer_auth(token)
                 .header("anthropic-beta", beta)
@@ -2948,6 +2953,33 @@ pub fn runtime_model_id(model: &str) -> String {
 
 /// Replace every Runtime alias of the granted model, qualified or
 /// provider-local, with the exact id. Returns whether anything changed.
+/// Keep declared tool fields, including provider-specific extensions, intact.
+/// Only these Runtime execution objects are outside pi-ai 18.8.6's Tool type.
+fn trim_pi_tool_execution_state(request: &mut serde_json::Value) -> bool {
+    let Some(context) = request
+        .get_mut("context")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return false;
+    };
+    let mut changed = false;
+    for key in ["tools", "inactiveTools"] {
+        if let Some(tools) = context
+            .get_mut(key)
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for tool in tools {
+                if let Some(tool) = tool.as_object_mut() {
+                    for field in ["tool", "runner", "session"] {
+                        changed |= tool.remove(field).is_some();
+                    }
+                }
+            }
+        }
+    }
+    changed
+}
+
 fn restore_runtime_model_ids(value: &mut serde_json::Value, exact: &str) -> bool {
     let local = split_model(exact).map(|(_, id)| id).unwrap_or(exact);
     let (alias, local_alias) = (runtime_model_id(exact), runtime_model_id(local));
@@ -3116,6 +3148,22 @@ async fn refusal_message(status: StatusCode, upstream: reqwest::Response, model:
         return format!(
             "404 model {model} not found at the host model gateway; choose another model"
         );
+    }
+    if status == StatusCode::SERVICE_UNAVAILABLE {
+        let Ok(bytes) = upstream.bytes().await else {
+            return PLAIN.into();
+        };
+        let body =
+            serde_json::from_slice::<serde_json::Value>(&bytes[..bytes.len().min(8192)]).ok();
+        if body
+            .as_ref()
+            .and_then(|value| value.pointer("/error/code"))
+            .and_then(|value| value.as_str())
+            == Some("ai_credit_check_unavailable")
+        {
+            return "503 ai_credit_check_unavailable: AI is waiting for the credit service to reconnect.".into();
+        }
+        return PLAIN.into();
     }
     if status != StatusCode::PAYMENT_REQUIRED {
         return PLAIN.into();
@@ -4092,6 +4140,12 @@ pub async fn import_codex_oauth(
     Ok(())
 }
 
+/// Whether this actor uses a metered Claude key. Both the direct Messages
+/// route and the broker's API-key transport use OMP's explicit short cache.
+pub(crate) fn is_metered_anthropic(model: &str, billing: ModelBilling) -> bool {
+    model.starts_with("anthropic/") && billing == ModelBilling::MeteredApi
+}
+
 pub fn models_config(
     model: &str,
     runtime_url: &str,
@@ -4119,8 +4173,7 @@ pub fn models_config(
     if !recognised_runtime_relay || token_env != MODEL_CAPABILITY_ENV {
         bail!("refusing an unrecognised model gateway route");
     }
-    if provider == "anthropic" && billing == ModelBilling::MeteredApi && is_dual_provider(provider)
-    {
+    if is_metered_anthropic(model, billing) && is_dual_provider(provider) {
         // The broker's Anthropic credential is the account sign-in, so this per-token company
         // goes to the relay's Messages route, which sends its own API key to Anthropic.
         let id = serde_json::to_string(&runtime_model_id(model_id))?;
@@ -5309,6 +5362,7 @@ mission = "Choose native intelligence"
         CompanyConfig::save(
             &root,
             &CompanyConfig {
+                compute_limits: None,
                 agent_intelligence: Default::default(),
                 native_harnesses: Default::default(),
                 display_name: None,
@@ -5700,6 +5754,7 @@ mission = "Choose native intelligence"
     #[test]
     fn exact_readiness_is_reserved_for_runtime_pinned_catalogues() {
         let config = CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,
@@ -5739,6 +5794,7 @@ mission = "Choose native intelligence"
     #[test]
     fn one_companys_unroutable_model_does_not_stop_the_others() {
         let company = |name: &str, model: &str, failover: Vec<String>| CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,
@@ -5878,6 +5934,7 @@ mission = "Choose native intelligence"
     #[test]
     fn claude_agent_admission_accepts_an_account_sign_in_or_api_key() {
         let config = CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,
@@ -5957,6 +6014,83 @@ mission = "Choose native intelligence"
                 attempt_id: Some(attempt_id),
             }
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn pi_relay_removes_execution_objects_but_preserves_tool_contract() {
+        let root = test_root();
+        let (issuer, _spend, mut state) = test_relay_state(&root);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        state.upstream_url = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<serde_json::Value>(1);
+        let app = Router::new().route(
+            "/v1/pi/stream",
+            post(move |body: Bytes| {
+                let tx = tx.clone();
+                async move {
+                    tx.send(serde_json::from_slice(&body).unwrap())
+                        .await
+                        .unwrap();
+                    (StatusCode::BAD_REQUEST, "synthetic refusal")
+                }
+            }),
+        );
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let token = issuer
+            .issue_model_session(
+                "acme_test",
+                "delivery-lead",
+                "session_123",
+                "moonshot",
+                "moonshot/kimi-k3",
+                "metered_api",
+                "work:delivery",
+                None,
+                None,
+            )
+            .unwrap();
+        let declaration = serde_json::json!({
+            "name":"lookup", "description":"Search", "parameters":{"type":"object"},
+            "namespace":"alpha", "namespaceDescription":"Examples", "strict":true,
+            "deferLoading":true, "customFormat":{"syntax":"lark", "definition":"start: /x/"},
+            "customWireName":"search", "native":{"type":"example"}, "examples":[{"text":"test"}],
+            "futureExtension":{"session":"keep this"}
+        });
+        let mut tool = declaration.clone();
+        for field in ["tool", "runner", "session"] {
+            tool[field] = serde_json::json!({"secret":"synthetic", "large":"x".repeat(80_000)});
+        }
+        let request = serde_json::json!({
+            "modelId":"moonshot/kimi-k3", "stream":true, "options":{"sessionId":"keep"},
+            "context":{"systemPrompt":["Keep"], "messages":[{"role":"user", "content":"hello", "session":"keep"}],
+                "tools":[tool.clone()], "inactiveTools":[tool]}
+        });
+        let original_len = serde_json::to_vec(&request).unwrap().len();
+        let response = relay_pi_stream(
+            State(state),
+            bearer_headers(&token),
+            Bytes::from(serde_json::to_vec(&request).unwrap()),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let forwarded = rx.recv().await.unwrap();
+        assert_eq!(
+            forwarded["context"]["tools"],
+            serde_json::json!([declaration.clone()])
+        );
+        assert_eq!(
+            forwarded["context"]["inactiveTools"],
+            serde_json::json!([declaration])
+        );
+        assert_eq!(
+            forwarded["context"]["messages"],
+            request["context"]["messages"]
+        );
+        assert_eq!(forwarded["options"], request["options"]);
+        assert_eq!(forwarded["modelId"], request["modelId"]);
+        assert!(serde_json::to_vec(&forwarded).unwrap().len() < original_len / 20);
+        server.abort();
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -6789,6 +6923,7 @@ mission = "Choose native intelligence"
     #[test]
     fn one_cooldown_read_drives_exec_and_staff_candidate_order() {
         let config = CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,
@@ -6828,6 +6963,31 @@ mission = "Choose native intelligence"
         )
         .unwrap();
         assert_eq!(available, ["anthropic/claude-sonnet-4-5"]);
+    }
+
+    #[tokio::test]
+    async fn a_credit_service_outage_is_a_temporary_connection_problem() {
+        let response = reqwest::Response::from(
+            axum::http::Response::builder().status(503)
+                .body(r#"{"error":{"code":"ai_credit_check_unavailable","message":"AI is waiting for the credit service."}}"#.to_owned())
+                .unwrap(),
+        );
+        let message =
+            refusal_message(StatusCode::SERVICE_UNAVAILABLE, response, "test/model").await;
+        let blocked = crate::health::classify_provider_error(&message).expect("classified");
+        assert_eq!(blocked.kind, crate::health::BlockKind::Transport);
+        assert!(blocked.message().contains("credit service"));
+        assert!(!blocked.message().contains("owner action required"));
+        // The Runtime receives the gateway's JSON envelope, not this Rust string.
+        let forwarded = relay_error(StatusCode::SERVICE_UNAVAILABLE, &message);
+        let body = axum::body::to_bytes(forwarded.into_body(), 8192)
+            .await
+            .unwrap();
+        let received = std::str::from_utf8(&body).unwrap();
+        let from_content = crate::health::classify_provider_error_content(received)
+            .expect("the forwarded error is classified");
+        assert_eq!(from_content.kind, crate::health::BlockKind::Transport);
+        assert!(from_content.message().contains("credit service"));
     }
 
     #[tokio::test]
@@ -6918,6 +7078,7 @@ mission = "Choose native intelligence"
     #[test]
     fn explicit_staff_model_never_inherits_the_exec_fallback_chain() {
         let config = CompanyConfig {
+            compute_limits: None,
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
             display_name: None,

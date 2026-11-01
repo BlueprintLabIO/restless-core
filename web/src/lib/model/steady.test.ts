@@ -47,3 +47,10 @@ test('a read that started before a local write cannot land over it', async () =>
 	await stale.catch(() => undefined);
 	assert.deepEqual(client.getQueryData(key), { messages: [{ id: 1 }, { id: 2 }] });
 });
+
+test('handoff decision hints refresh receipts and Inbox without refreshing unrelated screens', () => {
+	assert.equal(hintTouches(['handoff_decision_changed'], ['handoff-decisions', 'acme']), true);
+	assert.equal(hintTouches(['handoff_decision_changed'], ['attention', 'acme']), true);
+	assert.equal(hintTouches(['handoff_decision_changed'], ['documents', 'acme']), false);
+	assert.equal(hintTouches(['handoff_decision_changed'], ['company-principal', 'acme']), false);
+});

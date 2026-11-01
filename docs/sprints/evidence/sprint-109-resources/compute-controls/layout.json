@@ -1,0 +1,26 @@
+[
+  {
+    "width": 1440,
+    "firstReadingShiftPx": 0,
+    "failedRefresh": "retains readings",
+    "unconfigured": "unknown",
+    "unavailable": "unknown",
+    "memoryWaitShiftPx": 0,
+    "memoryAdmission": "waiting and resumed",
+    "actorAdmission": "company/shared slots and startup memory",
+    "pendingLimitShiftPx": 0,
+    "recovery": "live"
+  },
+  {
+    "width": 390,
+    "firstReadingShiftPx": 0,
+    "failedRefresh": "retains readings",
+    "unconfigured": "unknown",
+    "unavailable": "unknown",
+    "memoryWaitShiftPx": 0,
+    "memoryAdmission": "waiting and resumed",
+    "actorAdmission": "company/shared slots and startup memory",
+    "pendingLimitShiftPx": 0,
+    "recovery": "live"
+  }
+]

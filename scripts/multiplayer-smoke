@@ -14,7 +14,7 @@
 #   RESTLESS_BROWSER_EXECUTABLE      Chromium; defaults to the one Playwright installed for web/
 #   RESTLESS_NATIVE_DOCUMENTS_IMAGE  installed Documents image; otherwise built from this checkout
 #   RESTLESS_IDENTITY_TEST_OUTPUT    new absolute directory to keep the evidence in
-#   --skip-build                     reuse target/debug/restlessd, web/build and node_modules
+#   --skip-build                     reuse $CARGO_TARGET_DIR (or target)/debug/restlessd, web/build and node_modules
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -78,7 +78,7 @@ if [[ -z "${RESTLESS_BROWSER_EXECUTABLE:-}" ]]; then
   export RESTLESS_BROWSER_EXECUTABLE
 fi
 
-export RESTLESS_TEST_DAEMON="$root/target/debug/restlessd"
+export RESTLESS_TEST_DAEMON="${CARGO_TARGET_DIR:-$root/target}/debug/restlessd"
 export RESTLESS_TEST_JOURNEY=multiplayer-journey.mjs
 status=0
 (cd "$root/services/identity" && node test/run-core.mjs) || status=$?

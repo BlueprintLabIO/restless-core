@@ -48,9 +48,16 @@ pub struct SpendLedger {
     /// column.
     stores: Arc<Mutex<HashMap<String, Arc<SpendStore>>>>,
     metered_turn_lanes: Arc<Mutex<HashMap<String, Arc<MeteredTurnLane>>>>,
+    native_prompt_lanes: Arc<Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
 }
 
 type Path2 = std::path::PathBuf;
+
+/// Holds a company native-prompt lane until the prompt's usage is recorded.
+pub enum NativePromptPermit {
+    Shared(tokio::sync::OwnedRwLockReadGuard<()>),
+    Exclusive(tokio::sync::OwnedRwLockWriteGuard<()>),
+}
 
 /// The first product workload that needed same-company parallel model work
 /// was EXP-05's four independently closing Staff units. Keep the outer limit
@@ -306,6 +313,12 @@ pub fn native_limit_reason(config: &CompanyConfig, usage: &NativeUsage) -> Optio
                 config.name, usage.tokens
             ));
         }
+        if usage.turns_without_tokens > 0 {
+            return Some(format!(
+                "[budget] {} has native turns without reported token usage this month, so its token limit cannot be checked. Native work is paused until the limit is cleared or usage can be accounted for.",
+                config.name
+            ));
+        }
     }
     None
 }
@@ -481,6 +494,7 @@ impl SpendLedger {
             root: Arc::new(root.to_path_buf()),
             stores: Arc::new(Mutex::new(HashMap::new())),
             metered_turn_lanes: Arc::new(Mutex::new(HashMap::new())),
+            native_prompt_lanes: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -876,12 +890,81 @@ impl SpendLedger {
         }
     }
 
+    /// Persist a prompt before another native prompt can be admitted. If the
+    /// harness reported no usage at all, retain an explicit unknown under the
+    /// transcript's stable turn ID instead of silently treating it as zero.
+    pub fn record_native_transcript(
+        &self,
+        auth: &crate::acp::AgentAuth,
+        actor: &str,
+        responsibility: &str,
+        work_id: Option<Uuid>,
+        attempt_id: Option<Uuid>,
+        transcript: &crate::acp::TurnTranscript,
+    ) -> Result<()> {
+        if !is_native_route(&auth.model) {
+            return Ok(());
+        }
+        let usage = transcript.usage.unwrap_or(crate::acp::TurnUsage {
+            turn_id: transcript.turn_id(),
+            ..Default::default()
+        });
+        anyhow::ensure!(
+            !usage.turn_id.is_nil(),
+            "native turn has no accounting identity"
+        );
+        let record = native_turn_record(auth, actor, responsibility, work_id, attempt_id, &usage);
+        self.store(&auth.company)?
+            .record_once(&record)
+            .map_err(|error| anyhow::anyhow!("native turn usage could not be recorded: {error}"))?;
+        Ok(())
+    }
+
     /// Native-harness use in the current UTC month.
     #[must_use]
     pub fn native_usage(&self, company: &str, now: DateTime<Utc>) -> NativeUsage {
         self.store(company)
             .map(|store| store.native_usage_since(company, month_start(now)))
             .unwrap_or_default()
+    }
+
+    /// Coordinate native prompts against the same company ledger. Uncapped
+    /// prompts share the lane; capped prompts wait for all earlier native
+    /// prompts and hold it through usage recording. The limit is re-read
+    /// under the exclusive permit before the caller starts the request.
+    pub async fn admit_native_prompt(
+        &self,
+        company: &str,
+        model: &str,
+    ) -> std::result::Result<Option<NativePromptPermit>, String> {
+        if !is_native_route(model) {
+            return Ok(None);
+        }
+        let lane = {
+            let mut lanes = self
+                .native_prompt_lanes
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            Arc::clone(
+                lanes
+                    .entry(company.to_string())
+                    .or_insert_with(|| Arc::new(tokio::sync::RwLock::new(()))),
+            )
+        };
+        let shared = Arc::clone(&lane).read_owned().await;
+        let config = CompanyConfig::load(&self.root, company).map_err(|error| {
+            format!("[budget] {company}'s native usage limit could not be read, so no native turn starts: {error:#}")
+        })?;
+        if config.native_monthly_turn_limit.is_none() && config.native_monthly_token_limit.is_none()
+        {
+            return Ok(Some(NativePromptPermit::Shared(shared)));
+        }
+        drop(shared);
+        let exclusive = lane.write_owned().await;
+        if let Some(reason) = self.native_turn_refusal(company, model) {
+            return Err(reason);
+        }
+        Ok(Some(NativePromptPermit::Exclusive(exclusive)))
     }
 
     /// The native fuse: refuse a new native turn once this month's use has
@@ -903,7 +986,22 @@ impl SpendLedger {
                 ))
             }
         };
-        native_limit_reason(&config, &self.native_usage(company, Utc::now()))
+        if config.native_monthly_turn_limit.is_none() && config.native_monthly_token_limit.is_none()
+        {
+            return None;
+        }
+        let usage = self.store(company).and_then(|store| {
+            store
+                .native_usage_since_checked(company, month_start(Utc::now()))
+                .map_err(|error| anyhow::anyhow!("native usage unavailable: {error}"))
+        });
+        match usage {
+            Ok(usage) => native_limit_reason(&config, &usage),
+            Err(error) => {
+                tracing::warn!(company, %error, "native usage could not be checked");
+                Some(format!("[budget] {company}'s native usage could not be checked, so no native turn starts while a limit is set."))
+            }
+        }
     }
 
     /// S04-T1. Drop a destroyed company's accounted spend.
@@ -1165,6 +1263,147 @@ mod tests {
         write_limits("");
         assert_eq!(ledger.native_turn_refusal(company, model), None);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_prompt_admission_coordinates_caps_without_blocking_peers() {
+        let root = std::env::temp_dir().join(format!("restless-native-lanes-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let write_config = |company: &str, limits: &str| {
+            std::fs::write(
+                root.join("companies").join(format!("{company}.toml")),
+                format!("name = \"{company}\"\n{limits}\n"),
+            )
+            .unwrap();
+        };
+        let company = "lane_test";
+        let peer = "lane_peer";
+        let model = "native-codex-oauth/test";
+        write_config(company, "native_monthly_turn_limit = 1");
+        write_config(peer, "native_monthly_turn_limit = 1");
+        let ledger = SpendLedger::open(&root).unwrap();
+        let first = ledger.admit_native_prompt(company, model).await.unwrap();
+        let mut second = tokio::spawn({
+            let ledger = ledger.clone();
+            async move { ledger.admit_native_prompt(company, model).await }
+        });
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(25), &mut second)
+                .await
+                .is_err()
+        );
+        let peer_permit = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            ledger.admit_native_prompt(peer, model),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        drop(peer_permit);
+        let auth = native_auth(company, model, "first");
+        ledger.record_native_turns(&auth, "exec", "work", None, None, &[native_turn(5)]);
+        drop(first);
+        assert!(
+            second.await.unwrap().is_err(),
+            "second prompt must recheck the recorded cap"
+        );
+
+        write_config(company, "");
+        let shared_one = ledger.admit_native_prompt(company, model).await.unwrap();
+        let shared_two = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            ledger.admit_native_prompt(company, model),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        write_config(company, "native_monthly_turn_limit = 1");
+        let mut capped = tokio::spawn({
+            let ledger = ledger.clone();
+            async move { ledger.admit_native_prompt(company, model).await }
+        });
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(25), &mut capped)
+                .await
+                .is_err()
+        );
+        drop(shared_one);
+        drop(shared_two);
+        assert!(
+            capped.await.unwrap().is_err(),
+            "new cap must wait for existing native prompts and recheck usage"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn native_token_cap_refuses_when_recorded_usage_is_unknown() {
+        let root = std::env::temp_dir().join(format!("restless-native-unknown-{}", Uuid::new_v4()));
+        let company = "native_unknown_test";
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        std::fs::write(
+            root.join("companies").join(format!("{company}.toml")),
+            format!("name = \"{company}\"\nnative_monthly_token_limit = 100\n"),
+        )
+        .unwrap();
+        let ledger = SpendLedger::open(&root).unwrap();
+        let auth = native_auth(company, "native-codex-oauth/test", "session");
+        let mut turn = native_turn(1);
+        turn.turn_tokens = None;
+        ledger.record_native_turns(&auth, "exec", "exec", None, None, &[turn]);
+        assert_eq!(
+            ledger
+                .native_usage(company, Utc::now())
+                .turns_without_tokens,
+            1
+        );
+        let refusal = ledger.native_turn_refusal(company, &auth.model);
+        assert!(
+            refusal.is_some(),
+            "unknown token use must not pass an owner token cap"
+        );
+        drop(ledger);
+        let ledger = SpendLedger::open(&root).unwrap();
+        assert!(
+            ledger.native_turn_refusal(company, &auth.model).is_some(),
+            "unknown usage survives restart"
+        );
+        std::fs::write(
+            root.join("companies").join(format!("{company}.toml")),
+            format!("name = \"{company}\"\nnative_monthly_turn_limit = 2\n"),
+        )
+        .unwrap();
+        assert_eq!(
+            ledger.native_turn_refusal(company, &auth.model),
+            None,
+            "missing tokens do not block a turn-only cap"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn native_cap_refuses_when_its_usage_store_cannot_open() {
+        let root = std::env::temp_dir().join(format!("restless-native-store-{}", Uuid::new_v4()));
+        let company = "native_store_test";
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        std::fs::write(
+            root.join("companies").join(format!("{company}.toml")),
+            format!("name = \"{company}\"\nnative_monthly_turn_limit = 2\n"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("cells").join(company)).unwrap();
+        std::fs::write(
+            root.join("cells").join(company).join("spend"),
+            "not a directory",
+        )
+        .unwrap();
+        let ledger = SpendLedger::open(&root).unwrap();
+        let refusal = ledger.native_turn_refusal(company, "native-codex-oauth/test");
+        assert!(
+            refusal.is_some(),
+            "an unreadable usage store must not pass an owner cap"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// The relay's exact charge for one supervised model session.

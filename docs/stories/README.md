@@ -209,3 +209,42 @@ These describe the accepted outcomes. A story row alone is not completion eviden
 | US-351 | core | I want Company › Computers to show every machine the company uses, what runs there now, and a Desktop button, while members see only their companies' machines. | S99-6 | multiplayer smoke: owner and member views |
 | US-352 | cloud | I want my cloud computer created in the region closest to me, chosen in set-up, so it is fast and never needs moving. | Cloud | Cloud smoke: wizard defaults to the nearest region |
 | US-353 | full | As Sydney Resale's owner, I want marketplace work to run on my home PC while everything else keeps running in the cloud when my PC is off. | S100 (step 2) | helper placement e2e |
+
+## Owner Reno session, 27 October (Sprint 109)
+
+| ID | Tier | Story | Fix | Check |
+| --- | --- | --- | --- | --- |
+| US-354 | core | I open Work on the board, and can choose List and reload that view. | S109 G1 | frontend check passed; real seeded browser journey pending |
+| US-355 | core | I focus and type in chat without keyboard hints appearing over my messages; shortcuts live on Send. | S109 C3 | frontend check passed; focus/typing geometry journey pending |
+| US-356 | core | Saving a key gives a temporary confirmation and leaves the Vault calm. | S109 C5 | real isolated Vault save and toast expiry observed |
+| US-357 | core | I see the selected agent's model state consistently and know before sending when a reply must wait. | S109 A1 | shared route regressions; live route and role matrix pending |
+| US-358 | core | The key I supplied is used by the email integration, and I can rename it without breaking its consumers. | S109 A2 | real Vault create/rename/edit/value/collision/scope round trip; browser Rename form |
+| US-359 | core | Asking Exec about an Inbox item keeps our conversation and links the item into it. | S109 B1 | real linked draft and legacy item-chat route readback |
+| US-360 | core | Exec answers plainly without a repeated opener or ritual closing line. | S109 D1/D2 | five historical Reno replays plus seven matched live pairs; retained replies, rubric and usage; hidden routing now checked and clarified |
+| US-361 | core | A step brings its prepared computer or explains why it is unavailable instead of leaving an empty area. | S109 A5 | real missing-attachment DNS handoff; attached computer and roles pending |
+| US-362 | core | I filter the Inbox to Open, Skipped, Done or All, and can restore a skipped item without opening a clipped drawer. | S109 B4 | desktop/phone filter and real restore journey; eight captures; authenticated owner/member boundary |
+| US-363 | core | Empty Work columns take less space and long card titles stay compact, with their full title available. | S109 G4 | desktop/phone captures; measured empty/populated column widths and two-line title geometry |
+| US-364 | core | A review stays on the candidate I opened; if its explanation or recorded candidate changes, I review the new version before accepting it. | S109 A4, partial | real PostgreSQL escalation scenarios; two-client desktop/phone version journey; mutable file bytes and delivery repair remain open |
+| US-365 | core | My document opens with one steady header, and Archive and Back to Inbox stay clear of what I am reading. | S109 C2/E1/E2 | real delayed connection, phone/desktop geometry and text-overlap checks, Archive/Undo and styled read-only recovery; real owner/admin/member collaboration, permission and revocation journey passed |
+| US-366 | core | Mark done, handoff Skip and outcome Accept advance immediately, offer Undo against the original saved deadline, survive a closed tab or daemon restart, and return a changed request with its reason. | S109 C1, handoff slice | real PostgreSQL deadline/cancel/replay/concurrency/version/access scenarios; daemon restart with one source effect; desktop/phone real UI, save failure, source change and explicit failure acknowledgement; Authority approvals and generic set-aside remain open |
+| US-367 | core | I can Undo accepting a native document or finishing shared editing; the saved note stays private until acceptance commits, and returns to my form after Undo or a closed tab. | S109 C1, native-document slice | eight native and six handoff real-PostgreSQL scenarios; stopped-daemon/migration recovery; thirteen real desktop/phone UI/source scenarios including a lost save reply and cold-load notice geometry; authenticated member privacy and Undo |
+
+## From the owner, 29 October — compute and AI efficiency first
+
+| ID | Tier | Story: I want … and I see … | Fix | Check |
+| --- | --- | --- | --- | --- |
+| US-368 | core | Idle companies do not keep Chrome or models running; opening the computer still works and a service restart cannot bypass the existing lean AI history rule. | S109 A0 first slice | Six real isolated computers: 74.3% lower matched idle computer memory, health probes do not pin Chrome, calibrated zero idle model calls; live cold viewer/link and broker restart; persisted context reuse gate and old-locator compatibility. [Evidence](../sprints/evidence/sprint-109-resources/README.md). Shared host caps and Resources UI remain open. |
+
+
+## From the owner, 29 October — bounded compute and visible usage
+
+| ID | Tier | Story | Fix | Check |
+| --- | --- | --- | --- | --- |
+| US-369 | core | Company work shares an enforced host budget that leaves the app responsive. Resources shows actual compute limits, company work, the computer and AI usage without waking a model or hiding missing readings. | S109 A0 shared-cap/Resources slice | Four real jobs hit shared memory/CPU limits while owner health stays ready; two idle companies make zero calibrated model calls; exhausted AI budget stops before a request; live owner/admin/member entry; desktop/phone, failure recovery and zero-shift resource reads. [Evidence](../sprints/evidence/sprint-109-resources/README.md). Queue/resume, CPU/RAM editing, history and matched AI efficiency benchmarks remain open. |
+
+| US-370 | core | New Work waits visibly when compute is full, resumes once capacity returns, and still completes its useful outcome. | S109 A0.3/A0.5 | verified locally and deployed: individual/shared admission, useful artifact recovery and shared Exec/teammate/Work limits; wider A0 remains open |
+| US-371 | core | I can open Resources and recover my company when its computer is overloaded, without health checks consuming the remaining capacity. | S109 A0.6/C7 | verified locally and deployed: pressure probe lifecycle, desktop/phone entry and owner-only readings; production images/pool checked, authenticated Reno journey unavailable |
+
+| US-372 | core | When a room connection drops, my loaded messages stay in place and my draft stays available; I can see that the room is offline. | S109 C5, room reconnect slice | Isolated real owner/member/admin journey checks desktop message position and draft while offline; owner repeats at phone width. Built-in browser visual review and full zero-jank gate remain open. |
+| US-373 | core | Exec confirmations do not move my conversation or cover the phone composer, and I can Undo a closed goal. | S109 C5, Exec notices | Desktop/phone warning fixture checks position, phone composer clearance and Undo; a real isolated owner journey closes and reopens a goal. Full release checks remain open. |
+| US-374 | core | A lead's model status, picker and top indicator describe that lead's own route, even when Exec's different connection is unavailable. | S109 A1, partial | Route regression, desktop/phone picker fixture, real-service saved model choice, and built-in desktop/phone observation of a ready lead alongside an unavailable Exec. Full A1 and release checks remain open. |

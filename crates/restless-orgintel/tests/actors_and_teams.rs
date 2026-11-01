@@ -2352,3 +2352,60 @@ async fn ordinary_roster_becomes_ordered_characters_once_without_rewriting_ident
     org.drop_schema().await.unwrap();
     result.unwrap();
 }
+
+#[tokio::test]
+async fn actor_job_start_lease_serializes_retirement() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping job actor lease scenario");
+        return;
+    };
+    let company = format!("joblease{}", uuid::Uuid::new_v4().simple());
+    let org = std::sync::Arc::new(OrgIntel::ensure(&url, &company).await.unwrap());
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    org.create_actor(
+        "design-writer",
+        "writer",
+        "Writer",
+        None,
+        "owner",
+        "Lease verification",
+    )
+    .await
+    .unwrap();
+    let lease = org
+        .lock_active_actor_for_job("design-writer")
+        .await
+        .unwrap()
+        .expect("active actor");
+    let other = std::sync::Arc::clone(&org);
+    let (started, ready) = tokio::sync::oneshot::channel();
+    let retire = tokio::spawn(async move {
+        let _ = started.send(());
+        other
+            .retire_actor("design-writer", "owner", "Verification complete")
+            .await
+    });
+    ready.await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert!(
+        !retire.is_finished(),
+        "retirement must wait for the job start boundary"
+    );
+    lease.rollback().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(15), retire)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(org
+        .lock_active_actor_for_job("design-writer")
+        .await
+        .unwrap()
+        .is_none());
+    org.drop_schema().await.unwrap();
+}

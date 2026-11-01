@@ -10,6 +10,7 @@
 	import { documentFaces } from '$lib/model/page-faces';
 	import DocumentBlockMenus from './DocumentBlockMenus.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import './document-print.css';
 	import { Editor, type JSONContent } from '@tiptap/core';
 	import { isChangeOrigin } from '@tiptap/extension-collaboration';
@@ -1504,6 +1505,8 @@
 			title={(countsLabel ? `${countsLabel}. ` : '') +
 				(saveProblem
 					? 'Recent edits are not being saved.'
+					: collaborationFailure
+						? collaborationFailure
 					: writingOffline
 						? 'Your edits are kept on this device and sync when the connection returns.'
 						: canWriteLive
@@ -1520,6 +1523,8 @@
 					? 'Adding file…'
 					: saveProblem
 						? 'Not saved'
+						: collaborationFailure
+							? 'Read only'
 						: writingOffline
 							? unsyncedChanges > 0
 								? 'Saved on this device, syncing'
@@ -2001,16 +2006,12 @@
 		</div>
 		{#if collaborationState === 'synced' || collaborationState === 'read-only' || editor}
 			<div class="editor-mount" bind:this={editorElement}></div>
+		{:else if collaborationState === 'connecting' && !collaborationFailure}
+			<div class="document-opening" aria-busy="true"><Skeleton label="Opening document" variant="lines" count={8} /></div>
 		{:else}
 			<div class="named-version-projection">
-				<div class="projection-note">
-					<strong>Last saved version</strong><span
-						>{collaborationState === 'connecting'
-							? 'Live document is connecting.'
-							: 'Read only.'}</span
-					>
-				</div>
-				<div class="rendered-document">
+				<span class="sr-only">Showing the last saved version.</span>
+				<div class="rendered-document native-document-body">
 					{@html withDocumentImages(view.current_version.rendered_html, companyId)}
 				</div>
 			</div>
@@ -2219,6 +2220,10 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	.document-opening {
+		max-width: 672px;
+		margin-inline: auto;
+	}
 	/* Documents read like Claude Docs (S101): a 672px column, 16px/1.5 text, headings on a
 	 * 2 / 1.375 / 1.125 / 1 em scale with more room above than below, and .6em between blocks. */
 	.paper-title {
@@ -2268,6 +2273,7 @@
 	}
 	.collaboration-state {
 		min-width: 0;
+		width: 8em;
 		display: flex;
 		align-items: center;
 		gap: 6px;
@@ -2827,20 +2833,6 @@
 		position: relative;
 		z-index: 1;
 	}
-	.projection-note {
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-2);
-		margin-bottom: var(--space-5);
-		padding-bottom: var(--space-2);
-		border-bottom: 1px solid var(--border);
-		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-ui);
-		font-variant-numeric: tabular-nums;
-	}
-	.projection-note strong {
-		color: var(--text-secondary);
-	}
 	:global(.native-document-body) {
 		min-height: 55vh;
 		padding: 0 2px 64px;
@@ -3195,10 +3187,6 @@
 		white-space: nowrap;
 		user-select: none;
 	}
-	:global(.rendered-document) {
-		color: var(--ink);
-		font: 400 var(--t-body) / 1.72 var(--font-ui);
-	}
 	@keyframes spin {
 		to {
 			transform: rotate(360deg);
@@ -3206,17 +3194,12 @@
 	}
 	@container document-editor (max-width: 760px) {
 		.editor-head {
-			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-columns: minmax(0, 1fr) auto auto;
 			gap: var(--space-2);
 			padding-inline: var(--space-3);
 		}
 		.collaboration-state {
-			grid-column: 1;
-			grid-row: 2;
-		}
-		.editor-actions {
-			grid-column: 2;
-			grid-row: 1 / 3;
+			width: 5.5em;
 		}
 		.table-bar {
 			padding-inline: var(--space-3);

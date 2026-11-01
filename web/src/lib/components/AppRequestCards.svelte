@@ -31,8 +31,14 @@
 		void companyId;
 		void actor;
 		void load();
-		const timer = setInterval(() => void load(), 20_000);
-		return () => clearInterval(timer);
+		/* Each look is a request through the edge: not while the tab is hidden, and seldom. */
+		const timer = setInterval(() => document.hidden || void load(), 60_000);
+		const shown = () => document.hidden || void load();
+		document.addEventListener('visibilitychange', shown);
+		return () => {
+			clearInterval(timer);
+			document.removeEventListener('visibilitychange', shown);
+		};
 	});
 
 	async function act(request: AppRequest, work: () => Promise<void>) {

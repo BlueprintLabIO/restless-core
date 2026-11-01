@@ -204,6 +204,16 @@ pub async fn run(daemon: Arc<Daemon>) {
 
         for config in configs {
             let company = config.name.as_str();
+            if config.compute_limits.is_some() && running.contains(company) {
+                for target in [
+                    runtime::ComputeTarget::Runtime,
+                    runtime::ComputeTarget::Computer,
+                ] {
+                    if let Err(error) = runtime::apply_compute_limits(&config, target).await {
+                        tracing::debug!(company, %error, "saved compute limits remain pending");
+                    }
+                }
+            }
             if !running.contains(company) {
                 quiet_since.remove(company);
                 continue;
@@ -394,8 +404,10 @@ async fn wake(daemon: &Daemon, config: &CompanyConfig, reason: &str) -> bool {
         tracing::warn!(company, reason, "{message}");
         false
     };
-    if let Err(error) = runtime::up(config, false).await {
-        return failed(format!("could not wake the company computer: {error:#}"));
+    match runtime::up_automatically(config).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return false,
+        Err(error) => return failed(format!("could not wake the company computer: {error:#}")),
     }
     if !matches!(runtime::status(company).await, Ok(ContainerStatus::Running)) {
         return failed("the company computer did not come up after waking".into());

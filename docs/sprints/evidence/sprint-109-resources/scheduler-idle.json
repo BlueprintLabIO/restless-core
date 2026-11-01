@@ -1,0 +1,64 @@
+{
+  "startedAt": "2026-10-29T21:14:22.494971+00:00",
+  "image": "sha256:20fe9dbe057b41b020c98fa95d5bac890b4afd2455668e2a6dad760d847ab5ee",
+  "daemonSha256": "c50f0c1091ff9f866b7d5efe174e0a9139f099f73976f054f9f142b9e29a7a9e",
+  "sourceRevision": "49ab1fe87f2b45f7915c4cdbb3c1885ff687d98b",
+  "schedulerDisabled": false,
+  "repairSweepSeconds": 300,
+  "observationSeconds": 330,
+  "status": "pass",
+  "positiveControlCalls": 4,
+  "idleStartedAt": "2026-10-29T21:15:43.246259+00:00",
+  "idleElapsedSeconds": 330.0001168739982,
+  "idleModelCalls": 0,
+  "postIdleControlCalls": 4,
+  "samples": [
+    {
+      "at": "2026-10-29T21:15:43.247675+00:00",
+      "modelCalls": 0
+    },
+    {
+      "at": "2026-10-29T21:16:13.252577+00:00",
+      "modelCalls": 0
+    },
+    {
+      "at": "2026-10-29T21:16:43.257813+00:00",
+      "modelCalls": 0
+    },
+    {
+      "at": "2026-10-29T21:17:13.262455+00:00",
+      "modelCalls": 0
+    },
+    {
+      "at": "2026-10-29T21:17:43.267115+00:00",
+      "modelCalls": 0
+    },
+    {
+      "at": "2026-10-29T21:18:13.271707+00:00",
+      "modelCalls": 0
+    },
+    {
+      "at": "2026-10-29T21:18:43.276329+00:00",
+      "modelCalls": 0
+    },
+    {
+      "at": "2026-10-29T21:19:13.280955+00:00",
+      "modelCalls": 0
+    },
+    {
+      "at": "2026-10-29T21:19:43.285667+00:00",
+      "modelCalls": 0
+    },
+    {
+      "at": "2026-10-29T21:20:13.290607+00:00",
+      "modelCalls": 0
+    },
+    {
+      "at": "2026-10-29T21:20:43.295621+00:00",
+      "modelCalls": 0
+    }
+  ],
+  "schedulerDisableWarningSeen": false,
+  "cleanupProblems": [],
+  "finishedAt": "2026-10-29T21:21:45.754343+00:00"
+}

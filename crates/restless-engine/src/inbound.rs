@@ -614,6 +614,7 @@ mod tests {
         crate::runtime::CompanyConfig::save(
             root,
             &crate::runtime::CompanyConfig {
+                compute_limits: None,
                 agent_intelligence: Default::default(),
                 native_harnesses: Default::default(),
                 display_name: None,

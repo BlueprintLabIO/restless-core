@@ -22,6 +22,7 @@ if ($LASTEXITCODE -ne 0) {
 
 # The exact image, by digest, from Core's public registry; the plane sends it only when that fails.
 $Image = '__RESTLESS_IMAGE__'
+$ImageId = '__RESTLESS_IMAGE_ID__'
 Write-Host 'Fetching the Restless computer image. This is a few GB, once.'
 if ($Image) {
   docker pull -q $Image *> $null
@@ -40,6 +41,11 @@ try {
   Remove-Item -Force -ErrorAction SilentlyContinue $Archive
 }
 $Image = ($Loaded | Select-String -Pattern '^Loaded image(?: ID)?: (.+)$' | Select-Object -Last 1).Matches.Groups[1].Value
+# A download must be exactly the image the plane allows, not whatever arrived.
+if ($Image -and $ImageId -and ((docker image inspect -f '{{.Id}}' $Image 2>$null) -ne $ImageId)) {
+  Write-Host 'The downloaded image is not the one your plane allows. Nothing was started.'
+  return
+}
 }
 if (-not $Image) {
   Write-Host 'The image did not load. Try again with a new code.'

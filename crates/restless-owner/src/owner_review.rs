@@ -120,6 +120,7 @@ pub(crate) struct OwnerReviewInput {
     pub(crate) decision: String,
     #[serde(default)]
     pub(crate) feedback: String,
+    pub(crate) expected_version: Option<restless_orgintel::OwnerReviewVersion>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -139,6 +140,13 @@ pub(crate) async fn review_outcome(
     AxumPath((company, handoff)): AxumPath<(String, Uuid)>,
     Json(input): Json<OwnerReviewInput>,
 ) -> impl IntoResponse {
+    let Some(version) = input.expected_version.as_ref() else {
+        return api_error(
+            StatusCode::CONFLICT,
+            "review_version",
+            "Open the current review before deciding. Refresh this page if it was already open.",
+        );
+    };
     let decision = match input.decision.trim() {
         "accept" => restless_orgintel::OwnerReviewDecision::Accepted,
         "request_changes" => restless_orgintel::OwnerReviewDecision::ChangesRequested,
@@ -163,11 +171,12 @@ pub(crate) async fn review_outcome(
     match org
         // The owner reviews what is theirs; the person who owns the Work's team reviews what
         // Exec prepared for them. OrgIntel checks whose review it is.
-        .decide_review_as(
+        .decide_review_as_seen(
             handoff,
             handoff_resolver(&principal),
             decision,
             &input.feedback,
+            version,
         )
         .await
     {
@@ -177,6 +186,11 @@ pub(crate) async fn review_outcome(
             "recorded": true,
         }))
         .into_response(),
+        Err(restless_orgintel::OrgIntelError::ReviewChanged) => api_error(
+            StatusCode::CONFLICT,
+            "review_version",
+            restless_orgintel::OrgIntelError::ReviewChanged.plain_message(),
+        ),
         Err(error) => api_error(StatusCode::BAD_REQUEST, "review", error.plain_message()),
     }
 }

@@ -114,3 +114,63 @@ async fn authenticated_provider_observation_resumes_only_the_exact_human_step() 
 
     org.drop_schema().await.unwrap();
 }
+
+#[tokio::test]
+async fn a_payment_on_a_providers_own_page_is_marked_done_like_any_human_step() {
+    let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        return;
+    };
+    let org = OrgIntel::ensure(
+        &database_url,
+        &format!("paydone{}", uuid::Uuid::new_v4().simple()),
+    )
+    .await
+    .unwrap();
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    let work = org
+        .add_work(NewWork {
+            owner_id: "exec",
+            title: "Register the domain",
+            outcome: "The domain is registered to the company",
+            goal_id: None,
+            priority: 50,
+            expected_artifact: "registrar receipt",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: None,
+        })
+        .await
+        .unwrap();
+    let handoff = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: work,
+            attempt_id: None,
+            requested_by: "exec",
+            category: OwnerHandoffCategory::PaymentConfirmation,
+            requested_action: "register the domain at the registrar and pay with your card",
+            prepared_state: "the registrar's checkout is open on the company computer",
+            resume_condition: "the owner says the domain is paid for",
+        })
+        .await
+        .unwrap();
+    org.complete_owner_human_step(
+        handoff,
+        "Owner confirmed the requested human step is complete.",
+    )
+    .await
+    .unwrap();
+    let graph = org.work_graph_snapshot().await.unwrap();
+    assert_eq!(
+        graph
+            .handoffs
+            .iter()
+            .find(|h| h.id == handoff)
+            .unwrap()
+            .state,
+        OwnerHandoffState::Resolved
+    );
+}

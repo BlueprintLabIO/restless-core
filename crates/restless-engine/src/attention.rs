@@ -94,6 +94,8 @@ pub struct AttentionItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review_target: Option<ReviewTargetRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_version: Option<restless_orgintel::OwnerReviewVersion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub native_document: Option<restless_orgintel::DocumentAttentionReference>,
     /// A request routed to this person (S80): `source.kind = "direction_request"`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -382,6 +384,7 @@ async fn teammate_messages(
             responsible_actor: Some(actor),
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None,
             direction_request: None,
             charter_proposal: None,
@@ -474,6 +477,7 @@ async fn conversation_requests(
                     responsible_actor: Some(actor),
                     runtime_attach: None,
                     review_target: None,
+                    review_version: None,
                     native_document: None,
                     direction_request: None,
                     charter_proposal: None,
@@ -551,6 +555,7 @@ async fn conversation_requests(
                 responsible_actor: Some(actor),
                 runtime_attach: None,
                 review_target: None,
+                review_version: None,
                 native_document: None,
                 direction_request: None,
                 charter_proposal: None,
@@ -765,6 +770,7 @@ fn spend_warning_item(
         responsible_actor: None,
         runtime_attach: None,
         review_target: None,
+        review_version: None,
         native_document: None,
         direction_request: None,
         charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -772,7 +778,7 @@ fn spend_warning_item(
             id: "open-spend-limit".into(),
             label: "Open spend limit".into(),
             role: "inspect",
-            consequence: "Opens Company › Limits, where the limit and its warning are set.".into(),
+            consequence: "Opens Company › Resources, where the limit and its warning are set.".into(),
             next_state: "The warning clears when spend falls below it, the limit changes, or a new month starts.".into(),
             href: Some(format!("/{}/company/limits#spend", config.name)),
         }],
@@ -844,6 +850,7 @@ fn spend_stopped_item(
         responsible_actor: None,
         runtime_attach: None,
         review_target: None,
+        review_version: None,
         native_document: None,
         direction_request: None,
         charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -851,7 +858,7 @@ fn spend_stopped_item(
             id: "open-spend-limit".into(),
             label: "Raise spend limit".into(),
             role: "inspect",
-            consequence: "Opens Company › Limits, where the limit is set.".into(),
+            consequence: "Opens Company › Resources, where the limit is set.".into(),
             next_state: "Raising the limit above spend tells Exec to resume the stopped work.".into(),
             href: Some(format!("/{}/company/limits#spend", config.name)),
         }],
@@ -948,6 +955,7 @@ async fn account_headroom_item(
         responsible_actor: None,
         runtime_attach: None,
         review_target: None,
+        review_version: None,
         native_document: None,
         direction_request: None,
         charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -1029,6 +1037,7 @@ async fn machine_offline_item(
         responsible_actor: None,
         runtime_attach: None,
         review_target: None,
+        review_version: None,
         native_document: None,
         direction_request: None,
         charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -1173,6 +1182,7 @@ fn model_cooldown_items(
                 responsible_actor: None,
                 runtime_attach: None,
                 review_target: None,
+                review_version: None,
                 native_document: None,
                 direction_request: None,
                 charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -1276,6 +1286,7 @@ async fn account_items(
                 responsible_actor: None,
                 runtime_attach: None,
                 review_target: None,
+                review_version: None,
                 native_document: None,
                 direction_request: None,
                 charter_proposal: None,
@@ -1762,6 +1773,7 @@ fn effect_outcome_item(outcome: EffectOutcome) -> AttentionItem {
         responsible_actor: outcome.actor,
         runtime_attach: None,
         review_target: None,
+        review_version: None,
         native_document: None,
         direction_request: None,
         charter_proposal: None,
@@ -1860,6 +1872,7 @@ async fn stranded_agent_items(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None,
             direction_request: None,
             charter_proposal: None,
@@ -1955,6 +1968,7 @@ async fn direction_items(
                 responsible_actor: None,
                 runtime_attach: None,
                 review_target: None,
+                review_version: None,
                 native_document: None,
                 actions: Vec::new(),
                 can_continue: false,
@@ -2084,6 +2098,7 @@ async fn publication_items(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None,
             direction_request: None,
             charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -2163,6 +2178,7 @@ async fn charter_item(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None,
             actions: Vec::new(),
             can_continue: false,
@@ -2378,6 +2394,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![
                 AttentionAction {
@@ -2472,6 +2489,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![
                 AttentionAction {
@@ -2548,6 +2566,7 @@ async fn project_queue(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            review_version: None,
             native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![AttentionAction {
                 id: "open-app".into(),
@@ -2785,6 +2804,11 @@ async fn project_queue(
             .flatten();
         let outcome_review = brief
             .is_some_and(|brief| brief.kind == restless_orgintel::OwnerBriefKind::OutcomeReview);
+        let review_version = Some(restless_orgintel::OwnerReviewVersion {
+            handoff: handoff.conversation_input(),
+            work_revision: item.revision,
+            artifact_id: review_artifact.as_ref().map(|artifact| artifact.id),
+        });
         let review_sources = if outcome_review {
             match org {
                 Some(org) => match org.work_external_message_sources(handoff.work_id).await {
@@ -3050,7 +3074,7 @@ async fn project_queue(
         let fallback_title = app_titles
             .get(&handoff.id)
             .map(String::as_str)
-            .unwrap_or_else(|| human_step_title(handoff.category));
+            .unwrap_or(handoff.requested_action.trim());
         let payment_title = payment.map(|payment| {
             format!(
                 "Approve {} {} to {}",
@@ -3109,6 +3133,8 @@ async fn project_queue(
             title: projected_handoff_title(
                 preparing,
                 payment_title.as_deref(),
+                (handoff.category != restless_orgintel::OwnerHandoffCategory::OwnerJudgement)
+                    .then_some(handoff.requested_action.as_str()),
                 brief.map(|brief| brief.headline.as_str()),
                 fallback_title,
             ),
@@ -3158,6 +3184,7 @@ async fn project_queue(
             responsible_actor,
             runtime_attach,
             review_target,
+            review_version,
             native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions,
             preparing,
@@ -3227,6 +3254,7 @@ async fn project_queue(
                 responsible_actor: actors.get(&request.requested_by_actor_id).cloned(),
                 runtime_attach: None,
                 review_target: None,
+                review_version: None,
                 created_at: request.created_at,
                 native_document: Some(request),
                 direction_request: None,
@@ -3284,6 +3312,7 @@ async fn project_queue(
                         responsible_actor: None,
                         runtime_attach: None,
                         review_target: None,
+                        review_version: None,
                         native_document: None,
                         direction_request: None,
                         charter_proposal: None,
@@ -3425,6 +3454,7 @@ async fn project_queue(
                                     responsible_actor: actors.get("exec").cloned(),
                                     runtime_attach: None,
                                     review_target: None,
+                                    review_version: None,
                                     native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
                                     actions: vec![action],
                                     can_continue: false,
@@ -3468,7 +3498,7 @@ async fn project_queue(
             uncertainty: Some("Exec makes a judgment on each proposed send against this mandate. It can make mistakes; approval of this mandate is not a guarantee that every send will be appropriate.".into()),
             deadline: Some(proposal.expires_at.to_rfc3339()), brief_status: "source-observed", brief_author: None, briefed_at: None,
             evidence: vec![AttentionEvidence { label: "Exact proposed email mandate".into(), uri: None, content: Some(limits), kind: "authority-email-mandate-proposal" }, AttentionEvidence { label: "Exec judgement".into(), uri: None, content: Some(if note.is_empty() { "No additional rationale supplied.".into() } else { note.into() }), kind: "exec-judgement" }],
-            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, review_version: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![
                 AttentionAction { id: "approve-email-mandate".into(), label: "Approve mandate".into(), role: "decision", consequence: "Grants the exact reviewed email mandate and its limits.".into(), next_state: "The pending proposal is resolved and the mandate becomes active.".into(), href: None },
                 AttentionAction { id: "decline-email-mandate".into(), label: "Decline mandate".into(), role: "decision", consequence: "Declines this exact email mandate proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
@@ -3517,7 +3547,16 @@ async fn project_queue(
         (priority, Reverse(item.created_at))
     });
 
-    let health = runtime::cockpit_browser_health(&config.name).await.ok();
+    // Owner decisions live outside the company computer. A slow browser probe
+    // must not hold the whole Inbox (and every navigation badge) behind it.
+    // Unknown health preserves the source facts without inventing a failure.
+    let health = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        runtime::cockpit_browser_health(&config.name),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok);
     let (runtime_health, browser_health) = match health.as_ref() {
         Some((ContainerStatus::Running, browser)) => (
             "available".to_string(),
@@ -3611,6 +3650,7 @@ async fn project_queue(
                     responsible_actor: None,
                     runtime_attach: None,
                     review_target: None,
+                    review_version: None,
                     native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
                     actions: vec![AttentionAction {
                         id: if route_missing { "open-intelligence-provider".into() } else { "open-company-health".into() },
@@ -3662,6 +3702,7 @@ async fn project_queue(
                     responsible_actor: None,
                     runtime_attach: None,
                     review_target: None,
+                    review_version: None,
                     native_document: None,
                     direction_request: None,
                     charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
@@ -3767,6 +3808,7 @@ async fn project_queue(
                     responsible_actor: actors.get(asker).cloned(),
                     runtime_attach: None,
                     review_target: None,
+                    review_version: None,
                     native_document: None,
                     direction_request: None,
                     charter_proposal: None, account_use: None, account_request: None, request_fields: None,
@@ -4096,7 +4138,7 @@ fn handoff_decisions(
             let title = payment.map_or_else(
                 || {
                     handoff.owner_brief.as_ref().map_or_else(
-                        || human_step_title(handoff.category).to_string(),
+                        || handoff.requested_action.trim().to_string(),
                         |brief| brief.headline.clone(),
                     )
                 },
@@ -4537,7 +4579,7 @@ fn select_review_artifact(
                 && artifact.kind == restless_orgintel::REVIEW_TARGET_ARTIFACT_KIND
                 && (attempt_id.is_none() || artifact.attempt_id == attempt_id)
         })
-        .max_by_key(|artifact| artifact.created_at)
+        .max_by_key(|artifact| (artifact.created_at, artifact.id))
 }
 
 fn reader_work_status(status: restless_orgintel::WorkStatus) -> &'static str {
@@ -4602,21 +4644,6 @@ fn app_request_title(app: &str) -> String {
     }
 }
 
-fn human_step_title(category: restless_orgintel::OwnerHandoffCategory) -> &'static str {
-    match category {
-        restless_orgintel::OwnerHandoffCategory::Identity => "Confirm your identity",
-        restless_orgintel::OwnerHandoffCategory::Captcha => "Complete the human check",
-        restless_orgintel::OwnerHandoffCategory::Mfa => "Confirm the sign-in",
-        restless_orgintel::OwnerHandoffCategory::LegalAttestation => {
-            "Provide the legal attestation"
-        }
-        restless_orgintel::OwnerHandoffCategory::PaymentConfirmation => "Confirm the payment",
-        restless_orgintel::OwnerHandoffCategory::OwnerJudgement => {
-            "A decision needs your judgement"
-        }
-    }
-}
-
 fn encode_component(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
@@ -4675,14 +4702,18 @@ fn is_runtime_local_url(value: &str) -> bool {
 fn projected_handoff_title(
     preparing: bool,
     payment_title: Option<&str>,
+    human_action: Option<&str>,
     brief_title: Option<&str>,
     fallback_title: &str,
 ) -> String {
     if preparing {
         return "Preparing your next step".into();
     }
+    let action =
+        human_action.and_then(|action| action.lines().map(str::trim).find(|line| !line.is_empty()));
     payment_title
-        .or(brief_title)
+        .or(action)
+        .or(brief_title.filter(|title| !title.trim().is_empty()))
         .unwrap_or(fallback_title)
         .into()
 }
@@ -5396,10 +5427,54 @@ mod tests {
             projected_handoff_title(
                 true,
                 None,
+                Some("Use the current sign-in prompt"),
                 Some("Expired device-code instructions"),
                 "Confirm your identity",
             ),
             "Preparing your next step"
+        );
+    }
+
+    #[test]
+    fn human_step_title_uses_the_actual_requested_action() {
+        for action in [
+            "Add the GoDaddy DNS record",
+            "Add the Cloudflare DNS record",
+        ] {
+            assert_eq!(
+                projected_handoff_title(
+                    false,
+                    None,
+                    Some(action),
+                    Some("Confirm your identity"),
+                    "Fallback"
+                ),
+                action
+            );
+        }
+        assert_eq!(
+            projected_handoff_title(
+                false,
+                Some("Approve 5 AUD"),
+                Some("Open payment"),
+                Some("Generic"),
+                "Fallback"
+            ),
+            "Approve 5 AUD"
+        );
+        assert_eq!(
+            projected_handoff_title(
+                false,
+                None,
+                Some("   "),
+                Some("Review the outcome"),
+                "Fallback"
+            ),
+            "Review the outcome"
+        );
+        assert_eq!(
+            projected_handoff_title(false, None, None, Some("Review the outcome"), "Fallback"),
+            "Review the outcome"
         );
     }
 

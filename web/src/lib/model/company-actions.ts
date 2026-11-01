@@ -125,15 +125,22 @@ export interface OutputFile {
 	modified: string | null;
 }
 
-/** Every file under /company/outputs, for the Library's Folders view. Owner only. */
+/** A stable position in the company's output listing. */
+export interface OutputCursor { modified: number; path: string; revision?: string }
+
+/** One bounded page of output files for the Library's Folders view. Owner only. */
 export async function readLibraryOutputs(
 	company: string,
-	signal?: AbortSignal
-): Promise<OutputFile[]> {
-	const body = await ownerRequest<{ files?: OutputFile[] }>(`${api(company)}/library/outputs`, {
-		signal
-	}).catch(() => null);
-	return body?.files ?? [];
+	signal?: AbortSignal,
+	cursor?: OutputCursor,
+	fresh = false
+): Promise<{ files: OutputFile[]; truncated: boolean; next: OutputCursor | null; skippedNames: number; revision: string | null; stale: boolean }> {
+	const params = cursor ? new URLSearchParams({ modified: String(cursor.modified), path: cursor.path, ...(cursor.revision ? { revision: cursor.revision } : {}) }) : new URLSearchParams(fresh ? { fresh: 'true' } : {});
+	const query = params.size ? `?${params}` : '';
+	const body = await ownerRequest<{ files?: OutputFile[]; truncated?: boolean; next_cursor?: OutputCursor | null; skipped_names?: number; revision?: string; stale?: boolean }>(
+		`${api(company)}/library/outputs${query}`, { signal }
+	);
+	return { files: body?.files ?? [], truncated: body?.truncated === true, next: body?.next_cursor ?? null, skippedNames: Number.isSafeInteger(body?.skipped_names) && (body?.skipped_names ?? 0) > 0 ? body!.skipped_names! : 0, revision: body?.revision ?? null, stale: body?.stale === true };
 }
 
 export async function readLibraryModified(

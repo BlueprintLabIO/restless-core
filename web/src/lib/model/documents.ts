@@ -828,30 +828,6 @@ export function requestDocumentReview(
 	);
 }
 
-export function acceptDocumentReview(
-	company: string,
-	document: string,
-	review: string,
-	expectedDocumentVersion: number,
-	expectedReviewVersion: number,
-	acceptedVersionName: string,
-	commandId: string,
-	feedback = ''
-): Promise<DocumentReviewResolution> {
-	return documentJson(
-		`${documentsPath(company, document)}/reviews/${encodeURIComponent(review)}/accept`,
-		mutation(
-			{
-				expected_document_version: expectedDocumentVersion,
-				expected_review_version: expectedReviewVersion,
-				accepted_version_name: acceptedVersionName,
-				...(feedback.trim() ? { feedback: feedback.trim() } : {})
-			},
-			commandId
-		)
-	);
-}
-
 /** Send a Work-bound review back to the Work that asked for it, with what should change. */
 export function requestDocumentReviewChanges(
 	company: string,
@@ -1367,15 +1343,4 @@ export function documentMarkdownDownload(title: string, markdown: string): strin
 		.trim();
 	if (!heading || (body.startsWith('#') && first === heading)) return `${body.trimEnd()}\n`;
 	return `# ${heading}\n\n${body.trimEnd()}\n`;
-}
-
-export function resolveDocumentCollaboration(
-	company: string,
-	document: string,
-	request: string
-): Promise<unknown> {
-	return documentJson(
-		`${documentsPath(company, document)}/collaboration-requests/${encodeURIComponent(request)}/resolve`,
-		{ method: 'POST' }
-	);
 }

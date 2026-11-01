@@ -21,6 +21,7 @@
 		sub,
 		subTone = '',
 		reading,
+		readingTitle,
 		readingTone = '',
 		strong = false,
 		quiet = false,
@@ -47,6 +48,7 @@
 		subTone?: SidebarTone;
 		/** The current value, at the end of the row: "Connected", "4 keys". */
 		reading?: string;
+		readingTitle?: string;
 		readingTone?: SidebarTone;
 		/** Unread: the label is bold. */
 		strong?: boolean;
@@ -73,7 +75,7 @@
 			>{/if}</span
 	>{#if trailing}{@render trailing()}{:else if reading}<span
 			class="sidebar-reading {readingTone}"
-			title={reading}>{reading}</span
+			title={readingTitle ?? reading}>{reading}</span
 		>{:else if count != null && count > 0}<b
 			class="sidebar-count"
 			class:todo

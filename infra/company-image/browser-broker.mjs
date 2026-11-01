@@ -29,11 +29,19 @@ const asleepPath = '/company/run/browser-asleep';
 const supervisor = ['-c', process.env.RESTLESS_SUPERVISOR_CONF || '/etc/supervisor/conf.d/company.conf'];
 let lastUse = Date.now();
 let waking = null;
-// Supervisor starts Chrome with the container, so a marker left from before is stale.
-try { fs.rmSync(asleepPath, { force: true }); } catch { /* nothing to clear */ }
+// Supervisor leaves Chrome stopped on a new computer. A broker-only restart may instead
+// find an already running browser; only an intentional STOPPED state means asleep.
+let initialState = '';
+try { initialState = supervisorctl('status', 'chromium'); }
+catch (error) { initialState = String(error.stdout ?? ''); }
+try {
+  if (/\bchromium\s+STOPPED\b/.test(initialState)) {
+    fs.writeFileSync(asleepPath, `${new Date().toISOString()}\n`, { mode: 0o600 });
+  } else fs.rmSync(asleepPath, { force: true });
+} catch { /* the next real request or health probe reports the observed state */ }
 
 function supervisorctl(...args) {
-  return execFileSync('/usr/bin/supervisorctl', [...supervisor, ...args], { encoding: 'utf8', timeout: 40000 });
+  return execFileSync('/usr/bin/supervisorctl', [...supervisor, ...args], { encoding: 'utf8', timeout: args[0] === 'status' ? 3000 : 40000 });
 }
 
 function chromeAsleep() {
@@ -256,7 +264,10 @@ const server = http.createServer(async (request, response) => {
       port: chromePort,
       method: request.method,
       path: request.url,
-      headers: { ...request.headers, host: `127.0.0.1:${chromePort}` }
+      // A pooled probe connection otherwise looks like continuing DevTools use,
+      // and repeated health reads keep an idle browser awake indefinitely.
+      agent: false,
+      headers: { ...request.headers, host: `127.0.0.1:${chromePort}`, connection: 'close' }
     },
     (incoming) => {
       const chunks = [];

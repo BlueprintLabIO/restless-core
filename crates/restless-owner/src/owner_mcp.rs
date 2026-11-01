@@ -96,7 +96,7 @@ fn unauthorized() -> Response<Body> {
 /// The browser boundary's decision, made for a token instead of a cookie:
 /// a local-owner token works only in local mode, a member token only while
 /// that membership is current.
-fn token_principal(
+pub(super) fn token_principal(
     network: bool,
     identity: Option<&VerifiedIdentity>,
     membership_current: bool,
@@ -116,7 +116,11 @@ fn token_principal(
 
 /// What one call may reach: only the token's own company, and for a member
 /// only the routes a member may use.
-fn route_refusal(principal: &RequestPrincipal, method: &Method, path: &str) -> Option<String> {
+pub(super) fn route_refusal(
+    principal: &RequestPrincipal,
+    method: &Method,
+    path: &str,
+) -> Option<String> {
     if company_in_path(path).is_some_and(|company| !principal.permits_company(company)) {
         return Some("this token is not for that company".into());
     }

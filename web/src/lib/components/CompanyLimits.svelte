@@ -298,8 +298,8 @@
 			id="spend"
 			title="Spend"
 			info={monthly
-				? `A model budget for each calendar month (UTC), across all work. The Inbox warns at ${spend.warning_percent}%; at the limit, model work stops until next month or a higher limit.`
-				: `The total model budget across all work so far. The Inbox warns at ${spend.warning_percent}%; at the limit, model work stops. Lowering it does not undo past spend.`}
+				? `A model budget for each calendar month (UTC), across paid model work. The Inbox warns at ${spend.warning_percent}%. Once known spending reaches the limit, new paid work is paused until next month or a higher limit. Requests already in progress can add charges beyond the limit.`
+				: `The total model budget across paid model work so far. The Inbox warns at ${spend.warning_percent}%. Once known spending reaches the limit, new paid work is paused. Requests already in progress can add charges beyond the limit. Lowering it does not undo past spend.`}
 		>
 			{#snippet actions()}
 				{#if canEdit && !editingLimit}<button
@@ -322,7 +322,7 @@
 						? `${unpriced.length === 1 ? 'One model call' : `${unpriced.length} model calls`} reported no price`
 						: 'Spend accounting was interrupted'}
 				>
-					The total is a lower bound. The limit still stops model work once known spend reaches it.
+					The total is a lower bound; the actual charge may be higher. New paid work is paused once known spending reaches the limit, but requests already in progress can add charges beyond it.
 					{#snippet actions()}{#if canEdit}<button
 								class="btn small"
 								type="button"

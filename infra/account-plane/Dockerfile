@@ -83,7 +83,7 @@ COPY prebuilt-rust/restlessd prebuilt-rust/restless /out/
 FROM binaries-${RUST_BINARIES} AS binaries
 
 FROM docker:29.9.0-cli@sha256:1a4c7cb63513f349bdad01fcc6e0f3f2f67d37b9da86f14dc0d4a0942eecda00 AS docker-cli
-FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
+FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS node-runtime
 FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60
 COPY --from=node-runtime /usr/local/ /usr/local/
 ENV DEBIAN_FRONTEND=noninteractive
@@ -112,9 +112,20 @@ RUN npm install -g npm@11.21.0 \
 ARG OMP_VERSION=18.8.6
 ENV BUN_INSTALL=/usr/local/bun \
     HOME=/state/authority-home
+COPY infra/host-tools/package.json /tmp/restless-host-tools.json
 RUN npm install -g bun@1.3.14 \
+    # The same browser dependency repair as the company image and the development broker: the
+    # host tools' overrides keep chromium-bidi's zod 3 (GHSA-mrhx-c7xc-m3w5) out of the install.
+    && mkdir -p ${BUN_INSTALL}/install/global \
+    && node -e 'const fs=require("node:fs"); const source=require("/tmp/restless-host-tools.json"); fs.writeFileSync(process.env.BUN_INSTALL+"/install/global/package.json", JSON.stringify({overrides:source.overrides}));' \
     && bun install -g "@oh-my-pi/pi-coding-agent@${OMP_VERSION}" \
+    && rm /tmp/restless-host-tools.json \
+    # Fail here, not at the release scan, if an omp bump brings a zod 3 copy back.
+    && test -z "$(find ${BUN_INSTALL}/install/global/node_modules -path '*/zod/package.json' -exec grep -lE '"version": "3\.' {} +)" \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
+    # bun's download cache is a second copy of every package (the image scan counts each one), and
+    # nothing reads it at runtime.
+    && rm -rf ${BUN_INSTALL}/install/cache \
     && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force \
     && omp --version
@@ -137,7 +148,7 @@ COPY services/identity/scripts /opt/restless/identity/scripts
 # Apply compatible security fixes that npm 11.21.0 has not bundled yet.
 RUN npm --prefix /tmp/npm-security-fixes install \
         --ignore-scripts --omit=dev --no-audit --no-fund --save-exact \
-        brace-expansion@5.0.11 undici@6.28.1 \
+        brace-expansion@5.0.11 undici@6.29.1 \
     && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
         /usr/local/lib/node_modules/npm/node_modules/undici \
     && cp -a /tmp/npm-security-fixes/node_modules/brace-expansion \

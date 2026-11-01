@@ -5,6 +5,31 @@
 #[allow(unused_imports)]
 use crate::*;
 
+/// Whether a TCP peer can be a company container on this host: loopback or a private, link-local
+/// or shared (CGNAT) address. Docker and Docker Desktop never hand containers a public address, so
+/// a public peer is someone on the internet reaching a listener a self-hoster left unfirewalled.
+/// Every request is still capability-authenticated; this only keeps the door off the internet.
+pub fn local_peer(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    let v4 = |ip: std::net::Ipv4Addr| {
+        let [a, b, ..] = ip.octets();
+        ip.is_loopback()
+            || ip.is_private()
+            || ip.is_link_local()
+            || (a == 100 && (64..128).contains(&b))
+    };
+    match ip {
+        IpAddr::V4(ip) => v4(ip),
+        IpAddr::V6(ip) => {
+            if let Some(mapped) = ip.to_ipv4_mapped() {
+                return v4(mapped);
+            }
+            let first = ip.segments()[0];
+            ip.is_loopback() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80
+        }
+    }
+}
+
 /// [`serve`] for a Runtime TCP connection, as a [`DaemonTask`].
 pub fn serve_tcp(
     stream: tokio::net::TcpStream,
@@ -476,10 +501,11 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Ok(job) => job,
                 Err(error) => return Response::err(format!("{error:#}")),
             };
+            let pool = daemon.authority.pool();
             let outcome = if request.cmd == "job-run" {
-                crate::burst_jobs::run(company, actor, &job).await
+                crate::burst_jobs::run(pool, company, actor, &job, &daemon.schedule_wake).await
             } else {
-                crate::burst_jobs::status(company, job.id.as_deref().unwrap_or_default()).await
+                crate::burst_jobs::status(pool, company, job.id.as_deref().unwrap_or_default()).await
             };
             match outcome {
                 Ok(value) => Response::ok(value),
@@ -1132,7 +1158,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                             Ok(())
                         }
                         _ if key.starts_with("credentials.") => {
-                            config.credentials.insert(key[12..].to_string(), value.to_string());
+                            config.credentials.insert(credential::canonical_binding(&key[12..]).to_string(), value.to_string());
                             Ok(())
                         }
                         _ => Err(anyhow::anyhow!(
@@ -1153,7 +1179,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             Some(key) if key.starts_with("credentials.") && key.len() > 12 => {
                 match runtime::CompanyConfig::load(&daemon.root, company) {
                     Ok(mut config) => {
-                        let binding = &key[12..];
+                        let binding = credential::canonical_binding(&key[12..]);
                         if config.credentials.remove(binding).is_none() {
                             Response::err(format!(
                                 "company {company} has no credential binding {binding:?}"
@@ -1195,7 +1221,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                     Ok(mut config) => {
                         config
                             .credentials
-                            .insert(binding.to_string(), reference.to_string());
+                            .insert(credential::canonical_binding(binding).to_string(), reference.to_string());
                         match runtime::CompanyConfig::save(&daemon.root, &config) {
                             Ok(()) => Response::ok(format!(
                                 "stored reference for {binding}; no secret value was stored"
@@ -5280,6 +5306,33 @@ async fn schedule_exists(daemon: &Daemon, company: &str, schedule_id: &str) -> b
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_local_peers_reach_the_coordinator() {
+        for local in [
+            "127.0.0.1",
+            "172.17.0.5",
+            "10.1.2.3",
+            "192.168.65.2",
+            "169.254.1.1",
+            "100.100.1.1",
+            "::1",
+            "fd00::5",
+            "fe80::1",
+            "::ffff:172.17.0.2",
+        ] {
+            assert!(super::local_peer(local.parse().unwrap()), "{local}");
+        }
+        for public in [
+            "8.8.8.8",
+            "203.0.113.9",
+            "100.128.0.1",
+            "2001:4860::8888",
+            "::ffff:1.1.1.1",
+        ] {
+            assert!(!super::local_peer(public.parse().unwrap()), "{public}");
+        }
+    }
+
     use super::*;
 
     #[test]

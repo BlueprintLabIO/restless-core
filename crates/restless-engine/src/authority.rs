@@ -453,6 +453,7 @@ impl AuthorityStore {
         crate::airwallex::ensure_schema(pool).await?;
         crate::connections::ensure_schema(pool).await?;
         crate::accounts::ensure_schema(pool).await?;
+        crate::github_app::ensure_schema(pool).await?;
         crate::account_usage::ensure_schema(pool).await?;
         crate::machines::ensure_schema(pool).await?;
         crate::account_broker::ensure_schema(pool).await?;

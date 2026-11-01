@@ -190,9 +190,3 @@
 	font-size: var(--t-body);
 	color: var(--state-danger);
 }
-
-.bridge-root .exr-notice {
-	margin: 0;
-	font-size: var(--t-label);
-	color: var(--text-tertiary);
-}

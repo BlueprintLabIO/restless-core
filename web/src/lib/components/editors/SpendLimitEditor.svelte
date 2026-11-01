@@ -65,15 +65,15 @@
 			return;
 		}
 		/* Spend this period counts against the new limit: switching to a monthly budget counts only
-		 * this month. A limit at or below it stops model work the moment it is saved. */
+		 * this month. A limit at or below it pauses admission of new paid work. */
 		const spent = period === spend.period ? spend.accounted_usd : null;
 		if (
 			spent !== null &&
 			ceiling <= spent &&
 			!(await confirmAction({
-				title: 'Stop all model work now?',
-				body: `${money(spent)} is already spent${period === 'monthly' ? ' this month' : ''}, so a limit of ${money(ceiling)} stops Exec and Staff from thinking until the limit is raised${period === 'monthly' ? ' or next month starts' : ''}.`,
-				action: 'Save and stop',
+				title: 'Pause new paid model work?',
+				body: `${money(spent)} is already spent${period === 'monthly' ? ' this month' : ''}, so a limit of ${money(ceiling)} pauses new paid model work until the limit is raised${period === 'monthly' ? ' or next month starts' : ''}. Requests already in progress can still add charges beyond the limit.`,
+				action: 'Save and pause',
 				danger: true
 			}))
 		)
@@ -99,7 +99,7 @@
 	cardActions(() => ({ primary: { label, busyLabel: 'Saving…', run: save } }));
 </script>
 
-<Field label="Limit" hint="US dollars" for={`${id}-limit`}>
+<Field label="Limit" hint="US dollars" info="Requests already in progress can add charges beyond this limit." for={`${id}-limit`}>
 	<input
 		id={`${id}-limit`}
 		class="amount"
@@ -128,7 +128,7 @@
 		bind:value={period}
 	/>
 </Field>
-<Field label="Warn at" hint="An Inbox item before model work stops" for={`${id}-warning`}>
+<Field label="Warn at" hint="An Inbox item before new paid work is paused" for={`${id}-warning`}>
 	<div class="form-inline">
 		<input
 			id={`${id}-warning`}

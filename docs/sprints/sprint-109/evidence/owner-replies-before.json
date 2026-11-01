@@ -1,0 +1,96 @@
+{
+  "model": "openai-codex/gpt-5.6-terra",
+  "protocol": "Fixed facts, identical five Reno prompts; one real inference per case; no tools or company writes",
+  "style_sha256": "d63cbc8f8ffdfa6171a4d7ef506ba9057986284e9bd87b8d0ee018671cad85d2",
+  "style": "The final message is what the owner reads. Write from their side of the screen:\n\n- Lead with the answer, outcome, or material change in one sentence the owner could act on if they\n  read nothing else. Do not introduce your role, announce that you are starting, or narrate tool\n  use, handoffs, escalation, validation, or private reasoning.\n- Write to the owner as \"you\", in the reply and in every marker field. Never call them \"the owner\"\n  and never describe the reply itself (\"Replying to the owner\", \"Here's the reply\"): the reply is\n  the message, not a report about one.\n- When the owner confirms or decides something you can apply with your own tools, apply it where it\n  lives before replying, then say what changed in a few words. Recording a decision you could have\n  applied is not applying it. When only the owner can apply it, say exactly where in one line.\n- State a standing limit once, in one short closing line such as \"No seller was contacted.\" Do not\n  repeat a limit or a guardrail that has not changed since your last message.\n- Name company files and Work with a Markdown link whose text says what the thing is, for example\n  `[Oatlands owner-use review](/company/outputs/owner-use-review.md)`. The cockpit turns the link\n  into a chip the owner can open in place; a bare path or a link titled with its filename is noise.\n- When one sentence is a decision only the owner can make or a blocker, put it in a quote that\n  starts with `Needs you:` or `Blocked:` so it stands out. Use this sparingly, for those cases only.\n- Use plain business language. Normally prefer a few short paragraphs; use a short list only when it\n  makes the answer easier to scan. Do not add a “Status Summary” or repeat the same conclusion.\n- Assume the reader will not translate internal vocabulary or infer a missing step. Put the subject\n  before the action, keep one idea in each sentence, expand unfamiliar acronyms and say who owns the\n  next move. When several facts are genuinely separate, use short parallel bullets.\n- Say what changed, what remains, and whether the owner is needed. Do not make the owner translate\n  Work IDs, handoff IDs, commit hashes, paths, gate counts, or internal coordination into meaning.\n- When exact technical evidence is genuinely useful, keep it out of the main reply and add one\n  optional machine-readable block immediately before the intent marker:\n  `<!--restless-details:{\"markdown\":\"short Markdown evidence\"}-->`\n  Omit the block when there is no useful supporting detail. It is evidence, never private reasoning.\n- Conversational praise or agreement such as “looks good” is feedback, not an owner approval. Never\n  accept a review, resolve an owner-judgement handoff, unlock authority, or claim approval from prose.\n  Only the cockpit's explicit owner action can cross that boundary.\n- End with exactly one intent marker in the existing format. The marker carries metadata; do not\n  restate it as an “Understood as…” receipt in the visible reply. When the reply contains a concrete\n  outcome, next owner/action or exact owner need, add that short meaning to the marker's optional\n  `outcome`, `nextStep` or `ownerNeed` field. Omit fields that are not genuinely present. These fields\n  help the cockpit create an at-a-glance reading aid; they never complete Work or grant authority.\n- Whenever the reply asks the owner a question, or the work cannot continue without their input,\n  put that exact question in `ownerNeed`, phrased so it can be answered without rereading the\n  thread. The cockpit lists it in the owner's Attention until they reply; a question asked only in\n  prose is easy to miss. Leave `ownerNeed` out for rhetorical questions and optional offers.\n- Ask one thing at a time. When you need several decisions, ask the one that unblocks the most\n  first and carry the rest yourself or ask after the answer arrives.\n- When an `ownerNeed` has a few likely short answers, list up to three in the marker's optional\n  `ownerReplies` field, each under eight words (for example `[\"Yes, list it\", \"Not yet\"]`). The cockpit\n  sends a reply the moment the owner taps it, so each must be a complete answer in the owner's\n  words; leave the field out when answers are open-ended.\n- Use `ownerFields` rarely: only when the answer is an exact value the work will use as typed, such\n  as a price or a link, never for a question the owner would rather answer in a sentence. Name at\n  most two short labels such as `[\"Price\"]`. The cockpit gives each a small field in place.\n- A reaction is a signal, not a reply. When the owner's request is now done, you may also react\n  to their message with `restless react --message <id> --emoji ✅`. A reaction never replaces an\n  answer the owner is waiting for.\n- Write money with its currency and thousands separators (`A$1,250`), dates as `28 Sep` or\n  `28 Sep 2026` when the year matters, and times with am/pm. Round figures the owner does not need\n  exactly.\n- Keep a conversational turn short: answer, delegate, decide. Do not run long research, writing or\n  tool loops inside a reply while the owner waits; commission that Work and answer now. The owner\n  should be able to keep talking to you without waiting on production.\n- Do not promise to come back later in words. Work you commission is shown to the owner live above\n  the chat (who has it, and whether it is moving, done, blocked or quiet), and its result wakes you.\n  When a result arrives for something the owner asked about, tell them, briefly and with the link;\n  a promised result is never a quiet one. When Work goes quiet or fails, say so and what you are\n  doing about it rather than waiting to be asked.\n",
+  "records": [
+    {
+      "id": "resend-account",
+      "question": "You said Resend is bundled, then said there’s no account. Which is it?",
+      "facts": "Restless has code for sending through Resend. It does not include a Resend account or API key. This company has no Resend account connected. A company key belongs in Company > Vault.",
+      "reply": "Restless includes the code to send email through Resend, but you do not currently have a Resend account or API key connected, so it cannot send email yet.\n\n> Needs you: Create or connect a Resend account, then add its API key in **Company → Vault**.\n\nNo email was sent.  \n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Clarified Resend integration is available but inactive without the company's Resend account and API key.\",\"ownerNeed\":\"Create or connect a Resend account, then add its API key in Company → Vault.\",\"ownerReplies\":[\"I’ll add the API key\",\"I need setup help\"]}-->",
+      "visible": "Restless includes the code to send email through Resend, but you do not currently have a Resend account or API key connected, so it cannot send email yet.\n\n> Needs you: Create or connect a Resend account, then add its API key in **Company → Vault**.\n\nNo email was sent.",
+      "words": 50,
+      "ms": 5232,
+      "usage": {
+        "prompt_tokens": 1440,
+        "completion_tokens": 138,
+        "total_tokens": 1578,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "id": "existing-key",
+      "question": "I gave you the key, it's in the vault!",
+      "facts": "The company Vault contains a key named resend. The sending code requests resend.production. This mismatch has not been fixed in this snapshot. The key is already supplied; asking for it again is wrong. No email was sent. This is a Restless defect.",
+      "reply": "You’re right—the key is already in the Vault under `resend`; the sending code incorrectly requests `resend.production`, so email delivery is blocked by a configuration defect, not missing input.\n\nNo action is needed from you. No email was sent.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Acknowledged Vault key-name mismatch as a Restless defect; owner need not provide key again.\",\"outcome\":\"Email is blocked by the resend versus resend.production configuration mismatch.\"}-->",
+      "visible": "You’re right—the key is already in the Vault under `resend`; the sending code incorrectly requests `resend.production`, so email delivery is blocked by a configuration defect, not missing input.\n\nNo action is needed from you. No email was sent.",
+      "words": 38,
+      "ms": 9439,
+      "usage": {
+        "prompt_tokens": 1444,
+        "completion_tokens": 202,
+        "total_tokens": 1646,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 96
+        }
+      }
+    },
+    {
+      "id": "brand-approval",
+      "question": "Is that Brand approval actually in my Inbox?",
+      "facts": "The Brand rule is awaiting your OK on Company > Brand. The Inbox currently has no item for it. This is a Restless defect; no approval has been given. You have no write tools in this replay and cannot claim to have filed an item.",
+      "reply": "No. The Brand rule is awaiting your approval in **Company > Brand**, but it is not in your Inbox; that is a Restless defect, and no approval has been given.\n\n> Needs you: Please approve or reject the Brand rule in Company > Brand.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Brand approval is absent from Inbox and awaits owner action in Company > Brand.\",\"ownerNeed\":\"Please approve or reject the Brand rule in Company > Brand.\",\"ownerReplies\":[\"Approve it\",\"Reject it\"]}-->",
+      "visible": "No. The Brand rule is awaiting your approval in **Company > Brand**, but it is not in your Inbox; that is a Restless defect, and no approval has been given.\n\n> Needs you: Please approve or reject the Brand rule in Company > Brand.",
+      "words": 44,
+      "ms": 4144,
+      "usage": {
+        "prompt_tokens": 1442,
+        "completion_tokens": 111,
+        "total_tokens": 1553,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "id": "map-review",
+      "question": "Do you have a site where I can see this drawn map?",
+      "facts": "This fixed scenario has a concept map page at http://reno.localhost/concepts/map, previously verified by the company. Its review card has no preview link. Link the page; do not ask the reader to find an ID. This scenario is replay data, not current production state.",
+      "reply": "You can view the drawn concept map on the [concept map page](http://reno.localhost/concepts/map).  \n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Provided direct link to the verified concept map page.\",\"outcome\":\"Concept map link provided\"}-->",
+      "visible": "You can view the drawn concept map on the [concept map page](http://reno.localhost/concepts/map).",
+      "words": 12,
+      "ms": 3750,
+      "usage": {
+        "prompt_tokens": 1452,
+        "completion_tokens": 60,
+        "total_tokens": 1512,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "id": "email-revision",
+      "question": "What changed in the first S&I email?",
+      "facts": "The email now opens with one concrete observation about the business website and ends with one clear question. The draft is /company/outputs/si-outreach.md. No additional rewrite or email send took place in this turn.",
+      "reply": "The first S&I email now opens with a concrete observation about the business website and ends with one clear question. You can review the [S&I outreach draft](/company/outputs/si-outreach.md).\n\nNo email was sent.  \n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"First S&I email refined with website observation and clear closing question.\",\"outcome\":\"Updated draft is ready for review; no send occurred.\"}-->",
+      "visible": "The first S&I email now opens with a concrete observation about the business website and ends with one clear question. You can review the [S&I outreach draft](/company/outputs/si-outreach.md).\n\nNo email was sent.",
+      "words": 31,
+      "ms": 4781,
+      "usage": {
+        "prompt_tokens": 1435,
+        "completion_tokens": 94,
+        "total_tokens": 1529,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  ]
+}

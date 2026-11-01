@@ -4,8 +4,7 @@ import {
 	inboxPreviewTarget,
 	inboxPreviewHref,
 	inboxPreviewBack,
-	inboxPreviewContext,
-	inboxDiscussionHref
+	inboxPreviewContext
 } from './inbox-preview.ts';
 const origin = 'http://127.0.0.1:23296',
 	company = 'ui_test';
@@ -51,12 +50,6 @@ test('a preview preserves its item and conversation; closing it restores that ex
 	assert.equal(new URL(opened, origin).searchParams.get('conversation'), 'review-a');
 	assert.equal(inboxPreviewBack(new URL(opened, origin)), current.pathname + current.search);
 	assert.equal(current.searchParams.get('preview'), null);
-	const discussed = new URL(
-		inboxDiscussionHref(new URL(opened, origin), company, 'review-a'),
-		origin
-	);
-	assert.equal(discussed.searchParams.get('preview'), '/ui_test/library?file=a');
-	assert.equal(discussed.searchParams.get('conversation'), 'review-a');
 });
 test('legacy document links normalize before the shared editor reads their identity', () => {
 	const target = inboxPreviewTarget(company, '/documents/ui_test/doc-a?inspect=comments', origin);

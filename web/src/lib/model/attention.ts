@@ -1,5 +1,5 @@
 import { openLiveEvents } from './live-events.ts';
-import type { AttentionItem, DecisionContinuation } from './view';
+import type { AttentionItem, DecisionContinuation, OwnerReviewVersion } from './view';
 import { ownerAttention } from './attention-presentation';
 import type { WorkGraphSnapshot } from './generated/orgintel';
 import type {
@@ -30,6 +30,7 @@ export interface AttentionView {
 	};
 	workGraph: WorkGraphSnapshot | null;
 	items: AttentionItem[];
+	pendingDecisionItems?: string[];
 	refreshedAt: string;
 }
 
@@ -54,6 +55,7 @@ export interface MessageInterruptResult {
 }
 
 type WireItem = {
+	review_version?: OwnerReviewVersion;
 	native_document?: AttentionItem['nativeDocument'];
 	direction_request?: AttentionItem['directionRequest'];
 	charter_proposal?: AttentionItem['charterProposal'];
@@ -176,6 +178,7 @@ export async function getAttention(company: string, signal?: AbortSignal): Promi
 	const wire = await response.json();
 	return {
 		company: wire.company,
+		pendingDecisionItems: [...(wire.pending_handoff_decisions ?? []), ...(wire.pending_document_decisions ?? [])],
 		sourceHealth: {
 			orgintel: wire.source_health.orgintel,
 			authority: wire.source_health.authority,
@@ -237,6 +240,7 @@ export async function getAttention(company: string, signal?: AbortSignal): Promi
 						}
 					: undefined,
 				nativeDocument: item.native_document,
+				reviewVersion: item.review_version,
 				reviewTarget: item.review_target
 					? {
 							company: item.review_target.company,
@@ -381,14 +385,16 @@ export async function reviewAction(
 	company: string,
 	handoff: string,
 	decision: 'accept' | 'request_changes',
-	feedback = ''
+	feedback: string,
+	expectedVersion: OwnerReviewVersion | undefined
 ): Promise<void> {
+	if (!expectedVersion) throw new Error('Open the current review before deciding.');
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/handoffs/${encodeURIComponent(handoff)}/review`,
 		{
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ decision, feedback }),
+			body: JSON.stringify({ decision, feedback, expected_version: expectedVersion }),
 			credentials: 'same-origin'
 		}
 	);
@@ -515,9 +521,13 @@ export async function sendActorMessage(
 
 /** What the composer says once Stop has answered (S104 O1): plain words, never the server's. */
 export function stopNotice(name: string, result: MessageInterruptResult | undefined): string {
+	/* A message is only marked read when the turn answering it ends, so a reply cut off
+	 * mid-stream is both interrupted and cancelled: it stopped, and won't be answered. */
+	if (result?.interrupted && result.cancelled)
+		return `${name} stopped. Your message stays in the conversation, unanswered.`;
+	if (result?.interrupted) return `${name} stopped. Your message is still with them.`;
 	if (result?.cancelled)
 		return `${name} stopped before reading your message. It stays in the conversation, unanswered.`;
-	if (result?.interrupted) return `${name} stopped. Your message is still with them.`;
 	return `${name} had already finished.`;
 }
 

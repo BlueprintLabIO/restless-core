@@ -170,8 +170,8 @@
 			{#snippet extra()}
 				<h2 style="margin:0 0 14px;font-size: var(--t-head)">Company address</h2>
 				<div class="copyrow">
-					<code>https://app.restless.run/company_01a10992…</code>
-					<CopyButton value="https://app.restless.run/company_01a1099254287140b24b3202429a3f01" />
+					<code>https://restless.run/company_01a10992…</code>
+					<CopyButton value="https://restless.run/company_01a1099254287140b24b3202429a3f01" />
 				</div>
 			{/snippet}
 		</AccountHome>

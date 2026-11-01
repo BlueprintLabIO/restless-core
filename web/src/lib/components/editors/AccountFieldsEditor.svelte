@@ -1,8 +1,8 @@
 <script lang="ts">
 	/* A new account's details (S98, S101), one editor in Settings › Accounts › Add account and in an
 	 * Inbox card asking for an account the owner does not hold yet: the sign-in page, username and
-	 * password; an API's address and key; a GitHub token; a website for a browser sign-in. Secrets
-	 * go straight to the vault and are never shown again. */
+	 * password; an API's address and key; GitHub, as the Restless GitHub App or a token; a website
+	 * for a browser sign-in. Secrets go straight to the vault and are never shown again. */
 	import Field from '$lib/ui/forms/Field.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import {
@@ -67,12 +67,44 @@
 		}
 	}
 
-	cardActions(() => ({
-		primary: {
-			label: action,
-			busyLabel: 'Adding…',
-			run: add
+	/* GitHub as an App (S98-05): no token to make or renew. The owner names the organisation (or
+	 * none, for their own repositories); GitHub creates the App or installs it, then comes back to
+	 * Settings › Accounts, which finishes the connection. */
+	let appOwner = $state('');
+	async function installApp() {
+		error = '';
+		try {
+			const step = await client.githubAppStart({
+				page_url: `${location.origin}/account/settings/accounts`,
+				owner: appOwner.trim() || undefined
+			});
+			if (step.install_url) {
+				location.assign(step.install_url);
+				return;
+			}
+			/* GitHub takes a new App's manifest as a form post from the browser. */
+			if (!step.action || !step.manifest)
+				throw new Error('GitHub could not be reached. Try again.');
+			const post = document.createElement('form');
+			post.method = 'post';
+			post.action = step.action;
+			const manifest = document.createElement('input');
+			manifest.type = 'hidden';
+			manifest.name = 'manifest';
+			manifest.value = step.manifest;
+			post.append(manifest);
+			document.body.append(post);
+			post.submit();
+		} catch (cause) {
+			error = failureSentence(cause, 'GitHub could not be reached. Try again.');
 		}
+	}
+	const viaApp = $derived(kind === 'github' && !form.secret.trim());
+
+	cardActions(() => ({
+		primary: viaApp
+			? { label: 'Install the GitHub App', busyLabel: 'Opening GitHub…', run: installApp }
+			: { label: action, busyLabel: 'Adding…', run: add }
 	}));
 </script>
 
@@ -139,7 +171,22 @@
 		<input id={`${id}-secret`} type="password" bind:value={form.secret} autocomplete="off" />
 	</Field>
 {:else if kind === 'github'}
-	<Field label="Token" for={`${id}-token`}>
+	<Field
+		label="Organisation"
+		hint="Optional. Leave it empty for your own repositories"
+		for={`${id}-app-owner`}
+	>
+		<input
+			id={`${id}-app-owner`}
+			bind:value={appOwner}
+			placeholder="your-organisation"
+			autocomplete="off"
+		/>
+		{#snippet help()}Restless installs as a GitHub App, and GitHub asks which repositories it may
+			use. No token to make or renew.{/snippet}
+	</Field>
+	<p class="form-intro">Or connect with a token instead:</p>
+	<Field label="Token" hint="Optional" for={`${id}-token`}>
 		<input
 			id={`${id}-token`}
 			type="password"
@@ -154,10 +201,13 @@
 			> for just the repositories your companies need.{/snippet}
 	</Field>
 {/if}
-<Field label="Name" hint="Optional" for={`${id}-label`}>
-	<input id={`${id}-label`} bind:value={form.label} placeholder={kindOf(kind).label} />
-</Field>
-{#if kind !== 'api'}
+<!-- The App names itself after the organisation, and is never a personal login. -->
+{#if !viaApp}
+	<Field label="Name" hint="Optional" for={`${id}-label`}>
+		<input id={`${id}-label`} bind:value={form.label} placeholder={kindOf(kind).label} />
+	</Field>
+{/if}
+{#if kind !== 'api' && !viaApp}
 	<Field label="Personal login">
 		<label class="form-check"
 			><input type="checkbox" bind:checked={form.personal} /><span

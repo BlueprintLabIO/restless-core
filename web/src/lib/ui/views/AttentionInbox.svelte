@@ -20,40 +20,53 @@
 	import { listFlip, listIn, listOut } from '../motion';
 
 	/* Attention: only what needs a person, each item prepared by the agent that owns it. The selected
-	 * item's detail (usually an OutcomeFolio) is the caller's snippet. */
+	 * item's detail (usually an OutcomeFolio) is the caller's snippet; with `onselect` the items are
+	 * buttons that choose it. */
 	let {
 		items,
 		selected,
 		detail,
-		quiet = 0
+		quiet = 0,
+		onselect
 	}: {
 		items: AttentionEntry[];
 		selected?: string;
 		detail?: Snippet;
 		/** Events handled today without reaching anyone, shown as context. */
 		quiet?: number;
+		onselect?: (id: string) => void;
 	} = $props();
 
 	const waiting = $derived(items.filter((item) => item.state === 'needs-you').length);
 	const LABEL = { 'needs-you': 'Needs you', preparing: 'Preparing', done: 'Done' } as const;
 </script>
 
+{#snippet row(item: AttentionEntry)}
+	<span class="ai-category">{item.category}</span>
+	<strong>{item.title}</strong>
+	<span class="ai-meta">{item.from} <ActorTag kind={item.fromKind} /> · {item.age}</span>
+	<span class="ai-state">{LABEL[item.state]}</span>
+{/snippet}
+
 <div class="view-shell">
 	<div class="attention-inbox" class:with-detail={!!detail}>
-		<section class="ai-list" aria-label="Attention">
+		<section class="ai-list" aria-label="Inbox">
 			<header class="ai-head">
 				<CircleDot size={15} strokeWidth={2.2} />
-				<strong>Attention</strong>
+				<strong>Inbox</strong>
 				<span class="ai-count">{waiting} {waiting === 1 ? 'needs you' : 'need you'}</span>
 			</header>
 			{#if quiet}<p class="ai-quiet">{quiet} events handled today without anyone</p>{/if}
 			<ol>
 				{#each items as item (item.id)}
 					<li class="ai-item {item.state}" class:active={item.id === selected} animate:listFlip in:listIn out:listOut>
-						<span class="ai-category">{item.category}</span>
-						<strong>{item.title}</strong>
-						<span class="ai-meta">{item.from} <ActorTag kind={item.fromKind} /> · {item.age}</span>
-						<span class="ai-state">{LABEL[item.state]}</span>
+						{#if onselect}
+							<button type="button" class="ai-row" aria-current={item.id === selected ? 'true' : undefined} onclick={() => onselect(item.id)}
+								>{@render row(item)}</button
+							>
+						{:else}
+							<div class="ai-row">{@render row(item)}</div>
+						{/if}
 					</li>
 				{/each}
 			</ol>
@@ -122,10 +135,29 @@
 		list-style: none;
 	}
 	.ai-item {
+		border-bottom: 1px solid var(--border);
+	}
+	.ai-row {
 		display: grid;
 		gap: 3px;
+		width: 100%;
 		padding: 10px 14px;
-		border-bottom: 1px solid var(--border);
+		border: 0;
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+	}
+	button.ai-row {
+		cursor: pointer;
+		transition: background-color var(--motion-state) var(--ease-standard);
+	}
+	button.ai-row:hover {
+		background: color-mix(in srgb, var(--highlight) 60%, transparent);
+	}
+	button.ai-row:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--intent-direction) 45%, transparent);
+		outline-offset: -2px;
 	}
 	.ai-item.active {
 		background: var(--surface-alt);

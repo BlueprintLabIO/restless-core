@@ -85,11 +85,19 @@ class SocketEvents extends EventTarget implements LiveEvents {
 		this.socket?.close();
 	}
 }
+/** Loopback names, `*.localhost` included (RFC 6761): the multiplayer smoke serves the cockpit on
+ * `plane.localhost`, where native EventSource held one of six connections per stream and a page
+ * with enough of them left a Room's own read queued behind them, so a message never showed. */
+export function isLoopbackHost(hostname: string): boolean {
+	return (
+		['127.0.0.1', 'localhost', '[::1]'].includes(hostname) || hostname.endsWith('.localhost')
+	);
+}
 export function openLiveEvents(path: string): LiveEvents {
 	if (
 		typeof location !== 'undefined' &&
 		location.protocol === 'http:' &&
-		['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname) &&
+		isLoopbackHost(location.hostname) &&
 		typeof WebSocket !== 'undefined'
 	) {
 		const url = new URL(path, location.origin);

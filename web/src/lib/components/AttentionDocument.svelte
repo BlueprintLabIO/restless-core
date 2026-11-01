@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useQueryClient } from '@tanstack/svelte-query';
+	import { queueDocumentDecision } from '$lib/model/document-decisions.svelte';
 	import type { Snippet } from 'svelte';
 	import AttentionFooter from './AttentionFooter.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -14,7 +16,7 @@
 		documentFileName,
 		documentMarkdownDownload,
 		getDocument,
-		resolveDocumentCollaboration,
+		isRetryableDocumentFailure,
 		type DocumentReadView
 	} from '$lib/model/documents';
 	import type { NativeDocumentAttention } from '$lib/model/view';
@@ -33,6 +35,9 @@
 		request: NativeDocumentAttention;
 		onresolved?: () => void;
 	} = $props();
+	const client = useQueryClient();
+	let doneIntent = '';
+	let doneIntentInput = '';
 	const detail = documentQuery(
 		() => companyId,
 		() => request.document_id
@@ -104,11 +109,39 @@
 		busy = true;
 		failure = '';
 		try {
-			await resolveDocumentCollaboration(target.companyId, target.documentId, requestId);
-			if (sameDocumentTarget(target, companyId, request.document_id) && request.id === requestId)
-				onresolved();
+			const intentInput = JSON.stringify([
+				target.companyId,
+				target.documentId,
+				requestId,
+				detail.view.document.version,
+				request.summary
+			]);
+			if (doneIntentInput !== intentInput) {
+				doneIntentInput = intentInput;
+				doneIntent = crypto.randomUUID();
+			}
+			doneIntent ||= crypto.randomUUID();
+			const saved = await queueDocumentDecision(
+				client,
+				target.companyId,
+				target.documentId,
+				requestId,
+				doneIntent,
+				{
+					kind: 'complete_collaboration',
+					expected_document_version: detail.view.document.version,
+					expected_summary: request.summary
+				}
+			);
+			doneIntent = '';
+			if (saved.state === 'failed')
+				failure = saved.problem ?? 'Open the current request before deciding.';
 		} catch (error) {
-			failure = failureSentence(error, 'Could not complete the request.');
+			if (!isRetryableDocumentFailure(error)) {
+				doneIntent = '';
+				doneIntentInput = '';
+			}
+			failure = failureSentence(error, 'Could not save the decision.');
 		} finally {
 			busy = false;
 		}
@@ -185,6 +218,7 @@
 		{#if detail.view}
 			<div
 				class="document-panes"
+				class:requested-review={request.kind === 'review' && !editLive}
 				class:with-inspector={inspectorOpen}
 				class:wide={width >= 850}
 				use:resizePane={{
@@ -387,6 +421,11 @@
 	.document-panes.with-inspector {
 		grid-template-rows: minmax(440px, 1fr) minmax(320px, auto);
 	}
+	/* A saved review needs room for its decision form in a stacked pane. Keep the split
+	 * fixed while the requested version loads, so the form never shifts with its text. */
+	.document-panes.requested-review.with-inspector:not(.wide) {
+		grid-template-rows: minmax(180px, 1fr) minmax(320px, 1.4fr);
+	}
 	.document-panes.wide.with-inspector {
 		grid-template-columns: minmax(0, 1fr) var(--discussion-width, 320px);
 		grid-template-rows: minmax(0, 1fr);
@@ -419,6 +458,8 @@
 		display: none;
 	}
 	.document-unavailable {
+		flex: 1;
+		min-height: 0;
 		padding: 24px;
 	}
 	.request-line {

@@ -4,6 +4,7 @@
 //! cap; it never owns delegation or task state.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context as _, Result};
@@ -49,8 +50,8 @@ const STAFF_CAP_PER_COMPANY: usize = 100;
 /// Work Attempts that run at once in one company (S104 O2). Leads split independent
 /// work into parallel Staff by default, and every Attempt shares the company's model
 /// capacity (one subscription's rate limit, or the metered envelope's four Staff
-/// slots), so more at once only queue at the provider. Conversation turns are not
-/// counted: a message to an idle agent never waits behind Work.
+/// slots), so more at once only queue at the provider. Conversations retain
+/// scheduling priority, but all local turns also share the host resource cap.
 const PARALLEL_WORK_PER_COMPANY: usize = 4;
 const CONVERSATION_BACKOFF_FIRST: std::time::Duration = std::time::Duration::from_secs(30);
 const CONVERSATION_BACKOFF_CEILING: std::time::Duration = std::time::Duration::from_secs(300);
@@ -215,6 +216,9 @@ impl Drop for CognitiveLeaseGuard {
 #[derive(Clone, Default)]
 pub struct StaffRegistry {
     running: Arc<Mutex<HashMap<ActorKey, RunningStaff>>>,
+    resources: ResourceClaims,
+    resource_retry: Arc<AtomicBool>,
+    resource_limits: Arc<Mutex<HashMap<String, (std::time::Instant, runtime::ActorCapacity)>>>,
     /// Coordination messages remain durable in OrgIntel. This local timer
     /// only prevents one unavailable lead session from being relaunched on
     /// every five-second scan; a daemon restart deliberately permits one new
@@ -222,9 +226,130 @@ pub struct StaffRegistry {
     conversation_backoff: Arc<Mutex<HashMap<ActorKey, ConversationBackoff>>>,
 }
 
+type ResourceClaims = Arc<Mutex<HashMap<uuid::Uuid, (String, bool)>>>;
+
+/// Covers setup and execution, including starts not yet visible in cgroups.
+pub struct ActorResourcePermit {
+    claims: ResourceClaims,
+    id: uuid::Uuid,
+    wake: Arc<tokio::sync::Notify>,
+    started: bool,
+}
+
+impl ActorResourcePermit {
+    pub fn activate(&mut self) {
+        self.started = true;
+    }
+}
+
+impl Drop for ActorResourcePermit {
+    fn drop(&mut self) {
+        if let Ok(mut claims) = self.claims.lock() {
+            claims.remove(&self.id);
+        }
+        if self.started {
+            self.wake.notify_one();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct CapacityDeferred;
+
+impl std::fmt::Display for CapacityDeferred {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Compute capacity is busy. Queued messages and Work are kept.")
+    }
+}
+
+impl std::error::Error for CapacityDeferred {}
+
 impl StaffRegistry {
+    pub async fn reserve_actor_capacity(
+        &self,
+        company: &str,
+        bridges: &crate::runtime_bridge::RuntimeBridgeRegistry,
+        wake: &Arc<tokio::sync::Notify>,
+    ) -> Result<Option<ActorResourcePermit>> {
+        let capacity = if bridges.is_hosted() {
+            // Paired machines execute outside this host's work pool.
+            runtime::ActorCapacity {
+                company_slots: STAFF_CAP_PER_COMPANY,
+                shared_slots: None,
+                company_memory_slots: usize::MAX,
+                shared_memory_slots: None,
+                waiting_for_memory: false,
+            }
+        } else {
+            match runtime::actor_capacity(company).await {
+                Ok(Some(capacity)) => capacity,
+                // Without observed host bounds, serialize local harness starts.
+                Ok(None) => runtime::ActorCapacity {
+                    company_slots: 1,
+                    shared_slots: Some(1),
+                    company_memory_slots: usize::MAX,
+                    shared_memory_slots: None,
+                    waiting_for_memory: false,
+                },
+                Err(error) => {
+                    self.resource_retry.store(true, Ordering::SeqCst);
+                    return Err(error);
+                }
+            }
+        };
+        self.resource_limits
+            .lock()
+            .map_err(|_| anyhow::anyhow!("actor capacity observation"))?
+            .insert(company.to_string(), (std::time::Instant::now(), capacity));
+        self.try_reserve_actor_capacity(company, capacity, wake)
+    }
+
+    fn try_reserve_actor_capacity(
+        &self,
+        company: &str,
+        capacity: runtime::ActorCapacity,
+        wake: &Arc<tokio::sync::Notify>,
+    ) -> Result<Option<ActorResourcePermit>> {
+        let mut claims = self
+            .resources
+            .lock()
+            .map_err(|_| anyhow::anyhow!("actor resource guard"))?;
+        let company_active = claims.values().filter(|(name, _)| name == company).count();
+        let shared_active = claims.values().filter(|(_, shared)| *shared).count();
+        if capacity.waits_for_memory(company_active, shared_active)
+            || company_active >= capacity.company_slots
+            || capacity
+                .shared_slots
+                .is_some_and(|slots| shared_active >= slots)
+        {
+            self.resource_retry.store(true, Ordering::SeqCst);
+            return Ok(None);
+        }
+        let id = uuid::Uuid::new_v4();
+        claims.insert(id, (company.to_string(), capacity.shared_slots.is_some()));
+        Ok(Some(ActorResourcePermit {
+            claims: Arc::clone(&self.resources),
+            id,
+            wake: Arc::clone(wake),
+            started: false,
+        }))
+    }
+
+    pub fn take_resource_retry_hint(&self) -> bool {
+        self.resource_retry.swap(false, Ordering::SeqCst)
+    }
+
+    pub fn resource_counts(&self, company: &str) -> Option<(usize, usize)> {
+        let claims = self.resources.lock().ok()?;
+        Some((
+            claims.values().filter(|(name, _)| name == company).count(),
+            claims.values().filter(|(_, shared)| *shared).count(),
+        ))
+    }
+
     pub fn has_capacity(&self, company: &str) -> bool {
-        self.running
+        let logical_capacity = self
+            .running
             .lock()
             .map(|running| {
                 running
@@ -233,7 +358,28 @@ impl StaffRegistry {
                     .count()
                     < STAFF_CAP_PER_COMPANY
             })
-            .unwrap_or(false)
+            .unwrap_or(false);
+        if !logical_capacity {
+            return false;
+        }
+        let limits = self
+            .resource_limits
+            .lock()
+            .ok()
+            .and_then(|limits| limits.get(company).copied());
+        let Some((at, limits)) = limits else {
+            return true;
+        };
+        if at.elapsed() >= std::time::Duration::from_secs(1) {
+            return true;
+        }
+        // Avoid repeating Docker observations for every owed colleague while
+        // all known slots are occupied. A real permit release wakes the scan.
+        self.resource_counts(company).is_some_and(|(own, shared)| {
+            own < limits.company_slots
+                && limits.shared_slots.is_none_or(|slots| shared < slots)
+                && !limits.waits_for_memory(own, shared)
+        })
     }
 
     /// Whether another Work Attempt may start in this company now.
@@ -443,6 +589,7 @@ pub async fn dispatch_claimed_work(
     runtime_bridges: &crate::runtime_bridge::RuntimeBridgeRegistry,
     schedule_wake: &std::sync::Arc<tokio::sync::Notify>,
     claimed: ClaimedWork,
+    mut resources: ActorResourcePermit,
 ) -> Result<()> {
     let actor = claimed.work.owner_id.clone();
     let effective_config = config.for_agent(&actor);
@@ -799,7 +946,9 @@ pub async fn dispatch_claimed_work(
     let work_id = claimed.work.id;
     let live_turn = activities.start_work(&company, &actor, work_id, attempt_id);
     let observer = Some(live_turn.observer());
+    resources.activate();
     tokio::spawn(async move {
+        let _resources = resources;
         let gate_container = container.clone();
         let outcome = run_staff_with_failover(StaffRun {
             container,
@@ -1024,6 +1173,114 @@ pub async fn recover_unsupervised_attempts(
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn actor_resource_reservations_bound_concurrent_starts_and_release() {
+        let registry = super::StaffRegistry::default();
+        let wake = std::sync::Arc::new(tokio::sync::Notify::new());
+        let capacity = crate::runtime::ActorCapacity {
+            company_slots: 1,
+            shared_slots: Some(3),
+            company_memory_slots: 10,
+            shared_memory_slots: Some(10),
+            waiting_for_memory: false,
+        };
+        let mut tasks = tokio::task::JoinSet::new();
+        for index in 0..30 {
+            let registry = registry.clone();
+            let wake = wake.clone();
+            tasks.spawn(async move {
+                registry
+                    .try_reserve_actor_capacity(&format!("company_{index}_test"), capacity, &wake)
+                    .unwrap()
+            });
+        }
+        let mut permits = Vec::new();
+        while let Some(result) = tasks.join_next().await {
+            if let Some(permit) = result.unwrap() {
+                permits.push(permit);
+            }
+        }
+        assert_eq!(
+            permits.len(),
+            3,
+            "starts reserve capacity before live memory changes"
+        );
+        assert_eq!(registry.resource_counts("unused_test"), Some((0, 3)));
+        assert!(registry.take_resource_retry_hint());
+        assert!(!registry.take_resource_retry_hint());
+        let smaller = crate::runtime::ActorCapacity {
+            shared_slots: Some(1),
+            ..capacity
+        };
+        assert!(registry
+            .try_reserve_actor_capacity("later_test", smaller, &wake)
+            .unwrap()
+            .is_none());
+        permits.pop();
+        permits.pop();
+        assert!(registry
+            .try_reserve_actor_capacity("later_test", smaller, &wake)
+            .unwrap()
+            .is_none());
+        permits.pop();
+        // An unused Work reservation must not create a scheduler wake loop.
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), wake.notified())
+                .await
+                .is_err()
+        );
+        let mut permit = registry
+            .try_reserve_actor_capacity("later_test", smaller, &wake)
+            .unwrap()
+            .unwrap();
+        assert!(registry
+            .try_reserve_actor_capacity("later_test", capacity, &wake)
+            .unwrap()
+            .is_none());
+        permit.activate();
+        drop(permit);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), wake.notified())
+                .await
+                .is_ok()
+        );
+        assert_eq!(registry.resource_counts("later_test"), Some((0, 0)));
+        let headroom = crate::runtime::ActorCapacity {
+            company_slots: 3,
+            company_memory_slots: 1,
+            shared_memory_slots: Some(1),
+            ..capacity
+        };
+        let held = registry
+            .try_reserve_actor_capacity("ram_test", headroom, &wake)
+            .unwrap()
+            .unwrap();
+        assert!(
+            registry
+                .try_reserve_actor_capacity("ram_test", headroom, &wake)
+                .unwrap()
+                .is_none(),
+            "another start cannot reuse RAM already reserved before its process appears"
+        );
+        assert!(
+            registry
+                .try_reserve_actor_capacity("other_test", headroom, &wake)
+                .unwrap()
+                .is_none(),
+            "another company shares the same startup RAM allowance"
+        );
+        drop(held);
+        let busy = crate::runtime::ActorCapacity {
+            waiting_for_memory: true,
+            ..capacity
+        };
+        assert!(registry
+            .try_reserve_actor_capacity("later_test", busy, &wake)
+            .unwrap()
+            .is_none());
+        assert_eq!(registry.resource_counts("later_test"), Some((0, 0)));
+    }
+
     use super::{
         actor_posture, bound_attempt_context, conversation_turn_prompt, final_staff_usage,
         gate_cwd, internal_message_context, staff_spend_limit_reached, team_capacity_context,

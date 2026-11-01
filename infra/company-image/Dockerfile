@@ -64,7 +64,7 @@ FROM scratch AS binaries-prebuilt
 COPY prebuilt-rust/restless prebuilt-rust/restless-runtime-bridge prebuilt-rust/restless-machine /out/
 FROM binaries-${RUST_BINARIES} AS binaries
 
-FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
+FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS node-runtime
 
 # uv and uvx, pinned: a Python MCP server (an app added from a link such as
 # "uvx --from git+https://... some-mcp") installs itself the way an npx one does.
@@ -83,15 +83,15 @@ RUN set -eu; \
         --connect-timeout 30 "$1" --output "$2"; }; \
     case "$TARGETARCH" in \
         amd64) \
-            fetch "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_156.0.8078.47-1_amd64.deb" /tmp/chrome.deb; \
-            printf '%s  %s\n' 6c92cd22e90c6e3e255d782991543fa2091db8614e8536a971a7433a5c4d7ac8 /tmp/chrome.deb | sha256sum --check --status; \
+            fetch "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_156.0.8078.73-1_amd64.deb" /tmp/chrome.deb; \
+            printf '%s  %s\n' fd19c6895dad77f4d7f712c2d9f0d5eb682f4a6e7ff22b1bd0d40d03710d288c /tmp/chrome.deb | sha256sum --check --status; \
             dpkg-deb -x /tmp/chrome.deb /tmp/chrome; \
             mkdir -p /browser; \
             mv /tmp/chrome/opt/google/chrome /browser/chrome; \
             rm -rf /tmp/chrome /tmp/chrome.deb ;; \
         arm64) \
-            fetch "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/linux-arm64/chrome-linux-arm64.zip" /tmp/chrome.zip; \
-            printf '%s  %s\n' 9e37000e3ee2731e45e475a6a2eac587d3c0ee5f8aef7cab5211ecd52cf3fb7b /tmp/chrome.zip | sha256sum --check --status; \
+            fetch "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.73/linux-arm64/chrome-linux-arm64.zip" /tmp/chrome.zip; \
+            printf '%s  %s\n' 043ac31ba6ffea06d3c58144f9c602dd8769830de5ad6e13689fd0ce27788c34 /tmp/chrome.zip | sha256sum --check --status; \
             unzip -q /tmp/chrome.zip -d /browser; \
             mv /browser/chrome-linux-arm64 /browser/chrome; \
             rm /tmp/chrome.zip ;; \
@@ -287,7 +287,11 @@ RUN set -eux; \
 RUN groupadd --gid 2000 company \
     && useradd --uid 2000 --gid 2000 --no-create-home --home-dir /company/home company \
     && useradd --uid 2001 --gid 2000 --no-create-home --home-dir /tmp/restless-effect effect \
-    && install -d -o company -g company -m 0770 /company \
+    # /company is root's, group-writable and sticky: the company creates and owns its entries, but
+    # cannot rename or replace root's custody folders (sealed review copies, tool data) inside it.
+    && install -d -o root -g company -m 1770 /company \
+    && install -d -o root -g company -m 0550 /company/reviews /company/reviews/git /company/reviews/by-attempt \
+    && install -d -o root -g company -m 0711 /company/tool-data \
     # A tool sandbox runs as `effect` with the company's tool cache at /cache and
     # its own data at /data. Docker gives a new named volume the ownership of the
     # image's directory, so these make both writable by the tool.
@@ -300,7 +304,7 @@ RUN npm install -g ws@8.22.0 && npm cache clean --force
 # explicit until npm includes them in its published bundle.
 RUN npm --prefix /tmp/npm-security-fixes install \
         --ignore-scripts --omit=dev --no-audit --no-fund --save-exact \
-        brace-expansion@5.0.11 undici@6.28.1 \
+        brace-expansion@5.0.11 undici@6.29.1 \
     && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
         /usr/local/lib/node_modules/npm/node_modules/undici \
     && cp -a /tmp/npm-security-fixes/node_modules/brace-expansion \
@@ -324,9 +328,17 @@ FROM runtime-authoring AS runtime-harnesses
 COPY --from=uv-runtime /uv /uvx /usr/local/bin/
 RUN uv --version && uvx --version
 ENV BUN_INSTALL=/usr/local/bun
+COPY infra/host-tools/package.json /tmp/restless-host-tools.json
 RUN npm install -g bun@1.3.14 \
+    # Keep the browser dependency repair aligned with the development broker.
+    && mkdir -p ${BUN_INSTALL}/install/global \
+    && node -e 'const fs=require("node:fs"); const source=require("/tmp/restless-host-tools.json"); fs.writeFileSync(process.env.BUN_INSTALL+"/install/global/package.json", JSON.stringify({overrides:source.overrides}));' \
     && bun install -g @oh-my-pi/pi-coding-agent@18.8.6 \
+    && rm /tmp/restless-host-tools.json \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
+    # bun's download cache is a second copy of every package (the image scan counts each one), and
+    # nothing reads it at runtime.
+    && rm -rf ${BUN_INSTALL}/install/cache \
     && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force
 
@@ -343,10 +355,10 @@ RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
 # Certified Claude Code ACP transport. The adapter pins its Agent SDK and the
 # bundled native Claude Code binary; Runtime sessions still receive only a
 # short-lived Restless model capability, never the host Anthropic API key.
-ARG CLAUDE_AGENT_ACP_VERSION=0.88.0
-ARG CLAUDE_AGENT_ACP_INTEGRITY="sha512-o2bfN6S47wHTV7US/0SrDguCQVs7RhgSwA5CzC37oeDvcXTfHJFTlAquglEybIMQXwSk1zYda5Wxa0F17pOlnA=="
-ARG CLAUDE_AGENT_SDK_VERSION=0.3.293
-ARG CLAUDE_CODE_BUILD_VERSION=2.1.293
+ARG CLAUDE_AGENT_ACP_VERSION=0.90.0
+ARG CLAUDE_AGENT_ACP_INTEGRITY="sha512-XgbpMB0CIVDAxZKESwUPUiuXxdzlh8Ga1gT6pBufwkD38Zclo8/GP5khCTKssvLGad2T/8iASZusWcsDzlqpQQ=="
+ARG CLAUDE_AGENT_SDK_VERSION=0.3.296
+ARG CLAUDE_CODE_BUILD_VERSION=2.1.296
 RUN archive="$(npm pack "@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION}" --silent --pack-destination /tmp)" \
     && test "$(node -e 'const {createHash}=require("node:crypto"); const {readFileSync}=require("node:fs"); process.stdout.write("sha512-"+createHash("sha512").update(readFileSync(process.argv[1])).digest("base64"))' "/tmp/${archive}")" = "${CLAUDE_AGENT_ACP_INTEGRITY}" \
     && npm install -g "/tmp/${archive}" \
@@ -354,6 +366,8 @@ RUN archive="$(npm pack "@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_AC
     && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/package.json")" = "${CLAUDE_AGENT_ACP_VERSION}" \
     && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/@anthropic-ai/claude-agent-sdk/package.json")" = "${CLAUDE_AGENT_SDK_VERSION}" \
     && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/@anthropic-ai/claude-agent-sdk/manifest.json")" = "${CLAUDE_CODE_BUILD_VERSION}" \
+    # Adapter 0.90.0 pins zod 4.6.7, past GHSA-mrhx-c7xc-m3w5 (fixed in 4.6.6).
+    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/zod/package.json")" = 4.6.7 \
     && rm -f "/tmp/${archive}" \
     && npm cache clean --force
 ENV RESTLESS_CLAUDE_AGENT_ACP_BUILD="claude-agent-acp-${CLAUDE_AGENT_ACP_VERSION}" \

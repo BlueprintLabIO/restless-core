@@ -8,14 +8,14 @@
 	 *
 	 * The side panel lists goals as links; choosing one narrows the list and
 	 * "All work" shows everything. Work without a goal is "No goal" here and on
-	 * every Work page. List is the default view, grouped by what each item
-	 * needs; Board is the second view. Both read the same rows. */
+	 * every Work page. Board is the default view; the List groups work by what each item
+	 * needs. Both read the same rows. */
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import { Item, Empty, Segmented, Dot, Fold } from '$lib/ui/page';
-	import { WORK_STATUS_LABEL, runStateLabel } from '$lib/work/status';
+	import { WORK_STATUS_LABEL, newestAttempt, runStateLabel } from '$lib/work/status';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
@@ -48,7 +48,8 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import CopyButton from '$lib/ui/controls/CopyButton.svelte';
 	import Check from '@lucide/svelte/icons/check';
-	import { failureSentence } from '$lib/model/failure';
+	import { describeFailure, failureSentence } from '$lib/model/failure';
+	import { connection } from '$lib/model/connection.svelte';
 	import {
 		coordinationFailure,
 		judgementHolders,
@@ -69,7 +70,7 @@
 		setGoalDetails,
 		setGoalTeam
 	} from '$lib/model/work-actions';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
 	import { celebrate } from '$lib/ui/celebrate';
 
 	const companyId = $derived(page.params.companyId ?? '');
@@ -114,7 +115,7 @@
 	/* The goal and view live in the address, so a filtered view can be shared,
 	 * reloaded and reached again with Back. */
 	const selectedGoal = $derived(page.url.searchParams.get('goal') ?? '');
-	const view = $derived(page.url.searchParams.get('view') === 'board' ? 'board' : 'list');
+	const view = $derived(page.url.searchParams.get('view') === 'list' ? 'list' : 'board');
 	/* Who does it, what state it is in, and whether priority leads: filters kept in the address. */
 	const ownerFilter = $derived(page.url.searchParams.get('owner') ?? '');
 	const statusFilter = $derived(page.url.searchParams.get('status') ?? '');
@@ -154,6 +155,41 @@
 	const graph = $derived(
 		ownerAccess ? (attention?.workGraph ?? null) : (collaboration?.work_graph ?? null)
 	);
+	// A stale board stays in place when its refresh fails. A persistent toast
+	// provides retry; the reserved header control can reopen it if dismissed.
+	const workWarning = $derived.by(() => {
+		const error = graph ? (failure ?? coordination) : null;
+		if (!error) return null;
+		const kind = describeFailure(error, 'Work').kind;
+		if (
+			(kind === 'unreachable' && connection.lost) ||
+			(kind === 'offline' && typeof navigator !== 'undefined' && !navigator.onLine)
+		)
+			return null;
+		return error;
+	});
+	let workWarningToast: number | undefined;
+	function showWorkWarning(error: unknown, company: string) {
+		if (workWarningToast !== undefined) dismissToast(workWarningToast);
+		const view = describeFailure(error, 'Work');
+		const text = `${view.title}. ${view.detail} Showing the last update.`;
+		workWarningToast = toast(text, {
+			tone: 'failure',
+			dedupeKey: `work-refresh:${company}`,
+			...(view.retryable ? { action: { label: 'Retry', run: retryWork } } : {})
+		});
+	}
+	$effect(() => {
+		const error = workWarning;
+		const company = companyId;
+		if (!error) return;
+		untrack(() => showWorkWarning(error, company));
+		return () =>
+			untrack(() => {
+				if (workWarningToast !== undefined) dismissToast(workWarningToast);
+				workWarningToast = undefined;
+			});
+	});
 	const goals = $derived(ownerAccess ? (cockpit?.goals ?? []) : (collaboration?.goals ?? []));
 	const openGoals = $derived(goals.filter((goal) => !goal.closed_at));
 	const closedGoals = $derived(goals.filter((goal) => goal.closed_at));
@@ -375,17 +411,7 @@
 		return owner ? `${team.name} team, owned by ${owner}` : `${team.name} team`;
 	}
 	function attemptOf(work: WorkItem) {
-		return (
-			graph?.attempts
-				.filter((attempt) => attempt.work_id === work.id)
-				.toSorted(
-					(a, b) =>
-						a.revision - b.revision ||
-						a.attempt_no - b.attempt_no ||
-						Date.parse(a.started_at) - Date.parse(b.started_at)
-				)
-				.at(-1) ?? null
-		);
+		return newestAttempt(graph?.attempts.filter((attempt) => attempt.work_id === work.id) ?? []);
 	}
 	function outputs(work: WorkItem): number {
 		return graph?.artifacts.filter((artifact) => artifact.work_id === work.id).length ?? 0;
@@ -933,6 +959,15 @@
 					{#if selectedGoal}<Target size={15} strokeWidth={1.8} aria-hidden="true" />{/if}
 					<h1>{title}</h1>
 					<span class="count" title="Open work">{loaded && openCount ? openCount : ''}</span>
+					<span class="work-warning-slot">
+						{#if workWarning}<button
+								class="work-warning"
+								type="button"
+								aria-label="Show Work refresh problem"
+								title="Work could not refresh"
+								onclick={() => showWorkWarning(workWarning, companyId)}>!</button
+							>{/if}
+					</span>
 					{#if selectedGoal}<button
 							class="clear"
 							type="button"
@@ -1079,7 +1114,7 @@
 								{ value: 'list', label: 'List' },
 								{ value: 'board', label: 'Board' }
 							]}
-							onchange={(value) => setQuery('view', value === 'board' ? 'board' : '')}
+							onchange={(value) => setQuery('view', value === 'list' ? 'list' : '')}
 						/>
 					</div>
 				</div>
@@ -1087,15 +1122,6 @@
 
 			<!-- Board padding only for the board itself: empty, loading and failure sit where List puts them. -->
 			<div class="body" class:board={view === 'board' && loaded && !!graph && !noWorkYet}>
-				{#if failure && graph}<FailureNotice
-						error={failure}
-						subject="Work"
-						stale
-						onretry={retryWork}
-					/>{:else if coordination && graph}<FailureNotice
-						error={coordination}
-						onretry={retryWork}
-					/>{/if}
 				{#if selectedGoalRow && loaded && graph}
 					{@const progress = goalProgress(selectedGoalRow.id)}
 					<section class="goal-head" aria-label="About this goal">
@@ -1217,6 +1243,25 @@
 {/if}
 
 <style>
+	.work-warning-slot {
+		width: 24px;
+		height: 24px;
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.work-warning {
+		width: 22px;
+		height: 22px;
+		border: 1px solid var(--border-strong);
+		border-radius: 50%;
+		background: var(--surface-raised);
+		color: var(--state-danger);
+		font-weight: 700;
+		cursor: pointer;
+	}
+
 	/* Filters are controls like the buttons beside them: same height, corners and type, with a
 	 * chevron saying they open a menu. Full-round pills read as out of place (21 October). */
 	.goal-picker :global(summary) {

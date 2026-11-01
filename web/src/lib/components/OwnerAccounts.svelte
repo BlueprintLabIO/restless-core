@@ -6,6 +6,7 @@
 	 * the owner's choice), optional limits, and who. Secrets go in and never come back out. */
 	import { untrack } from 'svelte';
 	import AccountActivity from '$lib/components/AccountActivity.svelte';
+	import { activityView } from '$lib/model/account-activity-view.svelte';
 	import AccountCompanySignIn from '$lib/components/AccountCompanySignIn.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
@@ -87,6 +88,11 @@
 		} else toast(`${created.label} added. Give a company access below.`);
 	}
 
+	/* An account's activity opens as its own view (activityView); the list waits behind it. */
+	const activityAccount = $derived(
+		activityView.id ? (accounts.find((account) => account.id === activityView.id) ?? null) : null
+	);
+
 	/* ---- managing one account ---- */
 	let managing = $state('');
 	function replace(next: Account) {
@@ -116,6 +122,43 @@
 			toast(`${account.label} removed.`);
 		} catch (cause) {
 			toast(failureSentence(cause, 'The account was not removed.'), { tone: 'failure' });
+		}
+	}
+
+	/* Back from GitHub (S98-05): a new App's code is kept and the App is installed next; an
+	 * installation becomes a GitHub account to give companies. The address is cleaned either way. */
+	let fromGithub = false;
+	$effect(() => {
+		if (fromGithub || !loaded) return;
+		const params = new URLSearchParams(location.search);
+		const step = params.get('github_app');
+		if (!step) return;
+		fromGithub = true;
+		const clean = new URL(location.href);
+		for (const key of ['github_app', 'code', 'state', 'installation_id', 'setup_action'])
+			clean.searchParams.delete(key);
+		history.replaceState(history.state, '', clean);
+		untrack(() => void finishGithub(step, params));
+	});
+	async function finishGithub(step: string, params: URLSearchParams) {
+		const state = params.get('state') ?? undefined;
+		try {
+			if (step === 'created') {
+				const code = params.get('code');
+				if (!code || !state) throw new Error('GitHub did not send the App back. Try again.');
+				const next = await client.githubAppCreated({ code, state });
+				toast('The Restless GitHub App is made. Now choose its repositories.');
+				location.assign(next.install_url);
+			} else if (step === 'installed') {
+				const installation = Number(params.get('installation_id'));
+				if (!installation) return;
+				const account = await client.githubAppInstalled({ installation_id: installation, state });
+				if (!accounts.some((held) => held.id === account.id)) accounts = [...accounts, account];
+				managing = account.id;
+				toast(`${account.label} connected. Give a company access below.`);
+			}
+		} catch (cause) {
+			toast(failureSentence(cause, 'GitHub was not connected.'), { tone: 'failure' });
 		}
 	}
 
@@ -259,7 +302,27 @@
 	{/if}
 {/snippet}
 
-{#if available}<section class="owner-accounts" aria-label="Other accounts">
+{#if available && activityAccount}<section
+		class="owner-accounts"
+		aria-label={`${activityAccount.label} activity`}
+	>
+		<header class="head">
+			<button type="button" class="link back" onclick={() => activityView.close()}
+				>‹ Accounts</button
+			>
+		</header>
+		<header class="head">
+			<h3>{activityAccount.label} activity</h3>
+			<small class="who">{activityAccount.identity.display ?? activityAccount.provider ?? ''}</small
+			>
+		</header>
+		<AccountActivity
+			{client}
+			account={activityAccount}
+			{companyName}
+			onchanged={() => void refresh()}
+		/>
+	</section>{:else if available}<section class="owner-accounts" aria-label="Other accounts">
 		<header class="head">
 			<h3>Other accounts</h3>
 			<InfoTip
@@ -333,10 +396,8 @@
 										type="button"
 										class="notices"
 										title="Uses you were told about and have not answered"
-										onclick={() => {
-											managing = account.id;
-											editingGrant = null;
-										}}>{account.open_notices} to look at</button
+										onclick={() => activityView.open(account.id)}
+										>{account.open_notices} to look at</button
 									>
 								{/if}
 								<span class="status" class:ok={account.health === 'signed_in'}
@@ -418,13 +479,12 @@
 										onclick={() => editGrant(account, null)}>Give a company access</button
 									>
 								{/if}
-								<div class="detail-block">
-									<AccountActivity
-										{client}
-										{account}
-										{companyName}
-										onchanged={() => void refresh()}
-									/>
+								<div class="detail-block activity-row">
+									<span>Activity</span>
+									{#if account.open_notices}<small>{account.open_notices} to look at</small>{/if}
+									<button type="button" class="link" onclick={() => activityView.open(account.id)}
+										>See all activity</button
+									>
 								</div>
 							</div>
 						{:else if account.grants.length}
@@ -634,6 +694,25 @@
 	}
 	.detail-block {
 		padding: 8px 12px 10px;
+	}
+	.activity-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-height: 36px;
+	}
+	.activity-row span {
+		font-weight: 600;
+	}
+	.activity-row small,
+	.who {
+		color: var(--text-tertiary);
+	}
+	.activity-row .link {
+		margin-left: auto;
+	}
+	.back {
+		padding: 0;
 	}
 	.sign-in-block {
 		border-bottom: 1px solid var(--border);

@@ -1860,3 +1860,50 @@ async fn unsettled_work_reassignment_is_attributed_and_never_steals_a_running_at
 
     org.drop_schema().await.unwrap();
 }
+
+#[tokio::test]
+async fn concurrent_company_schema_initialization_is_idempotent() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping concurrent schema initialization");
+        return;
+    };
+    let company = format!("schema_race_{}_test", uuid::Uuid::new_v4().simple());
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(8));
+    let mut tasks = Vec::new();
+    for _ in 0..8 {
+        let (url, company, barrier) = (url.clone(), company.clone(), barrier.clone());
+        tasks.push(tokio::spawn(async move {
+            barrier.wait().await;
+            OrgIntel::ensure(&url, &company).await
+        }));
+    }
+    let mut failures = Vec::new();
+    let mut handles = Vec::new();
+    for task in tasks {
+        match task.await.unwrap() {
+            Ok(org) => handles.push(org),
+            Err(error) => failures.push(error.to_string()),
+        }
+    }
+    if let Some(org) = handles.first() {
+        org.ensure_actor("exec", "exec", "exec", "Exec")
+            .await
+            .unwrap();
+        for handle in &handles {
+            assert!(handle.active_actor("exec").await.unwrap().is_some());
+        }
+    }
+    for handle in handles {
+        handle.close().await;
+    }
+    let cleanup = sqlx::PgPool::connect(&url).await.unwrap();
+    sqlx::query(&format!("DROP SCHEMA IF EXISTS {company} CASCADE"))
+        .execute(&cleanup)
+        .await
+        .unwrap();
+    cleanup.close().await;
+    assert!(
+        failures.is_empty(),
+        "concurrent company startup failed: {failures:?}"
+    );
+}

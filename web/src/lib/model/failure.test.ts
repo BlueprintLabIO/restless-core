@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { describeFailure, failureKind, isRetryable, responseFailure } from './failure.ts';
+import {
+	describeFailure,
+	failureKind,
+	isRetryable,
+	ownerJson,
+	responseFailure
+} from './failure.ts';
 
 const json = (status: number, body: unknown) =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -41,6 +47,13 @@ test('transport and proxy failures never reach the owner as raw text', async () 
 	assert.equal(seen[0].kind, 'unreachable');
 	assert.equal(seen[1].kind, 'unreachable');
 	assert.equal(seen[3].kind, 'server');
+});
+
+test("the edge's own 429 is an outage; the daemon's 429 asks for a moment", async () => {
+	const edge = new Response('error code: 1027', { status: 429, statusText: 'Too Many Requests' });
+	assert.equal(failureKind(await responseFailure(edge)), 'unreachable');
+	const daemon = json(429, { error: 'rate', message: 'Too many sign-in attempts.' });
+	assert.equal(failureKind(await responseFailure(daemon)), 'busy');
 });
 
 test("the daemon's own message is kept for request-level failures and hidden for 5xx", async () => {
@@ -88,4 +101,11 @@ test('a route this server does not have yet says to restart, not "not found"', a
 		'Work'
 	);
 	assert.equal(gone.title, 'Work not found');
+});
+
+test('a change the plane confirms with no body counts as saved', async () => {
+	assert.equal(await ownerJson(new Response(null, { status: 204 })), undefined);
+	assert.equal(await ownerJson(new Response('', { status: 200 })), undefined);
+	assert.deepEqual(await ownerJson(json(200, { ok: true })), { ok: true });
+	await assert.rejects(ownerJson(json(409, { message: 'Busy.' })));
 });

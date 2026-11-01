@@ -1056,6 +1056,7 @@ fn desired_company_config(
     company_handle: &str,
 ) -> runtime::CompanyConfig {
     runtime::CompanyConfig {
+        compute_limits: None,
         agent_intelligence: Default::default(),
         native_harnesses: Default::default(),
         display_name: None,
@@ -1491,7 +1492,6 @@ mod tests {
         original.operation_id = Uuid::new_v4();
         original.company_id = Uuid::new_v4();
         original.cell_id = Uuid::new_v4();
-        let handle = company_handle(original.company_id);
         let root = std::env::temp_dir().join(format!(
             "restless-company-bootstrap-baseline-{}",
             original.operation_id

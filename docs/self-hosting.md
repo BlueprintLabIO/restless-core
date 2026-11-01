@@ -17,11 +17,16 @@ forward instead). `restless.run/install` redirects to `scripts/install-core.sh` 
 revision, the 40-character commit of a successful **Immutable Core release** run
 on `main`: `... | bash -s -- <revision>`.
 
+A laptop that only drives Restless Cloud or another machine needs just the CLI:
+`... | bash -s -- --cli` verifies the same release the same way, puts `restless` in
+`~/.local/bin`, and starts nothing. Then `restless login app.restless.run` (Settings › Computers
+shows the full command).
+
 The installer:
 
 1. checks the release bundle's SHA-256 digests;
 2. verifies the signature on its release manifest, accepting only the
-   repository's release workflow on `main` as the signer;
+   Restless release key (`release/signing.pub`) as the signer;
 3. pulls each image by the digest in that signed manifest;
 4. on a first install, prepares the database (below) and keeps the service
    running after you log out (`loginctl enable-linger`; if your system does not

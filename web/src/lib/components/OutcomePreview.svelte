@@ -169,7 +169,7 @@
 				<Markdown text={target.content} />
 			</article>
 		{:else if file && resolve}
-			<LibraryViewer {companyId} {file} {resolve} owner="" backHref="" showDiscuss={false} />
+			<LibraryViewer {companyId} {file} {resolve} owner="" backHref="" />
 		{:else if loading}<div class="outcome-state">
 				<Pending
 					label={target?.status === 'asleep'
@@ -183,7 +183,8 @@
 						class="btn small primary"
 						type="button"
 						disabled={starting}
-						onclick={() => void startComputer()}>{starting ? 'Starting…' : 'Start the computer'}</button
+						onclick={() => void startComputer()}
+						>{starting ? 'Starting…' : 'Start the computer'}</button
 					>{/if}
 				<button
 					class="btn small"

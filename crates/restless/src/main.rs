@@ -16,6 +16,7 @@ mod appliance;
 mod chat;
 mod direction;
 mod document;
+mod remote;
 mod sheet;
 mod skill;
 
@@ -38,7 +39,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum JobCommand {
-    /// Start a job. Everything after `--` is the shell command.
+    /// Submit a job. It waits for account capacity before starting. Everything after `--` is the shell command.
     Run {
         /// CPUs for the job (default: all of this machine's).
         #[arg(long)]
@@ -52,10 +53,21 @@ enum JobCommand {
         /// Where it runs, under /company (default /company).
         #[arg(long)]
         workdir: Option<String>,
+        /// Run it on one of the owner's computers lent to this company, by name (Company ›
+        /// Computer), instead of beside your own. Heavy builds and tests belong there.
+        #[arg(long)]
+        on: Option<String>,
+        /// owner/name: a fresh clone for the job to run in (with --on). Needs a GitHub App account
+        /// that this company may read the repository with.
+        #[arg(long)]
+        repo: Option<String>,
+        /// The branch, tag or commit to check out (default: the repository's default branch).
+        #[arg(long = "ref")]
+        git_ref: Option<String>,
         #[arg(last = true, required = true)]
         command: Vec<String>,
     },
-    /// Whether a job is running, succeeded, failed or timed out.
+    /// Whether a job is waiting for capacity, running, succeeded, failed or timed out.
     Status { id: String },
 }
 
@@ -84,6 +96,44 @@ enum AppsCommand {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Sign this terminal in to a Restless: Cloud (`restless.run`), a self-hosted address, or
+    /// this computer's. You approve the code it prints in Settings › Computers.
+    Login {
+        /// The Restless address, e.g. restless.run or 127.0.0.1:7788.
+        address: String,
+        /// Behind Cloud's one address: the plane to reach (Settings › Computers shows it).
+        #[arg(long)]
+        plane: Option<String>,
+        /// What to call this context (defaults to the address's host).
+        #[arg(long)]
+        name: Option<String>,
+        /// Don't try to open the approval page in a browser.
+        #[arg(long)]
+        no_browser: bool,
+    },
+    /// Sign this terminal out of a context and revoke its token.
+    Logout { name: Option<String> },
+    /// Switch which signed-in Restless this terminal uses.
+    Use { name: String },
+    /// List the Restless addresses this terminal is signed in to.
+    Contexts,
+    /// Who and where this terminal is signed in as.
+    Whoami,
+    /// The companies on the current context.
+    Companies,
+    /// What needs you, across your companies (or one).
+    Decisions { company: Option<String> },
+    /// Tell a company's Exec something, as you.
+    Ask {
+        company: String,
+        /// The message (quote it).
+        message: Vec<String>,
+    },
+    /// Open a shell on a company's computer, through its Restless (account owner only).
+    Ssh { company: String },
+    /// Lend this computer (or a server you own: ssh://user@host) to the current context's
+    /// Restless, so its companies can run work here.
+    Connect { target: Option<String> },
     /// Install and operate the dependable local Restless appliance.
     Appliance {
         #[command(subcommand)]
@@ -203,8 +253,12 @@ enum Command {
     },
     /// Run heavy work, such as a simulation or a large build, as a burst job instead of inside your
     /// own session: `restless job run --cpus 2 --timeout 3600 -- python sim.py` returns a job id at
-    /// once, and `restless job status <id>` says whether it is running, succeeded, failed or timed
-    /// out. Output goes to /company/run/jobs/<id>.log; the job sees the same /company files.
+    /// once. It waits for account capacity if needed; `restless job status <id>` shows the wait,
+    /// running state or outcome. Output goes to /company/run/jobs/<id>.log; the job sees the same
+    /// /company files.
+    /// On one of the owner's computers: `restless job run --on "Yail's PC" --repo owner/name --ref
+    /// <commit> -- cargo test` clones the repository fresh there and returns its log tail in
+    /// `restless job status <id>`; toolchains and build output are cached between jobs.
     Job {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
         company: Option<String>,
@@ -2430,7 +2484,29 @@ fn state_root() -> PathBuf {
 }
 
 fn main() -> Result<()> {
+    // Two TLS backends reach rustls through the dependency tree, so it will not pick one itself:
+    // `restless ssh` to an https plane panicked (25 Oct). Choose ring, as the machine helper does.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
+    // A client of another Restless (S106): no local appliance profile is involved.
+    match &cli.command {
+        Command::Login {
+            address,
+            plane,
+            name,
+            no_browser,
+        } => return remote::login(address, plane.clone(), name.clone(), !no_browser),
+        Command::Logout { name } => return remote::logout(name.clone()),
+        Command::Use { name } => return remote::use_context(name),
+        Command::Contexts => return remote::list_contexts(),
+        Command::Whoami => return remote::whoami(),
+        Command::Companies => return remote::companies(),
+        Command::Decisions { company } => return remote::decisions(company.clone()),
+        Command::Ask { company, message } => return remote::ask(company, &message.join(" ")),
+        Command::Connect { target } => return remote::connect(target.clone()),
+        Command::Ssh { company } => return remote::ssh(company),
+        _ => {}
+    }
     // Host commands must name a coherent appliance profile before they can
     // reach a socket, Docker resource or destructive lifecycle operation.
     // Runtime clients authenticate through RESTLESS_COORDINATOR instead and
@@ -2691,8 +2767,37 @@ fn main() -> Result<()> {
         other => {
             let request = stamp(request_json(other)?);
             let response = request_once(&request.to_string())?;
+            if request["cmd"] == "job-status" {
+                keep_job_log(&response);
+            }
             print_response(&response)
         }
+    }
+}
+
+/// A job that ran on one of the owner's computers (S108) reports its log tail once, as it
+/// finishes; keep it where a local job's log goes, so `/company/run/jobs/<id>.log` holds it after.
+fn keep_job_log(response: &str) {
+    let Ok(data) = response_data(response) else {
+        return;
+    };
+    let (Some(id), Some(log), Some(status)) = (
+        data["job"].as_str(),
+        data["log_tail"].as_str(),
+        data["status"].as_str(),
+    ) else {
+        return;
+    };
+    if status == "running"
+        || id.len() != 12
+        || !id.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || !std::path::Path::new("/company").is_dir()
+    {
+        return;
+    }
+    let directory = std::path::Path::new("/company/run/jobs");
+    if std::fs::create_dir_all(directory).is_ok() {
+        let _ = std::fs::write(directory.join(format!("{id}.log")), log);
     }
 }
 
@@ -2859,6 +2964,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     memory,
                     timeout,
                     workdir,
+                    on,
+                    repo,
+                    git_ref,
                     command,
                 } => serde_json::json!({
                     "cmd": "job-run",
@@ -2869,6 +2977,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                         "memory": memory,
                         "timeout_secs": timeout,
                         "workdir": workdir,
+                        "on": on,
+                        "repo": repo,
+                        "ref": git_ref,
                     },
                 }),
                 JobCommand::Status { id } => serde_json::json!({
@@ -4359,6 +4470,16 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             "key": key,
         }),
         Command::Appliance { .. }
+        | Command::Login { .. }
+        | Command::Logout { .. }
+        | Command::Use { .. }
+        | Command::Contexts
+        | Command::Whoami
+        | Command::Companies
+        | Command::Decisions { .. }
+        | Command::Ask { .. }
+        | Command::Connect { .. }
+        | Command::Ssh { .. }
         | Command::Open
         | Command::Doctor { .. }
         | Command::Commission { .. }

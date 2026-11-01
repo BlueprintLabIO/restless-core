@@ -507,7 +507,20 @@ pub async fn project(
         ),
     };
 
-    let runtime_result = runtime::cockpit_doctor(&config.name).await;
+    // Company controls and Resources must remain usable while a constrained
+    // Runtime cannot answer its independent diagnostic probes. Explicit Doctor
+    // and lifecycle actions still use the full live check.
+    let runtime_result = match tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        runtime::cockpit_doctor(&config.name),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(anyhow::anyhow!(
+            "Company computer checks are taking longer than usual. Retry in Company → Computer."
+        )),
+    };
     let (runtime_doctor, runtime_source) = match runtime_result {
         Ok((doctor, runtime_observed_at)) => (
             Some(doctor),
@@ -3064,14 +3077,14 @@ model = "moonshot/kimi-k3"
             harnesses: [
                 ("restless-managed".into(), "omp-18.8.6".into()),
                 ("codex".into(), "codex-cli-0.155.1".into()),
-                ("claude-agent".into(), "claude-agent-acp-0.88.0".into()),
+                ("claude-agent".into(), "claude-agent-acp-0.90.0".into()),
             ]
             .into_iter()
             .collect(),
-            harness_agents: [("claude-agent".into(), "claude-code-2.1.293".into())]
+            harness_agents: [("claude-agent".into(), "claude-code-2.1.296".into())]
                 .into_iter()
                 .collect(),
-            harness_dependencies: [("claude-agent-sdk".into(), "0.3.293".into())]
+            harness_dependencies: [("claude-agent-sdk".into(), "0.3.296".into())]
                 .into_iter()
                 .collect(),
         });

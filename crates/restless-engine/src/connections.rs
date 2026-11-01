@@ -2542,8 +2542,11 @@ async fn open_local_worker(
     if let Ok(host) = std::env::var("DOCKER_HOST") {
         docker.env("DOCKER_HOST", host);
     }
+    docker.arg("run");
+    if let Some(parent) = crate::runtime::workload_cgroup_parent()? {
+        docker.args(["--cgroup-parent", parent.as_str()]);
+    }
     docker.args([
-        "run",
         "--rm",
         "-i",
         "--pull=never",

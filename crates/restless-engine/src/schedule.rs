@@ -175,6 +175,15 @@ impl WakeClaims {
         })
     }
 
+    /// The owner's Stop: cancel the turn and drop the wake hint queued behind it. An owner
+    /// message raises two hints (the send and its notification), so one is often still queued
+    /// for the very message being stopped, and would start a fresh turn that answers it anyway.
+    /// Anything genuinely still owed is re-derived from durable unread rows by the next scan.
+    pub fn stop(&mut self, company: &str) -> bool {
+        self.pending.remove(company);
+        self.interrupt(company)
+    }
+
     fn take_ready(&mut self) -> Vec<(String, String)> {
         let ready = self
             .pending
@@ -228,8 +237,13 @@ pub async fn run(daemon: Arc<Daemon>) {
     let mut inbox = daemon.cell_wakes.subscribe();
     ensure_cell_listeners(&daemon).await;
     scan_all_companies(&daemon, &in_flight).await;
+    let mut waiting_jobs = reconcile_waiting_jobs(&daemon).await;
     loop {
-        let next_due = next_due_delay(&daemon).await;
+        let next_due = if waiting_jobs {
+            next_due_delay(&daemon).await.min(OVERDUE_RETRY_INTERVAL)
+        } else {
+            next_due_delay(&daemon).await
+        };
         tokio::select! {
             _ = tokio::time::sleep(next_due) => {
                 // A company created since boot needs its own listener; this is
@@ -237,12 +251,14 @@ pub async fn run(daemon: Arc<Daemon>) {
                 ensure_cell_listeners(&daemon).await;
                 fire_pending(&daemon, &in_flight).await;
                 scan_all_companies(&daemon, &in_flight).await;
+                waiting_jobs = reconcile_waiting_jobs(&daemon).await;
             }
             _ = daemon.schedule_wake.notified() => {
                 tracing::info!("native schedule wake observed; reconciling durable due state");
                 ensure_cell_listeners(&daemon).await;
                 fire_pending(&daemon, &in_flight).await;
                 scan_all_companies(&daemon, &in_flight).await;
+                waiting_jobs = reconcile_waiting_jobs(&daemon).await;
             }
             wake = inbox.recv() => {
                 match wake {
@@ -263,6 +279,22 @@ pub async fn run(daemon: Arc<Daemon>) {
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
                 }
             }
+        }
+    }
+}
+
+async fn reconcile_waiting_jobs(daemon: &Arc<Daemon>) -> bool {
+    let Some(_lease) = daemon.lifecycle.try_enter() else {
+        return true;
+    };
+    let Some(companies) = configured_companies(daemon) else {
+        return true;
+    };
+    match crate::burst_jobs::reconcile_pending(daemon, &companies).await {
+        Ok(waiting) => waiting,
+        Err(error) => {
+            tracing::warn!(%error, "waiting jobs could not be reconciled");
+            true
         }
     }
 }
@@ -383,6 +415,14 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
 }
 
 async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
+    if daemon.staff.take_resource_retry_hint() {
+        return OVERDUE_RETRY_INTERVAL;
+    }
+    let memory_wait = match runtime::shared_workload_admission() {
+        Ok(Some(admission)) => admission.waiting_for_memory,
+        Ok(None) => false,
+        Err(_) => true,
+    };
     let now = chrono::Utc::now();
     let mut earliest = None;
     for company in configured_companies(daemon).unwrap_or_default() {
@@ -406,6 +446,16 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
         // A sleeping computer is woken by the same due facts that a running
         // one would act on; a stopped one is not timed at all.
         let runtime_sleeping = !runtime_running && runtime::is_sleeping(&company);
+        if runtime_running && org.has_ready_work().await.unwrap_or(false) {
+            let company_wait = match runtime::workload_admission(&company).await {
+                Ok(Some(admission)) => admission.waiting_for_memory,
+                Ok(None) => false,
+                Err(_) => true,
+            };
+            if memory_wait || company_wait {
+                return OVERDUE_RETRY_INTERVAL;
+            }
+        }
         let schedule_due = if runtime_running || runtime_sleeping {
             org.next_schedule_due_at().await
         } else {
@@ -727,7 +777,26 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         }
     }
 
+    // Leave Work ready in OrgIntel while the shared pool is under pressure.
+    // No Attempt, model invocation or failure is created merely to wait.
+    // Missing configured counters also defer new turns. Owner controls remain
+    // available; conversations retain their durable input and scheduling priority.
     while daemon.staff.has_capacity(company) && daemon.staff.has_work_capacity(company) {
+        if !org.has_ready_work().await.unwrap_or(false) {
+            break;
+        }
+        let resources = match daemon
+            .staff
+            .reserve_actor_capacity(company, &daemon.runtime_bridges, &daemon.schedule_wake)
+            .await
+        {
+            Ok(Some(resources)) => resources,
+            Ok(None) => break,
+            Err(error) => {
+                tracing::warn!(company, "new Work waits for a resource reading: {error:#}");
+                break;
+            }
+        };
         // Conversation turns and Work Attempts share one supervised actor.
         // Exclude the registry snapshot before the database claim so a busy
         // actor's ready node stays untouched rather than being claimed and
@@ -763,6 +832,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
             &daemon.runtime_bridges,
             &daemon.schedule_wake,
             claimed,
+            resources,
         )
         .await
         {
@@ -871,6 +941,11 @@ async fn recover_interrupted_exec_wake(
     true
 }
 
+/// A wake raised only because a message arrived, as opposed to a schedule, mention or recovery.
+fn is_message_wake(reason: &str) -> bool {
+    reason == OWNER_MESSAGE_REASON || reason.starts_with("message from ")
+}
+
 fn exec_wake_is_interrupted(latest_wake_id: Option<i64>, latest_wake_end_id: Option<i64>) -> bool {
     latest_wake_id.is_some_and(|wake| latest_wake_end_id.is_none_or(|end| wake > end))
 }
@@ -941,6 +1016,31 @@ pub async fn run_exec_turn(
         effective_config.has_effective_model_route(effective_config.coordination_harness),
         "Connect a model in Company → Intelligence before starting the Exec."
     );
+    let resources = daemon
+        .staff
+        .reserve_actor_capacity(&config.name, &daemon.runtime_bridges, &daemon.schedule_wake)
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!(crate::staff::CapacityDeferred)
+                .context(format!("AI capacity reading unavailable: {error:#}"))
+        })?
+        .ok_or(crate::staff::CapacityDeferred)?;
+    run_exec_turn_admitted(daemon, config, org, reason, cancellation, resources).await
+}
+
+async fn run_exec_turn_admitted(
+    daemon: &Daemon,
+    config: &CompanyConfig,
+    org: &OrgIntel,
+    reason: &str,
+    cancellation: &CancellationToken,
+    mut resources: crate::staff::ActorResourcePermit,
+) -> Result<exec::WakeReport> {
+    let effective_config = config.for_agent("exec");
+    anyhow::ensure!(
+        effective_config.has_effective_model_route(effective_config.coordination_harness),
+        "Connect a model in Company → Intelligence before starting the Exec."
+    );
     // The lease row is FK-bound to the durable Actor. Fresh companies may
     // reach this entry point before `exec::wake` has ever bootstrapped it, so
     // initialise the stable principals before competing for the mutex.
@@ -959,6 +1059,7 @@ pub async fn run_exec_turn(
     else {
         anyhow::bail!("Exec already has a durable cognitive session or running Work Attempt");
     };
+    resources.activate();
     let outcome =
         run_exec_turn_with_lease(daemon, config, org, reason, cancellation, &lease_guard).await;
     lease_guard.finish().await;
@@ -1167,6 +1268,29 @@ async fn run_exec_turn_with_lease(
     } else {
         None
     };
+    // A message wakes the Exec twice (the send and its notification), and when the turn starts on
+    // the first the second is queued behind it. By then the turn has answered the message, or the
+    // owner stopped it, so a message wake that finds nothing to read ends here, before the model.
+    if is_message_wake(&reason)
+        && message_ids.is_empty()
+        && owed_judgements.is_empty()
+        && pending_mention.is_none()
+        && claimed_opportunities.is_empty()
+    {
+        tracing::debug!(company = %config.name, %reason, "message wake found nothing unread");
+        return Ok(exec::WakeReport {
+            company: config.name.clone(),
+            model: String::new(),
+            failovers: Vec::new(),
+            termination: exec::Termination::Continue,
+            reason: "nothing unread".into(),
+            retry_after_seconds: None,
+            tool_calls: Vec::new(),
+            said: String::new(),
+            owner_reply: None,
+            reply_complete: false,
+        });
+    }
     let mention_context = pending_mention
         .as_ref()
         .map(crate::mentions::MentionClaim::context);
@@ -1463,6 +1587,31 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
             .queue(company, reason);
         return;
     }
+    crate::runtime_sleep::wake_for(daemon, company, reason).await;
+    // Reserve before spawning so pending owner replies win their existing
+    // place ahead of new Work. A delayed async start must not lose that slot.
+    let resources = match daemon
+        .staff
+        .reserve_actor_capacity(company, &daemon.runtime_bridges, &daemon.schedule_wake)
+        .await
+    {
+        Ok(Some(resources)) => resources,
+        Ok(None) => {
+            in_flight
+                .lock()
+                .expect("in-flight guard")
+                .queue(company, reason);
+            return;
+        }
+        Err(error) => {
+            tracing::debug!(company, "Exec waits for compute capacity: {error:#}");
+            in_flight
+                .lock()
+                .expect("in-flight guard")
+                .queue(company, reason);
+            return;
+        }
+    };
     let cancellation = {
         let mut guard = in_flight.lock().expect("in-flight guard");
         // Keep this wake hint queued until backoff expires. Scheduled and
@@ -1483,13 +1632,10 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
     let reason = reason.to_string();
     tokio::spawn(async move {
         let _guard = WakeGuard::new(&company, &in_flight);
-        // The Exec is owed this turn, so a sleeping computer wakes for it. A
-        // stopped one is left to the Exec preflight, which tells the owner.
-        crate::runtime_sleep::wake_for(&daemon, &company, &reason).await;
         let outcome = async {
             let config = CompanyConfig::load(&daemon.root, &company)?;
             let org = daemon.orgintel.get(&company).await?;
-            run_exec_turn(&daemon, &config, &org, &reason, &cancellation).await
+            run_exec_turn_admitted(&daemon, &config, &org, &reason, &cancellation, resources).await
         }
         .await;
         // A turn that could not run delivered nothing, so its owed facts are
@@ -1533,7 +1679,10 @@ async fn fire_pending(daemon: &Arc<Daemon>, in_flight: &InFlight) {
 
 #[cfg(test)]
 mod tests {
-    use super::{actor_exclusions, exec_wake_is_interrupted, is_exec_self_message, WakeClaims};
+    use super::{
+        actor_exclusions, exec_wake_is_interrupted, is_exec_self_message, is_message_wake,
+        WakeClaims,
+    };
 
     #[test]
     fn proactive_reply_or_explicit_quiet_is_required() {
@@ -1605,6 +1754,39 @@ mod tests {
         assert!(claims.interrupt("probe"));
         assert!(cancellation.is_cancelled());
         assert!(!claims.interrupt("other-company"));
+    }
+
+    #[test]
+    fn only_a_message_hint_is_a_message_wake() {
+        assert!(is_message_wake("new owner message"));
+        assert!(is_message_wake("message from owner"));
+        assert!(is_message_wake("message from delivery-build"));
+        assert!(!is_message_wake(
+            "a focused collaboration mention is owed to the Exec"
+        ));
+        assert!(!is_message_wake("scheduled opportunity due"));
+    }
+
+    #[test]
+    fn a_stop_drops_the_wake_queued_behind_the_stopped_turn() {
+        let mut claims = WakeClaims::default();
+        let cancellation = claims
+            .claim_with_cancellation("probe")
+            .expect("claim the active turn");
+        // The owner message's notification arrives while its own turn runs.
+        claims.queue("probe", "message from owner");
+        claims.queue("other-company", "message from owner");
+
+        assert!(claims.stop("probe"));
+        assert!(cancellation.is_cancelled());
+        claims.release("probe");
+        assert_eq!(
+            claims.take_ready(),
+            vec![(
+                "other-company".to_string(),
+                "message from owner".to_string()
+            )]
+        );
     }
 
     #[test]

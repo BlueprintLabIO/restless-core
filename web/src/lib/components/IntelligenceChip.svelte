@@ -6,6 +6,7 @@
 	import {
 		EFFORTS,
 		assignModel,
+		agentRouteState,
 		intelligenceQuery,
 		setEffort
 	} from '$lib/model/intelligence.svelte';
@@ -23,6 +24,7 @@
 
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
+	import { agentConnection, agentPickerSelection } from '$lib/model/intelligence-route';
 
 	let { companyId, actorId, name }: { companyId: string; actorId: string; name: string } = $props();
 	/* Choosing a model is the owner's alone, as the server decides; for anyone else the chip is not
@@ -32,20 +34,23 @@
 	const catalog = modelCatalog(() => allowed);
 	const source = $derived(intelligenceQuery(companyId, () => allowed));
 	const agent = $derived(source.view?.agents.find((row) => row.id === actorId) ?? null);
-	const assignment = $derived(
-		agent?.assignment ?? source.view?.default ?? source.view?.base_default ?? null
-	);
+	const routeState = $derived(agentRouteState(source.view, actorId));
 	const connection = $derived(
-		source.view?.connections.find((row) => row.id === assignment?.connection) ?? null
+		source.view && agent ? (agentConnection(source.view, agent) ?? null) : null
 	);
-	const choices = $derived(
-		connection?.models ??
-			catalog.models(
-				connection?.account_provider ?? connection?.provider ?? '',
-				connection?.account_kind ?? 'api_key'
-			)
+	const assignment = $derived(
+		source.view && agent ? agentPickerSelection(source.view, agent) : null
 	);
 	const current = $derived(assignment?.model ?? '');
+	/* An empty list from the connection is no list: fall back to the catalogue (see ModelAssignmentEditor). */
+	const choices = $derived(
+		connection?.models?.length
+			? connection.models
+			: catalog.models(
+					connection?.account_provider ?? connection?.provider ?? '',
+					connection?.account_kind ?? 'api_key'
+				)
+	);
 	let busy = $state(false);
 	let failure = $state('');
 
@@ -114,8 +119,18 @@
 	holdQueries(() => [source]);
 </script>
 
-{#if !allowed}{:else if agent && modelLabel(agent.effective_model) === 'Unavailable'}
-	<a class="chip-link" href={`/${encodeURIComponent(companyId)}/company/provider`}>Choose a model</a
+{#if !allowed}{:else if routeState !== 'ready'}
+	<a
+		class="chip-link"
+		href={`/${encodeURIComponent(companyId)}/company/provider`}
+		title={actorId === 'exec' && source.view?.company_issue
+			? source.view.company_issue
+			: 'Check this agent’s model connection in Intelligence'}
+		>{routeState === 'checking' || routeState === 'starting'
+			? 'Checking model…'
+			: routeState === 'needs_connection'
+				? 'Choose a model'
+				: 'Model unavailable'}</a
 	>
 {:else if agent}
 	<div

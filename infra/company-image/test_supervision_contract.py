@@ -60,6 +60,16 @@ class SupervisionContractTests(unittest.TestCase):
         self.assertEqual(trusted["program:runtime-bridge"]["user"], "root")
         self.assertNotIn("/company/services", (HERE / "supervisord.conf").read_text())
 
+    def test_built_in_listeners_bind_loopback_only(self) -> None:
+        # Companies of one owner share a Docker network. A wildcard listener
+        # (the desktop's websockify fronts a password-less VNC server) would
+        # let one company drive another's desktop. The plane reaches these
+        # ports through `docker exec ... socat TCP:127.0.0.1:<port>`.
+        for name in ("company-supervisord.conf", "computer-supervisord.conf", "supervisord.conf"):
+            self.assertNotIn("0.0.0.0", (HERE / name).read_text(encoding="utf-8"), name)
+        for name in ("release-health.mjs", "browser-broker.mjs"):
+            self.assertNotIn('"0.0.0.0"', (HERE / name).read_text(encoding="utf-8"), name)
+
     def test_company_supervisor_and_every_built_in_child_inherit_uid_2000(self) -> None:
         company = read_config(HERE / "company-supervisord.conf")
         self.assertEqual(
@@ -131,6 +141,18 @@ class SupervisionContractTests(unittest.TestCase):
                     expected_directory=directory,
                     expected_uid=os.getuid(),
                 )
+
+    def test_root_keeps_custody_of_reviews_and_tool_data_on_the_company_volume(self) -> None:
+        entrypoint = (HERE / "entrypoint.sh").read_text()
+        dockerfile = (HERE / "Dockerfile").read_text()
+        volume_init = (HERE / "company-volume-init.sh").read_text()
+        self.assertIn("install -d -o root -g company -m 1770 /company", dockerfile)
+        self.assertIn("chmod 1770 /company", entrypoint)
+        for custody in ("/company/reviews/git", "/company/reviews/by-attempt", "/company/tool-data"):
+            self.assertIn(custody, entrypoint)
+        # The company identity must never create them: it would own them.
+        self.assertNotIn("/company/reviews", volume_init)
+        self.assertNotIn("/company/tool-data", volume_init)
 
     def test_bridge_secret_and_trusted_control_state_cannot_use_company_volume(self) -> None:
         entrypoint = (HERE / "entrypoint.sh").read_text()
