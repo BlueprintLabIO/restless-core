@@ -16,6 +16,9 @@
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import { Item, Empty, Segmented, Dot, Fold } from '$lib/ui/page';
 	import { WORK_STATUS_LABEL, newestAttempt, runStateLabel } from '$lib/work/status';
+	import { workWaitingLine } from '$lib/work/waiting';
+	import { agentRouteState } from '$lib/model/intelligence-route';
+	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
@@ -60,7 +63,6 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import Ban from '@lucide/svelte/icons/ban';
 	import {
-		blockerSentence,
 		steerWork,
 		closeGoal,
 		transitionGoals,
@@ -81,6 +83,8 @@
 	const collaborationProjection = $derived(
 		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principalProjection.view))
 	);
+	/* Whether each lead's model can reply: Work waiting on a model says so on its row. */
+	const intelligence = $derived(intelligenceQuery(companyId, () => !!principalProjection.view));
 	const attention = $derived(attentionProjection.view);
 	const cockpit = $derived(cockpitProjection.view);
 	const collaboration = $derived(collaborationProjection.view);
@@ -355,6 +359,27 @@
 		work.status !== 'completed' && heldBy.has(work.id)
 			? `With ${ownerName(heldBy.get(work.id) ?? '')}`
 			: '';
+	/* Why each open Work waits and on whom, one line under its title (S109 A1). Until the model
+	 * routes are read the line stays empty rather than naming a lead and then switching to the
+	 * model. */
+	const routesRead = $derived(!!intelligence.view || !!intelligence.error);
+	function waiting(work: WorkItem): string {
+		if (!routesRead) return '';
+		return (
+			workWaitingLine(work, {
+				viewer: principalProjection.view?.actor_id ?? null,
+				viewerIsOwner: ownerAccess,
+				name: ownerName,
+				items: ownerAccess ? (attention?.items ?? []) : [],
+				viewerHandoffs: ownerAccess ? [] : (collaboration?.attention.handoffs ?? []),
+				handoffs: graph && 'handoffs' in graph ? graph.handoffs : [],
+				edges: graph?.edges ?? [],
+				work: graph?.work ?? [],
+				attempts: graph?.attempts ?? [],
+				route: intelligence.view ? (actor) => agentRouteState(intelligence.view, actor) : undefined
+			}) ?? ''
+		);
+	}
 	const byRecent = (a: WorkItem, b: WorkItem) =>
 		Date.parse(b.updated_at) - Date.parse(a.updated_at);
 	const bySort = $derived((a: WorkItem, b: WorkItem) =>
@@ -455,9 +480,6 @@
 		const count = outputs(work);
 		return [
 			withOwner ? ownerName(work.owner_id) : '',
-			work.status === 'blocked' && !waitingOnOwner.has(work.id)
-				? blockerSentence(work.resolution, attemptOf(work)?.summary ?? '')
-				: '',
 			priorityLabel(work.priority),
 			waitingOnOwner.has(work.id) ? '' : holder(work),
 			/* A run's state only when it adds to the Work's own: it failed or was sent back. */
@@ -499,6 +521,7 @@
 					id: row.id,
 					title: row.title,
 					signal: meta(row, false),
+					waiting: row.status === 'completed' ? undefined : waiting(row),
 					status: row.status,
 					ownerName: ownerName(row.owner_id),
 					revision: row.revision,
@@ -768,7 +791,8 @@
 		principalProjection,
 		attentionProjection,
 		cockpitProjection,
-		collaborationProjection
+		collaborationProjection,
+		intelligence
 	]);
 </script>
 
@@ -826,6 +850,7 @@
 	<Item
 		title={work.title}
 		meta={meta(work)}
+		note={work.status === 'completed' ? undefined : waiting(work)}
 		href={workHref(work.id)}
 		dim={work.status === 'completed'}
 	>
