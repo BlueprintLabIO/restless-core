@@ -382,6 +382,18 @@ export function createCompanySetup(companyIdOf: () => string) {
 		return out;
 	});
 
+	/* Whether everything the overview's facts and setup tasks depend on has answered once (or
+	 * failed): until then the overview shows its skeleton, so the tasks and the facts line appear
+	 * together instead of growing the page a row at a time (S109 C7). Only the owner's overview
+	 * has them. */
+	const settled = $derived(
+		!owner ||
+			((!!view || !!source.failure) &&
+				(!!identity.view || !!identity.failure) &&
+				catalog.status !== 'unknown' &&
+				(!!entry?.unstartable_reason || !!intelligence.view || !!intelligence.error))
+	);
+
 	/* The settings search, shared by the section list and the narrow overview that stands in for
 	 * it: a section matches on its group, label, current value or the words owners type for it. */
 	let query = $state('');
@@ -430,6 +442,10 @@ export function createCompanySetup(companyIdOf: () => string) {
 		},
 		get todos() {
 			return rows.filter((candidate) => candidate.todo > 0);
+		},
+		/** The overview's sources have all answered once. */
+		get settled() {
+			return settled;
 		},
 		get health() {
 			return source.failure ? 'unavailable' : view?.computer.doctor.status;

@@ -7,7 +7,12 @@ export const CRITICAL = new Set([
 	'attention',
 	'cockpit',
 	'company-collaboration',
-	'company'
+	'company',
+	/* A company without a model shows the connect card first; it appears with its form, never as
+	 * a status line that grows into one (S109 C7). */
+	'reusable-connections',
+	/* The Inbox's Today line sits above its rows. */
+	'direction-digest'
 ]);
 
 type CachedRead = {

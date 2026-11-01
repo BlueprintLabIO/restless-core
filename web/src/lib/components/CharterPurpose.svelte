@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import type { Snippet } from 'svelte';
 	/* The charter's purpose, as the owner reads and edits it: one surface for Company › Charter and
@@ -278,7 +279,12 @@
 
 <div class="charter-purpose" class:inbox>
 	<div class="charter-content" class:has-preview={!!preview}>
-		{#if preview}{@render preview()}{:else}
+		{#if preview}{@render preview()}{:else if charter.loading && !charter.failure}
+			<!-- Whether a draft waits above the charter is read separately; until it answers, the
+			     card's skeleton, so the draft never arrives above the charter and pushes it down
+			     (S109 C7). -->
+			<Skeleton label="Loading the charter" variant="page" />
+		{:else}
 			{#if proposal && !editing}
 				<section class="draft" aria-label="Exec's draft of the charter">
 					<header>
@@ -447,7 +453,7 @@
 			{/if}
 		{/if}
 	</div>
-	{#if inbox}
+	{#if inbox && !(charter.loading && !charter.failure)}
 		<AttentionFooter>
 			{#if proposal && !editing}{@render draftActions()}
 			{:else}<div class="action-row">{@render charterActions()}</div>{/if}
