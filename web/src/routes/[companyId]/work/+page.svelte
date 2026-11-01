@@ -471,6 +471,16 @@
 	/* The board shows recent Done, as the list folds it; the column's footer shows the rest. */
 	const RECENT_DONE = 8;
 	let showAllDone = $state(false);
+	/* Board cautions: Next work queued behind someone with this much in motion (G2), and Work
+	 * redone this many times (G3; one pass reached revision 15 before anyone asked why). */
+	const BUSY_OWNER = 3;
+	const CHURN_REVISION = 4;
+	const inMotion = $derived(
+		(graph?.work ?? []).reduce((counts, item) => {
+			if (item.status === 'active') counts.set(item.owner_id, (counts.get(item.owner_id) ?? 0) + 1);
+			return counts;
+		}, new Map<string, number>())
+	);
 	const boardColumns = $derived(
 		(stoppedView
 			? (['abandoned'] as const)
@@ -494,7 +504,12 @@
 					ownerName: ownerName(row.owner_id),
 					revision: row.revision,
 					href: workHref(row.id),
-					needsYou: row.status !== 'completed' && waitingOnOwner.has(row.id)
+					needsYou: row.status !== 'completed' && waitingOnOwner.has(row.id),
+					ownerBusy:
+						row.status === 'proposed' && (inMotion.get(row.owner_id) ?? 0) >= BUSY_OWNER
+							? inMotion.get(row.owner_id)
+							: undefined,
+					churning: row.status !== 'completed' && row.revision >= CHURN_REVISION
 				}))
 		}))
 	);
