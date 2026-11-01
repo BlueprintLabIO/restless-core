@@ -3,7 +3,7 @@
  * help. Silent while the app's connection banner already speaks for the outage. */
 import { describeFailure } from '$lib/model/failure';
 import { connection } from '$lib/model/connection.svelte';
-import type { ToastMessage } from './toast.svelte';
+import type { ToastMessage } from '$lib/ui/feedback/toast.svelte';
 
 export function staleRefreshMessage(
 	error: unknown,
