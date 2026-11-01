@@ -232,8 +232,86 @@ pub async fn execute_with_body(
             )
             .await
         }
-        other => execute(org, actor, other).await,
+        other => {
+            let shared_with_people = match &other {
+                DocumentOperation::Share {
+                    document, member, ..
+                } => is_person(org, member).await?.then_some(*document),
+                DocumentOperation::Access {
+                    document, access, ..
+                } => (*access != GeneralAccess::Private).then_some(*document),
+                _ => None,
+            };
+            if let Some(document) = shared_with_people {
+                ensure_live_body_owner_ready(root, org, actor, document).await?;
+            }
+            execute(org, actor, other).await
+        }
     }
+}
+
+async fn is_person(org: &OrgIntel, actor: &str) -> Result<bool> {
+    Ok(org
+        .active_actor(actor)
+        .await?
+        .is_some_and(|row| row.actor_class == "human"))
+}
+
+/// Sprint 109 D4: an agent hands people only a document that reads as finished work: no
+/// internal ids, message numbers, Restless commands or placeholders, and no revision notes ahead
+/// of the content. People share their own documents as they are, and a document a person created
+/// is never checked, whoever shares it.
+pub async fn ensure_owner_ready(
+    org: &OrgIntel,
+    actor: &str,
+    document: Option<Uuid>,
+    content: &Value,
+) -> Result<()> {
+    if is_person(org, actor).await? {
+        return Ok(());
+    }
+    if let Some(document) = document {
+        let read = org.get_document_for_actor(document, actor).await?;
+        if is_person(org, &read.document.created_by_actor_id).await? {
+            return Ok(());
+        }
+    }
+    match owner_readiness_error(content) {
+        Some(refusal) => anyhow::bail!(refusal),
+        None => Ok(()),
+    }
+}
+
+/// People open the live body, so that is what is checked when an agent shares a document.
+async fn ensure_live_body_owner_ready(
+    root: &std::path::Path,
+    org: &OrgIntel,
+    actor: &str,
+    document: Uuid,
+) -> Result<()> {
+    if is_person(org, actor).await? {
+        return Ok(());
+    }
+    let content = match crate::documents_service::agent_document_body(
+        root,
+        org,
+        actor,
+        document,
+        &json!({"action":"read"}),
+    )
+    .await
+    {
+        Ok(mut body) => body["content_json"].take(),
+        // Without a reachable live body, a person opens the current named version.
+        Err(_) => {
+            org.get_document_for_actor(document, actor)
+                .await?
+                .current_version
+                .version
+                .content_json
+        }
+    };
+    ensure_owner_ready(org, actor, Some(document), &content).await
 }
 
 pub async fn execute(org: &OrgIntel, actor: &str, operation: DocumentOperation) -> Result<Value> {
@@ -290,6 +368,10 @@ pub async fn execute(org: &OrgIntel, actor: &str, operation: DocumentOperation) 
                 DocumentContent::Markdown(body) => document_json_from_markdown(&body)?,
                 DocumentContent::Json(value) => value,
             };
+            if visibility == DocumentVisibility::Company {
+                // Everyone in the company can open it at once, so it is shared as it is created.
+                ensure_owner_ready(org, actor, None, &content).await?;
+            }
             json!(
                 org.create_document(NewDocument {
                     command_id: key,
@@ -1179,6 +1261,96 @@ mod tests {
                     .is_none(),
                 "regrant resurrected cancelled mention"
             );
+            Ok(())
+        }
+        .await;
+        org.drop_schema().await.unwrap();
+        outcome.unwrap();
+    }
+
+    #[tokio::test]
+    async fn agents_share_only_owner_ready_documents_and_people_share_theirs_as_they_are() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            return;
+        };
+        let schema = format!("docready{}_test", Uuid::new_v4().simple());
+        let org = OrgIntel::ensure(&url, &schema).await.unwrap();
+        let outcome: Result<()> = async {
+            org.ensure_actor("owner", "owner", "owner", "Owner").await?;
+            org.ensure_actor("evidence-writer", "staff", "evidence-writer", "Writer")
+                .await?;
+            let draft = "Changes in this revision: tightened the copy after message 963.\n\n\
+                         # Email 1\n\nSee [LINK TO CONCEPT PAGE] and run `restless credential check`.";
+            let create = |visibility, author_key| DocumentOperation::Create {
+                title: "Outreach emails".into(),
+                kind: DocumentKind::Freeform,
+                visibility,
+                content: DocumentContent::Markdown(draft.into()),
+                reason: "Initial draft".into(),
+                key: author_key,
+            };
+            let refused = execute(
+                &org,
+                "evidence-writer",
+                create(DocumentVisibility::Company, Uuid::new_v4()),
+            )
+            .await
+            .expect_err("an agent published an unfinished document to the company");
+            let refusal = format!("{refused:#}");
+            for expected in [
+                "not ready for a person",
+                "message 963",
+                "[LINK TO CONCEPT PAGE]",
+                "restless credential check",
+                "--reason",
+            ] {
+                anyhow::ensure!(refusal.contains(expected), "{expected:?} missing: {refusal}");
+            }
+            // A private draft is the agent's own working copy and is not checked.
+            let created = execute(
+                &org,
+                "evidence-writer",
+                create(DocumentVisibility::Participants, Uuid::new_v4()),
+            )
+            .await?;
+            let document = Uuid::parse_str(created["document_id"].as_str().context("document")?)?;
+            let body = org
+                .get_document_for_actor(document, "evidence-writer")
+                .await?
+                .current_version
+                .version
+                .content_json;
+            anyhow::ensure!(
+                ensure_owner_ready(&org, "evidence-writer", Some(document), &body)
+                    .await
+                    .is_err(),
+                "an agent's unfinished document passed"
+            );
+            let clean = document_json_from_markdown("# Email 1\n\nHello there.")?;
+            ensure_owner_ready(&org, "evidence-writer", Some(document), &clean).await?;
+            // People share their own documents, and documents they wrote, as they are.
+            ensure_owner_ready(&org, "owner", Some(document), &body).await?;
+            let owned = execute(
+                &org,
+                "owner",
+                create(DocumentVisibility::Participants, Uuid::new_v4()),
+            )
+            .await?;
+            let owned = Uuid::parse_str(owned["document_id"].as_str().context("owned")?)?;
+            let latest = org.get_document_for_actor(owned, "owner").await?;
+            execute(
+                &org,
+                "owner",
+                DocumentOperation::Share {
+                    document: owned,
+                    member: "evidence-writer".into(),
+                    access: DocumentAccess::Edit,
+                    revision: latest.document.version,
+                    key: Uuid::new_v4(),
+                },
+            )
+            .await?;
+            ensure_owner_ready(&org, "evidence-writer", Some(owned), &body).await?;
             Ok(())
         }
         .await;

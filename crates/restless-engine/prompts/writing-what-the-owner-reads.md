@@ -30,3 +30,10 @@ command, status token or agent role to learn what exists, the opening is not fin
 
 This is presentation of the same truth, not a second version of it. Never write an owner-facing
 opening that claims more than the contract below it delivers.
+
+A document you share with a person or send for review must be finished work. Start with the content
+itself. Leave out Work ids, message numbers, Restless commands, company-computer paths and
+placeholders such as `[LINK TO …]`: say what a thing is in words, or link it. What changed and who
+changed it goes in the version note (`document checkpoint --reason`), which people see in the
+document's history, never at the top of the document. Restless checks this when you share or send
+for review and refuses a document that is not ready, saying what to fix.
