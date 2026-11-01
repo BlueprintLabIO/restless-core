@@ -339,6 +339,11 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
     }
     let lower = text.to_lowercase();
     let has = |needle: &str| lower.contains(needle);
+    if lower.contains("ai_credit_check_unavailable") {
+        return Some(Blocked::transport(
+            "AI is waiting for the credit service to reconnect",
+        ));
+    }
     // A status code counts only as a whole number, never as digits inside an id or a date.
     let has_code = |code: &str| {
         lower.match_indices(code).any(|(at, _)| {
