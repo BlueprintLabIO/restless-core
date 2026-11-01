@@ -4,7 +4,7 @@
 	 * deterministic, so this page lists them; the account of what they mean is Exec's, which it
 	 * writes up as a document on request. */
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { Page, Section, Item, Empty, Notice, Row } from '$lib/ui/page';
+	import { Page, Section, Item, Empty, Row } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { page } from '$app/state';
 	import { attentionQuery, companySpendQuery } from '$lib/model/queries.svelte';
@@ -12,7 +12,7 @@
 	import { getGovernanceActivity, type CompanyExternalAction } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
 	import { formatMoment, formatMoney } from '$lib/ui/time';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import type { DecisionContinuation } from '$lib/model/view';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
@@ -73,6 +73,11 @@
 		}
 	}
 	holdQueries(() => [company]);
+	/* A read that failed is a toast, never a banner that pushes the week down; the "!" by the
+	 * title brings it back. */
+	const readWarning = toastWhile(
+		() => !!failure && { text: failure, tone: 'failure', dedupeKey: `week-read:${companyId}` }
+	);
 </script>
 
 <CompanyTitle title="Weekly review" {companyId} />
@@ -80,6 +85,7 @@
 <Page
 	title="Weekly review"
 	info="The last seven days: Work the company finished, what was decided, what reached the outside world, and what it cost. Exec can write it up as a document."
+	warning={readWarning.active ? { label: failure, show: readWarning.show } : null}
 >
 	{#snippet actions()}<button
 			class="btn small"
@@ -88,7 +94,6 @@
 			title="Exec writes the week up as a document in the Library, with what it would change next week"
 			onclick={() => void writeUp()}>{asking ? 'Asking…' : 'Write it up with Exec'}</button
 		>{/snippet}
-	{#if failure}<Notice tone="danger" title={failure} />{/if}
 	<Section
 		title="Spent"
 		info="Model spend over the last seven days, and the limit it counts against."

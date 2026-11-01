@@ -1,7 +1,7 @@
 <script lang="ts">
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import type { EditorStatus, SheetMark, SheetSelection } from '$lib/model/sheet-editor';
 	import type { PageFace } from '$lib/model/page-faces';
-	import { Notice } from '$lib/ui/page';
 	let {
 		company,
 		sheet,
@@ -132,33 +132,34 @@
 			cancelAnimationFrame(frame);
 		};
 	});
+	/* Sync trouble and what the editor had to say are toasts, never banners that push the grid
+	 * down under the cursor. */
+	toastWhile(() =>
+		editorState.state === 'error'
+			? {
+					text: 'The sheet stopped syncing',
+					tone: 'failure',
+					details: editorState.message || null,
+					action: { label: 'Reload sheet', run: () => retry++ }
+				}
+			: editorState.state === 'offline'
+				? {
+						text: 'Reconnecting',
+						tone: 'failure',
+						details: editorState.message || null,
+						dedupeKey: 'sheet-reconnecting'
+					}
+				: notice
+					? {
+							text: notice.text ? `${notice.title}. ${notice.text}` : notice.title,
+							tone: 'failure',
+							details: notice.details ?? null
+						}
+					: null
+	);
 </script>
 
 <div class="sheet-editor-shell">
-	{#if editorState.state === 'error'}
-		<div class="sheet-notice">
-			<Notice tone="danger" title="The sheet stopped syncing" details={editorState.message}>
-				{#snippet actions()}<button class="btn small" type="button" onclick={() => retry++}
-						>Reload sheet</button
-					>{/snippet}
-			</Notice>
-		</div>
-	{:else if editorState.state === 'offline'}
-		<div class="sheet-notice">
-			<Notice tone="warning" title="Reconnecting" details={editorState.message} />
-		</div>
-	{:else if notice}
-		<div class="sheet-notice">
-			<Notice tone="warning" title={notice.title} details={notice.details}>
-				{notice.text}
-				{#snippet actions()}<button
-						class="btn small"
-						type="button"
-						onclick={() => (notice = undefined)}>Dismiss</button
-					>{/snippet}
-			</Notice>
-		</div>
-	{/if}
 	<div class="native-sheet-surface" bind:this={host} aria-label="Spreadsheet editor"></div>
 </div>
 
@@ -193,8 +194,5 @@
 		.native-sheet-surface
 		:global(:is(.o-figure, .o-color-picker, .sheet-comment-marks)) {
 		filter: contrast(1.1765) hue-rotate(180deg) invert(1);
-	}
-	.sheet-notice {
-		padding: 10px 12px;
 	}
 </style>

@@ -41,6 +41,11 @@ capacity or choosing a model:
 - one capable worker usually beats a chain: a lead-plus-worker relay has cost 1.7–3.3× the spend for
   similar quality, so add a worker only when specialisation, independent evidence or parallel capacity
   repays it;
+- when you hold several independent pieces of Work, hand them to Staff to run in parallel rather than
+  queueing them behind one person; the board flags Work waiting in Next behind someone with three or
+  more in motion;
+- when Work is being redone past its third revision, stop and say in its thread why it keeps coming
+  back and what will make the next pass the last;
 - use `restless spend` to see what each actor and model actually cost before changing a preference,
   and propose the change to the owner when it moves ongoing cost.
 

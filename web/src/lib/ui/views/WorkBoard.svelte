@@ -10,6 +10,10 @@
 		href: string;
 		/** A decision or step waits on the viewer: the card says so before anything else. */
 		needsYou?: boolean;
+		/** Waiting in Next while its owner already has this many in motion (G2): could go to Staff. */
+		ownerBusy?: number;
+		/** Redone past a few revisions (G3): worth asking the lead why. */
+		churning?: boolean;
 	};
 
 	export type BoardColumn = {
@@ -49,9 +53,7 @@
 	class="work-board"
 	role="region"
 	aria-label={label}
-	style:--board-tracks={columns
-		.map(() => 'minmax(180px, 1fr)')
-		.join(' ')}
+	style:--board-tracks={columns.map(() => 'minmax(180px, 1fr)').join(' ')}
 >
 	{#each columns as column (column.key)}
 		<section class="board-column" class:lead={column.lead} aria-labelledby={`${id}-${column.key}`}>
@@ -76,11 +78,24 @@
 						: undefined}
 				>
 					{#if item.needsYou}<span class="needs-you-badge">Needs you</span>{/if}
-					<strong title={item.title} style:view-transition-name={`work-title-${item.id}`}>{item.title}</strong>
+					<strong title={item.title} style:view-transition-name={`work-title-${item.id}`}
+						>{item.title}</strong
+					>
 					{#if item.signal}<p>{item.signal}</p>{/if}
 					<footer>
-						<span>{item.ownerName}</span>
-						{#if item.revision > 1}<span>Revision {item.revision}</span>{/if}
+						<span
+							>{item.ownerName}{#if item.ownerBusy}<em
+									class="flag"
+									title={`${item.ownerName} already has ${item.ownerBusy} in motion; this could go to someone else`}
+								>
+									· {item.ownerBusy} in motion</em
+								>{/if}</span
+						>
+						{#if item.revision > 1}<span
+								class:flag={item.churning}
+								title={item.churning ? 'Redone many times; ask the lead why' : undefined}
+								>Revision {item.revision}</span
+							>{/if}
 					</footer>
 				</a>
 			{:else}
@@ -232,6 +247,11 @@
 	}
 	.board-item footer span:last-child:not(:first-child) {
 		flex-shrink: 0;
+	}
+	.board-item footer .flag {
+		color: color-mix(in srgb, var(--intent-authority) 70%, var(--ink));
+		font-style: normal;
+		font-weight: 600;
 	}
 
 	.column-empty {

@@ -21,7 +21,7 @@
 	import { goto } from '$app/navigation';
 	import { installUploadAsKnowHow } from '$lib/model/skills';
 	import { textFormat, type TextFormat } from '$lib/model/file-text';
-	import { Item, Notice, Empty, Dot } from '$lib/ui/page';
+	import { Item, Empty, Dot } from '$lib/ui/page';
 	import FileX from '@lucide/svelte/icons/file-x';
 	import FileDown from '@lucide/svelte/icons/file-down';
 	import FileQuestion from '@lucide/svelte/icons/file-question';
@@ -51,6 +51,7 @@
 	import FileType from '@lucide/svelte/icons/file-type';
 	import Film from '@lucide/svelte/icons/film';
 	import NotebookText from '@lucide/svelte/icons/notebook-text';
+	import NotebookPen from '@lucide/svelte/icons/notebook-pen';
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import Upload from '@lucide/svelte/icons/upload';
 	import FolderUp from '@lucide/svelte/icons/folder-up';
@@ -60,12 +61,14 @@
 	import Lock from '@lucide/svelte/icons/lock';
 	import { PRIVATE_HINT } from '$lib/model/general-access';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
-	import { dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
+	import { dismissToast, toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
+	import WarningMark from '$lib/ui/feedback/WarningMark.svelte';
 	import {
 		LIBRARY_KIND_LABEL,
 		LibraryOpenError,
 		downloadHref,
 		fileAtPath,
+		isWorkingNote,
 		libraryFileHref,
 		libraryFileById,
 		replacedFile,
@@ -202,6 +205,8 @@
 	/* Who can open a kept file, said where files are added and listed. */
 	const YOURS_HINT =
 		'Files you add here or send in a conversation open only for you, and for whoever is in that conversation. To share one with the team, send it in a conversation, or open a Word, Excel or CSV file as a document or sheet and share that.';
+	const NOTES_HINT =
+		'Plans, journals and scratch files agents keep while they work, out of the other views.';
 	const keptRows = $derived(
 		(kept?.attachments ?? []).filter((row) => !viewer || row.sender_actor_id === viewer)
 	);
@@ -349,6 +354,7 @@
 		| 'archived'
 		| 'yours'
 		| 'folders'
+		| 'notes'
 		| LibraryFileKind;
 	const filter = $derived((page.url.searchParams.get('show') as Filter) || 'all');
 	const openFileId = $derived(page.url.searchParams.get('file') ?? '');
@@ -1007,7 +1013,9 @@
 		};
 	};
 	const rawEntries = $derived<Entry[]>([
-		...files.filter((file) => !isRetired(file)).map((file) => fileEntry(file)),
+		...files
+			.filter((file) => !isRetired(file) && !isWorkingNote(file))
+			.map((file) => fileEntry(file)),
 		...keptEntries,
 		...documents.summaries
 			.filter((summary) => summary.document.status !== 'archived')
@@ -1016,6 +1024,13 @@
 	]);
 	const archivedFiles = $derived(archivedLibraryFiles.map((file) => fileEntry(file, true)));
 	const entries = $derived(rawEntries.map(organised));
+	/* Agents' working notes (plans, journals, scratch) stay out of every default view and are read
+	 * in their own (S109-G5); one waiting on the owner's review is still listed there. */
+	const noteEntries = $derived<Entry[]>(
+		files
+			.filter((file) => !isRetired(file) && isWorkingNote(file))
+			.map((file) => organised(fileEntry(file)))
+	);
 	const archivedEntries = $derived<Entry[]>(
 		[
 			...archivedDocs.map((summary) => docEntry(summary, true)),
@@ -1092,8 +1107,9 @@
 		docs: docTotal,
 		sheets: count('sheet'),
 		yours: keptEntries.length,
-		review: entries.filter((entry) => entry.review).length,
-		archived: archivedEntries.length
+		review: [...entries, ...noteEntries].filter((entry) => entry.review).length,
+		archived: archivedEntries.length,
+		notes: noteEntries.length
 	});
 	/* Documents and Sheets are always places; a file kind appears once Work has made one. */
 	const fileKinds = $derived(
@@ -1122,7 +1138,12 @@
 	});
 	const pinned = $derived(
 		pins
-			.map((key) => entries.find((entry) => pinKey(entry) === key) ?? pinnedExtra[key])
+			.map(
+				(key) =>
+					entries.find((entry) => pinKey(entry) === key) ??
+					noteEntries.find((entry) => pinKey(entry) === key) ??
+					pinnedExtra[key]
+			)
 			.filter((entry): entry is Entry => !!entry)
 	);
 
@@ -1137,6 +1158,70 @@
 	$effect(() => {
 		docSearch.setQuery(searchesDocuments ? query : '');
 	});
+	/* A part of the Library that could not be read is said as a toast with Retry, never a banner
+	 * that pushes the list down; the "!" beside the count brings back whatever is still wrong. */
+	const libraryWarnings = [
+		toastWhile(
+			() =>
+				!!documents.failure && {
+					text: 'Documents could not be read',
+					tone: 'failure',
+					details: documents.failure.message,
+					dedupeKey: `library-documents:${companyId}`,
+					action: { label: 'Retry', run: () => documents.refresh() }
+				}
+		),
+		toastWhile(
+			() =>
+				!!sheetsFailure && {
+					text: 'Sheets could not be read',
+					tone: 'failure',
+					details: sheetsFailure,
+					dedupeKey: `library-sheets:${companyId}`,
+					action: { label: 'Retry', run: refreshSheets }
+				}
+		),
+		toastWhile(
+			() =>
+				!!archivedFailure &&
+				filter === 'archived' && {
+					text: archivedFailure,
+					tone: 'failure',
+					dedupeKey: `library-archived:${companyId}`,
+					action: { label: 'Retry', run: loadArchived }
+				}
+		),
+		toastWhile(
+			() =>
+				!!keptFailure &&
+				(filter === 'yours' || filter === 'all') && {
+					text: keptFailure,
+					tone: 'failure',
+					dedupeKey: `library-kept:${companyId}`,
+					action: { label: 'Retry', run: loadKept }
+				}
+		),
+		toastWhile(
+			() =>
+				searchesDocuments &&
+				!!docSearch.failure && {
+					text: 'Only titles are being searched',
+					tone: 'failure',
+					details: docSearch.failure,
+					dedupeKey: `library-search:${companyId}`
+				}
+		)
+	];
+	const libraryWarning = $derived(
+		libraryWarnings.some((warning) => warning.active)
+			? {
+					label: 'Part of the Library could not be read',
+					show: () => {
+						for (const warning of libraryWarnings) if (warning.active) warning.show();
+					}
+				}
+			: null
+	);
 	function excerpt(text: string, phrase: string): string {
 		const flat = text.replace(/\s+/g, ' ').trim();
 		const at = flat.toLowerCase().indexOf(phrase.toLowerCase());
@@ -1224,6 +1309,7 @@
 		filter === 'all' ||
 		filter === 'archived' ||
 		filter === 'pinned' ||
+		filter === 'notes' ||
 		(filter === 'docs' && entry.kind === 'doc') ||
 		(filter === 'sheets' && entry.kind === 'sheet') ||
 		(filter === 'yours' && entry.kind === 'upload') ||
@@ -1237,7 +1323,11 @@
 					? pinned
 					: filter === 'folders'
 						? folderEntries
-						: entries;
+						: filter === 'notes'
+							? noteEntries
+							: filter === 'review'
+								? [...entries, ...noteEntries]
+								: entries;
 		const local = pool
 			.filter(
 				(entry) =>
@@ -1382,6 +1472,8 @@
 			? collectionParam
 			: key === 'folders'
 				? 'Folders'
+				: key === 'notes'
+				? 'Working notes'
 				: key === 'pinned'
 				? 'Pinned'
 				: key === 'yours'
@@ -1648,6 +1740,14 @@
 					count={counts.yours || null}
 					title={YOURS_HINT}
 				/>
+				{#if counts.notes || filter === 'notes'}<SidebarRow
+						href={filterHref('notes')}
+						label="Working notes"
+						icon={NotebookPen}
+						active={filter === 'notes' && !fileOpen && !uploadFile}
+						count={counts.notes || null}
+						title={NOTES_HINT}
+					/>{/if}
 			</SidebarGroup>
 			{#if collections.length}
 				<SidebarGroup label="Collections">
@@ -1697,22 +1797,33 @@
 				aria-label="Library"
 				hidden={!!(openFileId || openUploadId || openPath)}
 			>
-				{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && (folderEntries.length || outputSkippedNames || outputReadFailed) ? [{ key: 'folders' as Filter, label: outputReadFailed ? 'Folders —' : `Folders ${folderEntries.length}${outputIncomplete ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
-					<a
-						href={filterHref(item.key)}
-						title={item.key === 'folders' && outputIncomplete ? folderListingHint : undefined}
-						class:active={filter === item.key && !collectionParam}
-						aria-current={filter === item.key && !collectionParam ? 'page' : undefined}
-						>{item.label}</a
-					>
-				{/each}
-				{#each collections as row (row.name)}
-					<a
-						href={filterHref('all', row.name)}
-						class:active={collectionParam === row.name}
-						aria-current={collectionParam === row.name ? 'page' : undefined}>{row.name}</a
-					>
-				{/each}
+				<!-- The views scroll; Archived stays pinned at the end, as it is at the foot of the
+				sidebar, so it is never the one cut off. -->
+				<div class="library-filters-views">
+					{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && (folderEntries.length || outputSkippedNames || outputReadFailed) ? [{ key: 'folders' as Filter, label: outputReadFailed ? 'Folders —' : `Folders ${folderEntries.length}${outputIncomplete ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(counts.notes || filter === 'notes' ? [{ key: 'notes' as Filter, label: 'Working notes' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : [])] as item (item.key)}
+						<a
+							href={filterHref(item.key)}
+							title={item.key === 'folders' && outputIncomplete ? folderListingHint : undefined}
+							class:active={filter === item.key && !collectionParam}
+							aria-current={filter === item.key && !collectionParam ? 'page' : undefined}
+							>{item.label}</a
+						>
+					{/each}
+					{#each collections as row (row.name)}
+						<a
+							href={filterHref('all', row.name)}
+							class:active={collectionParam === row.name}
+							aria-current={collectionParam === row.name ? 'page' : undefined}>{row.name}</a
+						>
+					{/each}
+				</div>
+				<a
+					href={filterHref('archived')}
+					class="library-filters-end"
+					class:active={filter === 'archived' && !collectionParam}
+					aria-current={filter === 'archived' && !collectionParam ? 'page' : undefined}
+					>Archived</a
+				>
 			</nav>
 		{/snippet}
 		{#if fileOpen}
@@ -1818,6 +1929,7 @@
 							class:full={keptUsage.full}
 							title={keptUsage.detail}>{keptUsage.label}</span
 						>{/if}
+					<WarningMark warning={libraryWarning} />
 					<span class="spacer"></span>
 					{#if selecting}
 						{@const archivable = selectedEntries.filter(
@@ -1926,45 +2038,6 @@
 				</header>
 
 				<div class="body">
-					{#if documents.failure}<Notice
-							tone="danger"
-							title="Documents could not be read"
-							details={documents.failure.message}
-						>
-							{#snippet actions()}<button class="btn small" onclick={() => documents.refresh()}
-									>Retry</button
-								>{/snippet}
-						</Notice>{/if}
-					{#if sheetsFailure}<Notice
-							tone="warning"
-							title="Sheets could not be read"
-							details={sheetsFailure}
-						>
-							{#snippet actions()}<button class="btn small" onclick={() => void refreshSheets()}
-									>Retry</button
-								>{/snippet}
-						</Notice>{/if}
-					{#if archivedFailure && filter === 'archived'}<Notice
-							tone="warning"
-							title={archivedFailure}
-						>
-							{#snippet actions()}<button class="btn small" onclick={() => void loadArchived()}
-									>Retry</button
-								>{/snippet}
-						</Notice>{/if}
-					{#if keptFailure && (filter === 'yours' || filter === 'all')}<Notice
-							tone="warning"
-							title={keptFailure}
-						>
-							{#snippet actions()}<button class="btn small" onclick={() => void loadKept()}
-									>Retry</button
-								>{/snippet}
-						</Notice>{/if}
-					{#if searchesDocuments && docSearch.failure}<Notice
-							tone="warning"
-							title="Only titles are being searched"
-							details={docSearch.failure}
-						/>{/if}
 					{#if loading && !entries.length}
 						<Skeleton label="Loading the Library" variant="list" count={5} />
 					{:else if shown.length}
@@ -2175,7 +2248,9 @@
 											? 'Nothing is archived'
 											: filter === 'yours'
 												? 'Nothing from you yet'
-												: 'Nothing here yet'}
+												: filter === 'notes'
+													? 'No working notes'
+													: 'Nothing here yet'}
 							info={filter === 'folders' && outputFilesTruncated && (query || byParam || sinceParam)
 								? 'Load older files to continue searching.'
 								: filter === 'folders' && outputReadFailed
@@ -2184,6 +2259,8 @@
 								? 'Some file names cannot be displayed.'
 								: filter === 'yours'
 								? 'Files you add here or send in a conversation are kept here.'
+								: filter === 'notes'
+								? NOTES_HINT
 								: query && !searchesDocuments && filter !== 'archived'
 									? 'This view matches titles and file names. All files also searches inside documents.'
 									: 'Documents, sheets and everything the team makes, such as sites, decks and images, appear here as they work.'}
@@ -2198,7 +2275,7 @@
 										class="btn small"
 										type="button"
 										onclick={() => creator?.pick()}>Upload files</button
-									>{:else if !query && filter !== 'review' && filter !== 'archived'}<button
+									>{:else if !query && filter !== 'review' && filter !== 'archived' && filter !== 'notes'}<button
 										class="btn small"
 										type="button"
 										onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
@@ -2357,15 +2434,34 @@
 	 * before the first file (S104 E3). */
 	.library-filters {
 		display: flex;
+		align-items: center;
+		border-bottom: 1px solid var(--border);
+	}
+	.library-filters-views {
+		display: flex;
+		flex: 1 1 auto;
 		gap: 2px;
+		min-width: 0;
 		padding: 6px 8px;
 		overflow-x: auto;
 		overscroll-behavior-x: contain;
 		scrollbar-width: none;
-		border-bottom: 1px solid var(--border);
 	}
-	.library-filters::-webkit-scrollbar {
+	.library-filters-views::-webkit-scrollbar {
 		display: none;
+	}
+	/* Archived, pinned past the scrolling views behind a hairline. */
+	.library-filters a.library-filters-end {
+		position: relative;
+		margin: 0 8px 0 6px;
+	}
+	.library-filters-end::before {
+		content: '';
+		position: absolute;
+		top: 4px;
+		bottom: 4px;
+		left: -7px;
+		border-left: 1px solid var(--border);
 	}
 	.library-filters a {
 		flex: none;

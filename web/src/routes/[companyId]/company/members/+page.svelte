@@ -11,7 +11,7 @@
 	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import Mail from '@lucide/svelte/icons/mail';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
-	import { failureSentence } from '$lib/model/failure';
+	import { failureSentence, isRetryable } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import SharingSetup from '$lib/components/SharingSetup.svelte';
 	import StandingPermissions from '$lib/components/StandingPermissions.svelte';
@@ -37,7 +37,7 @@
 		type MembershipRole
 	} from '$lib/model/members';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { parseInviteEmails } from '$lib/model/invite-emails';
 
 	const companyId = $derived(page.params.companyId ?? '');
@@ -65,7 +65,10 @@
 	const linkInvites = $derived(core?.issuer?.invitation_delivery.includes('link') ?? false);
 	const canSuspend = $derived(core?.issuer?.terminal_statuses.includes('suspended') ?? false);
 
-	async function load() {
+	/* A dropped connection or a restarting plane is retried a few times before it is shown; one
+	 * blip used to leave "Company access could not be read" up until the page was reopened. */
+	const LOAD_RETRIES = 3;
+	async function load(attempt = 0) {
 		const version = ++loadVersion;
 		const requestedCompany = companyId;
 		failure = '';
@@ -101,6 +104,15 @@
 			}
 		} catch (cause) {
 			if (version !== loadVersion || requestedCompany !== companyId) return;
+			if (attempt < LOAD_RETRIES && isRetryable(cause)) {
+				setTimeout(
+					() => {
+						if (version === loadVersion && requestedCompany === companyId) void load(attempt + 1);
+					},
+					500 * 2 ** attempt
+				);
+				return;
+			}
 			failure = failureSentence(cause, 'Company access could not be read.');
 		}
 	}
@@ -386,6 +398,12 @@
 		return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 	}
 	holdQueries(() => [principalSource]);
+	/* A change that failed is a toast, never a banner that pushes the people down. A first read
+	 * that failed is the page itself and stays in place. */
+	toastWhile(
+		() =>
+			!!failure && !!core && { text: 'That change was not made', tone: 'failure', details: failure }
+	);
 </script>
 
 <CompanyTitle title="Members" {companyId} />
@@ -420,7 +438,11 @@
 			>{/if}
 	{/snippet}
 
-	{#if failure}<Notice tone="danger" title="That change was not made" details={failure} />{/if}
+	{#if failure && !core}<Notice
+			tone="danger"
+			title="Company access could not be read"
+			details={failure}
+		/>{/if}
 	{#if handoverStatus}<Notice title={handoverStatus} />{/if}
 
 	{#if !core}

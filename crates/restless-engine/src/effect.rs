@@ -454,7 +454,9 @@ pub async fn request_effect(
 }
 
 fn requests_resend_secret(config: &CompanyConfig, bindings: &BTreeMap<String, String>) -> bool {
-    let reference = config.credentials.get(crate::credential::RESEND_SEND_BINDING);
+    let reference = config
+        .credentials
+        .get(crate::credential::RESEND_SEND_BINDING);
     bindings.values().any(|binding| {
         let binding = crate::credential::canonical_binding(binding);
         binding == crate::credential::RESEND_SEND_BINDING
@@ -468,7 +470,8 @@ mod resend_binding_tests {
 
     #[test]
     fn a_resend_alias_cannot_evade_the_typed_email_send_boundary() {
-        let config: CompanyConfig = toml::from_str(r#"
+        let config: CompanyConfig = toml::from_str(
+            r#"
 name = "binding_test"
 mission = "test"
 model = "openai/test"
@@ -476,11 +479,19 @@ model = "openai/test"
 "resend.production" = "env:MAIL_KEY"
 another_name = "env:MAIL_KEY"
 unrelated = "env:OTHER_KEY"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         for binding in ["resend", "resend.production", "another_name"] {
-            assert!(requests_resend_secret(&config, &BTreeMap::from([("KEY".into(), binding.into())])), "{binding}");
+            assert!(
+                requests_resend_secret(&config, &BTreeMap::from([("KEY".into(), binding.into())])),
+                "{binding}"
+            );
         }
-        assert!(!requests_resend_secret(&config, &BTreeMap::from([("KEY".into(), "unrelated".into())])));
+        assert!(!requests_resend_secret(
+            &config,
+            &BTreeMap::from([("KEY".into(), "unrelated".into())])
+        ));
     }
 }
 

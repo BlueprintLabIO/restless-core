@@ -8,7 +8,7 @@
 	import ScheduleCadence from '$lib/components/ScheduleCadence.svelte';
 	import ScheduleHistory from '$lib/components/ScheduleHistory.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { page } from '$app/state';
 	import { companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
@@ -71,6 +71,41 @@
 	);
 	let busy = $state('');
 	let report = $state<ScheduleTestReport | null>(null);
+	/* Outcomes are toasts, never banners that push the schedules down. A refresh that failed over
+	 * schedules already shown is a lasting warning the "!" by the title brings back; a first read
+	 * that failed is the page itself and stays in place. */
+	toastWhile(
+		() =>
+			!!actionFailure && {
+				text: 'Schedules could not be updated',
+				tone: 'failure',
+				details: actionFailure
+			}
+	);
+	const refreshWarning = toastWhile(
+		() =>
+			!actionFailure &&
+			!!schedules &&
+			!!failure && {
+				text: 'Schedules could not be refreshed',
+				tone: 'failure',
+				details: failure,
+				dedupeKey: `schedules-refresh:${companyId}`,
+				action: { label: 'Retry', run: () => query.refetch() }
+			}
+	);
+	toastWhile(
+		() =>
+			!!report && {
+				text:
+					report.status === 'admitted'
+						? 'The schedule can start'
+						: 'The schedule did not start in time',
+				tone: report.status === 'admitted' ? 'done' : 'failure',
+				details:
+					'Only checked that the scheduler accepts it. Exec did not run and nothing was done.'
+			}
+	);
 	/* A new time-of-day schedule starts in the browser's zone; the owner may choose another. */
 	const timeZone = browserTimeZone();
 	let creating = $state(false),
@@ -88,7 +123,7 @@
 		try {
 			await operation();
 			await query.refetch();
-			toast(message);
+			if (message) toast(message);
 		} catch (cause) {
 			actionFailure = failureSentence(cause, 'The schedule could not be updated.');
 		} finally {
@@ -208,26 +243,25 @@
 
 <CompanyTitle title="Schedules" {companyId} />
 
-<Page title="Schedules" info="Recurring check-ins Exec runs on its own, and what came of them.">
+<Page
+	title="Schedules"
+	info="Recurring check-ins Exec runs on its own, and what came of them."
+	warning={refreshWarning.active
+		? { label: 'Schedules could not be refreshed', show: refreshWarning.show }
+		: null}
+>
 	{#snippet actions()}{#if canManage}<button
 				class="btn primary small"
 				disabled={creating}
 				onclick={() => (creating = true)}>New schedule</button
 			>{/if}{/snippet}
 
-	{#if failure}<Notice tone="danger" title="Schedules could not be updated" details={failure}>
-			{#snippet actions()}<button class="btn small" onclick={() => query.refetch()}>Retry</button
-				>{/snippet}
-		</Notice>{/if}
-	{#if report}<Notice
-			tone="info"
-			title={report.status === 'admitted'
-				? 'The schedule can start'
-				: 'The schedule did not start in time'}
-			details="Only checked that the scheduler accepts it. Exec did not run and nothing was done."
+	{#if !schedules && query.error}<Notice
+			tone="danger"
+			title="Schedules could not be read"
+			details={failureSentence(query.error, 'Schedules could not be read.')}
 		>
-			{#snippet actions()}<button class="btn small ghost" onclick={() => (report = null)}
-					>Dismiss</button
+			{#snippet actions()}<button class="btn small" onclick={() => query.refetch()}>Retry</button
 				>{/snippet}
 		</Notice>{/if}
 
@@ -271,7 +305,7 @@
 	{/if}
 
 	{#if schedules === null}
-		{#if !failure}<Skeleton label="Reading schedules…" variant="page" count={4} />{/if}
+		{#if !query.error}<Skeleton label="Reading schedules…" variant="page" count={4} />{/if}
 	{:else if !schedules.length && !creating}
 		<Empty title="No schedules yet" info="A schedule wakes Exec to check something on a cadence.">
 			{#snippet action()}{#if canManage}<button class="btn small" onclick={() => (creating = true)}
@@ -349,7 +383,7 @@
 										async () => {
 											report = await testScheduleTrigger(companyId, item.schedule.id);
 										},
-										'Checked'
+										''
 									)}>Check it can start</button
 							>
 							<a href={`/${companyId}/people?person=exec&view=people`}>Discuss with Exec</a>

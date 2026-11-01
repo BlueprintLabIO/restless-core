@@ -293,9 +293,11 @@
 		if (event.key === 'r') {
 			event.preventDefault();
 			const answer =
-				document.querySelector<HTMLElement>('.inbox-composer textarea') ??
 				document.querySelector<HTMLElement>(
-					'.inbox-composer .bar :is(button, a), .direction-request .answers button, .attention-document button'
+					'[data-inbox-reply], .attention-footer :is(input, select)'
+				) ??
+				document.querySelector<HTMLElement>(
+					'.direction-request .answers button, .attention-document button'
 				);
 			if (answer) answer.focus();
 			else toast('Open the item to answer it.');
@@ -314,10 +316,14 @@
 		<h2>Inbox</h2>
 		<span class="spacer"></span>
 		{#if canSetAside}
-			<ActionMenu label={`Filter Inbox: ${filter === 'open' ? 'Open' : filter === 'skipped' ? 'Skipped' : filter === 'done' ? 'Done' : 'All'}`}>
+			<ActionMenu
+				label={`Filter Inbox: ${filter === 'open' ? 'Open' : filter === 'skipped' ? 'Skipped' : filter === 'done' ? 'Done' : 'All'}`}
+			>
 				{#snippet trigger()}<ListFilter size={16} strokeWidth={1.8} aria-hidden="true" />{/snippet}
 				{#each ['open', 'skipped', 'done', 'all'] as value}
-					<button aria-pressed={filter === value} onclick={() => setFilter(value)}>{value[0].toUpperCase() + value.slice(1)}</button>
+					<button aria-pressed={filter === value} onclick={() => setFilter(value)}
+						>{value[0].toUpperCase() + value.slice(1)}</button
+					>
 				{/each}
 			</ActionMenu>
 		{/if}
@@ -345,13 +351,15 @@
 			>
 		</ActionMenu>
 	</header>
-	<div>{#if showOpen}<DirectionToday
-		{companyId}
-		{requestsOnly}
-		onrequests={(only) => {
-			requestsOnly = only;
-		}}
-	/>{/if}</div>
+	<div>
+		{#if showOpen}<DirectionToday
+				{companyId}
+				{requestsOnly}
+				onrequests={(only) => {
+					requestsOnly = only;
+				}}
+			/>{/if}
+	</div>
 
 	<div class="inbox-list">
 		{#if failure && !loaded}

@@ -10,7 +10,7 @@
 	import AppCard from '$lib/components/AppCard.svelte';
 	import { BROWSE_CATEGORIES } from '$lib/model/apps';
 	import { setSkillDisposition } from '$lib/model/skills';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import {
 		KIND_INFO,
 		KIND_LABEL,
@@ -98,7 +98,6 @@
 	});
 	const route = (key: string) =>
 		`/${encodeURIComponent(companyId)}/apps/${encodeURIComponent(key)}?from=${encodeURIComponent(returnHref)}`;
-	const failure = $derived(actionFailure || data.failure);
 	let retrying = $state(false);
 	async function retry() {
 		retrying = true;
@@ -108,6 +107,38 @@
 			retrying = false;
 		}
 	}
+	/* Outcomes are toasts, never banners that push the apps down. A refresh that failed over
+	 * apps already shown, or a partial read, is a lasting warning the "!" by the title brings back;
+	 * a first read that failed is the page itself and stays in place. */
+	toastWhile(() => !!actionFailure && { text: actionFailure, tone: 'failure' });
+	toastWhile(
+		() =>
+			!!notice && {
+				text: notice,
+				details: skippedImport.length ? `Not added: ${skippedImport.join('; ')}.` : null,
+				...(reviewHref ? { action: { label: 'Review', run: () => goto(reviewHref) } } : {})
+			}
+	);
+	const appsWarning = toastWhile(() => {
+		if (actionFailure || !data.ready) return null;
+		if (data.failure)
+			return {
+				text: 'Apps could not be refreshed. Showing the last read.',
+				tone: 'failure',
+				details: data.failure,
+				dedupeKey: `apps-read:${companyId}`,
+				action: { label: 'Try again', run: retry }
+			};
+		if (partial)
+			return {
+				text: partial,
+				tone: 'failure',
+				details: 'What did load is shown. Nothing was removed.',
+				dedupeKey: `apps-partial:${companyId}`,
+				action: { label: 'Try again', run: retry }
+			};
+		return null;
+	});
 
 	const TITLES: Record<string, string> = {
 		ask: 'Apps',
@@ -271,8 +302,6 @@
 		onclick={() => void retry()}>{retrying ? 'Trying…' : 'Try again'}</button
 	>{/snippet}
 
-{#snippet review()}<a class="btn small" href={reviewHref}>Review</a>{/snippet}
-
 {#snippet mark(app: App, size: 24 | 32 | 40 = 24)}
 	<AppMark
 		name={app.name}
@@ -293,6 +322,7 @@
 				: isKind(view)
 					? KIND_INFO[view]
 					: undefined}
+		warning={appsWarning.active ? { label: 'Apps did not all load', show: appsWarning.show } : null}
 	>
 		{#snippet toolbar()}
 			{#if discovering || installed}
@@ -322,26 +352,10 @@
 			{/if}
 		{/snippet}
 
-		{#if failure}<Notice
-				tone="danger"
-				title={actionFailure ? actionFailure : 'Apps could not be read'}
-				details={actionFailure ? null : failure}
-			/>{/if}
-		{#if !failure && partial}<Notice
-				tone="warning"
-				title={partial}
-				details="What did load is shown. Nothing was removed."
-				actions={retryAction}
-			/>{/if}
-		{#if notice}<Notice
-				tone="success"
-				title={notice}
-				details={skippedImport.length ? `Not added: ${skippedImport.join('; ')}.` : null}
-				actions={reviewHref ? review : undefined}
-			/>{/if}
-
 		{#if !data.ready}
-			{#if !data.failure}<Skeleton label="Reading apps…" variant="page" count={4} />{/if}
+			{#if data.failure}<Notice tone="danger" title="Apps could not be read" details={data.failure}
+					>{#snippet actions()}{@render retryAction()}{/snippet}</Notice
+				>{:else}<Skeleton label="Reading apps…" variant="page" count={4} />{/if}
 		{:else}
 			{#if showWaiting && (data.requests.length || data.needsYou.length)}
 				<Section

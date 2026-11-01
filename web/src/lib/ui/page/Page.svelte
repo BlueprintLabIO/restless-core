@@ -7,6 +7,7 @@
 	 * header, width or scroll container; that drift is what this replaces. */
 	import type { Snippet } from 'svelte';
 	import InfoTip from '../controls/InfoTip.svelte';
+	import WarningMark from '../feedback/WarningMark.svelte';
 
 	let {
 		title,
@@ -14,6 +15,7 @@
 		count,
 		variant = 'settings',
 		leading,
+		warning,
 		actions,
 		toolbar,
 		children
@@ -25,6 +27,8 @@
 		variant?: 'settings' | 'list';
 		/** A mark before the title, such as an app's logo. */
 		leading?: Snippet;
+		/** Pass it (even as null) to reserve a fixed "!" that reopens a degraded-state toast. */
+		warning?: { label: string; show: () => void } | null;
 		actions?: Snippet;
 		/** List pages only: filters or view switches under the title row. */
 		toolbar?: Snippet;
@@ -39,6 +43,7 @@
 			<h1>{title}</h1>
 			{#if count != null && count !== ''}<span class="page-count">{count}</span>{/if}
 			{#if info}<InfoTip text={info} />{/if}
+			{#if warning !== undefined}<WarningMark {warning} />{/if}
 		</div>
 		{#if actions}<div class="page-actions">{@render actions()}</div>{/if}
 	</header>

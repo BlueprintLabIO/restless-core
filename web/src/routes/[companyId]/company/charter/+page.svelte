@@ -1,6 +1,6 @@
 <script lang="ts">
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { Page, Section, Row, Item, Notice, Empty } from '$lib/ui/page';
+	import { Page, Section, Row, Item, Empty } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -14,6 +14,7 @@
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import Target from '@lucide/svelte/icons/target';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
 	/* Everyone reads the charter; the owner edits it, from the owner's company view, which only
@@ -27,6 +28,20 @@
 	const view = $derived(source.view);
 	let nameVersion = $state(0);
 	holdQueries(() => [source, principal]);
+	/* A stale charter is a toast with Retry, never a banner that pushes the charter down; the "!"
+	 * by the title brings it back. */
+	const staleWarning = toastWhile(
+		() =>
+			owner &&
+			!!view &&
+			source.status === 'stale' && {
+				text: 'Showing the last saved charter',
+				tone: 'failure',
+				dedupeKey: `charter-stale:${companyId}`,
+				details: source.failure ? failureSentence(source.failure, '') || null : null,
+				action: { label: 'Retry', run: () => source.refresh() }
+			}
+	);
 </script>
 
 <CompanyTitle title="Charter" {companyId} />
@@ -34,18 +49,13 @@
 <Page
 	title="Charter"
 	info="Who the company is and why it exists. The charter is its purpose and operating rules, not its legal constitution or its current plan."
+	warning={staleWarning.active
+		? { label: 'Showing the last saved charter', show: staleWarning.show }
+		: null}
 >
 	{#if !owner}
 		<SharedCharter {companyId} />
 	{:else if view}
-		{#if source.status === 'stale'}<Notice
-				tone="warning"
-				title="Showing the last saved charter"
-				details={source.failure ? failureSentence(source.failure, '') : null}
-			>
-				{#snippet actions()}<button class="btn small" onclick={() => source.refresh()}>Retry</button
-					>{/snippet}
-			</Notice>{/if}
 		<Section id="name" title="Company">
 			<Row label="Name">
 				<!-- A name is the company's own; copying another company's would only make two alike. -->

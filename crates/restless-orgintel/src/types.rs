@@ -252,7 +252,9 @@ pub enum OrgIntelError {
     Migrate(#[from] sqlx::migrate::MigrateError),
     #[error("invalid Work graph: {0}")]
     InvalidWork(String),
-    #[error("this review changed after you opened it; open the current candidate and review it again")]
+    #[error(
+        "this review changed after you opened it; open the current candidate and review it again"
+    )]
     ReviewChanged,
     #[error("invalid Room state: {0}")]
     InvalidRoom(String),

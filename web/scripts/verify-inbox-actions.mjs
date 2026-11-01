@@ -133,15 +133,19 @@ try {
 					.filter({ visible: true })
 					.waitFor();
 				await more.click();
-				const replyBox = footer.getByRole('textbox', { name: /^Reply to / });
-				if (await replyBox.count()) {
-					await replyBox.fill('Long reply context. '.repeat(80));
-					const reply = await geometry();
+				/* A worded answer is written in the one Exec chat: the footer has a Reply action,
+				 * never a second composer. */
+				assert(
+					!(await footer.getByRole('textbox', { name: /^Reply to / }).count()),
+					'No middle-pane reply composer'
+				);
+				const reply = footer.getByRole('button', { name: 'Reply', exact: true });
+				if (await reply.count()) {
+					await reply.focus();
 					assert(
-						reply.visible && Math.abs(reply.bottom - before.bottom) < 1,
-						'Growing reply leaves controls at pane bottom'
+						await reply.evaluate((node) => node === document.activeElement),
+						'Reply is reachable from the keyboard'
 					);
-					await replyBox.fill('');
 				}
 			}
 			if (kind === 'outcome') {

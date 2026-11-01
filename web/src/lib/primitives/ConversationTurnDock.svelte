@@ -699,6 +699,15 @@
 		max-width: 80ch;
 	}
 
+	/* The finished message's rhythm (ConversationMessage, --chat-space-*), so nothing re-spaces
+	 * when the reply lands. */
+	.streamed-copy :global(.md :is(p, ul, ol)) {
+		margin: 0 0 var(--chat-space-block);
+	}
+	.streamed-copy :global(.md li) {
+		margin: var(--chat-space-item) 0;
+	}
+
 	.streamed-copy :global(.md > :first-child) {
 		margin-top: 0;
 	}

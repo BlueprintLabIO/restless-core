@@ -24,6 +24,7 @@
 	import X from '@lucide/svelte/icons/x';
 	import { failureSentence } from '$lib/model/failure';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { askExecAbout } from '$lib/model/ask-exec';
 	import { celebrate } from '$lib/ui/celebrate';
 	import { coordinationFailure } from '$lib/model/attention-presentation';
 	import { fileLabel, LIBRARY_KIND_LABEL, libraryKind } from '$lib/model/library-files';
@@ -689,8 +690,15 @@
 				{/if}
 				{#if ownerAccess && !page.url.pathname.endsWith('/people')}
 					<div class="work-talk">
-						<a class="btn small" href={talkHref('exec')} title="Talk about this Work with the Exec"
-							>Discuss</a
+						<button
+							class="btn small"
+							type="button"
+							title="Link this Work into your Exec chat"
+							onclick={() =>
+								askExecAbout(
+									work.title,
+									`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(work.id)}`
+								)}>Ask Exec</button
 						>
 						{#if accountableLead && accountableLead.actor_id !== 'exec'}<a
 								class="btn small"
@@ -712,7 +720,9 @@
 								{#if item.requestedAction}<p>{item.requestedAction}</p>{/if}
 							</div>
 							<div class="pending-actions">
-								<a class="btn small primary" href={inboxHref(item)}>{isOutcomeReview(item) ? 'Review in Inbox' : 'Open in Inbox'}</a>
+								<a class="btn small primary" href={inboxHref(item)}
+									>{isOutcomeReview(item) ? 'Review in Inbox' : 'Open in Inbox'}</a
+								>
 							</div>
 						</div>
 					{/each}

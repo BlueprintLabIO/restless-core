@@ -3,6 +3,7 @@
 	 * plain words and any limits. Members direct agents to use them; nobody here sees a password or
 	 * key. An admin asks the owner for an account, or for more on one; the request reaches the
 	 * owner's Inbox. The owner manages accounts in Settings › Accounts. */
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import Field from '$lib/ui/forms/Field.svelte';
 	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import Segmented from '$lib/ui/page/Segmented.svelte';
@@ -126,6 +127,9 @@
 	const REQUESTABLE = ACCOUNT_KINDS.filter(
 		(entry) => entry.kind !== 'ai_provider' && entry.kind !== 'website_login'
 	);
+	/* Outcomes are toasts, never banners that push the accounts down. */
+	toastWhile(() => !!failure && { text: failure, tone: 'failure' });
+	toastWhile(() => !!sent && { text: sent, details: 'It waits in the owner’s Inbox.' });
 </script>
 
 <CompanyTitle title="Accounts" {companyId} />
@@ -144,8 +148,6 @@
 		{/if}
 	{/snippet}
 
-	{#if failure}<Notice tone="danger" title={failure} />{/if}
-	{#if sent}<Notice tone="success" title={sent} details="It waits in the owner’s Inbox." />{/if}
 	{#if !available}
 		<Notice
 			title="Shared accounts arrive with the next update"

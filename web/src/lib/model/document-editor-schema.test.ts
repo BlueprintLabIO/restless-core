@@ -527,3 +527,44 @@ test('find within one block reports the document’s own positions', (context) =
 	const [inParagraph] = documentEditorSchema.findMatches(doc.child(0), 'line', 1, 0);
 	assert.equal(doc.textBetween(inParagraph.from, inParagraph.to), 'line');
 });
+
+test('a list item moves past the item beside it and no further; a top-level block still moves', (context) => {
+	const document = new Y.Doc();
+	context.after(() => document.destroy());
+	const schema = getSchema(
+		documentEditorSchema.createDocumentEditorExtensions(document, {} as never, true)
+	);
+	const item = (id: string) =>
+		schema.node('listItem', { block_id: id }, [
+			schema.node('paragraph', { block_id: `${id}p` }, [schema.text(id)])
+		]);
+	const doc = schema.node('doc', null, [
+		schema.node('paragraph', { block_id: 'intro' }, [schema.text('Intro')]),
+		schema.node('bulletList', { block_id: 'list' }, [item('one'), item('two')])
+	]);
+	let state = EditorState.create({ doc, selection: TextSelection.create(doc, 1) });
+	const editor = {
+		isEditable: true,
+		get state() {
+			return state;
+		},
+		view: { dispatch: (tr: Parameters<typeof state.apply>[0]) => (state = state.apply(tr)) }
+	} as never;
+	const order = () => {
+		const ids: string[] = [];
+		state.doc.descendants((node) => {
+			if (node.type.name === 'listItem' || node.type.name === 'paragraph')
+				ids.push(node.attrs.block_id);
+			return true;
+		});
+		return ids.filter((id) => !id.endsWith('p')).join(' ');
+	};
+	/* "Intro" takes 0 to 7; the list opens at 7 and its first item at 8. */
+	const first = 8;
+	assert.equal(state.doc.nodeAt(first)?.attrs.block_id, 'one');
+	assert.equal(documentEditorSchema.moveDocumentBlock(editor, first, -1), false);
+	assert.equal(documentEditorSchema.moveDocumentBlock(editor, first, 1), true);
+	assert.equal(order(), 'intro two one');
+	assert.equal(documentEditorSchema.moveDocumentBlock(editor, 0, 1), true);
+	assert.equal(state.doc.child(1).attrs.block_id, 'intro');
+});

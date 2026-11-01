@@ -60,7 +60,12 @@
 				onfocusin={() => holdToast(item.id, true)}
 				onfocusout={() => holdToast(item.id, false)}
 			>
-				<span>{item.text}</span>
+				<span
+					>{item.text}{#if item.details}<details class="toast-details">
+							<summary>Details</summary>
+							<p>{item.details}</p>
+						</details>{/if}</span
+				>
 				{#if item.undo}<button
 						type="button"
 						class="undo"
@@ -135,6 +140,30 @@
 		min-width: 0;
 		overflow-wrap: anywhere;
 		padding-right: 6px;
+	}
+	.toast-details summary {
+		width: fit-content;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		cursor: pointer;
+		list-style: none;
+	}
+	.toast-details summary::-webkit-details-marker {
+		display: none;
+	}
+	.toast-details summary:hover {
+		color: var(--ink);
+	}
+	.toast-details p {
+		max-width: 520px;
+		max-height: 220px;
+		margin: 4px 0 2px;
+		overflow: auto;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		line-height: 1.5;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 	}
 	.undo {
 		flex-shrink: 0;

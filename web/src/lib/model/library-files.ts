@@ -121,6 +121,25 @@ export function libraryKind(
 	return null;
 }
 
+/* Finished work for the owner goes to the outputs folder; the rest of the company home is the
+ * agents' own: Exec's plan and journal under /company/org, notes beside a repository, and any
+ * scratch folder. */
+const SCRATCH_FOLDER = /^(scratch|scratchpad|tmp|temp|wip|working)$/i;
+/** Whether a file is an agent's working note rather than something made for the owner: anything
+ * under /company/org, a note outside the outputs and downloads folders, or a file in a scratch
+ * folder. These leave the default views for their own (S109-G5). */
+export function isWorkingNote(file: Pick<LibraryFile, 'kind' | 'uri'>): boolean {
+	const path = file.uri.split(/[?#]/)[0];
+	if (!path.startsWith('/company/')) return false;
+	if (path.startsWith('/company/org/')) return true;
+	const delivered = path.startsWith('/company/outputs/') || path.startsWith('/company/downloads/');
+	if (!delivered && file.kind === 'text') return true;
+	return path
+		.split('/')
+		.slice(2, -1)
+		.some((segment) => SCRATCH_FOLDER.test(segment));
+}
+
 /** Whether the browser cannot show this file, so it downloads (an Office file may still be read
  * in the cockpit; see officeFormat). */
 export function downloads(file: Pick<LibraryFile, 'uri'>): boolean {

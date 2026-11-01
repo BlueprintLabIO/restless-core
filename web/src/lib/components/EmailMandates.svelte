@@ -12,7 +12,7 @@
 		revokeEmailMandate,
 		type EmailMandate
 	} from '$lib/model/email-mandates';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 
 	let { companyId }: { companyId: string } = $props();
@@ -181,6 +181,11 @@
 		}
 	}
 	let openMandate = $state('');
+	/* A change that failed is a toast, never a banner that pushes the mandates down. A first read
+	 * that failed is the section's content and stays in place. */
+	toastWhile(
+		() => !!error && { text: 'That change was not made', tone: 'failure', details: error }
+	);
 </script>
 
 <Section
@@ -199,7 +204,6 @@
 				onclick={beginCreate}>Add mandate</button
 			>{/if}
 	{/snippet}
-	{#if error}<Notice tone="danger" title="That change was not made">{error}</Notice>{/if}
 	{#if loadError}
 		<Notice tone="danger" title="Email mandates could not be read" details={loadError}>
 			{#snippet actions()}{#if loadRetryable}<button

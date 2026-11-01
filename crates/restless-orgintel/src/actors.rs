@@ -97,6 +97,28 @@ impl OrgIntel {
         Ok(())
     }
 
+    /// Agents whose saved preference is a copy of the outgoing company default follow the new
+    /// one (S109). That copy is seeded from the default (Exec's first wake, a Staff member's
+    /// first run) and was read back as the agent's own choice, so a default switched within one
+    /// provider left them on the old model. Clearing it makes the agent read the default again.
+    /// Only exact copies are cleared: a model Exec chose for an agent (Opus for a hard redo)
+    /// differs from the default and stays, and `keep` names agents with the owner's own route.
+    pub async fn follow_company_default(
+        &self,
+        previous_default: &str,
+        keep: &[String],
+    ) -> Result<u64> {
+        let changed = sqlx::query(
+            "UPDATE actors SET model=NULL WHERE model=$1 AND retired_at IS NULL \
+             AND actor_class='agent' AND NOT (id = ANY($2))",
+        )
+        .bind(previous_default)
+        .bind(keep)
+        .execute(&self.pool)
+        .await?;
+        Ok(changed.rows_affected())
+    }
+
     /// Explicitly evolve an actor's model preference. Unlike provider
     /// failover, this is an organisational decision with a reason and author.
     pub async fn change_actor_model(

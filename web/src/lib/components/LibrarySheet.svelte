@@ -51,8 +51,8 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { sheetFollow } from '$lib/model/for-you';
 	import { useForYou } from '$lib/model/for-you.svelte';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
-	import { askExec } from '$lib/model/ask-exec';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
+	import { askExec, linkDraft } from '$lib/model/ask-exec';
 
 	interface Version {
 		id: string;
@@ -541,7 +541,7 @@
 				});
 			}
 		}
-		askExec(current ? `[${current.title.replace(/[[\]]/gu, '')}](${sheetHref(target, id)}) ` : '');
+		askExec(current ? linkDraft(current.title, sheetHref(target, id)) : '');
 	}
 	async function setExecLevel(
 		target: string,
@@ -726,6 +726,26 @@
 	);
 	namePageContext(() => (importing ? 'Import a spreadsheet' : (row?.title ?? '')));
 	holdQueries(() => [principal, directory]);
+	/* A failure and an import under way are toasts, never banners that push the sheet down. */
+	toastWhile(
+		() =>
+			!!error && {
+				text: error.title,
+				tone: 'failure',
+				details: [error.text, error.details].filter(Boolean).join('\n\n') || null,
+				...(error.retry && lastImport
+					? {
+							action: {
+								label: 'Try again',
+								run: () => importFile(lastImport ?? undefined, true)
+							}
+						}
+					: {})
+			}
+	);
+	toastWhile(
+		() => !!importBusy && !importing && { text: `Importing ${importBusy}…`, persist: true }
+	);
 </script>
 
 <svelte:head
@@ -832,7 +852,7 @@
 						</p>{/if}
 					<button type="button" onclick={() => openPanel('history')}>History</button>
 					<button type="button" class="narrow-only" onclick={() => void discuss()}
-						>Discuss with Exec</button
+						>Ask Exec about this</button
 					>
 					{#if access !== 'edit'}
 						<button
@@ -929,22 +949,6 @@
 				onchange={chooseImport}
 			/>
 		</header>
-		{#if error}<div class="notice-slot">
-				<Notice tone="danger" title={error.title} details={error.details}>
-					{error.text ?? ''}
-					{#snippet actions()}{#if error?.retry && lastImport}<button
-								class="btn small"
-								type="button"
-								disabled={!!importBusy}
-								onclick={() => importFile(lastImport ?? undefined, true)}>Try again</button
-							>{/if}<button class="btn small" type="button" onclick={() => (error = null)}
-							>Dismiss</button
-						>{/snippet}
-				</Notice>
-			</div>{/if}
-		{#if importBusy && !importing}<div class="notice-slot">
-				<Notice tone="info" title={`Importing ${importBusy}…`} />
-			</div>{/if}
 		{#if row?.archived_at}<div class="notice-slot">
 				<Notice tone="info" title="This sheet is archived">
 					It is out of the Library lists. Anyone who can edit it still can.

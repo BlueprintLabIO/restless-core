@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
-	import { Page, Section, Row, Item, Notice, Fold } from '$lib/ui/page';
+	import { Page, Section, Row, Item, Fold } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -143,6 +144,11 @@
 		return text.charAt(0).toUpperCase() + text.slice(1);
 	};
 	holdQueries(() => [principal, source]);
+	/* Outcomes are toasts, never banners that push the brand down. */
+	toastWhile(
+		() => !!failure && { text: 'That was not recorded', tone: 'failure', details: failure }
+	);
+	toastWhile(() => !!notice && { text: notice });
 </script>
 
 <CompanyTitle title="Brand" {companyId} />
@@ -152,9 +158,6 @@
 	info="How the company looks and sounds. Every site, deck and message the team makes starts from it. Exec proposes changes from your feedback; only you approve them."
 >
 	{#if view}
-		{#if failure}<Notice tone="danger" title="That was not recorded" details={failure} />{/if}
-		{#if notice}<Notice tone="success" title={notice} />{/if}
-
 		{#if openDrift.length}
 			<Section
 				title="Artifacts affected by a change"

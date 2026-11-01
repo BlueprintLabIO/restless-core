@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import type { Snippet } from 'svelte';
 	/* The charter's purpose, as the owner reads and edits it: one surface for Company › Charter and
 	 * for the Inbox. When Exec drafted a change, the draft sits on this same surface with Publish,
@@ -213,6 +214,11 @@
 	}
 
 	const when = (value?: Date | string | null) => formatRelative(value ?? undefined, 'Not yet');
+	/* Outcomes are toasts, never banners that push the charter down. */
+	toastWhile(
+		() => !!failure && { text: 'The charter was not saved', tone: 'failure', details: failure }
+	);
+	toastWhile(() => !!notice && { text: notice });
 </script>
 
 {#snippet draftActions()}
@@ -273,9 +279,6 @@
 <div class="charter-purpose" class:inbox>
 	<div class="charter-content" class:has-preview={!!preview}>
 		{#if preview}{@render preview()}{:else}
-			{#if failure}<Notice tone="danger" title="The charter was not saved" details={failure} />{/if}
-			{#if notice}<Notice tone="success" title="Charter">{notice}</Notice>{/if}
-
 			{#if proposal && !editing}
 				<section class="draft" aria-label="Exec's draft of the charter">
 					<header>

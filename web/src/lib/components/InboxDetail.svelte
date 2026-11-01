@@ -2,16 +2,19 @@
 	/* One Inbox item, read as a message from whoever is asking and answered
 	 * from one action bar at the bottom.
 	 *
-	 * A reply goes to the Work's owner as a message in the owner's conversation
-	 * with them (the handoff decision endpoint posts it), so the owner is told
+	 * A reply is written in the one Exec chat with the item linked, and goes to the Work's
+	 * owner as a message in the owner's conversation with them (the handoff decision
+	 * endpoint posts it), so the owner is told
 	 * where it went, even when a lead asked. Skip is one click with Undo: the
 	 * company carries on without it. Approvals keep hold-to-confirm, with the exact
 	 * draft shown under the ask; declining one, or asking for changes, can carry
 	 * a note that reaches the company with the decision. Files the item points
 	 * at open alongside the decision in Inbox. Context and the rest of the evidence are folded
 	 * away until asked for. */
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { queueHandoffDecision } from '$lib/model/handoff-decisions';
-	import { askExecAboutItem } from '$lib/model/ask-exec';
+	import { askExecAboutItem, replyInExec } from '$lib/model/ask-exec';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { decideEmailMandateProposal } from '$lib/model/company-actions';
 	import { decidePayee } from '$lib/model/company';
 	import { authorizePublication, stopPublication } from '$lib/model/publications';
@@ -42,6 +45,7 @@
 		deadlineAt
 	} from '$lib/model/attention-presentation';
 	import { getInboxMarks } from '$lib/model/for-you';
+	import { CATALOGUE } from '$lib/model/apps';
 	import SnoozeChoices from './SnoozeChoices.svelte';
 	import InlineAppRequest from './inbox/InlineAppRequest.svelte';
 	import InlineAccountRequest from './inbox/InlineAccountRequest.svelte';
@@ -130,12 +134,17 @@
 	const item = $derived(openedReview?.id === incomingItem.id ? openedReview : incomingItem);
 	$effect(() => {
 		if (incomingItem.actions.some((action) => action.id === 'accept-review')) {
-			if (openedReview?.id !== incomingItem.id || (!openedReview.reviewVersion && incomingItem.reviewVersion))
+			if (
+				openedReview?.id !== incomingItem.id ||
+				(!openedReview.reviewVersion && incomingItem.reviewVersion)
+			)
 				openedReview = $state.snapshot(incomingItem);
 		} else if (openedReview) openedReview = null;
 	});
-	const newerReview = $derived(!!openedReview?.reviewVersion &&
-		JSON.stringify(openedReview.reviewVersion) !== JSON.stringify(incomingItem.reviewVersion));
+	const newerReview = $derived(
+		!!openedReview?.reviewVersion &&
+			JSON.stringify(openedReview.reviewVersion) !== JSON.stringify(incomingItem.reviewVersion)
+	);
 	function reviewCurrentVersion() {
 		openedReview = $state.snapshot(incomingItem);
 		requestingReviewChanges = false;
@@ -214,6 +223,19 @@
 	const requestApprove = $derived(accountAsk ? action('approve') : undefined);
 	const requestLimits = $derived(accountAsk ? action('approve-with-limits') : undefined);
 	const requestDeny = $derived(accountAsk ? action('deny') : undefined);
+	/* The owner answers an account request in its card's form, so the ask names that form rather
+	 * than Settings' approve-with-limits route. */
+	const ownerAccountAsk = $derived(!!item.accountRequest && !canPassToOwner);
+	const askText = $derived.by(() => {
+		const ask = item.accountRequest;
+		if (!ask || canPassToOwner) return item.requestedAction;
+		if (ask.account_id) return 'Approve as asked, or set its access below and give it. Or deny.';
+		if (ask.kind === 'website_login' || ask.kind === 'browser_profile')
+			return 'Sign in below, then choose what the company may do there. Or deny.';
+		if (ask.kind === 'api' || ask.kind === 'github')
+			return `Add ${kindPhrase(ask.kind)} below, or choose one you hold, then choose what the company may do with it. Or deny.`;
+		return item.requestedAction;
+	});
 	const open = $derived(action('open-outcome'));
 	const review = $derived(item.actions.some((candidate) => candidate.id === 'accept-review'));
 	let requestingReviewChanges = $state(false),
@@ -230,9 +252,18 @@
 		return run(
 			async () => {
 				if (decision === 'accept') {
-					await queueHandoffDecision(client, companyId, item, { kind: 'accept_review', feedback: reviewFeedback.trim() });
+					await queueHandoffDecision(client, companyId, item, {
+						kind: 'accept_review',
+						feedback: reviewFeedback.trim()
+					});
 				} else {
-					await reviewAction(companyId, item.source.reference, decision, reviewFeedback.trim(), item.reviewVersion);
+					await reviewAction(
+						companyId,
+						item.source.reference,
+						decision,
+						reviewFeedback.trim(),
+						item.reviewVersion
+					);
 					await refreshAttention(client, companyId);
 				}
 			},
@@ -287,6 +318,7 @@
 					(candidate) =>
 						candidate.href &&
 						candidate.role !== 'conversation' &&
+						!(ownerAccountAsk && candidate.id === 'approve-with-limits') &&
 						!(candidate.id === 'open-external-human-step' && canSetAside && !item.preparing)
 				)
 	);
@@ -359,7 +391,6 @@
 
 	let acting = $state(false);
 	let error = $state('');
-	let reply = $state('');
 	let reason = $state('');
 	/* An approval answered with words: a plain decline (the note is optional) or a request for a
 	 * changed draft (the note says what should change). */
@@ -376,18 +407,12 @@
 		});
 	});
 
+	/* A form the item asks for is filled here; anything said in words goes through the Exec chat. */
 	const replyReady = $derived(
-		fields.length
-			? fields.every((field) => !field.required || (fieldValues[field.id] ?? '').trim())
-			: !!reply.trim()
+		fields.every((field) => !field.required || (fieldValues[field.id] ?? '').trim())
 	);
 	const answer = () =>
-		fields.length
-			? [
-					...fields.map((field) => `${field.label}: ${fieldValues[field.id] ?? ''}`),
-					...(reply.trim() ? [reply.trim()] : [])
-				].join('\n')
-			: reply.trim();
+		fields.map((field) => `${field.label}: ${fieldValues[field.id] ?? ''}`).join('\n');
 
 	async function run(
 		work: () => Promise<unknown>,
@@ -421,7 +446,9 @@
 			acting = true;
 			try {
 				await skipHandoffSoon(client, companyId, item);
-			} finally { acting = false; }
+			} finally {
+				acting = false;
+			}
 			return;
 		}
 		acting = true;
@@ -511,6 +538,17 @@
 			'Your answer was not sent. Try again.',
 			recipientHref
 		);
+	/* Reply opens the one Exec chat with this item linked; what the owner writes after the link is
+	 * recorded as the answer when it is sent, wherever the owner is by then. */
+	function replyInChat() {
+		const reference = item.source.reference;
+		const to = recipient;
+		replyInExec(companyId, item, async (text) => {
+			await resolveHandoffDecision(companyId, reference, text);
+			await refreshAttention(client, companyId);
+			toast(`Your answer was sent to ${to}`);
+		});
+	}
 	/* Where what this card settles lives (S101): named under its panel, and in the receipt. */
 	const home = $derived.by((): SettingHome | null => {
 		if (spendSurface) return settingHome(companyId, 'limits');
@@ -519,6 +557,12 @@
 		if (modelSurface) return settingHome(companyId, 'intelligence');
 		if (driftSurface) return settingHome(companyId, 'brand', { id: item.source.reference });
 		if (machineSurface || startSurface) return settingHome(companyId, 'computer');
+		/* An app's token is kept in the company Vault, as its card says; one home, not two. */
+		if (
+			appRequest &&
+			CATALOGUE.find((entry) => entry.key === appRequest.catalogueKey)?.auth === 'token'
+		)
+			return settingHome(companyId, 'vault');
 		if (reconnectSurface || item.accountRequest || appRequest)
 			return settingHome(companyId, 'accounts');
 		if (
@@ -687,6 +731,9 @@
 		if (event.key === 'Escape') (event.currentTarget as HTMLElement).blur();
 	}
 	const initial = (name: string) => initials(name) || '?';
+	/* A decision that failed is a toast above the action bar, never a banner that pushes the
+	 * fields and buttons down under the pointer. */
+	toastWhile(() => !!error && { text: error, tone: 'failure' });
 </script>
 
 {#snippet secondaryActions()}
@@ -769,7 +816,7 @@
 								will appear here when ready.
 							</p>
 						{:else}
-							<div class="ask"><Markdown text={item.requestedAction} /></div>
+							<div class="ask"><Markdown text={askText} /></div>
 						{/if}
 						{#if item.accountUse}<AccountUseNote
 								use={item.accountUse}
@@ -978,7 +1025,6 @@
 	</div>
 	{#snippet responseFields()}
 		<div class="inbox-inputs">
-			{#if error}<Notice tone="danger" title={error} />{/if}
 			{#if requestingReviewChanges}
 				<label
 					>Changes for {recipient}<textarea
@@ -1046,6 +1092,7 @@
 										bind:value={fieldValues[field.id]}
 										required={field.required}
 										disabled={acting}
+										onkeydown={(event) => keys(event, sendReply)}
 										><option value="">Choose…</option>{#each optionsFor(field) as option}<option
 												value={option}>{option}</option
 											>{/each}</select
@@ -1063,17 +1110,12 @@
 										bind:value={fieldValues[field.id]}
 										required={field.required}
 										disabled={acting}
+										onkeydown={(event) => keys(event, sendReply)}
 									/>{/if}
 							</label>
 						{/each}
 					</div>
 				{/if}
-				<textarea
-					bind:value={reply}
-					aria-label={`Reply to ${asker}`}
-					placeholder={fields.length ? 'Anything else (optional)' : `Reply to ${asker}…`}
-					disabled={acting}
-					onkeydown={(event) => keys(event, sendReply)}></textarea>
 			{/if}
 		</div>
 	{/snippet}
@@ -1085,7 +1127,7 @@
 		passing ||
 		handingTo ||
 		approvalNote ||
-		record
+		(record && fields.length)
 			? responseFields
 			: undefined}
 	>
@@ -1128,6 +1170,17 @@
 					>Back</button
 				>
 				<span class="hint" title="Goes to Exec with your decision">To Exec · ⌘ ↵</span>
+			</div>
+		{:else if record && !fields.length}<div class="action-row">
+				{@render secondaryActions()}
+				<!-- No second composer here: the answer is written in the one Exec chat, item linked. -->
+				<button
+					class="btn primary small"
+					type="button"
+					data-inbox-reply
+					title={`Opens the Exec chat with this item linked. What you write goes to ${recipient}, and the blocked Work resumes.`}
+					onclick={replyInChat}>Reply</button
+				>
 			</div>
 		{:else if record}<div class="action-row">
 				{@render secondaryActions()}
@@ -1215,8 +1268,10 @@
 							class="btn primary small"
 							type="button"
 							disabled={acting}
-							title={newerReview ? 'A newer candidate is ready. Open it before deciding.' : action('accept-review')?.consequence}
-							onclick={() => newerReview ? reviewCurrentVersion() : void decideReview('accept')}
+							title={newerReview
+								? 'A newer candidate is ready. Open it before deciding.'
+								: action('accept-review')?.consequence}
+							onclick={() => (newerReview ? reviewCurrentVersion() : void decideReview('accept'))}
 							><span class="review-accept-label">
 								<span class:inactive={newerReview || acting}>Accept outcome</span>
 								<span class:inactive={!newerReview || acting}>Review new version</span>
@@ -1419,9 +1474,15 @@
 </article>
 
 <style>
-	.review-accept-label { display: grid; }
-	.review-accept-label > span { grid-area: 1 / 1; }
-	.review-accept-label > .inactive { visibility: hidden; }
+	.review-accept-label {
+		display: grid;
+	}
+	.review-accept-label > span {
+		grid-area: 1 / 1;
+	}
+	.review-accept-label > .inactive {
+		visibility: hidden;
+	}
 	/* Where the card's setting lives: one quiet line under its panel (S101). */
 	.home {
 		margin: 8px 0 0;

@@ -24,7 +24,7 @@
 	} from '$lib/components/DocumentInspector.svelte';
 	import { tick } from 'svelte';
 	import { Notice } from '$lib/ui/page';
-	import { askExec } from '$lib/model/ask-exec';
+	import { askExec, linkDraft } from '$lib/model/ask-exec';
 	import { reviewAction, sendActorMessage } from '$lib/model/attention';
 	import { failureKind, failureSentence } from '$lib/model/failure';
 	import {
@@ -156,7 +156,9 @@
 				handoff.category === 'owner_judgement'
 		);
 		if (review && ownerAccess) {
-			const version = attentionView.view?.items.find((item) => item.source.reference === review.id)?.reviewVersion;
+			const version = attentionView.view?.items.find(
+				(item) => item.source.reference === review.id
+			)?.reviewVersion;
 			await reviewAction(companyId, review.id, 'request_changes', feedback, version);
 			return 'Sent back for changes';
 		}
@@ -419,10 +421,13 @@
 				);
 			}
 		}
-		/* The draft carries the document as the composer's own @ reference does. */
+		/* The draft links the document into the one Exec chat, as "Ask Exec about this" does. */
 		askExec(
 			view
-				? `[${view.document.title.replace(/[[\]]/gu, '')}](/${encodeURIComponent(target.companyId)}/library/documents?document=${encodeURIComponent(target.documentId)}) `
+				? linkDraft(
+						view.document.title,
+						`/${encodeURIComponent(target.companyId)}/library/documents?document=${encodeURIComponent(target.documentId)}`
+					)
 				: undefined
 		);
 	}
@@ -768,7 +773,7 @@
 					>
 					{#if !documentView.document.linked_room_id}
 						<button type="button" class="narrow-only" onclick={() => void discuss()}
-							>Discuss with Exec</button
+							>Ask Exec about this</button
 						>
 					{/if}
 					<button type="button" class="narrow-only" onclick={() => changePanel('share')}
@@ -888,11 +893,20 @@
 		{#if backHref || (documentView && mayArchive && !archived)}
 			<nav class="document-floats" aria-label="Document actions">
 				{#if documentView && mayArchive && !archived}<button
-					type="button" class="btn small" aria-label="Archive"
-					title="Archive this document; restore it from the Library"
-					onclick={() => void setArchived(true)}><Archive size={15} aria-hidden="true" /><span>Archive</span></button>{/if}
-				{#if backHref}<a class="btn small" href={backHref} aria-label="Back to Inbox item" title="Back to Inbox item"
-					><ArrowLeft size={15} aria-hidden="true" /><span>Back to Inbox item</span></a>{/if}
+						type="button"
+						class="btn small"
+						aria-label="Archive"
+						title="Archive this document; restore it from the Library"
+						onclick={() => void setArchived(true)}
+						><Archive size={15} aria-hidden="true" /><span>Archive</span></button
+					>{/if}
+				{#if backHref}<a
+						class="btn small"
+						href={backHref}
+						aria-label="Back to Inbox item"
+						title="Back to Inbox item"
+						><ArrowLeft size={15} aria-hidden="true" /><span>Back to Inbox item</span></a
+					>{/if}
 			</nav>
 		{/if}
 	</section>
@@ -979,10 +993,21 @@
 		box-shadow: var(--shadow-lift);
 	}
 	@container document-surface (max-width: 1024px) {
-		.document-floats { right: 8px; }
-		.document-floats span { display: none; }
-		.document-floats :is(a, button) { width: 28px; min-width: 28px; height: 28px; padding: 0; }
-		.document-stage :global(.paper) { padding-right: 56px; }
+		.document-floats {
+			right: 8px;
+		}
+		.document-floats span {
+			display: none;
+		}
+		.document-floats :is(a, button) {
+			width: 28px;
+			min-width: 28px;
+			height: 28px;
+			padding: 0;
+		}
+		.document-stage :global(.paper) {
+			padding-right: 56px;
+		}
 	}
 	@container inbox-preview (max-width:900px) {
 		.documents-screen.embedded.inspector-open {
@@ -1223,7 +1248,13 @@
 		a.btn.for-work {
 			display: none;
 		}
-		.share, .follow, .ask { display: none; }
-		:global(.document-actions) .narrow-only { display: block; }
+		.share,
+		.follow,
+		.ask {
+			display: none;
+		}
+		:global(.document-actions) .narrow-only {
+			display: block;
+		}
 	}
 </style>

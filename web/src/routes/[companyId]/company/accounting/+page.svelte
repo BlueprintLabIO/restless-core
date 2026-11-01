@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { page } from '$app/state';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Notice, Empty, Segmented } from '$lib/ui/page';
@@ -97,12 +98,27 @@
 	}
 	const workHref = (id: string) =>
 		`/${encodeURIComponent(company)}/work?goal=${encodeURIComponent(id)}`;
+	/* A refresh that failed over records already shown is a toast with Retry, never a banner that
+	 * pushes them down; the "!" by the title brings it back. A first read that failed stays put. */
+	const refreshWarning = toastWhile(
+		() =>
+			!!records.failure &&
+			!!records.view && {
+				text: failureSentence(records.failure, 'Business records could not be refreshed.'),
+				tone: 'failure',
+				dedupeKey: `accounting-refresh:${company}`,
+				action: { label: 'Retry', run: () => records.refresh() }
+			}
+	);
 </script>
 
 <CompanyTitle title="Accounting" companyId={company} />
 <Page
 	title="Accounting"
 	info="Business income, expenses and their evidence. Bookkeeping records do not send payments. Unconnected bank accounts and invoices are not automatically imported."
+	warning={refreshWarning.active
+		? { label: 'Business records could not be refreshed', show: refreshWarning.show }
+		: null}
 >
 	{#snippet actions()}
 		<button
@@ -117,7 +133,7 @@
 				onclick={() => edit()}>Add record</button
 			>{/if}
 	{/snippet}
-	{#if records.failure}<Notice
+	{#if records.failure && !records.view}<Notice
 			tone="danger"
 			title={failureSentence(records.failure, 'Business records could not be read.')}
 		/>{/if}

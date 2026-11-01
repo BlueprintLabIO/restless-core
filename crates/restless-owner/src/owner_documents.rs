@@ -9,7 +9,6 @@ use super::*;
 use crate::document_collaboration_token::{
     DocumentCollaborationAccess, DocumentCollaborationTokenInput, DEFAULT_TTL_SECONDS,
 };
-use crate::documents_service::NativeDocumentsProxy;
 
 const DOCUMENT_BODY_LIMIT: usize = 1_250_000;
 pub(super) const DOCUMENT_COLLABORATION_JWKS_PATH: &str =
@@ -330,6 +329,30 @@ async fn native_documents_collaboration(
     }
     let proxy = state.native_documents_proxy.clone();
     let session_lease = session_lease.map(|Extension(lease)| lease);
+    // Reach the Documents service before accepting the browser's socket. Accepting first and then
+    // dropping it read to the editor as a connection that worked, so it reconnected at once: one
+    // stopped sidecar drew hundreds of attempts a second. A 503 keeps the editor's own backoff.
+    let upstream = match proxy.service_address(identity.cell_id) {
+        Ok((host, port)) => tokio::time::timeout(
+            Duration::from_secs(2),
+            tokio::net::TcpStream::connect((host.clone(), port)),
+        )
+        .await
+        .map_err(anyhow::Error::from)
+        .and_then(|result| result.map_err(anyhow::Error::from))
+        .map(|stream| (host, port, stream)),
+        Err(error) => Err(error),
+    };
+    let (host, port, stream) = match upstream {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(%company_id, %document_id, %error, "native Documents service is not reachable");
+            return native_documents_proxy_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "native_documents_unavailable",
+            );
+        }
+    };
     upgrade
         .max_message_size(MAX_NATIVE_DOCUMENTS_PROXY_MESSAGE_BYTES)
         .max_frame_size(MAX_NATIVE_DOCUMENTS_PROXY_MESSAGE_BYTES)
@@ -337,9 +360,8 @@ async fn native_documents_collaboration(
             if let Err(error) = proxy_native_documents_websocket(
                 socket,
                 company_id,
-                identity.cell_id,
                 document_id,
-                proxy,
+                (host, port, stream),
                 session_lease,
             )
             .await
@@ -390,27 +412,10 @@ const NATIVE_DOCUMENTS_AUTHENTICATION_CLOSE_CODE: u16 = 4401;
 async fn proxy_native_documents_websocket(
     browser: WebSocket,
     company_id: Uuid,
-    cell_id: Uuid,
     document_id: Uuid,
-    proxy: NativeDocumentsProxy,
+    (host, port, stream): (String, u16, tokio::net::TcpStream),
     session_lease: Option<SessionLease>,
 ) -> Result<()> {
-    let (host, port) = proxy.service_address(cell_id)?;
-    let stream = match session_lease.as_ref() {
-        Some(lease) => tokio::select! {
-            result = tokio::time::timeout(
-                Duration::from_secs(2),
-                tokio::net::TcpStream::connect((host.as_str(), port)),
-            ) => result.context("native Documents sidecar connect timed out")??,
-            _ = lease.ended() => return Ok(()),
-        },
-        None => tokio::time::timeout(
-            Duration::from_secs(2),
-            tokio::net::TcpStream::connect((host.as_str(), port)),
-        )
-        .await
-        .context("native Documents sidecar connect timed out")??,
-    };
     let target = format!(
         "ws://{host}:{port}/api/companies/{company_id}/documents/{document_id}/collaboration"
     );
@@ -2408,18 +2413,21 @@ mod tests {
                 serde_json::json!({ "cell_id": cell, "port": sidecar_port }).to_string(),
             )
             .unwrap();
-            let mut proxy = NativeDocumentsProxy::disabled_for_test();
+            let mut proxy = crate::documents_service::NativeDocumentsProxy::disabled_for_test();
             proxy.use_local_services(root.clone());
+            let (host, port) = proxy.service_address(cell).unwrap();
             let app = Router::new().route(
                 "/ws",
                 get(move |upgrade: WebSocketUpgrade| async move {
+                    let stream = tokio::net::TcpStream::connect((host.as_str(), port))
+                        .await
+                        .unwrap();
                     upgrade.on_upgrade(move |socket| async move {
                         proxy_native_documents_websocket(
                             socket,
                             Uuid::new_v4(),
-                            cell,
                             Uuid::new_v4(),
-                            proxy,
+                            (host, port, stream),
                             None,
                         )
                         .await

@@ -15,7 +15,7 @@
 	import { Page, Section, Notice, Toggle, Segmented, Dot, Fold } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -330,6 +330,34 @@
 			if (back) signedInReturn = back;
 		}
 	});
+
+	/* Outcomes are toasts, never banners that push the app down. Discovery health is a lasting
+	 * warning: its toast offers Try again, and the "!" by the title brings it back. */
+	const shown = $derived(!!apps && (!!app || !!pendingLink));
+	toastWhile(
+		() =>
+			shown &&
+			!!signedInReturn && {
+				text: 'Signed in',
+				persist: true,
+				action: { label: 'Back to where you started', run: () => goto(signedInReturn) }
+			}
+	);
+	toastWhile(
+		() =>
+			shown && !!failure && { text: 'That change was not made', tone: 'failure', details: failure }
+	);
+	toastWhile(() => shown && !!notice && { text: notice });
+	const partialWarning = toastWhile(
+		() =>
+			shown &&
+			!!partial && {
+				text: partial,
+				tone: 'failure',
+				dedupeKey: `apps-partial:${companyId}`,
+				action: { label: 'Try again', run: load }
+			}
+	);
 	async function startSignIn(connection: ToolConnection) {
 		const company = companyId,
 			selectedKey = key;
@@ -1192,7 +1220,13 @@
 		</Page>
 	{/if}
 {:else}
-	<Page title={app?.name ?? linkName} info={app ? app.howTip : `A service at ${pendingLink}.`}>
+	<Page
+		title={app?.name ?? linkName}
+		info={app ? app.howTip : `A service at ${pendingLink}.`}
+		warning={partialWarning.active
+			? { label: 'Some apps did not load', show: partialWarning.show }
+			: null}
+	>
 		{#snippet leading()}
 			<AppMark
 				name={app?.name ?? linkName}
@@ -1226,14 +1260,6 @@
 		{/snippet}
 
 		<a class="back" href={backHref}>Apps</a>
-		{#if signedInReturn}<Notice tone="success" title="Signed in">
-				{#snippet actions()}<a class="btn small primary" href={signedInReturn}
-						>Back to where you started</a
-					>{/snippet}
-			</Notice>{/if}
-		{#if failure}<Notice tone="danger" title="That change was not made" details={failure} />{/if}
-		{#if partial}<Notice tone="warning" title={partial} actions={retry} />{/if}
-		{#if notice}<Notice tone="success" title={notice} />{/if}
 		{#if request}
 			<div
 				class="request"

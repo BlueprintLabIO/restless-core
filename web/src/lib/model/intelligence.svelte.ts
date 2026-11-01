@@ -3,6 +3,8 @@ import { pollEvery } from './connection.svelte';
 import { ownerJson } from './failure';
 import { bootFetch } from './boot-fetch.ts';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+import { announceIntelligenceChange, changedRecently } from './intelligence-events';
+import { holdLoaded, withAssignment } from './intelligence-route';
 export type IntelligenceConnection = {
 	id: string;
 	provider: string;
@@ -37,7 +39,21 @@ export type IntelligenceView = {
 	agents: IntelligenceAgent[];
 };
 
-export { agentRouteState, type AgentRouteState } from './intelligence-route';
+export {
+	agentRouteState,
+	routeActionLabel,
+	connectionUnavailable,
+	listedConnection,
+	type AgentRouteState
+} from './intelligence-route';
+
+/* Per company, when each connection was first seen down during a gateway reload (holdLoaded). */
+const reloadingSince = new Map<string, Map<string, number>>();
+function reloading(company: string) {
+	let since = reloadingSince.get(company);
+	if (!since) reloadingSince.set(company, (since = new Map()));
+	return since;
+}
 
 export function intelligenceQuery(company: string, enabled: () => boolean = () => true) {
 	const client = useQueryClient();
@@ -47,7 +63,8 @@ export function intelligenceQuery(company: string, enabled: () => boolean = () =
 			const r = await bootFetch(`/api/companies/${encodeURIComponent(company)}/intelligence`, {
 				signal
 			});
-			return ownerJson<IntelligenceView>(r);
+			const next = await ownerJson<IntelligenceView>(r);
+			return holdLoaded(client.getQueryData(['intelligence', company]), next, reloading(company));
 		},
 		enabled: enabled(),
 		staleTime: 5000,
@@ -56,7 +73,13 @@ export function intelligenceQuery(company: string, enabled: () => boolean = () =
 		// connection yet, or one still loading), so it never waits a full minute.
 		refetchInterval: (query: { state: { data: IntelligenceView | undefined } }) => {
 			const view = query.state.data;
-			const settling = !view?.has_connections || view.connections.some((row) => !row.loaded);
+			const settling =
+				!view?.has_connections ||
+				view.connections.some((row) => !row.loaded) ||
+				reloading(company).size > 0;
+			// Just after a switch the gateway loads the new connection within seconds; read it
+			// as soon as it is there rather than up to 15 seconds later (S109).
+			if (settling && changedRecently(company)) return 2_000;
 			return settling ? 15_000 : pollEvery(120_000)();
 		}
 	}));
@@ -93,8 +116,43 @@ export function assignModel(
 	actor: string,
 	body: { connection: string; model: string; reset: boolean; revision: string }
 ) {
-	return ownerRequest<unknown>(
+	return ownerRequest<{ saved: boolean; revision?: string }>(
 		`/api/companies/${encodeURIComponent(company)}/intelligence/${encodeURIComponent(actor)}`,
 		{ method: 'PUT', json: body }
 	);
+}
+
+/** Choose a model and show it everywhere at once (S109): the rail, chip and Models list read
+ * the one intelligence query, so it takes the choice before the server answers and gives it back
+ * if the save fails. Nothing waits on a re-read; one follows in the background. Call during
+ * component setup. */
+export function optimisticAssign() {
+	const client = useQueryClient();
+	return async (
+		company: string,
+		actor: string,
+		body: { connection: string; model: string; reset: boolean; revision: string }
+	) => {
+		const key = ['intelligence', company];
+		await client.cancelQueries({ queryKey: key });
+		const before = client.getQueryData<IntelligenceView>(key);
+		if (before) {
+			// A reset puts the agent back on the default; the default itself is never reset here.
+			const choice = body.reset ? null : { connection: body.connection, model: body.model.trim() };
+			client.setQueryData(key, withAssignment(before, actor, choice));
+		}
+		try {
+			const saved = await assignModel(company, actor, body);
+			// The next change in this view is made against the saved revision, not a stale one.
+			const revision = saved?.revision;
+			if (revision)
+				client.setQueryData<IntelligenceView>(key, (view) => (view ? { ...view, revision } : view));
+			announceIntelligenceChange(company);
+			void client.invalidateQueries({ queryKey: key });
+			return saved;
+		} catch (cause) {
+			if (before) client.setQueryData(key, before);
+			throw cause;
+		}
+	};
 }
