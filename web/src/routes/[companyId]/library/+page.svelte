@@ -1732,22 +1732,33 @@
 				aria-label="Library"
 				hidden={!!(openFileId || openUploadId || openPath)}
 			>
-				{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && (folderEntries.length || outputSkippedNames || outputReadFailed) ? [{ key: 'folders' as Filter, label: outputReadFailed ? 'Folders —' : `Folders ${folderEntries.length}${outputIncomplete ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(counts.notes || filter === 'notes' ? [{ key: 'notes' as Filter, label: 'Working notes' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : []), FILTERS.at(-1)!] as item (item.key)}
-					<a
-						href={filterHref(item.key)}
-						title={item.key === 'folders' && outputIncomplete ? folderListingHint : undefined}
-						class:active={filter === item.key && !collectionParam}
-						aria-current={filter === item.key && !collectionParam ? 'page' : undefined}
-						>{item.label}</a
-					>
-				{/each}
-				{#each collections as row (row.name)}
-					<a
-						href={filterHref('all', row.name)}
-						class:active={collectionParam === row.name}
-						aria-current={collectionParam === row.name ? 'page' : undefined}>{row.name}</a
-					>
-				{/each}
+				<!-- The views scroll; Archived stays pinned at the end, as it is at the foot of the
+				sidebar, so it is never the one cut off. -->
+				<div class="library-filters-views">
+					{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && (folderEntries.length || outputSkippedNames || outputReadFailed) ? [{ key: 'folders' as Filter, label: outputReadFailed ? 'Folders —' : `Folders ${folderEntries.length}${outputIncomplete ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(counts.notes || filter === 'notes' ? [{ key: 'notes' as Filter, label: 'Working notes' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : [])] as item (item.key)}
+						<a
+							href={filterHref(item.key)}
+							title={item.key === 'folders' && outputIncomplete ? folderListingHint : undefined}
+							class:active={filter === item.key && !collectionParam}
+							aria-current={filter === item.key && !collectionParam ? 'page' : undefined}
+							>{item.label}</a
+						>
+					{/each}
+					{#each collections as row (row.name)}
+						<a
+							href={filterHref('all', row.name)}
+							class:active={collectionParam === row.name}
+							aria-current={collectionParam === row.name ? 'page' : undefined}>{row.name}</a
+						>
+					{/each}
+				</div>
+				<a
+					href={filterHref('archived')}
+					class="library-filters-end"
+					class:active={filter === 'archived' && !collectionParam}
+					aria-current={filter === 'archived' && !collectionParam ? 'page' : undefined}
+					>Archived</a
+				>
 			</nav>
 		{/snippet}
 		{#if fileOpen}
@@ -2396,15 +2407,34 @@
 	 * before the first file (S104 E3). */
 	.library-filters {
 		display: flex;
+		align-items: center;
+		border-bottom: 1px solid var(--border);
+	}
+	.library-filters-views {
+		display: flex;
+		flex: 1 1 auto;
 		gap: 2px;
+		min-width: 0;
 		padding: 6px 8px;
 		overflow-x: auto;
 		overscroll-behavior-x: contain;
 		scrollbar-width: none;
-		border-bottom: 1px solid var(--border);
 	}
-	.library-filters::-webkit-scrollbar {
+	.library-filters-views::-webkit-scrollbar {
 		display: none;
+	}
+	/* Archived, pinned past the scrolling views behind a hairline. */
+	.library-filters a.library-filters-end {
+		position: relative;
+		margin: 0 8px 0 6px;
+	}
+	.library-filters-end::before {
+		content: '';
+		position: absolute;
+		top: 4px;
+		bottom: 4px;
+		left: -7px;
+		border-left: 1px solid var(--border);
 	}
 	.library-filters a {
 		flex: none;
