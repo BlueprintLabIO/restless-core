@@ -52,7 +52,7 @@
 	import { sheetFollow } from '$lib/model/for-you';
 	import { useForYou } from '$lib/model/for-you.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
-	import { askExec } from '$lib/model/ask-exec';
+	import { askExec, linkDraft } from '$lib/model/ask-exec';
 
 	interface Version {
 		id: string;
@@ -541,7 +541,7 @@
 				});
 			}
 		}
-		askExec(current ? `[${current.title.replace(/[[\]]/gu, '')}](${sheetHref(target, id)}) ` : '');
+		askExec(current ? linkDraft(current.title, sheetHref(target, id)) : '');
 	}
 	async function setExecLevel(
 		target: string,
@@ -832,7 +832,7 @@
 						</p>{/if}
 					<button type="button" onclick={() => openPanel('history')}>History</button>
 					<button type="button" class="narrow-only" onclick={() => void discuss()}
-						>Discuss with Exec</button
+						>Ask Exec about this</button
 					>
 					{#if access !== 'edit'}
 						<button

@@ -30,7 +30,7 @@
 	import type ExecutiveRailView from '$lib/components/ExecutiveRail.svelte';
 	import { presence } from '$lib/model/presence.svelte';
 	import { desktopNotify, notifyPortfolio } from '$lib/model/desktop-notify.svelte';
-	import { ASK_EXEC_EVENT, SHOW_CONVERSATION_EVENT } from '$lib/model/ask-exec';
+	import { ASK_EXEC_EVENT, SHOW_CONVERSATION_EVENT, type ExecReply } from '$lib/model/ask-exec';
 	import { cockpitContextPath, stopNotice } from '$lib/model/attention';
 	import type { StopOutcome } from '$lib/primitives/Composer.svelte';
 	import { isOutcomeReview } from '$lib/model/attention-presentation';
@@ -816,6 +816,8 @@
 		execRailOpen = false;
 	});
 
+	/* An item's Reply waiting in the Exec composer (Inbox replies have no composer of their own). */
+	let railReply: ExecReply | null = null;
 	async function askRail(
 		text: string,
 		files: File[],
@@ -825,6 +827,19 @@
 		skills: string[] = [],
 		retryCommandId?: string
 	): Promise<{ error?: string; notice?: string; retryCommandId?: string }> {
+		/* Sent to the Exec with the item still linked, the words after the link are the answer: they
+		 * are recorded on the item first, so the blocked Work gets them even if the chat send fails. */
+		const reply = railReply;
+		const at = reply && railActorId === 'exec' ? text.indexOf(reply.prefix) : -1;
+		const answer = reply && at >= 0 ? text.slice(at + reply.prefix.length).trim() : '';
+		if (reply && answer) {
+			try {
+				await reply.record(answer);
+				railReply = null;
+			} catch (cause) {
+				return { error: failureSentence(cause, 'Your answer was not recorded. Try again.') };
+			}
+		}
 		try {
 			const contextPath = includeContext ? cockpitContextPath(companyId, page.url) : undefined;
 			const busy = Boolean(railConversation.activeTurn);
@@ -1173,8 +1188,11 @@
 		else offer();
 	}
 	$effect(() => {
-		const ask = (event: Event) =>
-			askPerson('exec', (event as CustomEvent<{ draft?: string }>).detail?.draft ?? '');
+		const ask = (event: Event) => {
+			const detail = (event as CustomEvent<{ draft?: string; reply?: ExecReply }>).detail;
+			railReply = detail?.reply ?? null;
+			askPerson('exec', detail?.draft ?? '');
+		};
 		const show = () => {
 			execRailOpen = true;
 		};

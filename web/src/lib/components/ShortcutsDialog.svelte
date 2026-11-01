@@ -47,8 +47,8 @@
 			title: 'Inbox',
 			keys: [
 				['J / K', 'Next or previous Inbox item'],
-				['R', 'Answer: the reply box, or the first answer button'],
-				['C', 'Discuss with whoever asked'],
+				['R', 'Answer: Reply in the Exec chat, the form, or the first answer button'],
+				['C', 'Ask Exec about this'],
 				['E', 'Mark a step done, with Undo'],
 				['H', 'Snooze'],
 				[`${mod} .`, 'Copy the item’s link']

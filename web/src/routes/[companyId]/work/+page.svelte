@@ -44,7 +44,7 @@
 	import type { CollaborationWork } from '$lib/model/collaboration';
 	import type { WorkRow } from '$lib/model/generated/orgintel';
 	import WorkBoard from '$lib/ui/views/WorkBoard.svelte';
-	import { askExec } from '$lib/model/ask-exec';
+	import { askExec, askExecAbout } from '$lib/model/ask-exec';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import CopyButton from '$lib/ui/controls/CopyButton.svelte';
 	import Check from '@lucide/svelte/icons/check';
@@ -428,12 +428,11 @@
 			actorId.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 		);
 	}
-	function workHref(workId: string, talk = ''): string {
+	function workHref(workId: string): string {
 		const query = new URLSearchParams();
 		if (selectedGoal) query.set('goal', selectedGoal);
 		if (view === 'board') query.set('view', 'board');
 		if (urlSearch) query.set('q', urlSearch);
-		if (talk) query.set('talk', talk);
 		const search = query.toString();
 		return `/${encodeURIComponent(companyId)}/work/${encodeURIComponent(workId)}${search ? `?${search}` : ''}`;
 	}
@@ -830,10 +829,11 @@
 					title="Let this Work continue"
 					onclick={() => quickResume(work)}>Resume</button
 				>{/if}
-			{#if ownerAccess}<a
+			{#if ownerAccess}<button
 					class="btn small ghost"
-					href={workHref(work.id, 'exec')}
-					title="Open this Work and talk about it with the Exec">Discuss</a
+					type="button"
+					title="Link this Work into your Exec chat"
+					onclick={() => askExecAbout(work.title, workHref(work.id))}>Ask Exec</button
 				>{/if}
 			<CopyButton
 				value={new URL(workHref(work.id), page.url).href}
