@@ -1811,11 +1811,9 @@ export function moveDocumentBlock(editor: Editor, pos: number, step: 1 | -1): bo
 	const node = state.doc.nodeAt(pos);
 	if (!node || !editor.isEditable) return false;
 	const $pos = state.doc.resolve(pos);
-	if ($pos.depth !== 0) return false;
-	const index = $pos.index(0);
-	const neighbour = step < 0 ? index - 1 : index + 1;
-	if (neighbour < 0 || neighbour >= state.doc.childCount) return false;
-	const other = state.doc.child(neighbour);
+	/* A block swaps with its neighbour in the same parent: a list item with the item beside it. */
+	const other = $pos.parent.maybeChild($pos.index() + step);
+	if (!other || ($pos.depth > 0 && other.type !== node.type)) return false;
 	const offset = state.selection.from - pos;
 	const tr = state.tr.delete(pos, pos + node.nodeSize);
 	const target = step < 0 ? pos - other.nodeSize : pos + other.nodeSize;
@@ -1831,8 +1829,38 @@ export function moveDocumentBlock(editor: Editor, pos: number, step: 1 | -1): bo
 const GRIP =
 	'<svg width="10" height="16" viewBox="0 0 10 16" aria-hidden="true"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.4"/><circle cx="7.5" cy="3" r="1.4"/><circle cx="2.5" cy="8" r="1.4"/><circle cx="7.5" cy="8" r="1.4"/><circle cx="2.5" cy="13" r="1.4"/><circle cx="7.5" cy="13" r="1.4"/></g></svg>';
 
+/* The block whose grip is showing, washed so the grip plainly belongs to it. A decoration rather
+ * than a class set by hand, because ProseMirror owns the block's DOM. */
+const blockHoverKey = new PluginKey<number>('documentBlockHover');
+const blockHoverPlugin = () =>
+	new Plugin<number>({
+		key: blockHoverKey,
+		state: {
+			init: () => -1,
+			apply(tr, pos) {
+				const next = tr.getMeta(blockHoverKey);
+				if (typeof next === 'number') return next;
+				if (pos < 0 || !tr.docChanged) return pos;
+				const mapped = tr.mapping.mapResult(pos);
+				return mapped.deleted ? -1 : mapped.pos;
+			}
+		},
+		props: {
+			decorations(state) {
+				const pos = blockHoverKey.getState(state) ?? -1;
+				const node = pos >= 0 ? state.doc.nodeAt(pos) : null;
+				return node && !node.isInline
+					? DecorationSet.create(state.doc, [
+							Decoration.node(pos, pos + node.nodeSize, { class: 'block-hovered' })
+						])
+					: null;
+			}
+		}
+	});
+
 /* A grip beside the block under the pointer: drag it to move the block, click it (or press
- * Ctrl+/ in the block) for its actions. Tiptap's own drag handle does the moving, CRDT-safely. */
+ * Ctrl+/ in the block) for its actions. Tiptap's own drag handle does the moving, CRDT-safely.
+ * Each item of a list has a grip of its own; the list as a whole moves with Alt+Shift+↑/↓. */
 function blockHandleExtension(hooks: DocumentEditorHooks) {
 	return Extension.create({
 		name: 'documentBlockHandle',
@@ -1868,6 +1896,19 @@ function blockHandleExtension(hooks: DocumentEditorHooks) {
 			element.title = `Drag to move, or press Alt+Shift+↑/↓. Click, or press ${mod}/, for more`;
 			element.innerHTML = GRIP;
 			let current = -1;
+			let hovered = -1;
+			/* The grip reports its block from inside ProseMirror's own update, so the wash follows a
+			 * moment later rather than dispatching mid-update. */
+			const wash = (pos: number) => {
+				if (pos === hovered) return;
+				hovered = pos;
+				queueMicrotask(() => {
+					if (this.editor.isDestroyed || hovered !== pos) return;
+					const { view } = this.editor;
+					if ((blockHoverKey.getState(view.state) ?? -1) === pos) return;
+					view.dispatch(view.state.tr.setMeta(blockHoverKey, pos).setMeta('addToHistory', false));
+				});
+			};
 			element.addEventListener('click', () => {
 				if (current >= 0)
 					hooks.blockMenu?.({ pos: current, anchor: element.getBoundingClientRect() });
@@ -1876,14 +1917,26 @@ function blockHandleExtension(hooks: DocumentEditorHooks) {
 				DragHandlePlugin({
 					editor: this.editor,
 					element,
-					nestedOptions: normalizeNestedOptions(false),
+					/* List items are their own targets. Edge detection stays off: it would hand the
+					 * grip to the whole list as the pointer crossed an item's left edge on its way to
+					 * the grip, so a later item's grip could never be reached. */
+					nestedOptions: normalizeNestedOptions({
+						allowedContainers: ['bulletList', 'orderedList', 'taskList'],
+						edgeDetection: 'none'
+					}),
 					computePositionConfig: { placement: 'left-start', strategy: 'absolute' },
 					onNodeChange: ({ node, pos }) => {
 						current = node ? pos : -1;
 						// Readers move and change nothing, so they see no grip.
 						element.style.display = this.editor.isEditable ? '' : 'none';
+						/* A bulleted or numbered item's marker sits in the gutter; the grip goes
+						 * past it. A checklist item's checkbox is inside the item, so its grip
+						 * stays where a paragraph's is. */
+						element.dataset.marker = node?.type.name === 'listItem' ? 'true' : 'false';
+						wash(node && this.editor.isEditable ? pos : -1);
 					}
-				}).plugin
+				}).plugin,
+				blockHoverPlugin()
 			];
 		}
 	});

@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+	isWorkingNote,
 	libraryFileById,
 	libraryFiles,
 	replacedFile,
-	type LibraryArtifact
+	type LibraryArtifact,
+	type LibraryFile
 } from './library-files.ts';
 import { retiredWorkIds } from './library-files.ts';
 import { workFileLinks } from './inbox-files.ts';
@@ -19,6 +21,19 @@ const record = (over: Partial<LibraryArtifact>): LibraryArtifact => ({
 	state: 'available',
 	created_at: '2026-10-10T10:00:00Z',
 	...over
+});
+
+test('agents’ plans, journals and scratch files are working notes; outputs are not', () => {
+	const note = (uri: string, kind: LibraryFile['kind'] = 'text') => isWorkingNote({ kind, uri });
+	assert.equal(note('/company/org/exec/current-plan.md'), true);
+	assert.equal(note('/company/org/exec/journal/0004.md'), true);
+	assert.equal(note('/company/repos/site/NOTES.md'), true);
+	assert.equal(note('/company/outputs/scratch/draft.html', 'site'), true);
+	assert.equal(note('/company/outputs/q4/wip/chart.png', 'image'), true);
+	assert.equal(note('/company/outputs/meeting-notes.md'), false);
+	assert.equal(note('/company/downloads/brief.txt'), false);
+	assert.equal(note('/company/repos/site/dist/index.html', 'site'), false);
+	assert.equal(note('http://127.0.0.1:8650/', 'site'), false);
 });
 
 /* Seen live: Staff record one deck twice, a bare `output` and the skill's named `deck`. */

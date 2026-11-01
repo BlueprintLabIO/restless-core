@@ -2915,6 +2915,25 @@
 		align-items: flex-start;
 		gap: var(--space-2);
 	}
+	/* The checkbox sits on the middle of the item's first line, however many lines it runs to. */
+	:global(.native-document-body ul[data-type='taskList'] li > label) {
+		display: flex;
+		flex: none;
+		align-items: center;
+		height: 1.5em;
+		user-select: none;
+	}
+	:global(.native-document-body ul[data-type='taskList'] li > label input) {
+		margin: 0;
+	}
+	:global(.native-document-body ul[data-type='taskList'] li > div) {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+	/* A checklist item's text is wrapped once more than a bullet's; it keeps the same even gap. */
+	:global(.native-document-body ul[data-type='taskList'] li > div > p) {
+		margin: 0;
+	}
 	:global(.native-document-body table) {
 		width: 100%;
 		margin: 0.8em 0;
@@ -3076,10 +3095,13 @@
 			opacity: 0;
 		}
 	}
-	:global(.native-document-body.ProseMirror-focused > [data-block-id]) {
+	:global(.native-document-body > [data-block-id]),
+	:global(.native-document-body li) {
 		transition: background-color var(--motion-state) var(--ease-standard);
 	}
-	:global(.native-document-body.ProseMirror-focused > [data-block-id]:hover) {
+	/* The block whose grip is showing, wherever the pointer is in it: all of it, list item or
+	 * paragraph, so the grip plainly belongs to it. */
+	:global(.native-document-body .block-hovered) {
 		background: color-mix(in srgb, var(--surface-work) 3%, transparent);
 	}
 	/* An image is the file it names, as wide as the page allows; until it loads it holds a quiet
@@ -3132,6 +3154,14 @@
 		left: 100%;
 		/* Exactly the translate below, so it never covers the text. */
 		width: 18px;
+	}
+	/* A bulleted or numbered item's marker sits in the list's indent; its grip goes past the
+	 * marker, in the same column as a paragraph's, and the strip reaches back to the item. */
+	:global(.block-handle[data-marker='true']) {
+		translate: calc(-18px - var(--space-6)) 0;
+	}
+	:global(.block-handle[data-marker='true'])::after {
+		width: calc(18px + var(--space-6));
 	}
 	:global(.block-handle:hover),
 	:global(.block-handle:focus-visible) {
