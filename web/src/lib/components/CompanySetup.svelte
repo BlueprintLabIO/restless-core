@@ -20,7 +20,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import type { ReadbackLine } from '$lib/model/generated/conversation';
 	import { failureLine } from '$lib/model/turn-failure';
-	import { currentSetupStep } from '$lib/model/company-setup-steps';
+	import { currentSetupStep, setupStoppedShort } from '$lib/model/company-setup-steps';
 	import {
 		companySetup,
 		nameSettledHere,
@@ -84,12 +84,14 @@
 	 * shows with nothing to save. */
 	const readbackMissing = $derived(
 		!!reply &&
+			lastOwner >= 0 &&
 			!waiting &&
 			!readback.length &&
 			(suggestions.some((option) => /let.?s do it/i.test(option)) ||
 				/here(?:.?s| is) what i.?m hearing/i.test(visible(reply.text)))
 	);
-	const stoppedShort = $derived(!!reply && !waiting && !readback.length && !question);
+	/* Exec's opening lines come before any answer: a greeting, not a reply that stopped short. */
+	const stoppedShort = $derived(setupStoppedShort(messages));
 	/* No reply and no turn running for a while: the answer comes back to send again, instead of
 	 * thinking forever. */
 	let quiet = $state(false);

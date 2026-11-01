@@ -49,3 +49,22 @@ export function setupTabs(
 		on: index === at
 	}));
 }
+
+/** The setup conversation as this step reads it: who spoke, and what Exec's message carries. */
+export type SetupMessage = {
+	from: string;
+	text: string;
+	intent?: { ownerNeed?: string | null; readback?: unknown[] | null } | null;
+};
+
+/** Exec stopped before finishing a thought: its newest reply to the owner neither asks nor reads
+ * back, so "Carry on" is offered. Exec's opening lines are written before the owner has said
+ * anything; they are a greeting, not a reply, and a first setup never offers to carry on from
+ * them (23 October). */
+export function setupStoppedShort(messages: SetupMessage[]): boolean {
+	const lastOwner = messages.findLastIndex((message) => message.from === 'you');
+	if (lastOwner < 0) return false;
+	const reply = messages.findLast((message, index) => message.from !== 'you' && index > lastOwner);
+	if (!reply) return false;
+	return !reply.intent?.readback?.length && !reply.intent?.ownerNeed?.trim();
+}

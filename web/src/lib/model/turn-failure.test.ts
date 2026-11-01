@@ -101,3 +101,21 @@ test('a stored provider error reads as the same useful sentence as a live failur
 		'The response contained a 529 error during our test.'
 	);
 });
+
+test("Bun's fetch error saved as Exec's reply reads as a dropped connection, never as prose", () => {
+	// 23 October: a model switch restarted the gateway mid-reply and this sentence was saved as the answer.
+	const bun =
+		'The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()';
+	assert.equal(replyIsError(bun, null), true);
+	assert.equal(failureLine(bun), 'The connection to the model dropped. Try again.');
+	assert.equal(
+		turnFailureReason(`[transport] the agent session failed: ${bun}`),
+		'the connection to the model dropped. Try again.'
+	);
+	// A real answer about sockets, or a partial reply, is still the reply.
+	const prose =
+		'The socket connection was closed unexpectedly when nginx restarted, so I raised its keepalive.';
+	assert.equal(replyIsError(prose, null), false);
+	assert.equal(failureLine(prose), prose);
+	assert.equal(replyIsError(`I drafted the plan and ${bun}`, null), false);
+});
