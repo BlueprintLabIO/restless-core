@@ -21,6 +21,7 @@
 	import {
 		ACCOUNT_KINDS,
 		HEALTH_LABEL,
+		emptyAccessGrant,
 		grantSummary,
 		kindOf,
 		limitsSummary,
@@ -498,7 +499,20 @@
 								{/each}
 							</div>
 						{:else}
-							<p class="no-uses">No company has access yet.</p>
+							{@const next = emptyAccessGrant(account, companies)}
+							{#if next}
+								<p class="no-uses next-step">
+									It works. No company uses it yet.
+									<button
+										type="button"
+										class="link"
+										onclick={() => {
+											managing = account.id;
+											editGrant(account, null, next.company);
+										}}>{next.label}</button
+									>
+								</p>
+							{:else}<p class="no-uses">No company has access yet.</p>{/if}
 						{/if}
 					</article>
 				{/each}
@@ -662,6 +676,12 @@
 		margin: -4px 14px 14px 64px;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
+	}
+	.no-uses.next-step {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 4px 10px;
 	}
 	.row-actions .btn[aria-expanded='true'] {
 		border-color: var(--control-edge);

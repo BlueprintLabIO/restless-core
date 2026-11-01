@@ -8,15 +8,14 @@
 	import { untrack } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
-	import { defaultChoice } from '$lib/model/model-groups';
+	import { startingModel, usableAccountConnections } from '$lib/model/setup-model-offer';
 	import { agentRouteState, intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { companiesQuery } from '$lib/model/queries.svelte';
 	import {
 		createConnection,
-		grantCompanyConnection,
-		readProvider,
 		readReusableConnections,
+		useAccountConnection,
 		type ReusableConnection
 	} from '$lib/model/provider';
 	import { PROVIDER_LABELS } from '$lib/model/provider-labels';
@@ -54,7 +53,7 @@
 		void readReusableConnections()
 			.then((view) => {
 				if (!live) return;
-				reusable = view.connections.filter((row) => row.status === 'present');
+				reusable = usableAccountConnections(view.connections, view.includedProviders);
 				canPaste = view.scope === 'account';
 				manageUrl = view.manageUrl;
 				pasting = canPaste && !reusable.length;
@@ -72,9 +71,7 @@
 
 	const PROVIDERS = Object.keys(PROVIDER_LABELS);
 	function defaultModel(id: string, kind: 'api_key' | 'oauth' = 'api_key') {
-		const models = catalog.models(id, kind);
-		const model = defaultChoice(models)?.id;
-		return model ? (model.startsWith(`${id}/`) ? model : `${id}/${model}`) : '';
+		return startingModel(id, catalog.models(id, kind));
 	}
 	const label = (row: ReusableConnection) =>
 		row.label || PROVIDER_LABELS[row.provider] || row.provider;
@@ -85,21 +82,7 @@
 		const model = defaultModel(providerId, kind);
 		if (!model)
 			throw new Error('No model is listed for this provider yet. Use Intelligence instead.');
-		const { revision } = await readProvider(companyId);
-		let result = await grantCompanyConnection(companyId, connectionId, {
-			model,
-			make_default: true,
-			revision
-		});
-		if (result.replaceRequired) {
-			const fresh = await readProvider(companyId);
-			result = await grantCompanyConnection(companyId, connectionId, {
-				model,
-				make_default: true,
-				revision: fresh.revision,
-				replace_existing: true
-			});
-		}
+		await useAccountConnection(companyId, connectionId, model, true);
 		announceIntelligenceChange(companyId);
 	}
 

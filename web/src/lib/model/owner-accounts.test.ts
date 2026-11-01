@@ -9,6 +9,7 @@ import {
 	money,
 	presetOf,
 	useRefLine,
+	emptyAccessGrant,
 	useSentence
 } from './owner-accounts.ts';
 
@@ -120,4 +121,22 @@ test('a kind reads as a phrase in a sentence', () => {
 	assert.equal(kindPhrase('website_login'), 'a website login');
 	assert.equal(kindPhrase('github'), 'a GitHub');
 	assert.equal(kindPhrase('ai_provider'), 'an AI account');
+});
+
+test('M1: a signed-in account with no company offers the grant, preselecting a lone company', () => {
+	const account = { health: 'signed_in' as const, frozen: false, grants: [] };
+	assert.deepEqual(emptyAccessGrant(account, [{ id: 'acme', name: 'Acme' }]), {
+		label: 'Give Acme access',
+		company: 'acme'
+	});
+	assert.deepEqual(
+		emptyAccessGrant(account, [
+			{ id: 'acme', name: 'Acme' },
+			{ id: 'beta', name: 'Beta' }
+		]),
+		{ label: 'Give a company access', company: '' }
+	);
+	assert.equal(emptyAccessGrant(account, []), null);
+	assert.equal(emptyAccessGrant({ ...account, health: 'expired' }, [{ id: 'a', name: 'A' }]), null);
+	assert.equal(emptyAccessGrant({ ...account, frozen: true }, [{ id: 'a', name: 'A' }]), null);
 });
