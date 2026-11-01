@@ -5,6 +5,9 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { compareAttempts, runStateLabel, workStatusLabel } from '$lib/work/status';
+	import { workWaitingLine } from '$lib/work/waiting';
+	import { agentRouteState } from '$lib/model/intelligence-route';
+	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
 	import Markdown from '$lib/primitives/Markdown.svelte';
@@ -79,6 +82,8 @@
 		)
 	);
 	const cockpitProjection = $derived(cockpitQuery(companyId, () => ownerAccess));
+	/* Whether this Work's lead has a model that can reply: its waiting line says so. */
+	const intelligence = $derived(intelligenceQuery(companyId, () => !!principalProjection.view));
 	const collaborationProjection = $derived(
 		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principalProjection.view))
 	);
@@ -335,6 +340,32 @@
 	const blocker = $derived(
 		work?.status === 'blocked' ? blockerSentence(work.resolution, latestAttempt?.summary) : ''
 	);
+	/* Why this Work waits and on whom, under its title (S109 A1). The blocker's reason has its own
+	 * line below, so it is left out here. Empty until the model routes are read, so the line never
+	 * names a lead and then switches to the model. */
+	const waitingLine = $derived.by(() => {
+		if (!work || (!intelligence.view && !intelligence.error)) return '';
+		return (
+			workWaitingLine(
+				work,
+				{
+					viewer: principalProjection.view?.actor_id ?? null,
+					viewerIsOwner: ownerAccess,
+					name: ownerName,
+					items: ownerAccess ? (attention?.items ?? []) : [],
+					viewerHandoffs: ownerAccess ? [] : (collaboration?.attention.handoffs ?? []),
+					handoffs: graph && 'handoffs' in graph ? graph.handoffs : [],
+					edges: graph?.edges ?? [],
+					work: graph?.work ?? [],
+					attempts: graph?.attempts ?? [],
+					route: intelligence.view
+						? (actor) => agentRouteState(intelligence.view, actor)
+						: undefined
+				},
+				{ reason: false }
+			) ?? ''
+		);
+	});
 	/* What each run read: the outputs it took as input, and the feedback it was given. */
 	function attemptInputs(attemptId: string): string[] {
 		if (!graph || !('attempt_inputs' in graph)) return [];
@@ -606,7 +637,8 @@
 		principalProjection,
 		attentionProjection,
 		cockpitProjection,
-		collaborationProjection
+		collaborationProjection,
+		intelligence
 	]);
 </script>
 
@@ -709,6 +741,12 @@
 					</div>
 				{/if}
 			</div>
+			{#if work.status !== 'completed' && work.status !== 'abandoned'}<p
+					class="work-waiting"
+					role="status"
+				>
+					{waitingLine}
+				</p>{/if}
 			{#if blocker}<p class="work-blocker">{blocker}</p>{/if}
 
 			{#if pending.length}
@@ -1296,6 +1334,17 @@
 	.steer-actions {
 		display: flex;
 		gap: 6px;
+	}
+	/* One reserved line: it never pushes the page down when it arrives. */
+	.work-waiting {
+		height: 1.45em;
+		margin: 4px 0 0;
+		overflow: hidden;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+		line-height: 1.45;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.work-blocker {
 		margin: 4px 0 0;
