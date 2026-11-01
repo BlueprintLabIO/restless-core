@@ -1,18 +1,19 @@
 <script lang="ts">
-	import { onMount, type Snippet } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 	import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import Plus from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import { dismissable } from '../controls/dismissable';
 	import type { AccountGroup, AccountTab } from '../account';
+	import { viewPreferences } from '../preferences.svelte';
 
 	/* The frame for every page outside one company, after Firecrawl's: the product at the top, the
 	 * rail's rows (Home), labelled groups (the companies, then the account's own rows such as
 	 * Settings and Help), and the owner at the foot with the one account menu, opening upward.
 	 * The rail never changes shape between pages: a settings page lists its sections in the page,
 	 * so the rail stays where the owner left it. It collapses to icons (⌘B, the Collapse row, or a
-	 * click on its edge), resizes by dragging its edge, and remembers both in this browser. On a
+	 * click on its edge), resizes by dragging its edge, and remembers both for the person. On a
 	 * phone it folds into a top bar. */
 	let {
 		brandName = 'Restless',
@@ -45,30 +46,28 @@
 	const MIN = 200;
 	const MAX = 340;
 	const DEFAULT = 240;
-	const KEY = 'restless:account-rail';
-	let width = $state(DEFAULT);
-	let collapsed = $state(false);
+	/* The rail's width and fold are the person's, read before the first frame so it draws where
+	 * they left it, and followed when they change it elsewhere. */
+	const preferences = viewPreferences();
+	function keptRail() {
+		const saved = preferences.get('account-rail') as { width?: number; collapsed?: boolean } | null;
+		return {
+			width: saved?.width ? Math.min(MAX, Math.max(MIN, saved.width)) : DEFAULT,
+			collapsed: saved?.collapsed === true
+		};
+	}
+	const initial = untrack(keptRail);
+	let width = $state(initial.width);
+	let collapsed = $state(initial.collapsed);
 	let resizing = $state(false);
-
-	/* Per-browser conveniences only: absent or blocked storage leaves the defaults. */
-	onMount(() => {
-		try {
-			const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null') as {
-				width?: number;
-				collapsed?: boolean;
-			} | null;
-			if (saved?.width) width = Math.min(MAX, Math.max(MIN, saved.width));
-			if (saved?.collapsed) collapsed = true;
-		} catch {
-			// Defaults stand.
-		}
+	$effect.pre(() => {
+		const kept = keptRail();
+		if (untrack(() => resizing)) return;
+		width = kept.width;
+		collapsed = kept.collapsed;
 	});
 	function remember() {
-		try {
-			localStorage.setItem(KEY, JSON.stringify({ width, collapsed }));
-		} catch {
-			// Not remembered; the rail still works.
-		}
+		preferences.set('account-rail', { width: Math.round(width), collapsed });
 	}
 	function toggle() {
 		collapsed = !collapsed;

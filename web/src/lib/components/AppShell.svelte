@@ -639,7 +639,7 @@
 	<div
 		class="bridge-body"
 		use:resizePane={{
-			key: `${companyId}:exec`,
+			key: 'pane.exec',
 			label: 'Resize Exec pane',
 			target: '.bridge-exrail',
 			variable: '--exec-rail-w',

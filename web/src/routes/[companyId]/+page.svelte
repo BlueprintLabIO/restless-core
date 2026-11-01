@@ -6,6 +6,7 @@
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { listFlip, listIn, listOut } from '$lib/ui/motion';
 	import { resizePane } from '$lib/actions/resize-pane';
+	import { inboxFilter as inboxFilterOf } from '$lib/model/preferences.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto, beforeNavigate } from '$app/navigation';
@@ -121,7 +122,7 @@
 	/* The Work graph's file references, so files named by an item open in the Library viewer. */
 	const artifacts = $derived((graph?.artifacts ?? []) as unknown as LibraryArtifact[]);
 	const selectedUpdateId = $derived(page.url.searchParams.get('update'));
-	const inboxFilter = $derived(page.url.searchParams.get('filter') ?? 'open');
+	const inboxFilter = $derived(inboxFilterOf(page.url.searchParams));
 	const selectedItemId = $derived(
 		page.url.searchParams.get('item') ?? page.url.searchParams.get('review')
 	);
@@ -626,7 +627,7 @@
 		<div
 			class="browser-workspace"
 			use:resizePane={{
-				key: `${companyId}:handover`,
+				key: 'pane.handover',
 				label: 'Resize handover conversation',
 				target: '.handover-conversation',
 				variable: '--handover-w',
@@ -754,7 +755,7 @@
 		class:awaiting={!loaded && !source.failure}
 		aria-busy={!loaded && !source.failure}
 		use:resizePane={{
-			key: `${companyId}:inbox`,
+			key: 'pane.inbox',
 			label: 'Resize attention panes',
 			target: '.attention-index',
 			variable: '--attention-index-w',

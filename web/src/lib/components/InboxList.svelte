@@ -7,6 +7,7 @@
 	import { goto } from '$app/navigation';
 	import { askExecAboutItem } from '$lib/model/ask-exec';
 	import { pollEvery } from '$lib/model/connection.svelte';
+	import { chooseInboxFilter, inboxFilter } from '$lib/model/preferences.svelte';
 	import { page } from '$app/state';
 	import { onMount, tick, untrack } from 'svelte';
 	import CircleCheck from '@lucide/svelte/icons/circle-check';
@@ -86,12 +87,14 @@
 	const client = useQueryClient();
 	/* Beside the decisions: mentions, replies, shares and changes to what the owner follows. */
 	const forYou = useForYou();
-	const filter = $derived(page.url.searchParams.get('filter') ?? 'open');
+	/* The filter follows the person into every company (S109 F2); the address can still name one. */
+	const filter = $derived(inboxFilter(page.url.searchParams));
 	const showOpen = $derived(!canSetAside || !['skipped', 'done'].includes(filter));
 	function setFilter(value: string) {
+		const chosen = chooseInboxFilter(value);
 		const url = new URL(page.url);
-		if (value === 'open') url.searchParams.delete('filter');
-		else url.searchParams.set('filter', value);
+		if (chosen === 'open') url.searchParams.delete('filter');
+		else url.searchParams.set('filter', chosen);
 		for (const key of ['item', 'review', 'update']) url.searchParams.delete(key);
 		void goto(url, { keepFocus: true, noScroll: true });
 	}

@@ -63,6 +63,8 @@ mod owner_vault;
 mod pending_shares_api;
 #[path = "owner_plane_readiness.rs"]
 mod plane_readiness;
+#[path = "owner_preferences.rs"]
+mod preferences_api;
 #[path = "owner_presence.rs"]
 mod presence_api;
 #[path = "owner_publications.rs"]
@@ -1370,6 +1372,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(list_owner_connections).post(create_owner_connection),
         )
         .route("/session/scope", get(session_scope))
+        .route(
+            "/preferences",
+            get(preferences_api::get_preferences).put(preferences_api::put_preferences),
+        )
         .route("/accounts/usage", get(account_usage_api::accounts))
         .route(
             "/companies/{company}/model/headroom",
@@ -2703,6 +2709,8 @@ fn membership_boundary_violation(
         // Each person issues and revokes only their own MCP tokens.
         || path == mcp_api::ACCESS_PATH
         || path.starts_with("/api/mcp-access/")
+        // Each person's own layout choices; the store keys them by who asks.
+        || path == preferences_api::PREFERENCES_PATH
         || is_company_principal_route(path)
         || is_actor_conversation_route(path)
         // Each person asks for a fresh turn on their own message; the handler checks it is theirs.

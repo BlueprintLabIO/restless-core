@@ -1092,7 +1092,7 @@
 	class:selected={explicitSelection}
 	class:with-work={workOpen && !!headerPerson}
 	use:resizePane={{
-		key: `${companyId}:sidebar:people`,
+		key: 'pane.sidebar.people',
 		label: 'Resize the People sidebar',
 		target: '.conversation-index',
 		variable: '--sidebar-width',
