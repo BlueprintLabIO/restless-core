@@ -1490,8 +1490,7 @@
 								>{/if}
 							{#if !wide}<span class="topic-text"
 									><strong class="exr-name">{participantName}</strong>{#if workContext?.title}<span
-											class="topic-label"
-											title={workContext.title}>About: {workContext.title}</span
+											class="topic-label">About: {workContext.title}</span
 										>{/if}</span
 								>{/if}
 						</div>
@@ -1791,18 +1790,6 @@
 						/>{/if}
 				</div>
 
-				{#if awayFrom !== null && visibleMessages.length}
-					<div class="jump-anchor">
-						<button
-							type="button"
-							class="jump-latest"
-							onclick={() => scrollEl?.dispatchEvent(new Event('chat-scroll-end'))}
-							>{messages.length > awayFrom
-								? `${messages.length - awayFrom} new ↓`
-								: 'Jump to latest ↓'}</button
-						>
-					</div>
-				{/if}
 				{#if needsProvider}
 					<!-- In the empty state the connect action sits with its explanation
 					     above; otherwise it sits above the composer, which stays usable: a message
@@ -1825,9 +1812,21 @@
 							readOnly={membershipRole !== 'owner'}
 						/>{/if}
 				{/if}
-				<p class="model-reply-state" role="status">
-					{needsProvider ? 'The model can’t reply now. Your message will wait.' : ''}
-				</p>
+				<!-- The reserved line above the composer: the reply state on the left, and Jump to
+				     latest on the right while scrolled up, so it never covers a message or button. -->
+				<div class="chat-edge">
+					<p class="model-reply-state" role="status">
+						{needsProvider ? 'The model can’t reply now. Your message will wait.' : ''}
+					</p>
+					{#if awayFrom !== null && visibleMessages.length}<button
+							type="button"
+							class="jump-latest"
+							onclick={() => scrollEl?.dispatchEvent(new Event('chat-scroll-end'))}
+							>{messages.length > awayFrom
+								? `${messages.length - awayFrom} new ↓`
+								: 'Jump to latest ↓'}</button
+						>{/if}
+				</div>
 				<form class="exr-composer" onsubmit={submitAsk} {@attach clearOfToastsOnPhone}>
 					{#if quoting}
 						<div class="quoting">
@@ -1946,17 +1945,10 @@
 		color: var(--text-secondary);
 		font-family: var(--font-mono);
 	}
-	.jump-anchor {
-		position: relative;
-		height: 0;
-	}
 	.jump-latest {
-		position: absolute;
-		z-index: 2;
-		left: 50%;
-		bottom: 8px;
-		transform: translateX(-50%);
-		padding: 4px 12px;
+		flex: none;
+		height: 22px;
+		padding: 0 10px;
 		border: 1px solid var(--border-strong);
 		border-radius: 999px;
 		background: var(--surface-raised);
@@ -1974,12 +1966,17 @@
 		background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
 		font-size: var(--t-label);
 	}
+	/* The pinned strip is a header row too: one height, open or folded. */
 	.pinned summary {
 		display: flex;
 		align-items: center;
 		gap: 6px;
 		min-width: 0;
-		padding: 6px 14px;
+		height: var(--chat-strip-h);
+		box-sizing: border-box;
+		padding: 0 14px;
+		overflow: hidden;
+		white-space: nowrap;
 		color: var(--text-secondary);
 		font-weight: 500;
 		cursor: pointer;
@@ -2099,7 +2096,7 @@
 		display: flex;
 		justify-content: flex-end;
 		gap: 6px;
-		margin: 2px 16px 8px;
+		margin: var(--chat-space-item) 16px var(--chat-space-block);
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
@@ -2233,7 +2230,7 @@
 	}
 	/* A message sent while the reply is still being written waits, said on the message itself. */
 	.queued {
-		margin: -2px 14px 4px;
+		margin: calc(-1 * var(--chat-space-item)) 14px var(--chat-space-meta);
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		text-align: right;
@@ -2242,7 +2239,7 @@
 		display: flex;
 		align-items: center;
 		gap: 5px;
-		margin: 0 14px 4px 45px;
+		margin: 0 14px var(--chat-space-meta) 45px;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
@@ -2379,11 +2376,17 @@
 		border-left: 1px solid var(--border);
 		padding-left: 6px;
 	}
+	/* The name and what it is about share one line, as in the switcher above; the cockpit's
+	 * two-line .exr-who stack would overflow the fixed head. */
+	.exr-head-primary .exr-who > .topic-text {
+		display: flex;
+		gap: 6px;
+	}
 	:global(.bridge-root) .exr-head {
 		flex: none;
-		height: 44px;
-		min-height: 44px;
-		max-height: 44px;
+		height: var(--chat-head-h);
+		min-height: var(--chat-head-h);
+		max-height: var(--chat-head-h);
 		box-sizing: border-box;
 		padding: 4px 8px;
 	}
@@ -2468,13 +2471,22 @@
 		text-align: center;
 		animation: focus-arrive var(--motion-disclosure) var(--ease-standard) both;
 	}
-	.model-reply-state {
-		margin: 0;
-		padding-inline: var(--space-3);
+	/* Two lines of reply state, reserved whether or not anything shows in it. */
+	.chat-edge {
+		flex: none;
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
 		min-height: 2.6em;
-		color: var(--text-secondary);
+		padding-inline: var(--space-3);
 		font-size: var(--t-label);
 		line-height: 1.3;
+	}
+	.model-reply-state {
+		flex: 1 1 auto;
+		min-width: 0;
+		margin: 0;
+		color: var(--text-secondary);
 	}
 	@keyframes focus-arrive {
 		from {

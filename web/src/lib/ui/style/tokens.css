@@ -135,6 +135,16 @@
 	--app-gutter: 8px;
 	--pane-head-h: 58px;
 	--exec-rail-w: 382px;
+	/* A conversation's header rows keep one height whatever they hold, so a long
+	 * "About" title or a pin never starts the transcript lower. */
+	--chat-head-h: 44px;
+	--chat-strip-h: 28px;
+	/* One rhythm inside a conversation: items within a list, the lines that trail
+	 * a message (footers, receipts, folds), and the blocks of a message
+	 * (paragraphs, lists, Work details). */
+	--chat-space-item: 2px;
+	--chat-space-meta: 4px;
+	--chat-space-block: 8px;
 	--glass-blur: 22px;
 	/* Elevation: four planes, each a tight contact shadow plus a soft ambient
 	 * one, never a single blurry smear. Panes sit on the canvas (--shadow-soft),

@@ -540,7 +540,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 7px;
-		margin: 2px 0 6px 45px;
+		margin: var(--chat-space-item) 0 var(--chat-space-meta) 45px;
 		padding: 3px 8px 3px 4px;
 		border: 1px solid transparent;
 		border-radius: var(--radius-control);
