@@ -1,13 +1,15 @@
 /* Bridge Light shell: company identity, four owner surfaces, live Exec presence. */
 .bridge-topbar {
+	/* the track's inset around the tabs */
+	--tb-tabs-inset: 3px;
 	position: sticky;
 	top: 0;
 	z-index: var(--z-sticky);
 	height: var(--topbar-h);
 	display: flex;
 	align-items: center;
-	gap: 24px;
-	padding: 0 14px;
+	gap: var(--topbar-gap);
+	padding: 0 var(--topbar-pad-x);
 	border-bottom: 1px solid var(--border);
 	background: var(--glass);
 	backdrop-filter: blur(18px) saturate(1.4);
@@ -22,6 +24,21 @@
 	padding: 5px 0;
 	color: inherit;
 	text-decoration: none;
+}
+
+/* Where the wordmark fits, the brand takes the left sidebar's default width, so the first tab
+ * starts on the sidebar's right edge (S109 F1); a long company name ellipsizes inside it. */
+@media (min-width: 1101px) {
+	.bridge-topbar .tb-brand {
+		flex: 0 0
+			calc(
+				var(--sidebar-w) - var(--pane-edge) - var(--topbar-pad-x) - var(--topbar-gap) -
+					var(--tb-tabs-inset)
+			);
+	}
+	.bridge-root .tb-brand-home {
+		flex: none;
+	}
 }
 
 /* The wordmark is set in the same pixel grid the MatrixGlyph marks already
@@ -55,7 +72,7 @@
 	display: flex;
 	align-items: center;
 	gap: 2px;
-	padding: 3px;
+	padding: var(--tb-tabs-inset);
 	border-radius: calc(var(--radius-control) + 3px);
 	background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
 }

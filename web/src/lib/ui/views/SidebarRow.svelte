@@ -111,7 +111,7 @@
 		align-items: center;
 		gap: 10px;
 		width: 100%;
-		min-height: 34px;
+		min-height: var(--row-h);
 		padding: 0 8px;
 		border: 0;
 		border-radius: var(--radius-pane);

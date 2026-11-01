@@ -102,8 +102,11 @@
 		width: min(720px, calc(100% - 48px));
 		margin-inline: auto;
 	}
+	/* The title sits in the pane's header row, on one line with the sidebar's and the Exec rail's
+	 * headers (S109 F1); the column's air goes under it. */
 	.settings .page-head {
-		padding: 36px 0 24px;
+		min-height: var(--pane-head-h);
+		padding: var(--space-1) 0;
 	}
 	.settings h1 {
 		font-size: var(--t-title);
@@ -112,7 +115,7 @@
 	.settings .page-body {
 		display: grid;
 		gap: 36px;
-		padding-bottom: 64px;
+		padding: var(--space-6) 0 64px;
 	}
 
 	/* A working surface: the header stays put while the list scrolls under it. */
@@ -120,8 +123,8 @@
 		position: sticky;
 		top: 0;
 		z-index: 4;
-		min-height: 52px;
-		padding: 8px 12px 8px 20px;
+		min-height: var(--pane-head-h);
+		padding: var(--space-1) 12px var(--space-1) var(--pane-pad-x);
 		border-bottom: 1px solid var(--border);
 		background: color-mix(in srgb, var(--surface-pane) 88%, transparent);
 		backdrop-filter: blur(12px);
@@ -135,7 +138,7 @@
 		align-items: center;
 		flex-wrap: wrap;
 		gap: var(--space-2);
-		padding: 8px 12px 8px 20px;
+		padding: 8px 12px 8px var(--pane-pad-x);
 		border-bottom: 1px solid var(--border);
 	}
 
@@ -144,11 +147,9 @@
 		.settings .page-body {
 			width: calc(100% - 32px);
 		}
-		.settings .page-head {
-			padding: 22px 0 18px;
-		}
 		.settings .page-body {
 			gap: 28px;
+			padding-top: 18px;
 		}
 		.list .page-head,
 		.list .page-toolbar {

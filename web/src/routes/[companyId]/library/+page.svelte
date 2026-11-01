@@ -2527,8 +2527,8 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		min-height: 52px;
-		padding: 8px 12px 8px 20px;
+		min-height: var(--pane-head-h);
+		padding: var(--space-1) 12px var(--space-1) var(--pane-pad-x);
 		border-bottom: 1px solid var(--border);
 	}
 	h1 {

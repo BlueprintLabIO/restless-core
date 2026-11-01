@@ -1112,7 +1112,7 @@
 		variable: '--sidebar-width',
 		min: 200,
 		minOther: 420,
-		defaultSize: 264
+		defaultSize: '--sidebar-w'
 	}}
 >
 	<aside class="conversation-index" aria-label="Conversations">
@@ -1789,7 +1789,7 @@
 <style>
 	.conversation-workspace {
 		display: grid;
-		grid-template-columns: var(--sidebar-width, 264px) minmax(0, 1fr);
+		grid-template-columns: var(--sidebar-width, var(--sidebar-w)) minmax(0, 1fr);
 		gap: var(--pane-gap);
 		width: 100%;
 		height: 100%;
@@ -1814,7 +1814,7 @@
 	}
 	.conversation-index {
 		container: people-index / inline-size;
-		padding: 4px 8px 0 6px;
+		padding: var(--pane-edge) 8px 0 6px;
 	}
 	/* The same head as every sidebar: the title, and the main action as a raised button. */
 	.people-head {
@@ -1822,7 +1822,7 @@
 		flex: none;
 		align-items: center;
 		justify-content: space-between;
-		min-height: 40px;
+		height: var(--pane-head-h);
 		padding: 0 2px 0 8px;
 	}
 	.people-head h1 {
@@ -2356,7 +2356,7 @@
 	}
 	.conversation-workspace.with-work {
 		grid-template-columns:
-			var(--sidebar-width, 264px) minmax(0, 1fr)
+			var(--sidebar-width, var(--sidebar-w)) minmax(0, 1fr)
 			var(--work-sheet-width, 380px);
 	}
 	.work-sheet {

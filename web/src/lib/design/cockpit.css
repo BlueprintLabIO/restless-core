@@ -158,7 +158,7 @@
 	position: relative;
 	top: auto;
 	background: color-mix(in srgb, var(--highlight) 74%, transparent);
-	border: 1px solid rgba(57, 66, 84, 0.14);
+	border: var(--pane-edge) solid rgba(57, 66, 84, 0.14);
 	border-radius: var(--radius-pane);
 	box-shadow: var(--shadow-soft);
 }
@@ -432,7 +432,7 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 12px;
-	padding: 10px 14px;
+	padding: 0 14px;
 	border-bottom: 1px solid var(--border);
 }
 
@@ -514,7 +514,7 @@
  * change makes the move spatially continuous instead of swapping layouts. */
 .bridge-root .attention-screen {
 	display: grid;
-	grid-template-columns: minmax(0, var(--attention-index-w, 336px)) minmax(0, 1fr);
+	grid-template-columns: minmax(0, var(--attention-index-w, var(--sidebar-w))) minmax(0, 1fr);
 	gap: var(--pane-gap);
 }
 
@@ -861,7 +861,7 @@
  * (above). */
 @media (min-width: 761px) {
 	.bridge-root .attention-screen:not(.queue-clear) {
-		--attention-index-w: 280px;
+		--attention-index-w: var(--sidebar-w);
 	}
 	.bridge-root .attention-screen:not(.queue-clear) > .attention-index {
 		border-color: transparent;

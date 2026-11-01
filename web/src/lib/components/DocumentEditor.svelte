@@ -2209,7 +2209,7 @@
 		grid-template-columns: minmax(0, 1fr) auto auto;
 		align-items: center;
 		gap: var(--space-3);
-		padding: var(--space-2) var(--space-4);
+		padding: var(--space-1) var(--space-4);
 		border-bottom: 1px solid var(--border);
 	}
 	.head-title {

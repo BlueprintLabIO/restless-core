@@ -2,139 +2,6 @@
   "note": "Known jank the zero-jank gate (multiplayer-jank-journey.mjs) tolerates until fixed. Each entry names the visit (role/state/width/load/surface, * matches one part), the kind, the element and the measured maximum; a failure above 1.5x that value, on another element or in another visit fails the gate. Remove an entry when its fix lands; the gate notes entries it no longer observes.",
   "entries": [
     {
-      "visit": "*/*/desktop/*/apps",
-      "kind": "grid",
-      "element": "the panes' headers end on one line",
-      "max": 9,
-      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
-    },
-    {
-      "visit": "*/*/desktop/*/card-decision",
-      "kind": "grid",
-      "element": "the panes' headers end on one line",
-      "max": 13.5,
-      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
-    },
-    {
-      "visit": "*/*/desktop/*/card-request",
-      "kind": "grid",
-      "element": "the panes' headers end on one line",
-      "max": 8,
-      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
-    },
-    {
-      "visit": "*/*/desktop/*/card-spend",
-      "kind": "grid",
-      "element": "the panes' headers end on one line",
-      "max": 52.3,
-      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
-    },
-    {
-      "visit": "*/*/desktop/*/card-update",
-      "kind": "grid",
-      "element": "the panes' headers end on one line",
-      "max": 8,
-      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
-    },
-    {
-      "visit": "*/*/desktop/*/company",
-      "kind": "grid",
-      "element": "the panes' headers end on one line",
-      "max": 48.2,
-      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
-    },
-    {
-      "visit": "*/*/desktop/*/inbox",
-      "kind": "grid",
-      "element": "the panes' headers end on one line",
-      "max": 52.3,
-      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
-    },
-    {
-      "visit": "*/*/desktop/*/library",
-      "kind": "grid",
-      "element": "the panes' headers end on one line",
-      "max": 9,
-      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
-    },
-    {
-      "visit": "*/*/desktop/*/work",
-      "kind": "grid",
-      "element": "the panes' headers end on one line",
-      "max": 9,
-      "todo": "Sprint 109 F1: header height as a token; sidebar, main pane and Exec rail headers end on one line."
-    },
-    {
-      "visit": "*/*/desktop/*/apps",
-      "kind": "grid",
-      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
-      "max": 94.69999999999999,
-      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
-    },
-    {
-      "visit": "*/*/desktop/*/card-decision",
-      "kind": "grid",
-      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
-      "max": 18.69999999999999,
-      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
-    },
-    {
-      "visit": "*/*/desktop/*/card-request",
-      "kind": "grid",
-      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
-      "max": 18.69999999999999,
-      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
-    },
-    {
-      "visit": "*/*/desktop/*/card-spend",
-      "kind": "grid",
-      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
-      "max": 18.69999999999999,
-      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
-    },
-    {
-      "visit": "*/*/desktop/*/card-update",
-      "kind": "grid",
-      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
-      "max": 14.300000000000011,
-      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
-    },
-    {
-      "visit": "*/*/desktop/*/company",
-      "kind": "grid",
-      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
-      "max": 94.69999999999999,
-      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
-    },
-    {
-      "visit": "*/*/desktop/*/inbox",
-      "kind": "grid",
-      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
-      "max": 18.69999999999999,
-      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
-    },
-    {
-      "visit": "*/*/desktop/*/library",
-      "kind": "grid",
-      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
-      "max": 94.69999999999999,
-      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
-    },
-    {
-      "visit": "*/*/desktop/*/people",
-      "kind": "grid",
-      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
-      "max": 94.69999999999999,
-      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
-    },
-    {
-      "visit": "*/*/desktop/*/work",
-      "kind": "grid",
-      "element": "the sidebar's right edge lines up with the top tabs' left edge (F1)",
-      "max": 94.69999999999999,
-      "todo": "Sprint 109 F1: the left sidebar's default right edge lines up with the top tabs' left edge."
-    },
-    {
       "visit": "*/*/desktop/*/library",
       "kind": "layout-shift",
       "element": "div.app-mount > div.toasts.bridge-tokens",
@@ -200,7 +67,7 @@
     {
       "visit": "*/*/desktop/*/inbox",
       "kind": "movement",
-      "element": "div.detail-content > header.head > div.title > h1",
+      "element": "div.detail-content > h1.title",
       "max": 1,
       "todo": "Sprint 109 C7: 1px settle of a pane header after the first reads land."
     },

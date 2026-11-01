@@ -54,7 +54,7 @@
 		container: sidebar / inline-size;
 		display: flex;
 		flex: 1 1 auto;
-		gap: 8px;
+		gap: var(--pane-gap);
 		width: 100%;
 		min-width: 0;
 		min-height: 0;
@@ -82,9 +82,11 @@
 		display: flex;
 		flex: none;
 		flex-direction: column;
-		width: var(--sidebar-width, 264px);
+		width: var(--sidebar-width, var(--sidebar-w));
 		min-height: 0;
-		padding: 4px 8px 8px 6px;
+		/* No frame on the canvas: the top inset stands in for one, so the head ends on the panes'
+		 * header line. */
+		padding: var(--pane-edge) 8px 8px 6px;
 	}
 	.sidebar-head {
 		display: flex;
@@ -92,7 +94,7 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 8px;
-		min-height: 40px;
+		height: var(--pane-head-h);
 		padding: 0 2px 0 8px;
 	}
 	.sidebar-head h2 {

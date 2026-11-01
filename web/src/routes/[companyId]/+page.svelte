@@ -761,7 +761,7 @@
 			variable: '--attention-index-w',
 			min: 160,
 			minOther: 320,
-			defaultSize: 340,
+			defaultSize: '--sidebar-w',
 			enabled: !queueClear
 		}}
 	>
@@ -1359,10 +1359,11 @@
 		overflow: hidden;
 	}
 	.attention-surface-head {
-		padding: 22px 24px 14px;
+		min-height: var(--pane-head-h);
+		padding: var(--space-1) 24px;
 		border-bottom: 1px solid var(--border);
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-3);
 	}

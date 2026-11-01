@@ -777,29 +777,29 @@
 
 <article class="inbox-detail" aria-label={attentionTitle(item)}>
 	<div class="detail-content" class:has-preview={!!(preview || content)}>
+		<!-- The pane's header row holds what the item is, from whom and when, on one line with the
+		     sidebar's and the Exec rail's headers (S109 F1); the title, which may wrap, opens the card. -->
 		<header class="head">
-			<div class="title">
-				<h1>{attentionTitle(item)}</h1>
-				<p class="meta">
-					<span title={attentionKindLabel(item)}>{attentionKindLabel(item)}</span>
-					<span aria-hidden="true">·</span>
-					<span>{asker}</span>
-					<span aria-hidden="true">·</span>
-					<RelativeTime value={item.createdAt} />
-					{#if item.deadline}<span aria-hidden="true">·</span><span class="deadline"
-							>Needed {#if due !== null}<RelativeTime value={due} />{:else}by {item.deadline}{/if}</span
-						>{/if}
-					{#if !item.preparing}<span aria-hidden="true">·</span><span
-							class="continues"
-							class:held={!item.canContinue}
-							title={item.ifNoAction ? `If nothing happens: ${item.ifNoAction}` : undefined}
-							>{item.canContinue
-								? 'Work keeps going meanwhile'
-								: 'Work is paused until you answer'}</span
-						>{/if}
-				</p>
-			</div>
+			<p class="meta">
+				<span title={attentionKindLabel(item)}>{attentionKindLabel(item)}</span>
+				<span aria-hidden="true">·</span>
+				<span>{asker}</span>
+				<span aria-hidden="true">·</span>
+				<RelativeTime value={item.createdAt} />
+				{#if item.deadline}<span aria-hidden="true">·</span><span class="deadline"
+						>Needed {#if due !== null}<RelativeTime value={due} />{:else}by {item.deadline}{/if}</span
+					>{/if}
+				{#if !item.preparing}<span aria-hidden="true">·</span><span
+						class="continues"
+						class:held={!item.canContinue}
+						title={item.ifNoAction ? `If nothing happens: ${item.ifNoAction}` : undefined}
+						>{item.canContinue
+							? 'Work keeps going meanwhile'
+							: 'Work is paused until you answer'}</span
+					>{/if}
+			</p>
 		</header>
+		<h1 class="title">{attentionTitle(item)}</h1>
 
 		{#if preview}<div class="detail-preview">{@render preview()}</div>{/if}
 		{#if content}<div class="detail-preview" hidden={!!preview}>{@render content(item)}</div>
@@ -1531,8 +1531,12 @@
 		flex-direction: column;
 		overflow: hidden;
 	}
-	.detail-content.has-preview .head {
+	.detail-content.has-preview .head,
+	.detail-content.has-preview .title {
 		flex: none;
+	}
+	.detail-content.has-preview .title {
+		padding-bottom: 14px;
 	}
 	.detail-preview {
 		flex: 1;
@@ -1550,17 +1554,14 @@
 	}
 	.head {
 		display: flex;
-		align-items: flex-start;
-		gap: var(--space-3);
-		padding: 22px 24px 14px;
+		align-items: center;
+		min-height: var(--pane-head-h);
+		padding: var(--space-1) 24px;
 		border-bottom: 1px solid var(--border);
 	}
 	.title {
-		flex: 1;
-		min-width: 0;
-	}
-	h1 {
 		margin: 0;
+		padding: 20px 24px 0;
 		color: var(--ink);
 		font-size: var(--t-title);
 		font-weight: 600;
@@ -1568,14 +1569,26 @@
 		letter-spacing: -0.015em;
 		text-wrap: balance;
 	}
+	/* One line: what does not fit is cut at the end, never wrapped into a taller header. */
 	.meta {
 		display: flex;
-		flex-wrap: wrap;
 		align-items: center;
 		gap: 6px;
-		margin: 6px 0 0;
+		min-width: 0;
+		margin: 0;
+		overflow: hidden;
 		color: var(--text-tertiary);
 		font-size: var(--t-body);
+		white-space: nowrap;
+	}
+	.meta > :global(*) {
+		flex: none;
+	}
+	.meta > .continues {
+		flex: 0 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.meta :global(time) {
 		color: inherit;
@@ -1764,6 +1777,7 @@
 	/* Choosing another item settles its detail in place: a short fade and a
 	 * 4px rise after the selection lands, instead of swapping the pane. */
 	.head,
+	.title,
 	.body {
 		animation: inbox-detail-in 260ms var(--ease-out) 30ms backwards;
 	}
@@ -1775,12 +1789,14 @@
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.head,
+		.title,
 		.body {
 			animation: none;
 		}
 	}
 	@container page (max-width: 560px) {
 		.head,
+		.title,
 		.body {
 			padding-inline: 14px;
 		}
