@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentPickerSelection, agentRouteState } from './intelligence-route.ts';
+import { agentPickerSelection, agentRouteState, routeActionLabel } from './intelligence-route.ts';
 import type { IntelligenceView } from './intelligence.svelte';
 
 const connected: IntelligenceView = {
@@ -73,4 +73,12 @@ test('an agent without an explicit assignment uses its actual model provider, no
 		connection: 'account:openai@fixture',
 		model: 'gpt-example'
 	});
+});
+
+test('rail, composer and Doctor name the same action for a route', () => {
+	assert.equal(routeActionLabel('needs_connection'), 'Connect a model');
+	assert.equal(routeActionLabel('unavailable'), 'Check model connection');
+	for (const state of ['ready', 'starting', 'checking'] as const)
+		assert.equal(routeActionLabel(state), null);
+	assert.equal(routeActionLabel(agentRouteState(connected, 'exec')), 'Check model connection');
 });

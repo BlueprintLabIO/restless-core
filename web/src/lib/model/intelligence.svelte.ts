@@ -37,7 +37,7 @@ export type IntelligenceView = {
 	agents: IntelligenceAgent[];
 };
 
-export { agentRouteState, type AgentRouteState } from './intelligence-route';
+export { agentRouteState, routeActionLabel, type AgentRouteState } from './intelligence-route';
 
 export function intelligenceQuery(company: string, enabled: () => boolean = () => true) {
 	const client = useQueryClient();

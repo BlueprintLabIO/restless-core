@@ -15,11 +15,29 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { sendActorMessage } from '$lib/model/attention';
 	import { askExec } from '$lib/model/ask-exec';
+	import {
+		agentRouteState,
+		intelligenceQuery,
+		routeActionLabel
+	} from '$lib/model/intelligence.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach());
 	const view = $derived(source.view);
+	/* The Exec's model route, read as the rail and composer read it, so all three say the same.
+	 * Until it answers, the check's own words (the same server observation) name the action, so
+	 * the button keeps its label when the route arrives. */
+	const intelligence = $derived(intelligenceQuery(companyId));
+	const route = $derived(agentRouteState(intelligence.view, 'exec'));
+	const routeAction = (summary: string) =>
+		routeActionLabel(
+			route === 'checking'
+				? summary.startsWith('Connect a model')
+					? 'needs_connection'
+					: 'unavailable'
+				: route
+		) ?? 'Check model connection';
 
 	let startupError = $state('');
 	let startupRetry = $state(0);
@@ -146,7 +164,7 @@
 		}
 	}
 
-	holdQueries(() => [source]);
+	holdQueries(() => [source, intelligence]);
 </script>
 
 <CompanyTitle title="Health" {companyId} />
@@ -217,11 +235,7 @@
 						{#snippet trailing()}
 							{#if check.id === 'intelligence'}<a
 									class="btn small primary"
-									href={`/${companyId}/company/provider`}
-									>{check.summary.startsWith('Connect a model') ||
-									check.summary.startsWith('Choose an intelligence')
-										? 'Connect a model'
-										: 'Reconnect'}</a
+									href={`/${companyId}/company/provider`}>{routeAction(check.summary)}</a
 								>{:else if check.id === repairCheck && view.computer.doctor.actions.length}{#each view.computer.doctor.actions as action (action.id)}<button
 										class="btn small primary"
 										title={action.consequence}

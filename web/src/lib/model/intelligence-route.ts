@@ -42,6 +42,14 @@ export function agentPickerSelection(view: IntelligenceView, agent: Intelligence
 	return { connection: connection.id, model };
 }
 
+/** The one action a route that cannot reply offers, the same words on the rail, the composer
+ * and Doctor. A route that can reply offers none. */
+export function routeActionLabel(state: AgentRouteState): string | null {
+	if (state === 'needs_connection') return 'Connect a model';
+	if (state === 'unavailable') return 'Check model connection';
+	return null;
+}
+
 export function agentRouteState(view: IntelligenceView | null, actorId: string): AgentRouteState {
 	if (!view) return 'checking';
 	if (actorId === 'exec' && view.company_issue)

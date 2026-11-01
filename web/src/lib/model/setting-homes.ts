@@ -12,6 +12,7 @@ export type HomeKey =
 	| 'schedules'
 	| 'notifications'
 	| 'accounts'
+	| 'vault'
 	| 'people';
 
 export type SettingHome = { key: HomeKey; label: string; href: string };
@@ -47,6 +48,9 @@ export function settingHome(
 			return { key, label: 'Company › Notifications', href: company(companyId, '/notifications') };
 		case 'accounts':
 			return { key, label: 'Settings › Accounts', href: '/account/settings/accounts' };
+		/* A company's own key (an app's token) lives in its Vault, not among the owner's accounts. */
+		case 'vault':
+			return { key, label: 'Company › Vault', href: company(companyId, '/vault') };
 		case 'people':
 			return {
 				key,

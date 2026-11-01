@@ -47,6 +47,16 @@
 			.then((view) => {
 				vault = view;
 				readFailure = '';
+				/* A key already in the Vault under the app's name (`resend`, `resend.production`,
+				 * `resend-token`) is offered as the answer, so the owner is not asked for it again. */
+				const slug = binding.slice(0, -'-token'.length);
+				const held = (view.secrets ?? []).find((secret) =>
+					new RegExp(`^${slug}(?:[.-]|$)`).test(secret.name.toLowerCase())
+				);
+				if (held && !picked) {
+					mode = 'pick';
+					picked = held.reference;
+				}
 			})
 			.catch((cause) => (readFailure = failureSentence(cause, 'The Vault could not be read.')));
 	});

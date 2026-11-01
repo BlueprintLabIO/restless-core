@@ -4,20 +4,49 @@ export const ASK_EXEC_EVENT = 'restless:ask-exec';
 /** Reveal the already selected conversation without changing its actor or Work. */
 export const SHOW_CONVERSATION_EVENT = 'restless:show-conversation';
 
+/** An answer typed in the Exec conversation that also settles the item it links. */
+export type ExecReply = {
+	/** The draft's opening link; the answer is what follows it, sent while it is still there. */
+	prefix: string;
+	record: (answer: string) => Promise<void>;
+};
+
 /** With a draft, the composer opens holding it for the owner to edit. */
-export function askExec(draft?: unknown) {
+export function askExec(draft?: unknown, reply?: ExecReply) {
 	window.dispatchEvent(
 		new CustomEvent(ASK_EXEC_EVENT, {
-			detail: { draft: typeof draft === 'string' ? draft : '' }
+			detail: { draft: typeof draft === 'string' ? draft : '', reply }
 		})
 	);
 }
 
-/** The item is linked context in the existing Exec conversation, never a new thread. */
+/** The draft that links one thing on screen into the Exec conversation. */
+export function linkDraft(title: string, href: string, lead = 'About'): string {
+	return `${lead} [${title.replace(/[[\]]/gu, '')}](${href}): `;
+}
+
+/** Something on screen (an item, Work, a document) is linked context in the one Exec
+ * conversation, never a new thread about it. */
+export function askExecAbout(title: string, href: string) {
+	askExec(linkDraft(title, href));
+}
+
+const itemHref = (companyId: string, itemId: string) =>
+	`/${encodeURIComponent(companyId)}?item=${encodeURIComponent(itemId)}`;
+
 export function askExecAboutItem(companyId: string, item: { id: string; title: string }) {
-	askExec(
-		`About [${item.title.replace(/[[\]]/gu, '')}](/${encodeURIComponent(companyId)}?item=${encodeURIComponent(item.id)}): `
-	);
+	askExecAbout(item.title, itemHref(companyId, item.id));
+}
+
+/** Replying to an item happens in the one Exec conversation too: the draft links the item, and
+ * sending it with that link also records the answer on the item. */
+export function replyInExec(
+	companyId: string,
+	item: { id: string; title: string },
+	record: ExecReply['record']
+) {
+	const prefix = linkDraft(item.title, itemHref(companyId, item.id), 'Reply to');
+	askExec(prefix, { prefix, record });
 }
 
 /** A message as a draft asking the Exec to make it a piece of Work. */
