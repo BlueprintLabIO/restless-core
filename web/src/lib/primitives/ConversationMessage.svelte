@@ -254,7 +254,7 @@
 	.message-context {
 		display: inline-block;
 		max-width: 100%;
-		margin-top: 4px;
+		margin-top: var(--chat-space-meta);
 		overflow: hidden;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
@@ -285,8 +285,8 @@
 		width: 100%;
 		min-width: 0;
 		display: grid;
-		gap: 4px;
-		padding: 10px 14px 4px;
+		gap: var(--chat-space-meta);
+		padding: 10px 14px var(--chat-space-meta);
 		border: 0;
 		background: transparent;
 	}
@@ -456,7 +456,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: flex-start;
-		margin-top: 1px;
+		margin-top: var(--chat-space-item);
 	}
 
 	/* One toolbar per message: a small raised pill of borderless icon buttons. Its buttons come from
@@ -563,6 +563,15 @@
 		max-width: 80ch;
 	}
 
+	/* One rhythm for every message (tokens.css --chat-space-*): paragraphs and lists sit a
+	 * block apart, list items an item apart. The streamed reply uses the same values. */
+	.message-body :global(.md :is(p, ul, ol)) {
+		margin: 0 0 var(--chat-space-block);
+	}
+	.message-body :global(.md li) {
+		margin: var(--chat-space-item) 0;
+	}
+
 	.message-body :global(.md > :first-child) {
 		margin-top: 0;
 	}
@@ -577,7 +586,7 @@
 
 	.takeaway {
 		max-width: 80ch;
-		margin: 0 0 4px;
+		margin: 0 0 var(--chat-space-meta);
 		color: var(--ink);
 		font-weight: 500;
 	}
@@ -595,7 +604,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 3px;
-		margin: 4px 0 0 -7px;
+		margin: var(--chat-space-meta) 0 0 -7px;
 		padding: 2px 7px;
 		border: 0;
 		border-radius: 999px;
@@ -639,11 +648,11 @@
 		}
 	}
 	.work-details {
-		margin-top: 9px;
+		margin-top: var(--chat-space-block);
 	}
 
 	.work-details summary {
-		padding: 8px 0 0;
+		padding: var(--chat-space-block) 0 0;
 		color: var(--text-tertiary);
 		font: 600 var(--t-label) var(--font-ui);
 		cursor: pointer;
@@ -657,7 +666,7 @@
 	}
 
 	.work-details-body {
-		padding: 7px 0 2px 13px;
+		padding: var(--chat-space-block) 0 var(--chat-space-item) 13px;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}

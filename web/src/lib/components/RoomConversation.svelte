@@ -1821,18 +1821,6 @@
 				{/if}
 			</div>
 
-			{#if awayFrom !== null && visibleRoots.length && !hasMessageSearch}
-				<div class="jump-anchor">
-					<button
-						type="button"
-						class="jump-latest"
-						onclick={() => roomScrollEl?.dispatchEvent(new Event('chat-scroll-end'))}
-						>{visibleRoots.length > awayFrom
-							? `${visibleRoots.length - awayFrom} new ↓`
-							: 'Jump to latest ↓'}</button
-					>
-				</div>
-			{/if}
 			{#if threadRootId === null}
 				{#if leadAttention.length}<a
 						class="chat-attention-strip"
@@ -1840,7 +1828,7 @@
 						><span>{leadAttention.length} {leadAttention.length === 1 ? 'needs' : 'need'} you</span
 						><strong>{leadAttention[0].title}</strong><span aria-hidden="true">→</span></a
 					>{/if}
-				{@render messageComposer()}
+				{@render messageComposer(true)}
 			{/if}
 		{:else}
 			<div class="conversation-empty choose-room">
@@ -1983,7 +1971,21 @@
 	{/if}
 </div>
 
-{#snippet messageComposer()}
+{#snippet messageComposer(main = false)}
+	<!-- The reserved line above the composer: who is typing on the left, and in the main
+	     conversation Jump to latest on the right while scrolled up, so it never covers a message
+	     or button. -->
+	<div class="room-edge">
+		<p class="room-typing" aria-live="polite">{archivedRoom ? '' : typingLine}</p>
+		{#if main && awayFrom !== null && visibleRoots.length && !hasMessageSearch}<button
+				type="button"
+				class="jump-latest"
+				onclick={() => roomScrollEl?.dispatchEvent(new Event('chat-scroll-end'))}
+				>{visibleRoots.length > awayFrom
+					? `${visibleRoots.length - awayFrom} new ↓`
+					: 'Jump to latest ↓'}</button
+			>{/if}
+	</div>
 	{#if archivedRoom}
 		<p class="room-archived" role="status">
 			Archived. You can read it; only its owner can bring it back to write in.
@@ -1994,7 +1996,6 @@
 {/snippet}
 
 {#snippet liveComposer()}
-	<p class="room-typing" aria-live="polite">{typingLine}</p>
 	<form
 		class="room-composer"
 		onsubmit={submitMessage}
@@ -2151,11 +2152,14 @@
 		border-bottom: 1px solid var(--border-soft);
 		font-size: var(--t-label);
 	}
+	/* The pinned strip is a header row: one height, open or folded. */
 	.room-pinned summary {
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		padding: 6px 16px;
+		height: var(--chat-strip-h);
+		box-sizing: border-box;
+		padding: 0 16px;
 		color: var(--text-secondary);
 		font-weight: 500;
 		cursor: pointer;
@@ -2179,17 +2183,10 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.jump-anchor {
-		position: relative;
-		height: 0;
-	}
 	.jump-latest {
-		position: absolute;
-		z-index: 2;
-		left: 50%;
-		bottom: 8px;
-		transform: translateX(-50%);
-		padding: 4px 12px;
+		flex: none;
+		height: 22px;
+		padding: 0 10px;
 		border: 1px solid var(--border-strong);
 		border-radius: 999px;
 		background: var(--surface-raised);
@@ -2788,12 +2785,24 @@
 			scroll-padding-bottom: 92px;
 		}
 	}
-	/* Who else is typing: one quiet line above the composer, its height kept so nothing jumps. */
-	.room-typing {
-		min-height: 1.4em;
-		margin: 0;
+	/* Who else is typing, and Jump to latest: one quiet line above the composer, its height kept
+	 * so nothing jumps when either appears. */
+	.room-edge {
+		flex: none;
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		min-height: 24px;
 		padding: 0 16px 2px;
+	}
+	.room-typing {
+		flex: 1 1 auto;
+		min-width: 0;
+		margin: 0;
+		overflow: hidden;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 </style>
