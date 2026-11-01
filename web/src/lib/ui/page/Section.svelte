@@ -4,6 +4,7 @@
 	 * stack and scroll; a page never hides one behind a tab. */
 	import type { Snippet } from 'svelte';
 	import InfoTip from '../controls/InfoTip.svelte';
+	import WarningMark from '../feedback/WarningMark.svelte';
 
 	let {
 		title,
@@ -11,6 +12,7 @@
 		count,
 		id,
 		group = true,
+		warning,
 		actions,
 		children
 	}: {
@@ -21,6 +23,8 @@
 		id?: string;
 		/** Rows inside a bordered card. Off for free content such as prose or a meter. */
 		group?: boolean;
+		/** Pass it (even as null) to reserve a fixed "!" that reopens a degraded-state toast. */
+		warning?: { label: string; show: () => void } | null;
 		actions?: Snippet;
 		children: Snippet;
 	} = $props();
@@ -32,6 +36,7 @@
 			{#if title}<h2>{title}</h2>{/if}
 			{#if count != null && count !== ''}<span class="section-count">{count}</span>{/if}
 			{#if info}<InfoTip text={info} />{/if}
+			{#if warning !== undefined}<WarningMark {warning} />{/if}
 			{#if actions}<div class="section-actions">{@render actions()}</div>{/if}
 		</header>
 	{/if}

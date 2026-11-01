@@ -8,6 +8,8 @@ export type Toast = {
 	/** Independent durable results may share wording without replacing each other. */
 	dedupeKey?: string;
 	text: string;
+	/** Raw system text (an error body, what was skipped) folded behind "Details". */
+	details?: string;
 	tone: ToastTone;
 	undo?: () => unknown;
 	/** One other thing to do about it ("Sign in", "Reload"); runs once, then the toast goes. */
@@ -71,7 +73,10 @@ function schedule(id: number) {
 /** Say what happened. Pass undo when the action can be reversed; it runs once, then the toast goes. */
 export function toast(
 	text: string,
-	options: Pick<Toast, 'undo' | 'action' | 'persist' | 'expiresAt' | 'onDismiss' | 'dedupeKey'> & {
+	options: Pick<
+		Toast,
+		'undo' | 'action' | 'persist' | 'expiresAt' | 'onDismiss' | 'dedupeKey' | 'details'
+	> & {
 		tone?: ToastTone;
 	} = {}
 ) {
@@ -100,6 +105,55 @@ export function toast(
 	toasts.list = [...toasts.list, item];
 	schedule(item.id);
 	return item.id;
+}
+
+export type ToastMessage = Pick<Toast, 'text' | 'action' | 'persist' | 'dedupeKey'> & {
+	tone?: ToastTone;
+	details?: string | null;
+};
+
+/** A component's outcome said as a toast instead of a banner that pushes the page about. Call it
+ * while the component initialises, with what to say now (or nothing). Each time `read` gives a
+ * message it is toasted once; one still showing with the same words is left alone. A failure or
+ * lasting toast goes when the message clears or the component goes; a plain notice keeps its own
+ * clock. `show()` says the current message again, for a fixed "!" that reopens a dismissed
+ * warning; `active` says whether there is one. */
+export function toastWhile(read: () => ToastMessage | null | undefined | false | '') {
+	let id: number | undefined;
+	let shown = '';
+	const message = $derived(read() || null);
+	const keyOf = (item: ToastMessage) =>
+		JSON.stringify([item.text, item.tone ?? 'done', item.details ?? '', item.action?.label ?? '']);
+	function say(item: ToastMessage) {
+		if (id !== undefined) dismissToast(id);
+		const { text, details, ...options } = item;
+		id = toast(text, { ...options, ...(details ? { details } : {}) });
+		shown = keyOf(item);
+	}
+	function clear() {
+		const item = id === undefined ? undefined : toasts.list.find((entry) => entry.id === id);
+		if (item && (item.tone === 'failure' || item.persist)) dismissToast(item.id);
+		id = undefined;
+		shown = '';
+	}
+	$effect(() => {
+		const item = message;
+		untrack(() => {
+			if (!item) return clear();
+			const showing = id !== undefined && toasts.list.some((entry) => entry.id === id);
+			if (!showing || shown !== keyOf(item)) say(item);
+		});
+	});
+	$effect(() => () => untrack(clear));
+	return {
+		show() {
+			const item = untrack(() => message);
+			if (item) say(item);
+		},
+		get active() {
+			return Boolean(message);
+		}
+	};
 }
 
 /** Take back the newest action that still offers Undo. False when none does. */
