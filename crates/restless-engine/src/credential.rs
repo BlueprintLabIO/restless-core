@@ -113,7 +113,9 @@ pub fn canonical_binding(binding: &str) -> &str {
 /// binding wins a collision; the other value remains in the Vault as an unbound secret.
 pub fn migrate_bindings(bindings: &mut std::collections::BTreeMap<String, String>) {
     if let Some(reference) = bindings.remove("resend") {
-        bindings.entry(RESEND_SEND_BINDING.into()).or_insert(reference);
+        bindings
+            .entry(RESEND_SEND_BINDING.into())
+            .or_insert(reference);
     }
 }
 
@@ -247,13 +249,19 @@ pub async fn create_reference(reference: &str, value: &str) -> Result<bool> {
     let client = infisical_client()?;
     let token = infisical_login(&client, &settings).await?;
     let endpoint = infisical_endpoint(&settings.base_url, &["api", "v4", "secrets", locator.name])?;
-    let response = client.post(endpoint).bearer_auth(token).json(&serde_json::json!({
-        "projectId": settings.project_id,
-        "environment": settings.environment,
-        "secretPath": locator.path,
-        "secretValue": value,
-        "type": "shared",
-    })).send().await.context("create secret in Infisical")?;
+    let response = client
+        .post(endpoint)
+        .bearer_auth(token)
+        .json(&serde_json::json!({
+            "projectId": settings.project_id,
+            "environment": settings.environment,
+            "secretPath": locator.path,
+            "secretValue": value,
+            "type": "shared",
+        }))
+        .send()
+        .await
+        .context("create secret in Infisical")?;
     if response.status().is_success() {
         return Ok(true);
     }
@@ -263,7 +271,10 @@ pub async fn create_reference(reference: &str, value: &str) -> Result<bool> {
     if infisical_get(&settings, &locator).await?.is_some() {
         return Ok(false);
     }
-    bail!("Infisical secret creation returned HTTP {}", status.as_u16())
+    bail!(
+        "Infisical secret creation returned HTTP {}",
+        status.as_u16()
+    )
 }
 
 /// Remove the secret a reference names, when its backend can. Restless keeps only references, so

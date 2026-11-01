@@ -197,9 +197,15 @@ async fn create_and_confirm(reference: &str, secret: &str, binding: Option<&str>
     }
     let probe = credential::probe_reference(reference).await;
     if probe.status != credential::ProbeStatus::Present {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "vault", "Infisical did not confirm the stored secret.");
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "vault",
+            "Infisical did not confirm the stored secret.",
+        );
     }
-    no_store(Json(serde_json::json!({"binding":binding,"reference":reference,"status":"present"})))
+    no_store(Json(
+        serde_json::json!({"binding":binding,"reference":reference,"status":"present"}),
+    ))
 }
 
 #[derive(Deserialize)]
