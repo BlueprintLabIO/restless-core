@@ -8,9 +8,15 @@
 	import ModelPicker from '$lib/primitives/ModelPicker.svelte';
 	import { connectionLabel, modelLabel } from '$lib/model/intelligence-labels';
 	import { failureSentence } from '$lib/model/failure';
-	import { assignModel, type IntelligenceView } from '$lib/model/intelligence.svelte';
-	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
+	import {
+		connectionUnavailable,
+		listedConnection,
+		optimisticAssign,
+		type IntelligenceView
+	} from '$lib/model/intelligence.svelte';
+	import { routeProvider } from '$lib/model/intelligence-route';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
+	import { untrack } from 'svelte';
 	import { cardActions, type CardAction } from '../inbox/card-actions.svelte';
 
 	let {
@@ -30,6 +36,7 @@
 	} = $props();
 
 	const catalog = modelCatalog();
+	const assign = optimisticAssign();
 	const id = $props.id();
 	const agent = $derived(view.agents.find((row) => row.id === agentId) ?? null);
 	const name = $derived(
@@ -55,11 +62,46 @@
 	);
 	const label = (value: string) => connectionLabel(value, view.connections);
 
-	let connection = $state('');
-	let model = $state('');
+	/* What the agent runs on now, read from the live view: the same source as the row above the
+	 * editor, so the two never disagree. A saved route whose connection is no longer listed stays
+	 * named here, as unavailable, instead of leaving the select empty (owner, 31 Oct). */
+	const live = $derived.by(() => {
+		const current = start ?? (agentId === 'default' ? companyModel : agent?.assignment);
+		const effective = agent?.effective_model ?? '';
+		const connection =
+			current?.connection ??
+			view.connections.find(
+				(c) => c.id === `harness:${agent?.harness}` || c.id === `direct:${effective.split('/')[0]}`
+			)?.id ??
+			view.connections[0]?.id ??
+			'';
+		const first = listedConnection(view, connection);
+		const model =
+			current?.model ??
+			(effective.startsWith((first?.provider ?? '') + '/')
+				? effective.slice(effective.indexOf('/') + 1)
+				: (first?.models?.find((m) => m.default)?.id ??
+					first?.models?.[0]?.id ??
+					first?.model ??
+					''));
+		return { connection, model };
+	});
+
+	let connection = $state(untrack(() => live.connection));
+	let model = $state(untrack(() => live.model));
 	let custom = $state(false);
 	let error = $state('');
-	const selected = $derived(view.connections.find((c) => c.id === connection));
+	/* Until the owner changes something, the editor follows the live choice: a switch made
+	 * elsewhere (a card, another tab) shows here rather than an editor stuck on what it opened on. */
+	let touched = false;
+	$effect(() => {
+		const next = live;
+		if (touched) return;
+		connection = next.connection;
+		model = next.model;
+	});
+	const selected = $derived(listedConnection(view, connection));
+	const unavailable = $derived(connectionUnavailable(view, connection));
 	const harnesses = $derived(view.connections.filter((c) => account(c.id) === account(connection)));
 	/* The connection's own list when it offers one; otherwise the provider's catalogue. An empty
 	 * list (a harness that has not confirmed its models yet) is no list: `??` let it through, and
@@ -73,7 +115,7 @@
 							? selected.provider === 'codex'
 								? 'openai'
 								: 'anthropic'
-							: (selected?.provider ?? '')),
+							: (selected?.provider ?? routeProvider(connection) ?? '')),
 					selected?.account_kind ?? 'api_key'
 				)
 	);
@@ -85,30 +127,9 @@
 			'';
 		custom = false;
 	}
-	/* Starts from what the agent runs on now. */
-	let started = $state(false);
-	$effect(() => {
-		if (started) return;
-		started = true;
-		const current = start ?? (agentId === 'default' ? companyModel : agent?.assignment);
-		const effective = agent?.effective_model ?? '';
-		connection =
-			current?.connection ??
-			view.connections.find(
-				(c) => c.id === `harness:${agent?.harness}` || c.id === `direct:${effective.split('/')[0]}`
-			)?.id ??
-			view.connections[0]?.id ??
-			'';
-		const first = view.connections.find((c) => c.id === connection);
-		model =
-			current?.model ??
-			(effective.startsWith((first?.provider ?? '') + '/')
-				? effective.slice(effective.indexOf('/') + 1)
-				: (first?.models?.find((m) => m.default)?.id ??
-					first?.models?.[0]?.id ??
-					first?.model ??
-					''));
-	});
+	/* "(current)" names what the agent runs on now, never a pick not yet saved. */
+	const isCurrent = (value: string) =>
+		connection === live.connection && value === live.model && !start;
 
 	/* The company's own choice, picked for an agent, puts it back on the default rather than
 	 * pinning a copy of it. */
@@ -125,14 +146,17 @@
 			error = connection ? 'Enter the full model ID.' : 'Choose a connection.';
 			return;
 		}
+		if (!reset && unavailable) {
+			error = `${label(connection)} is unavailable. Choose another connection.`;
+			return;
+		}
 		try {
-			await assignModel(companyId, agentId, {
+			await assign(companyId, agentId, {
 				connection: reset ? (agent?.assignment?.connection ?? connection) : connection,
 				model: reset ? (agent?.assignment?.model ?? model) : model,
 				reset,
 				revision: view.revision
 			});
-			announceIntelligenceChange(companyId);
 			const runs = agentId === 'default' ? 'The company runs' : `${name} runs`;
 			await onsaved(
 				reset
@@ -160,6 +184,7 @@
 					: {
 							label: model.trim() ? `Run ${name} on ${modelLabel(model)}` : 'Save',
 							busyLabel: 'Saving…',
+							disabled: unavailable,
 							run: () => save(false)
 						}
 		};
@@ -169,16 +194,20 @@
 <Field label="Connection" for={`${id}-connection`}>
 	<select
 		id={`${id}-connection`}
-		value={accounts.find((c) => account(c.id) === account(connection))?.id ?? ''}
+		value={accounts.find((c) => account(c.id) === account(connection))?.id ?? connection}
 		onchange={(event) => {
 			const next = event.currentTarget.value;
 			const kept = harnessName(connection);
+			touched = true;
+			error = '';
 			connection =
 				view.connections.find((c) => account(c.id) === account(next) && harnessName(c.id) === kept)
 					?.id ?? next;
 			choose();
 		}}
-		>{#each accounts as c (c.id)}<option
+		>{#if unavailable}<option value={connection} disabled
+				>{label(connection.replace(/^account-harness:[^:]+:/, 'account:'))} (unavailable)</option
+			>{/if}{#each accounts as c (c.id)}<option
 				value={c.id}
 				title={c.loaded ? undefined : 'Ready once the company restarts, which it does on its own.'}
 				>{label(c.id.replace(/^account-harness:[^:]+:/, 'account:'))}{companyModel &&
@@ -202,15 +231,25 @@
 		id={`${id}-model`}
 		framed
 		models={model && !presets.some((m) => m.id === model)
-			? [{ id: model, name: `${modelLabel(model)} (current)` }, ...presets]
+			? [
+					{ id: model, name: `${modelLabel(model)}${isCurrent(model) ? ' (current)' : ''}` },
+					...presets
+				]
 			: presets}
 		current={model}
 		onchoose={(next) => {
+			touched = true;
+			error = '';
 			custom = false;
 			model = next;
 		}}
 	/>
 </Field>
+{#if unavailable}<p class="form-error" role="alert">
+		{label(connection)} is unavailable right now{accounts.length
+			? ': choose another connection above'
+			: ''}, or reconnect it in Settings › Accounts.
+	</p>{/if}
 {#if harnesses.length > 1}<details class="form-more" open={harnessName(connection) !== 'Built in'}>
 		<summary>More options</summary>
 		<Field
@@ -221,10 +260,13 @@
 			<select
 				id={`${id}-harness`}
 				value={connection}
-				onchange={(event) => (connection = event.currentTarget.value)}
+				onchange={(event) => {
+					touched = true;
+					connection = event.currentTarget.value;
+				}}
 				>{#each harnesses as c (c.id)}<option value={c.id}>{harnessName(c.id)}</option
 					>{/each}</select
 			>
 		</Field>
 	</details>{/if}
-{#if error}<p class="form-error" role="alert">{error}</p>{/if}
+{#if error && !unavailable}<p class="form-error" role="alert">{error}</p>{/if}

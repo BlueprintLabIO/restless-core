@@ -5,9 +5,9 @@
 	 * everything else lives in Company › Intelligence. */
 	import {
 		EFFORTS,
-		assignModel,
 		agentRouteState,
 		intelligenceQuery,
+		optimisticAssign,
 		setEffort
 	} from '$lib/model/intelligence.svelte';
 	import { effortLabel, modelLabel } from '$lib/model/intelligence-labels';
@@ -51,6 +51,7 @@
 					connection?.account_kind ?? 'api_key'
 				)
 	);
+	const assign = optimisticAssign();
 	let busy = $state(false);
 	let failure = $state('');
 
@@ -65,28 +66,27 @@
 
 	async function choose(model: string, close: () => void) {
 		const company = companyId,
-			actor = actorId,
-			originalSource = source;
+			actor = actorId;
 		const active = () => company === companyId && actor === actorId;
 		if (!source.view || !assignment || busy || model === current) return;
 		busy = true;
 		failure = '';
+		const chosen = choices.find((row) => row.id === model)?.name ?? modelLabel(model);
+		const who = name;
+		/* The chip names the choice at once and the menu closes; a refusal puts the old model back
+		 * and says why (S109: no minutes between two states). */
+		close();
 		try {
-			await assignModel(company, actor, {
+			await assign(company, actor, {
 				connection: assignment.connection,
 				model,
 				reset: false,
 				revision: source.view.revision
 			});
-			announceIntelligenceChange(company);
-			if (!active()) return;
-			const chosen = choices.find((row) => row.id === model)?.name ?? modelLabel(model);
-			toast(`${name} will use ${chosen} from their next session.`);
-			close();
+			toast(`${who} will use ${chosen} from their next session.`);
 		} catch (cause) {
-			if (active()) failure = failureSentence(cause, 'Could not change the model.');
+			toast(failureSentence(cause, `Could not move ${who} to ${chosen}.`), { tone: 'failure' });
 		} finally {
-			await originalSource.refresh();
 			if (active()) busy = false;
 		}
 	}
@@ -119,7 +119,9 @@
 	holdQueries(() => [source]);
 </script>
 
-{#if !allowed}{:else if routeState !== 'ready'}
+<!-- A chosen model whose connection is still loading names that model: it is the choice, and it
+     is ready within seconds. "Checking model…" and back was the jank of every switch (S109). -->
+{#if !allowed}{:else if routeState !== 'ready' && !(routeState === 'starting' && agent)}
 	<a
 		class="chip-link"
 		href={`/${encodeURIComponent(companyId)}/company/provider`}

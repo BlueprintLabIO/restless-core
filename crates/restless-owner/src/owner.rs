@@ -5590,6 +5590,7 @@ async fn grant_owner_connection(
     let has_configured_default =
         config.configured_model().is_some() || config.agent_intelligence.contains_key("default");
     let should_make_default = !has_configured_default || input.make_default;
+    let default_before = config.for_agent("default").model;
     if should_make_default
         && (!input
             .model
@@ -5688,6 +5689,10 @@ async fn grant_owner_connection(
             "connections",
             "Could not grant this connection to the company.",
         );
+    }
+    model_gateway::note_routes_changed();
+    if should_make_default {
+        follow_company_default(&state, &config, &default_before).await;
     }
     // A new credential for this provider: a cooldown the old one earned no longer applies.
     if let Err(error) = state
@@ -6861,6 +6866,7 @@ async fn update_company_setup(
         .clone()
         .unwrap_or_else(|| company_display_name(&config.name));
     let model_before = config.model.clone();
+    let default_before = config.for_agent("default").model;
     if company_setup_view(&config)["revision"].as_str() != Some(input.revision.as_str()) {
         return api_error(
             StatusCode::CONFLICT,
@@ -6925,6 +6931,8 @@ async fn update_company_setup(
         return api_error(StatusCode::BAD_REQUEST, "company_setup", error.to_string());
     }
     let selected_model = config.model.clone();
+    // Revising the mandate takes the config; agents follow the default it saves.
+    let saved_config = config.clone();
     let saved = if input.mission != config.mission {
         authority::revise_mandate(
             &state.daemon.authority,
@@ -6970,6 +6978,7 @@ async fn update_company_setup(
             format!("Settings saved, but the executive model could not be updated: {error:#}"),
         );
     }
+    follow_company_default(&state, &saved_config, &default_before).await;
     if named_before != input.display_name.trim() {
         record_setting_change(
             &state,
@@ -13934,6 +13943,39 @@ async fn intelligence_view(
         ),
     }
 }
+/// After the company default changed from `previous` (the model `for_agent("default")` ran
+/// before): agents on the default follow it (S109). An agent's saved preference that equals the
+/// outgoing default is a copy of it, seeded on a first wake or run, and `agent_preference` kept
+/// reading it while the default stayed on that provider: a switch from Opus to Sonnet left Exec on
+/// Opus. Those copies are cleared; a different model Exec chose for an agent, and every agent with
+/// the owner's own route, keep theirs. A failure leaves agents as they were and is logged.
+async fn follow_company_default(
+    state: &OwnerState,
+    config: &runtime::CompanyConfig,
+    previous: &str,
+) {
+    let next = config.for_agent("default").model;
+    if previous.trim().is_empty() || previous == next {
+        return;
+    }
+    let keep = config
+        .agent_intelligence
+        .keys()
+        .filter(|actor| actor.as_str() != "default")
+        .cloned()
+        .collect::<Vec<_>>();
+    let followed = match state.daemon.orgintel.get(&config.name).await {
+        Ok(org) => org
+            .follow_company_default(previous, &keep)
+            .await
+            .map_err(anyhow::Error::from),
+        Err(error) => Err(error),
+    };
+    if let Err(error) = followed {
+        tracing::warn!(%error, company = %config.name, "agents on the old company default were not moved to the new one");
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AgentIntelligenceInput {
@@ -13961,6 +14003,7 @@ async fn update_agent_intelligence(
             "Settings changed. Refresh and try again.",
         );
     }
+    let default_before = config.for_agent("default").model;
     let result: Result<()> = async {
         if actor != "default" {
             let org = state.daemon.orgintel.get(&company).await?;
@@ -14096,6 +14139,7 @@ async fn update_agent_intelligence(
             }
         }
         runtime::CompanyConfig::save(&state.daemon.root, &config)?;
+        model_gateway::note_routes_changed();
         if let Ok(mut claims) = state.daemon.in_flight.lock() {
             claims.record_usable_wake(&company);
         }
@@ -14105,6 +14149,9 @@ async fn update_agent_intelligence(
     .await;
     match result {
         Ok(()) => {
+            if actor == "default" {
+                follow_company_default(&state, &config, &default_before).await;
+            }
             let name = if actor == "default" {
                 "Agents on the company model".to_string()
             } else {
