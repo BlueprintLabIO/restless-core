@@ -507,11 +507,12 @@ try {
   await coreApi(alice, `${base}/documents/${welcome.document_id}`, { expected: 404 });
   assert.deepEqual((await coreApi(owner, `${base}/pending-shares?document=${welcome.document_id}`)).items, []);
   const bobForYou = await coreApi(bob, `${base}/for-you?limit=50`);
+  // A share is an FYI notice (S109 B3): it reaches Bob in his daily Exec digest, never his Inbox.
   assert.ok(
-    bobForYou.items.some((item) => item.kind === "share" && item.title === "Welcome pack"),
-    "Bob's For you says the owner shared Welcome pack with him",
+    !bobForYou.items.some((item) => item.kind === "share" && item.title === "Welcome pack"),
+    "the owner's share of Welcome pack stays out of Bob's Inbox",
   );
-  pass("a document shared with an invited address was waiting for Bob when he joined, and only for him");
+  pass("a document shared with an invited address was waiting for Bob when he joined, only for him, and out of his Inbox");
 
   // 7. One native document, three editors at once; every edit survives reload.
   const created = await coreApi(owner, `${base}/documents`, {
