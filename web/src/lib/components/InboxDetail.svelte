@@ -10,6 +10,7 @@
 	 * a note that reaches the company with the decision. Files the item points
 	 * at open alongside the decision in Inbox. Context and the rest of the evidence are folded
 	 * away until asked for. */
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { queueHandoffDecision } from '$lib/model/handoff-decisions';
 	import { askExecAboutItem } from '$lib/model/ask-exec';
 	import { decideEmailMandateProposal } from '$lib/model/company-actions';
@@ -687,6 +688,9 @@
 		if (event.key === 'Escape') (event.currentTarget as HTMLElement).blur();
 	}
 	const initial = (name: string) => initials(name) || '?';
+	/* A decision that failed is a toast above the action bar, never a banner that pushes the
+	 * fields and buttons down under the pointer. */
+	toastWhile(() => !!error && { text: error, tone: 'failure' });
 </script>
 
 {#snippet secondaryActions()}
@@ -978,7 +982,6 @@
 	</div>
 	{#snippet responseFields()}
 		<div class="inbox-inputs">
-			{#if error}<Notice tone="danger" title={error} />{/if}
 			{#if requestingReviewChanges}
 				<label
 					>Changes for {recipient}<textarea

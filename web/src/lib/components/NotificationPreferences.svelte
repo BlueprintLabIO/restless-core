@@ -1,21 +1,31 @@
 <script lang="ts">
-	import { Section, Row, Toggle, Notice } from '$lib/ui/page';
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
+	import { Section, Row, Toggle } from '$lib/ui/page';
 	import { notificationSettings } from '$lib/model/notification-settings.svelte';
 	import { desktopNotify, BLOCKED_HINT } from '$lib/model/desktop-notify.svelte';
 	import EmailDeliveryEditor from './editors/EmailDeliveryEditor.svelte';
 	let { companyId }: { companyId: string } = $props();
 	const settings = notificationSettings(() => companyId);
+	/* A read that failed is a toast with Retry, never a banner that pushes the choices down; the
+	 * "!" by the section title brings it back. */
+	const readWarning = toastWhile(
+		() =>
+			!!settings.query.failure && {
+				text: 'Your preferences could not be read',
+				tone: 'failure',
+				dedupeKey: `notification-preferences:${companyId}`,
+				action: { label: 'Retry', run: () => settings.query.refresh() }
+			}
+	);
 </script>
 
 <Section
 	title="Your notifications"
 	info="These choices apply to you. Telegram below is shared by the company."
+	warning={readWarning.active
+		? { label: 'Your preferences could not be read', show: readWarning.show }
+		: null}
 >
-	{#if settings.query.failure}<Notice tone="warning" title="Your preferences could not be read">
-			{#snippet actions()}<button class="btn small" onclick={() => settings.query.refresh()}
-					>Retry</button
-				>{/snippet}
-		</Notice>{/if}
 	<Row
 		label="Browser"
 		info={desktopNotify.blocked

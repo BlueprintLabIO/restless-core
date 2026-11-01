@@ -1,6 +1,7 @@
 <script lang="ts">
 	/* Company › Intelligence › Models: what powers each agent. Changing one opens the shared model
 	 * editor (S101), the same one an Inbox card shows when an agent's model is refused. */
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { connectionLabel, modelLabel } from '$lib/model/intelligence-labels';
 	import { failureSentence } from '$lib/model/failure';
 	import {
@@ -99,6 +100,11 @@
 		}
 	}
 	holdQueries(() => [source]);
+	/* Outcomes are toasts, never banners that push the next section down. */
+	toastWhile(
+		() => !!error && { text: 'Could not save the model', tone: 'failure', details: error }
+	);
+	toastWhile(() => !!notice && { text: notice });
 </script>
 
 <Section
@@ -176,8 +182,6 @@
 			</button>
 		{/if}
 	{/if}
-	{#if error}<Notice tone="danger" title="Could not save the model">{error}</Notice>{/if}
-	{#if notice}<Notice tone="success" title={notice} />{/if}
 </Section>
 
 <style>

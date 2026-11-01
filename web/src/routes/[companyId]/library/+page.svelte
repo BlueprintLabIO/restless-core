@@ -21,7 +21,7 @@
 	import { goto } from '$app/navigation';
 	import { installUploadAsKnowHow } from '$lib/model/skills';
 	import { textFormat, type TextFormat } from '$lib/model/file-text';
-	import { Item, Notice, Empty, Dot } from '$lib/ui/page';
+	import { Item, Empty, Dot } from '$lib/ui/page';
 	import FileX from '@lucide/svelte/icons/file-x';
 	import FileDown from '@lucide/svelte/icons/file-down';
 	import FileQuestion from '@lucide/svelte/icons/file-question';
@@ -60,7 +60,8 @@
 	import Lock from '@lucide/svelte/icons/lock';
 	import { PRIVATE_HINT } from '$lib/model/general-access';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
-	import { dismissToast, toast } from '$lib/ui/feedback/toast.svelte';
+	import { dismissToast, toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
+	import WarningMark from '$lib/ui/feedback/WarningMark.svelte';
 	import {
 		LIBRARY_KIND_LABEL,
 		LibraryOpenError,
@@ -1137,6 +1138,70 @@
 	$effect(() => {
 		docSearch.setQuery(searchesDocuments ? query : '');
 	});
+	/* A part of the Library that could not be read is said as a toast with Retry, never a banner
+	 * that pushes the list down; the "!" beside the count brings back whatever is still wrong. */
+	const libraryWarnings = [
+		toastWhile(
+			() =>
+				!!documents.failure && {
+					text: 'Documents could not be read',
+					tone: 'failure',
+					details: documents.failure.message,
+					dedupeKey: `library-documents:${companyId}`,
+					action: { label: 'Retry', run: () => documents.refresh() }
+				}
+		),
+		toastWhile(
+			() =>
+				!!sheetsFailure && {
+					text: 'Sheets could not be read',
+					tone: 'failure',
+					details: sheetsFailure,
+					dedupeKey: `library-sheets:${companyId}`,
+					action: { label: 'Retry', run: refreshSheets }
+				}
+		),
+		toastWhile(
+			() =>
+				!!archivedFailure &&
+				filter === 'archived' && {
+					text: archivedFailure,
+					tone: 'failure',
+					dedupeKey: `library-archived:${companyId}`,
+					action: { label: 'Retry', run: loadArchived }
+				}
+		),
+		toastWhile(
+			() =>
+				!!keptFailure &&
+				(filter === 'yours' || filter === 'all') && {
+					text: keptFailure,
+					tone: 'failure',
+					dedupeKey: `library-kept:${companyId}`,
+					action: { label: 'Retry', run: loadKept }
+				}
+		),
+		toastWhile(
+			() =>
+				searchesDocuments &&
+				!!docSearch.failure && {
+					text: 'Only titles are being searched',
+					tone: 'failure',
+					details: docSearch.failure,
+					dedupeKey: `library-search:${companyId}`
+				}
+		)
+	];
+	const libraryWarning = $derived(
+		libraryWarnings.some((warning) => warning.active)
+			? {
+					label: 'Part of the Library could not be read',
+					show: () => {
+						for (const warning of libraryWarnings) if (warning.active) warning.show();
+					}
+				}
+			: null
+	);
 	function excerpt(text: string, phrase: string): string {
 		const flat = text.replace(/\s+/g, ' ').trim();
 		const at = flat.toLowerCase().indexOf(phrase.toLowerCase());
@@ -1818,6 +1883,7 @@
 							class:full={keptUsage.full}
 							title={keptUsage.detail}>{keptUsage.label}</span
 						>{/if}
+					<WarningMark warning={libraryWarning} />
 					<span class="spacer"></span>
 					{#if selecting}
 						{@const archivable = selectedEntries.filter(
@@ -1926,45 +1992,6 @@
 				</header>
 
 				<div class="body">
-					{#if documents.failure}<Notice
-							tone="danger"
-							title="Documents could not be read"
-							details={documents.failure.message}
-						>
-							{#snippet actions()}<button class="btn small" onclick={() => documents.refresh()}
-									>Retry</button
-								>{/snippet}
-						</Notice>{/if}
-					{#if sheetsFailure}<Notice
-							tone="warning"
-							title="Sheets could not be read"
-							details={sheetsFailure}
-						>
-							{#snippet actions()}<button class="btn small" onclick={() => void refreshSheets()}
-									>Retry</button
-								>{/snippet}
-						</Notice>{/if}
-					{#if archivedFailure && filter === 'archived'}<Notice
-							tone="warning"
-							title={archivedFailure}
-						>
-							{#snippet actions()}<button class="btn small" onclick={() => void loadArchived()}
-									>Retry</button
-								>{/snippet}
-						</Notice>{/if}
-					{#if keptFailure && (filter === 'yours' || filter === 'all')}<Notice
-							tone="warning"
-							title={keptFailure}
-						>
-							{#snippet actions()}<button class="btn small" onclick={() => void loadKept()}
-									>Retry</button
-								>{/snippet}
-						</Notice>{/if}
-					{#if searchesDocuments && docSearch.failure}<Notice
-							tone="warning"
-							title="Only titles are being searched"
-							details={docSearch.failure}
-						/>{/if}
 					{#if loading && !entries.length}
 						<Skeleton label="Loading the Library" variant="list" count={5} />
 					{:else if shown.length}

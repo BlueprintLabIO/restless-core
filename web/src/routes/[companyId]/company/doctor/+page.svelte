@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { readStartupDoctor } from '$lib/model/company-actions';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
@@ -7,6 +8,7 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
+	import { staleRefreshMessage } from '$lib/ui/feedback/stale-warning';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { page } from '$app/state';
 	import Monitor from '@lucide/svelte/icons/monitor';
@@ -147,6 +149,17 @@
 	}
 
 	holdQueries(() => [source]);
+	/* Outcomes are toasts, never banners that push the checks down. A refresh that failed over
+	 * checks already shown is a lasting warning the "!" by the title brings back. */
+	toastWhile(() => !!error && { text: error, tone: 'failure' });
+	toastWhile(() => !!notice && { text: notice });
+	const refreshWarning = toastWhile(
+		() =>
+			!!view &&
+			staleRefreshMessage(source.failure, 'diagnostics', `health-refresh:${companyId}`, () =>
+				source.refresh()
+			)
+	);
 </script>
 
 <CompanyTitle title="Health" {companyId} />
@@ -154,6 +167,9 @@
 <Page
 	title="Health"
 	info="Live checks of everything the company needs to run, with the fix for anything that fails."
+	warning={refreshWarning.active
+		? { label: 'Diagnostics could not be refreshed', show: refreshWarning.show }
+		: null}
 >
 	{#snippet actions()}
 		{#if view}<time
@@ -168,11 +184,7 @@
 		>
 	{/snippet}
 
-	{#if error}<Notice
-			tone="danger"
-			title="Recovery did not complete"
-			details={error}
-		/>{:else if view?.computer.last_recovery?.state === 'failed'}
+	{#if view?.computer.last_recovery?.state === 'failed'}
 		<!-- The newest recovery failed, whoever asked: say so after a reload too, with its reason. -->
 		<Notice
 			tone="danger"
@@ -180,7 +192,6 @@
 			details={view.computer.last_recovery.error ?? null}
 		/>
 	{/if}
-	{#if notice}<Notice tone="success" title={notice} />{/if}
 	{#if startupError || startup.error || startup.setup_failed}
 		<Notice
 			tone="warning"
@@ -195,9 +206,6 @@
 						}}>Retry</button
 					>{/if}{/snippet}
 		</Notice>
-	{/if}
-	{#if view && source.failure}
-		<FailureNotice error={source.failure} subject="diagnostics" stale onretry={source.refresh} />
 	{/if}
 
 	{#if view}

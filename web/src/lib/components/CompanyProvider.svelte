@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { goto } from '$app/navigation';
 	import { Page, Section, Item, Notice, Empty, Dot, Fold } from '$lib/ui/page';
 	import Field from '$lib/ui/forms/Field.svelte';
@@ -446,6 +447,32 @@
 		};
 	});
 	holdQueries(() => [intelligence]);
+	/* Outcomes are toasts, never banners that push the connections down. */
+	toastWhile(
+		() =>
+			!!returnTo &&
+			!setupIssue &&
+			catalogProjection.view.length > 0 && {
+				text: 'Exec can think now',
+				persist: true,
+				action: { label: 'Back to setup', run: () => goto(returnTo) }
+			}
+	);
+	toastWhile(
+		() => !!error && { text: 'That change was not saved', tone: 'failure', details: error }
+	);
+	toastWhile(() => !!notice && { text: notice });
+	toastWhile(
+		() =>
+			!!accountError && {
+				text: accountActionError
+					? 'That connection change failed'
+					: 'Could not load reusable connections',
+				tone: 'failure',
+				details: accountError,
+				dedupeKey: `reusable-connections:${companyId}`
+			}
+	);
 </script>
 
 <Page
@@ -467,11 +494,6 @@
 		>
 	{/snippet}
 
-	{#if returnTo && !setupIssue && catalogProjection.view.length}
-		<Notice tone="success" title="Exec can think now">
-			{#snippet actions()}<a class="btn small primary" href={returnTo}>Back to setup</a>{/snippet}
-		</Notice>
-	{/if}
 	{#if setupIssue}
 		<Notice tone="warning" title={startLinkLabel(setupIssue)} details={setupIssue}>
 			{#snippet actions()}<a
@@ -480,13 +502,11 @@
 				>{/snippet}
 		</Notice>
 	{/if}
-	{#if error}<Notice tone="danger" title="That change was not saved" details={error} />{/if}
 	{#if providerError && !status}<Notice
 			tone="danger"
 			title="Could not read this company’s connections"
 			details={providerError}
 		/>{/if}
-	{#if notice}<Notice tone="success" title={notice} />{/if}
 
 	<ModelHeadroom {companyId} />
 	<AgentIntelligence {companyId} />
@@ -675,11 +695,6 @@
 			{/if}
 		{/if}
 	</Section>
-	{#if accountError}<Notice
-			tone="danger"
-			title="That connection change failed"
-			details={accountError}
-		/>{/if}
 
 	<Section
 		title="Advanced"

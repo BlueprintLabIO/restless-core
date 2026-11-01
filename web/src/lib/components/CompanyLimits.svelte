@@ -28,7 +28,7 @@
 		type CompanyView
 	} from '$lib/model/company';
 	import { approvalAction } from '$lib/model/attention';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
@@ -282,6 +282,23 @@
 		return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value / 100);
 	}
 	holdQueries(() => [source, spendSource, principal]);
+	/* Outcomes are toasts, never banners that push the limits down. */
+	toastWhile(
+		() => !!resumeError && { text: 'Nothing changed', tone: 'failure', details: resumeError }
+	);
+	toastWhile(
+		() => !!pauseError && { text: 'Nothing changed', tone: 'failure', details: pauseError }
+	);
+	toastWhile(
+		() =>
+			!!revokeError && {
+				text: 'The approval was not revoked',
+				tone: 'failure',
+				details: revokeError
+			}
+	);
+	toastWhile(() => !!nativeNotice && { text: nativeNotice });
+	toastWhile(() => !!runtimeNotice && { text: runtimeNotice });
 </script>
 
 {#if limits}
@@ -337,7 +354,6 @@
 								meta={`${who(call.actor)} · ${formatMoment(call.occurred_at)}`}
 							/>{/each}
 					</Fold>{/if}
-				{#if resumeError}<Notice tone="danger" title="Nothing changed">{resumeError}</Notice>{/if}
 			{/if}
 			{#if spend.by_actor?.length}
 				{@const total = spend.by_actor.reduce((sum, row) => sum + row.spent_usd, 0)}
@@ -451,7 +467,6 @@
 						>{/if}
 				</Row>
 			{/if}
-			{#if nativeNotice}<Notice tone="success" title={nativeNotice} />{/if}
 		</Section>
 	{:else if section === 'authority' && view}
 		<Section
@@ -481,7 +496,6 @@
 							onclick={() => void setPaused(false)}>{pausing ? 'Resuming…' : 'Resume'}</button
 						>{/snippet}
 				</Notice>{/if}
-			{#if pauseError}<Notice tone="danger" title="Nothing changed">{pauseError}</Notice>{/if}
 			<Fold label="May do on its own" count={view.limits.independently.length}>
 				{#each view.limits.independently as item (item.title)}<Item
 						title={item.title}
@@ -561,9 +575,6 @@
 							>{revoking === party ? 'Revoking…' : 'Revoke'}</button
 						>{/snippet}
 				</Item>{/each}
-			{#if revokeError}<Notice tone="danger" title="The approval was not revoked"
-					>{revokeError}</Notice
-				>{/if}
 			<Row
 				label="Payment allowances"
 				info="Payments you have authorised, per currency. Separate from the model budget. Changing the limits starts a new total; freezing one stops new payments in that currency."
@@ -746,7 +757,6 @@
 							] ?? runtime.usage.status)}
 				{:else}<span class="none">Unavailable right now</span>{/if}
 			</Row>
-			{#if runtimeNotice}<Notice tone="success" title={runtimeNotice} />{/if}
 		</Section>
 	{/if}
 {:else if failure && section === 'spend'}

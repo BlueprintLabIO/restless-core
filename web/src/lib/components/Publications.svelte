@@ -6,7 +6,7 @@
 	import CopyButton from '$lib/ui/controls/CopyButton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { formatMoment } from '$lib/ui/time';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import type { CompanyResource } from '$lib/model/company';
 	import {
@@ -158,6 +158,8 @@
 			busy = '';
 		}
 	}
+	/* A failure is a toast, never a banner that pushes the next section down. */
+	toastWhile(() => !!failure && { text: failure, tone: 'failure' });
 </script>
 
 {#if shown.length}
@@ -285,7 +287,6 @@
 				</div>
 			{/if}
 		{/each}
-		{#if failure}<Notice tone="danger" title="Nothing changed">{failure}</Notice>{/if}
 	</Section>
 {/if}
 

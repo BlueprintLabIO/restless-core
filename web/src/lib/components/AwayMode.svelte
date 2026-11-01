@@ -4,9 +4,9 @@
 	 * It ends on the date, or when the owner says they are back; what it paused resumes. */
 	import FormFoot from '$lib/ui/forms/FormFoot.svelte';
 	import Field from '$lib/ui/forms/Field.svelte';
-	import { Section, Row, Item, Notice } from '$lib/ui/page';
+	import { Section, Row, Item } from '$lib/ui/page';
 	import { failureSentence } from '$lib/model/failure';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { formatMoment } from '$lib/ui/time';
 	import { monitorSchedules, type MonitoredSchedule } from '$lib/model/skills';
 	import { getCoreMembers, type CoreMember } from '$lib/model/members';
@@ -90,6 +90,8 @@
 
 	const deputyName = (id: string | null | undefined) =>
 		admins.find((member) => member.actor_id === id)?.display ?? id ?? '';
+	/* A failure is a toast, never a banner that pushes the next section down. */
+	toastWhile(() => !!error && { text: error, tone: 'failure' });
 </script>
 
 <Section
@@ -166,7 +168,6 @@
 				>{/if}
 		</Row>
 	{/if}
-	{#if error}<Notice tone="danger" title="Nothing changed">{error}</Notice>{/if}
 </Section>
 
 <style>

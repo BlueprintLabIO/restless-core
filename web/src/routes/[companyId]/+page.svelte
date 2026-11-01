@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { askExec } from '$lib/model/ask-exec';
 	import { failureSentence } from '$lib/model/failure';
 	import { readDraft, writeDraft } from '$lib/model/composer-options.svelte';
@@ -532,6 +533,14 @@
 		}
 	}
 	holdQueries(() => [leadConversation, identity, collaboration]);
+	/* Working through a handoff, a failure is a toast: a banner above the computer would push it
+	 * down and resize it under the pointer. The Inbox's floating error speaks outside it. */
+	toastWhile(
+		() =>
+			!!focusItem &&
+			!previewTarget &&
+			!!(error || control.error) && { text: error || control.error, tone: 'failure' }
+	);
 </script>
 
 <svelte:head
@@ -614,9 +623,6 @@
 				>
 			</div>
 		</header>
-		{#if error || control.error}<div class="focus-error" role="alert">
-				{error || control.error}
-			</div>{/if}
 		<div
 			class="browser-workspace"
 			use:resizePane={{
@@ -1107,13 +1113,11 @@
 			height: auto;
 		}
 	}
-	.attention-error,
-	.focus-error {
+	.attention-error {
 		color: var(--danger);
 		font-size: var(--t-body);
 	}
-	.attention-error,
-	.focus-error {
+	.attention-error {
 		padding: 9px 14px;
 		border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
 		background: color-mix(in srgb, var(--danger) 7%, var(--surface));
@@ -1191,9 +1195,6 @@
 	.live-mark.owner {
 		background: var(--accent);
 		box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 45%, transparent);
-	}
-	.focus-error {
-		grid-row: 2;
 	}
 	.browser-workspace {
 		grid-row: 3;

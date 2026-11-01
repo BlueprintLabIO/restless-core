@@ -37,7 +37,7 @@
 		type MembershipRole
 	} from '$lib/model/members';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { parseInviteEmails } from '$lib/model/invite-emails';
 
 	const companyId = $derived(page.params.companyId ?? '');
@@ -386,6 +386,12 @@
 		return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 	}
 	holdQueries(() => [principalSource]);
+	/* A change that failed is a toast, never a banner that pushes the people down. A first read
+	 * that failed is the page itself and stays in place. */
+	toastWhile(
+		() =>
+			!!failure && !!core && { text: 'That change was not made', tone: 'failure', details: failure }
+	);
 </script>
 
 <CompanyTitle title="Members" {companyId} />
@@ -420,7 +426,11 @@
 			>{/if}
 	{/snippet}
 
-	{#if failure}<Notice tone="danger" title="That change was not made" details={failure} />{/if}
+	{#if failure && !core}<Notice
+			tone="danger"
+			title="Company access could not be read"
+			details={failure}
+		/>{/if}
 	{#if handoverStatus}<Notice title={handoverStatus} />{/if}
 
 	{#if !core}

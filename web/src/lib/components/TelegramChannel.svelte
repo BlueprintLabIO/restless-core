@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import Field from '$lib/ui/forms/Field.svelte';
 	/* The owner's Telegram channel: paste the bot's token (kept in the Vault) or a
 	 * reference to one, pair one chat with a one-time code, unpair. Only the Authority owner sees it; the API
@@ -80,6 +81,18 @@
 			cockpit_origin: location.origin
 		});
 	}
+	/* A failed change, or a refresh that failed over a pairing already shown, is a toast, never a
+	 * banner that pushes the section down. A first read that failed stays in place. */
+	toastWhile(
+		() =>
+			!!error &&
+			(!!actionError || !!view) && {
+				text: 'Telegram did not respond',
+				tone: 'failure',
+				details: error,
+				dedupeKey: `telegram:${companyId}`
+			}
+	);
 </script>
 
 {#if !hidden}
@@ -97,7 +110,11 @@
 					>Open BotFather</a
 				>{/if}
 		{/snippet}
-		{#if error}<Notice tone="danger" title="Telegram did not respond" details={error} />{/if}
+		{#if source.failure && !view}<Notice
+				tone="danger"
+				title="Telegram did not respond"
+				details={failureSentence(source.failure, 'Telegram did not respond.')}
+			/>{/if}
 		{#if view?.paired && view.link}
 			<Row
 				label="Bot"
