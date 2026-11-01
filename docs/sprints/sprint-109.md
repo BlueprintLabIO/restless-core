@@ -376,6 +376,61 @@ publish its contents.
 
 [Production delivery evidence for these partial fixes](sprint-109/ui-efficiency-release-30-oct.md).
 
+## Batch of 2 November (local verification; production smoke after release)
+
+Code audit first: several unchecked items were already on main (A2, A3, B5, C2, C3, C5 named
+surfaces, C6, D1, E1, E2, F8, F9, G1, G4). Their boxes stay unchecked until the production Reno
+walkthrough. This batch adds:
+
+- **A1 (part).** Doctor names the same model action as the rail and composer (`routeActionLabel`).
+  Still open: every waiting card saying in one line why it waits and on whom.
+- **Model switching (owner, 31 Oct).**
+  - The Models editor opens on the live connection and model. An unlisted connection reads
+    "(unavailable)" and blocks saving, instead of an empty select.
+  - Agents holding a copy of the outgoing company default follow the new one; explicit
+    overrides stay.
+  - Choices show at once and roll back on refusal. The daemon re-reads routes on save instead
+    of after its 5 and 30 second waits, and a gateway reload no longer flashes "Checking model".
+- **B1.**
+  - Discuss and "Discuss with Exec" become "Ask Exec", which links the item into the one chat.
+  - The middle-pane reply composer is gone. Reply opens the Exec rail with the item linked, and
+    a decision answer is still recorded on the item.
+  - Still open: a server tool so Exec records decisions itself.
+- **B6 (part).**
+  - Token cards name Company › Vault. A key the vault already holds is offered, not re-asked.
+  - Still open: API-key requests still create accounts, and suppressing a request for a key
+    already held needs server work.
+- **C4.** Jump to latest sits in reserved space at the composer edge, never over content (Exec
+  rail and rooms).
+- **C5.** Transient outcomes and refresh failures on 31 files became toasts, with a fixed "!" to
+  reopen a lasting warning. Permanent content and field errors stay inline.
+- **E3.** Every list item has its own grip and hover wash. Checkboxes align with the first line.
+  Readers never see a grip; the role journey caught a regression here.
+- **F3/F4.** One chat spacing scale. Header and strip heights are tokens. No tooltip on "About".
+- **F5 (part).** Archived stays whole in the narrow Library strip. The card-footer chip [29] needs
+  the owner's screenshot.
+- **F6.** Checked live: the account sign-in buttons match the inputs, and the eyebrows and
+  "picked by hand" are gone. Cloud also has a styled not-found page now (restless-cloud#164).
+- **G2/G3.** The board flags Next work behind an owner with three or more in motion, and Work past
+  revision 3. The lead prompt asks for parallel Staff and an explanation for churn.
+- **G5.** Agents' working notes (`/company/org/**`, loose text files, scratch folders) leave the
+  default Library views for a "Working notes" view.
+- **H3.** Core has no map rendering. Concept-page maps are agents' own HTML, so this needs agent
+  guidance or the approved preview's renderer.
+- **Reliability found while verifying.**
+  - Members retries a dropped read instead of showing "could not be read".
+  - The Documents proxy reaches the service before accepting the editor's socket. A stopped
+    service had drawn hundreds of reconnects a second.
+
+Verification on the merged batch:
+- svelte-check: 0 errors.
+- Web unit tests: 302 pass.
+- Engine 586, owner 148 and the orgintel follow-default test (scratch Postgres) pass.
+- Role journey: 38 PASS (owner, admin, member).
+- Stress journey: 20 PASS, with NOTEs for interleaved typing and an edit lost while reconnecting
+  after a restart.
+- The batch also merged PRs #485, #486, #489, #509, #544 and #550 and closed #484.
+
 ## Later (agreed, not this sprint)
 
 Grouped decisions, keyboard-first Inbox, watching work happen live, cost and time on every card,
