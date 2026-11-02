@@ -2743,6 +2743,7 @@ fn membership_boundary_violation(
             && (admin_manages_company_setup(path)
                 || is_actor_interrupt_route(path)
                 || admin_reads_company_record(method, path)
+                || admin_reads_public_catalogue(method, path)
                 || admin_deputy_route(method, path)))
         || is_company_route_family(path, "rooms")
         // Everyone in a company sees which of the owner's accounts it may use (S98); the handler
@@ -2975,6 +2976,13 @@ fn admin_reads_company_record(method: &Method, path: &str) -> bool {
             | ["tool-connections"]
             | ["app-requests"]
     )
+}
+
+/// The public app and know-how directory an admin browses on Apps beside the owner: the same
+/// listing for every company, no company data in it. Installing from it stays the owner's.
+fn admin_reads_public_catalogue(method: &Method, path: &str) -> bool {
+    matches!(*method, Method::GET | Method::HEAD)
+        && matches!(path, "/api/app-catalogue" | "/api/app-catalogue/skill")
 }
 
 /// While the owner is away, the admin they named answers single approvals; the handlers check
