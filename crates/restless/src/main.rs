@@ -691,7 +691,8 @@ enum EmailCommand {
         #[arg(long)]
         request_file: PathBuf,
     },
-    /// Reserve the matching permit and send the exact prepared payload once.
+    /// Reserve the matching permit and send the exact prepared payload once. Without a permit,
+    /// the owner approves this exact email in their Inbox first; run it again once approved.
     Send {
         /// JSON file containing the typed email request.
         #[arg(long)]

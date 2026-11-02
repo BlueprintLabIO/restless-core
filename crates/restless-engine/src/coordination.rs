@@ -4607,10 +4607,22 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Ok(input) => input,
                 Err(error) => return Response::err(format!("invalid email request: {error}")),
             };
+            let original = input.clone();
             let prepared = match email::prepare_from_company(company, input).await {
                 Ok(prepared) => prepared,
                 Err(error) => return Response::err(format!("prepare email: {error:#}")),
             };
+            if request.cmd == "email-send" && prepared.permit_id().is_nil() {
+                // No mandate permit: the owner approves this exact email in the Inbox (S109 H2).
+                let actor = request.orgintel.actor.as_deref().unwrap_or_default();
+                if actor.trim().is_empty() {
+                    return Response::err("email send needs an authenticated acting actor");
+                }
+                return match send_owner_approved_email(daemon, company, actor, prepared, &original).await {
+                    Ok(outcome) => Response::ok(outcome),
+                    Err(error) => Response::err(format!("{error:#}")),
+                };
+            }
             if request.cmd == "email-preview" {
                 Response::ok(serde_json::json!({
                     "sender": prepared.sender(),
@@ -5051,28 +5063,111 @@ pub fn round_usd(usd: f64) -> f64 {
     }
 }
 
+/// An email without a mandate permit: sent once the owner has approved exactly it, and otherwise
+/// put to the owner in the Inbox. Nothing is sent while it waits.
+pub async fn send_owner_approved_email(
+    daemon: &Daemon,
+    company: &str,
+    actor: &str,
+    prepared: email::PreparedEmail,
+    input: &email::EmailSendRequest,
+) -> Result<serde_json::Value> {
+    // A company that cannot send must not ask the owner to approve an email it cannot send.
+    let config = runtime::CompanyConfig::load(&daemon.root, company)?;
+    credential::resolve(&config, credential::RESEND_SEND_BINDING)
+        .await
+        .context("the company has no usable Resend key; the owner adds it in Company › Vault")?;
+    let org = daemon.orgintel.get(company).await.ok();
+    let work = crate::effect::serving_work(org.as_ref(), actor).await;
+    match crate::email_approval::approval_for(
+        &daemon.authority,
+        company,
+        actor,
+        &prepared,
+        input,
+        work,
+    )
+    .await?
+    {
+        crate::email_approval::OwnerApproval::Approved { request } => {
+            send_email(daemon, company, prepared, Some(request)).await
+        }
+        crate::email_approval::OwnerApproval::Waiting { request, new } => Ok(serde_json::json!({
+            "status": "waiting_for_owner",
+            "request_id": request,
+            "recipient": prepared.recipient(),
+            "effect_key": prepared.effect_key(),
+            "note": if new {
+                "Nothing was sent. The owner sees this exact email in their Inbox and approves or declines it. You are told when they answer; then run this same send again, unchanged, to send it once."
+            } else {
+                "Nothing was sent. This exact email is still waiting in the owner's Inbox. Do not ask again; you are told when they answer."
+            },
+        })),
+        crate::email_approval::OwnerApproval::Declined { note, changes, .. } => {
+            let said = note
+                .map(|note| format!(" Their note: “{note}”"))
+                .unwrap_or_default();
+            if changes {
+                anyhow::bail!("the owner asked for changes to this email; it was not sent.{said} Revise the draft and send again; the new version goes to the owner")
+            }
+            anyhow::bail!(
+                "the owner declined this email; it was not sent and must not be sent.{said}"
+            )
+        }
+    }
+}
+
 pub async fn send_mandated_email(
     daemon: &Daemon,
     company: &str,
     prepared: email::PreparedEmail,
 ) -> Result<serde_json::Value> {
+    send_email(daemon, company, prepared, None).await
+}
+
+/// Send under a mandate permit, or under the owner's exact approval of `approved` request.
+async fn send_email(
+    daemon: &Daemon,
+    company: &str,
+    prepared: email::PreparedEmail,
+    approved: Option<uuid::Uuid>,
+) -> Result<serde_json::Value> {
     // Resolve host-held credentials before reserving an irreversible send.
     // A missing binding must not consume a permit or daily allowance.
     let config = runtime::CompanyConfig::load(&daemon.root, company)?;
-    let key = credential::resolve(&config, "resend.production").await?;
+    let key = credential::resolve(&config, credential::RESEND_SEND_BINDING).await?;
     crate::outside_actions::ensure_running(&daemon.authority, company).await?;
-    daemon
-        .authority
-        .reserve_email_send(
-            company,
-            prepared.permit_id(),
-            prepared.sender(),
-            prepared.sender_name(),
-            prepared.recipient(),
-            prepared.payload_sha256(),
-            prepared.effect_key(),
-        )
-        .await?;
+    let permit_id = approved.unwrap_or_else(|| prepared.permit_id());
+    match approved {
+        Some(request) => {
+            daemon
+                .authority
+                .reserve_owner_approved_email_send(
+                    company,
+                    request,
+                    prepared.sender(),
+                    prepared.sender_name(),
+                    prepared.recipient(),
+                    prepared.payload_sha256(),
+                    prepared.effect_key(),
+                )
+                .await?;
+        }
+        None => {
+            daemon
+                .authority
+                .reserve_email_send(
+                    company,
+                    prepared.permit_id(),
+                    prepared.sender(),
+                    prepared.sender_name(),
+                    prepared.recipient(),
+                    prepared.payload_sha256(),
+                    prepared.effect_key(),
+                )
+                .await?;
+        }
+    }
 
     let outcome = match prepared.send(&key).await {
         Ok(outcome) => outcome,
@@ -5082,7 +5177,7 @@ pub async fn send_mandated_email(
                 .authority
                 .record_email_send_status(
                     company,
-                    prepared.permit_id(),
+                    permit_id,
                     prepared.effect_key(),
                     mandate::ProviderOutcome::ConfirmedNotSent,
                     None,
@@ -5113,7 +5208,7 @@ pub async fn send_mandated_email(
         .authority
         .record_email_send_status(
             company,
-            prepared.permit_id(),
+            permit_id,
             prepared.effect_key(),
             status,
             provider_ref,
@@ -5121,16 +5216,17 @@ pub async fn send_mandated_email(
         )
         .await
     {
-        tracing::error!(company, permit_id = %prepared.permit_id(), provider_ref, %error,
+        tracing::error!(company, permit_id = %permit_id, provider_ref, %error,
             "could not persist mandated email provider outcome");
         anyhow::bail!(
             "email provider outcome needs reconciliation for permit {} (provider reference: {}): {error:#}",
-            prepared.permit_id(),
+            permit_id,
             provider_ref.unwrap_or("unknown")
         );
     }
     Ok(serde_json::json!({
-        "permit_id": prepared.permit_id(),
+        "permit_id": permit_id,
+        "approved_by_owner": approved.is_some(),
         "effect_key": prepared.effect_key(),
         "recipient": prepared.recipient(),
         "outcome": outcome,

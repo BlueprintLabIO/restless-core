@@ -497,7 +497,10 @@ unrelated = "env:OTHER_KEY"
 
 /// The Work an actor's effect serves: its one running attempt, if it has exactly one. The owner
 /// sees it beside the approval and the receipt; it never enters the command or its digest.
-async fn serving_work(org: Option<&restless_orgintel::OrgIntel>, actor: &str) -> Option<Uuid> {
+pub(crate) async fn serving_work(
+    org: Option<&restless_orgintel::OrgIntel>,
+    actor: &str,
+) -> Option<Uuid> {
     let attempts = org?.list_running_work_attempts().await.ok()?;
     let mut serving = attempts.iter().filter(|attempt| attempt.actor_id == actor);
     let first = serving.next()?;
