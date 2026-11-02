@@ -2542,7 +2542,13 @@ async fn roll_forward_once(daemon: &Daemon, configs: &[runtime::CompanyConfig]) 
             }
             continue;
         }
-        if let Some(reason) = company_busy(daemon, &config.name).await {
+        let busy = match company_busy(daemon, &config.name).await {
+            None if runtime::automatic_start_waits_for_memory() => {
+                Some("the account is short of memory".to_string())
+            }
+            busy => busy,
+        };
+        if let Some(reason) = busy {
             let since = DEFERRED_SINCE
                 .lock()
                 .map(|mut deferred| *deferred.entry(config.name.clone()).or_insert_with(Utc::now))
