@@ -700,6 +700,7 @@
 				oncomment={openBlockComment}
 				{commentedBlocks}
 				commentThreads={marginThreads}
+				commentsReady={threads.status !== 'unknown' || threads.failure !== null}
 				margin
 				onopenthread={openThread}
 				oncopyblocklink={(blockId) => void copyBlockLink(blockId)}

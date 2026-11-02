@@ -166,6 +166,9 @@
 		commentThreads?: readonly DocumentCommentThreadView[];
 		/** Comments live in a margin beside the text when the page is wide enough (Sprint 109 E4). */
 		margin?: boolean;
+		/** Whether the comment threads have been read (or failed to be). Suggestions share the
+		 * margin with them, so their cards wait for the threads rather than move when they land. */
+		commentsReady?: boolean;
 		onopenthread?: (threadId: string) => void;
 		/** Copy a link that opens this document at a block. */
 		oncopyblocklink?: (blockId: string) => void;
@@ -194,6 +197,7 @@
 		commentedBlocks = new Map(),
 		commentThreads = [],
 		margin = false,
+		commentsReady = true,
 		onopenthread = () => {},
 		oncopyblocklink,
 		suggestions = [],
@@ -2294,7 +2298,7 @@
 				onhover={(threadId) => (hoveredThread = threadId)}
 				ondraftdone={marginDraftDone}
 				onopenpanel={(threadId) => onopenthread(threadId)}
-				suggestions={suggestionList}
+				suggestions={commentsReady ? suggestionList : []}
 				{suggestionAnchors}
 				canSettle={canWriteLive}
 				canSuggest={canWriteLive}
