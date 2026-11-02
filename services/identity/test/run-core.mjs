@@ -66,7 +66,11 @@ async function freePort() {
   });
 }
 async function freeOffset() {
-  for (let offset = 13000; offset <= 15900; offset += 100) {
+  // Start at a random block so two runs starting together rarely probe the same one first.
+  const blocks = 30;
+  const first = randomBytes(1)[0] % blocks;
+  for (let step = 0; step < blocks; step += 1) {
+    const offset = 13000 + ((first + step) % blocks) * 100;
     const servers = [];
     try {
       for (const base of [...Array(10).keys()].map((n) => 7788 + n).concat(7833)) {
