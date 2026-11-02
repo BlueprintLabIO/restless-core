@@ -55,6 +55,13 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		keywords: 'logins passwords api keys github ebay facebook shared access grants'
 	},
 	{
+		key: 'integrations',
+		group: 'Capabilities',
+		label: 'Integrations',
+		path: '/integrations',
+		keywords: 'email resend send domain dns cloudflare integration'
+	},
+	{
 		key: 'vault',
 		group: 'Capabilities',
 		label: 'Vault',

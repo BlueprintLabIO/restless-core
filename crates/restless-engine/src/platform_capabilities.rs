@@ -393,10 +393,30 @@ pub async fn read(daemon: &crate::daemon::Daemon, company: &str) -> Result<Value
         Ok(report) => json!({ "state": report["state"], "since": report["since"] }),
         Err(_) => json!({ "state": "unknown" }),
     };
+    // Email's row carries its status (S109 H2): Exec states facts about email only from it.
+    let mut integrations = integrations(&names);
+    if let Some(row) = integrations
+        .iter_mut()
+        .find(|row| row["name"] == "Email (Resend)")
+    {
+        let key = row["key"].as_str().map(str::to_string);
+        if let Ok(status) = crate::email_integration::status(&daemon.authority, company, key).await
+        {
+            row["state"] = json!(status.state);
+            row["action"] = json!(status.action);
+            row["sender"] = json!(status.sender);
+            row["last_send"] = json!(status.last_send);
+            row["waiting_for_owner"] = json!(status.waiting_for_owner);
+            row["limits"] = json!({
+                "mandate_daily": status.mandate_daily,
+                "sent_today": status.sent_today,
+            });
+        }
+    }
     let filed_to = faults_company(company);
     Ok(json!({
         "built_in": built_in(),
-        "integrations": integrations(&names),
+        "integrations": integrations,
         "apps": apps,
         "accounts": accounts,
         "vault": { "status": vault_status, "keys": vault },

@@ -44,6 +44,7 @@ pub mod documents_service;
 pub mod effect;
 pub mod email;
 pub mod email_approval;
+pub mod email_integration;
 pub mod entry;
 pub mod exec;
 pub mod finance;
