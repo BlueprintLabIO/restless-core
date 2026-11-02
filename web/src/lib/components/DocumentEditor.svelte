@@ -68,6 +68,8 @@
 		documentAlignment,
 		type DocumentAlignment,
 		commentMarksKey,
+		commentPlaces,
+		type CommentMarkThread,
 		createDocumentEditorExtensions,
 		imageAltFromName,
 		inDocumentTable,
@@ -108,9 +110,16 @@
 		DOCUMENT_KINDS,
 		type DocumentContent,
 		type DocumentKind,
+		type DocumentCommentThreadView,
 		type DocumentReadView,
 		type PendingDocumentCommand
 	} from '$lib/model/documents';
+	import {
+		commentRangeBinding,
+		encodeCommentRange,
+		type CommentRange
+	} from '$lib/model/document-margin';
+	import DocumentMargin, { type MarginDraft } from './DocumentMargin.svelte';
 
 	interface Props {
 		companyId: string;
@@ -131,11 +140,21 @@
 		 * and the company's owner, may retitle it. */
 		mayRename?: boolean;
 		onaccept?: (target: DocumentTarget, view: DocumentReadView) => void;
-		/** Start a comment on a block, and on the words selected in it when there are some. */
-		oncomment?: (blockId: string | null, quote?: string | null) => void;
-		/** Open comment threads by the block they are on: marked in the text (the words each quotes,
-		 * where it quotes some), opened from the margin. */
+		/** Start a comment on a block, and on the words selected in it when there are some (with
+		 * their place in the live document, so the mark follows them). Used where the margin is
+		 * not shown: a narrow page, or a surface without it. */
+		oncomment?: (
+			blockId: string | null,
+			quote?: string | null,
+			range?: CommentRange | null
+		) => void;
+		/** Open comment threads by the block they are on: their count marks, on a narrow page. */
 		commentedBlocks?: ReadonlyMap<string, { threadId: string; count: number; quotes?: string[] }>;
+		/** Open comment threads on blocks, marked in the text and, on a wide page, carded in the
+		 * margin beside their words. */
+		commentThreads?: readonly DocumentCommentThreadView[];
+		/** Comments live in a margin beside the text when the page is wide enough (Sprint 109 E4). */
+		margin?: boolean;
 		onopenthread?: (threadId: string) => void;
 		/** Copy a link that opens this document at a block. */
 		oncopyblocklink?: (blockId: string) => void;
@@ -162,6 +181,8 @@
 		onaccept = () => {},
 		oncomment = () => {},
 		commentedBlocks = new Map(),
+		commentThreads = [],
+		margin = false,
 		onopenthread = () => {},
 		oncopyblocklink,
 		suggestions = [],
@@ -608,7 +629,8 @@
 									mentionChange: setMention,
 									mentionKey: (event) => menus?.mentionKey(event) ?? false,
 									blockMenu: (target) => menus?.openBlockMenu(target),
-									commentedBlocks: () => markedBlocks
+									commentThreads: () => markedThreads,
+									activeComment: () => focusedThread
 								}
 							),
 							editable: writable,
@@ -834,7 +856,44 @@
 	function commentOnSelection(): void {
 		const instance = editorState.editor;
 		const blockId = selectedBlock() ?? (instance ? selectedDocumentBlockId(instance) : null);
-		oncomment(blockId, blockId ? selectedWords(blockId) : null);
+		const quote = blockId ? selectedWords(blockId) : null;
+		const range = quote ? selectedRange() : null;
+		const selected = window.getSelection();
+		const rect =
+			selected && selected.rangeCount ? selected.getRangeAt(0).getBoundingClientRect() : null;
+		/* On a wide page the comment is written in the margin, level with its words. */
+		if (marginShown && instance && blockId && mayComment && paperElement) {
+			const frame = paperElement.getBoundingClientRect();
+			const block = editorElement?.querySelector(
+				`.native-document-body > [data-block-id="${CSS.escape(blockId)}"]`
+			);
+			const top = rect?.height ? rect.top : (block?.getBoundingClientRect().top ?? frame.top);
+			activeThread = null;
+			marginDraft = { blockId, quote, range, top: top - frame.top + paperElement.scrollTop };
+			window.getSelection()?.removeAllRanges();
+			return;
+		}
+		oncomment(blockId, quote, range);
+	}
+
+	/** The selected words as a range in the live document, so their mark follows them. Read from
+	 * the page's selection: a reader's editor holds none of its own. */
+	function selectedRange(): CommentRange | null {
+		const instance = editorState.editor;
+		const selection = window.getSelection();
+		if (!instance || !selection || selection.isCollapsed || !selection.rangeCount) return null;
+		const range = selection.getRangeAt(0);
+		try {
+			const from = instance.view.posAtDOM(range.startContainer, range.startOffset);
+			const to = instance.view.posAtDOM(range.endContainer, range.endOffset);
+			return encodeCommentRange(
+				commentRangeBinding(instance.state),
+				Math.min(from, to),
+				Math.max(from, to)
+			);
+		} catch {
+			return null;
+		}
 	}
 
 	/** The words chosen inside one block, as the comment will quote them; null across blocks. */
@@ -860,17 +919,119 @@
 		);
 	}
 
-	/* Blocks with an open thread are marked in the text, and a mark in the margin opens it. */
-	let markedBlocks: ReadonlyMap<string, readonly string[]> = new Map();
+	/* Threads on blocks are marked in the text: by their own range, their quote, or their block.
+	 * On a wide page each also has a card in the margin, level with its words (Sprint 109 E4). */
+	const MARGIN_DRAFT = 'margin-draft';
+	let marginDraft = $state<MarginDraft | null>(null);
+	let activeThread = $state<string | null>(null);
+	let hoveredThread = $state<string | null>(null);
+	let markedThreads: readonly CommentMarkThread[] = [];
+	let focusedThread: string | null = null;
 	$effect(() => {
-		markedBlocks = new Map(
-			[...commentedBlocks].map(([block, thread]) => [block, thread.quotes ?? []])
-		);
-		/* Only the threads changing re-marks; the editor's own transactions must not. */
+		const draft = marginDraft;
+		markedThreads = [
+			...commentThreads.flatMap((item) =>
+				item.thread.block_id
+					? [
+							{
+								threadId: item.thread.id,
+								blockId: item.thread.block_id,
+								quote: item.thread.anchor_quote ?? null,
+								range:
+									item.thread.anchor_from && item.thread.anchor_to
+										? { from: item.thread.anchor_from, to: item.thread.anchor_to }
+										: null
+							}
+						]
+					: []
+			),
+			/* The words a comment is being written about stay marked while it is written. */
+			...(draft
+				? [
+						{
+							threadId: MARGIN_DRAFT,
+							blockId: draft.blockId,
+							quote: draft.quote,
+							range: draft.range
+						}
+					]
+				: [])
+		];
+		focusedThread = hoveredThread ?? activeThread ?? (draft ? MARGIN_DRAFT : null);
+		/* Only the threads (or the one in focus) changing re-marks; the editor's own transactions
+		 * must not. */
 		const instance = untrack(() => editorState.editor);
 		if (instance && !instance.isDestroyed)
 			instance.view.dispatch(instance.state.tr.setMeta(commentMarksKey, true));
 	});
+	/* A thread that closed (resolved, or taken back) closes its card. */
+	$effect(() => {
+		const open = activeThread;
+		if (open && !commentThreads.some((item) => item.thread.id === open)) activeThread = null;
+	});
+
+	/* The margin shows when the page is wide enough for it beside the text; the space is reserved
+	 * by the same width in CSS, so cards arriving never move the text. */
+	const MARGIN_MIN_WIDTH = 960;
+	let pageWidth = $state(0);
+	const marginShown = $derived(margin && pageWidth >= MARGIN_MIN_WIDTH);
+	let marginAnchors = $state<ReadonlyMap<string, number>>(new Map());
+	function placeMargin(): void {
+		const instance = editorState.editor;
+		const paper = paperElement;
+		if (!marginShown || !instance || instance.isDestroyed || !paper) {
+			if (marginAnchors.size) marginAnchors = new Map();
+			return;
+		}
+		const frame = paper.getBoundingClientRect();
+		const next = new Map<string, number>();
+		for (const [threadId, place] of commentPlaces(instance.state)) {
+			if (threadId === MARGIN_DRAFT) continue;
+			try {
+				const dom = instance.view.nodeDOM(place.from);
+				const top =
+					dom instanceof HTMLElement
+						? dom.getBoundingClientRect().top
+						: instance.view.coordsAtPos(place.from, 1).top;
+				next.set(threadId, Math.round(top - frame.top + paper.scrollTop));
+			} catch {
+				/* A place the view cannot measure yet: the card waits for the next frame. */
+			}
+		}
+		const same =
+			next.size === marginAnchors.size &&
+			[...next].every(([id, top]) => marginAnchors.get(id) === top);
+		if (!same) marginAnchors = next;
+	}
+	$effect(() => {
+		void editorState;
+		void commentThreads;
+		void marginShown;
+		const frame = requestAnimationFrame(placeMargin);
+		return () => cancelAnimationFrame(frame);
+	});
+	$effect(() => {
+		const section = sectionElement;
+		if (!section) return;
+		const observer = new ResizeObserver((entries) => {
+			pageWidth = entries[0]?.contentRect.width ?? section.clientWidth;
+		});
+		observer.observe(section);
+		return () => observer.disconnect();
+	});
+	/* Choosing commented words in the text opens their card. */
+	function openCardFromText(event: MouseEvent): void {
+		if (!marginShown) return;
+		const target = event.target instanceof Element ? event.target : null;
+		const marked = target?.closest<HTMLElement>('[data-comment-thread]');
+		const id = marked?.dataset.commentThread;
+		if (id && id !== MARGIN_DRAFT && window.getSelection()?.isCollapsed !== false)
+			activeThread = id;
+	}
+	function marginDraftDone(threadId: string | null): void {
+		marginDraft = null;
+		activeThread = threadId;
+	}
 	let paperElement = $state<HTMLDivElement>();
 	let threadMarks = $state<{ threadId: string; count: number; top: number }[]>([]);
 	function placeThreadMarks(): void {
@@ -901,8 +1062,13 @@
 	$effect(() => {
 		const paper = paperElement;
 		if (!paper) return;
-		const observer = new ResizeObserver(() => placeThreadMarks());
+		const observer = new ResizeObserver(() => {
+			placeThreadMarks();
+			placeMargin();
+		});
 		observer.observe(paper);
+		/* The text reflowing (an image loading, a block growing) moves the words under the cards. */
+		if (editorElement) observer.observe(editorElement);
 		return () => observer.disconnect();
 	});
 
@@ -1507,11 +1673,11 @@
 					? 'Recent edits are not being saved.'
 					: collaborationFailure
 						? collaborationFailure
-					: writingOffline
-						? 'Your edits are kept on this device and sync when the connection returns.'
-						: canWriteLive
-							? 'Edits and version history save automatically.'
-							: accessHint)}
+						: writingOffline
+							? 'Your edits are kept on this device and sync when the connection returns.'
+							: canWriteLive
+								? 'Edits and version history save automatically.'
+								: accessHint)}
 		>
 			{#if collaborationState === 'synced' && !saveProblem}
 				<Check size={14} strokeWidth={2} aria-hidden="true" />
@@ -1525,19 +1691,19 @@
 						? 'Not saved'
 						: collaborationFailure
 							? 'Read only'
-						: writingOffline
-							? unsyncedChanges > 0
-								? 'Saved on this device, syncing'
-								: online
-									? 'Reconnecting'
-									: 'Offline'
-							: savingShown
-								? 'Saving…'
-								: titleDirty
-									? 'Unsaved title'
-									: canWriteLive
-										? 'Saved'
-										: readerLabel}</span
+							: writingOffline
+								? unsyncedChanges > 0
+									? 'Saved on this device, syncing'
+									: online
+										? 'Reconnecting'
+										: 'Offline'
+								: savingShown
+									? 'Saving…'
+									: titleDirty
+										? 'Unsaved title'
+										: canWriteLive
+											? 'Saved'
+											: readerLabel}</span
 			>
 		</div>
 		<div class="editor-actions">
@@ -1953,8 +2119,33 @@
 	{/if}
 
 	<!-- The page is what prints: Print or save as PDF, or the browser's own print. -->
-	<div class="paper document-print" class:read-only={!canWriteLive} bind:this={paperElement}>
+	<div
+		class="paper document-print"
+		class:read-only={!canWriteLive}
+		class:with-margin={margin}
+		bind:this={paperElement}
+	>
 		<div class="paper-rule" aria-hidden="true"></div>
+		{#if marginShown && editor}
+			<DocumentMargin
+				{companyId}
+				documentId={view.document.id}
+				threads={commentThreads}
+				anchors={marginAnchors}
+				active={activeThread}
+				draft={marginDraft}
+				canComment={mayComment}
+				{online}
+				{nameOf}
+				onactivate={(threadId) => {
+					activeThread = threadId;
+					if (threadId) marginDraft = null;
+				}}
+				onhover={(threadId) => (hoveredThread = threadId)}
+				ondraftdone={marginDraftDone}
+				onopenpanel={(threadId) => onopenthread(threadId)}
+			/>
+		{/if}
 		{#each threadMarks as mark (mark.threadId)}
 			<button
 				type="button"
@@ -2005,9 +2196,12 @@
 				}}></textarea>
 		</div>
 		{#if collaborationState === 'synced' || collaborationState === 'read-only' || editor}
-			<div class="editor-mount" bind:this={editorElement}></div>
+			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+			<div class="editor-mount" bind:this={editorElement} onclick={openCardFromText}></div>
 		{:else if collaborationState === 'connecting' && !collaborationFailure}
-			<div class="document-opening" aria-busy="true"><Skeleton label="Opening document" variant="lines" count={8} /></div>
+			<div class="document-opening" aria-busy="true">
+				<Skeleton label="Opening document" variant="lines" count={8} />
+			</div>
 		{:else}
 			<div class="named-version-projection">
 				<span class="sr-only">Showing the last saved version.</span>
@@ -2827,6 +3021,26 @@
 	.named-version-projection {
 		max-width: 672px;
 		margin: 0 auto;
+	}
+	/* Comments in the margin (Sprint 109 E4): on a page wide enough, a column beside the text is
+	 * always reserved, comments or not, so their cards arriving never move the text. Narrower,
+	 * the count marks stay and open the comments panel (a sheet on a phone). The width matches
+	 * MARGIN_MIN_WIDTH in the script. */
+	.paper.with-margin {
+		--doc-margin-width: 240px;
+		--doc-margin-inset: 16px;
+	}
+	@container document-editor (min-width: 960px) {
+		.paper.with-margin {
+			padding-right: calc(var(--doc-margin-width) + var(--doc-margin-inset) + 24px);
+		}
+		.paper.with-margin .thread-mark {
+			display: none;
+		}
+	}
+	:global(.native-document-body .commented-words.active-comment),
+	:global(.native-document-body > .has-comments.active-comment) {
+		background: color-mix(in srgb, var(--highlight) 85%, transparent);
 	}
 	/* Above the brief "Show in document" mark, which sits behind the text. */
 	.editor-mount {

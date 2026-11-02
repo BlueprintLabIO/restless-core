@@ -6,7 +6,7 @@
 //! own the live collaborative body; these named versions remain checkpoints and
 //! the structured read-only representation.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -645,6 +645,10 @@ pub struct DocumentCommentThreadRow {
     pub block_id: Option<String>,
     /// The words in the block the comment is about, when a passage was selected.
     pub anchor_quote: Option<String>,
+    /// Where a margin comment's words start and end in the live document: two Yjs relative
+    /// positions (base64), opaque to Core. The block and quote remain the fallback.
+    pub anchor_from: Option<String>,
+    pub anchor_to: Option<String>,
     pub status: DocumentCommentStatus,
     pub created_by_actor_id: String,
     pub created_at: DateTime<Utc>,
@@ -657,6 +661,59 @@ pub struct DocumentCommentThreadRow {
 pub struct DocumentCommentThreadView {
     pub thread: DocumentCommentThreadRow,
     pub anchor_state: DocumentCommentAnchorState,
+    /// What the margin shows before the thread is opened: who began it, what they said and how
+    /// many comments it holds now. Absent only while a thread has no comment left.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opening: Option<DocumentCommentOpening>,
+}
+
+/// The first comment of a thread, as its margin card shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, sqlx::FromRow)]
+pub struct DocumentCommentOpening {
+    #[serde(skip)]
+    pub thread_id: Uuid,
+    pub author_actor_id: String,
+    pub excerpt: String,
+    pub comment_count: i64,
+}
+
+/// The exact words a margin comment is about, as two Yjs relative positions (base64 of
+/// `Y.encodeRelativePosition`). Core stores them; only the live editor resolves them.
+#[derive(Debug, Clone, Copy)]
+pub struct DocumentCommentRange<'a> {
+    pub from: &'a str,
+    pub to: &'a str,
+}
+
+const COMMENT_OPENING_EXCERPT: i32 = 280;
+
+fn validate_comment_range_position(value: &str) -> DocumentResult<&str> {
+    let body = value.trim_end_matches('=');
+    let padding = value.len() - body.len();
+    if !(4..=256).contains(&body.len())
+        || padding > 2
+        || !body
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'+' || byte == b'/')
+    {
+        return Err(DocumentError::Invalid(
+            "The comment's place in the text is not a position this editor wrote.".into(),
+        ));
+    }
+    Ok(value)
+}
+
+fn opening_from_first_comment(first: &DocumentCommentRow) -> DocumentCommentOpening {
+    DocumentCommentOpening {
+        thread_id: first.thread_id,
+        author_actor_id: first.author_actor_id.clone(),
+        excerpt: first
+            .plain_text
+            .chars()
+            .take(COMMENT_OPENING_EXCERPT as usize)
+            .collect(),
+        comment_count: 1,
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3929,13 +3986,14 @@ fn version_view(version: DocumentVersionRow) -> DocumentResult<DocumentVersionVi
 }
 
 fn comment_thread_select() -> &'static str {
-    "SELECT id,document_id,anchored_version_id,block_id,anchor_quote,status,created_by_actor_id,\
-            created_at,resolved_by_actor_id,resolved_at,version FROM native_document_comment_threads"
+    "SELECT id,document_id,anchored_version_id,block_id,anchor_quote,anchor_from,anchor_to,status,\
+            created_by_actor_id,created_at,resolved_by_actor_id,resolved_at,version \
+     FROM native_document_comment_threads"
 }
 
 fn comment_thread_columns() -> &'static str {
-    "id,document_id,anchored_version_id,block_id,anchor_quote,status,created_by_actor_id,created_at,\
-     resolved_by_actor_id,resolved_at,version"
+    "id,document_id,anchored_version_id,block_id,anchor_quote,anchor_from,anchor_to,status,\
+     created_by_actor_id,created_at,resolved_by_actor_id,resolved_at,version"
 }
 
 fn comment_select() -> &'static str {
@@ -6877,8 +6935,20 @@ impl OrgIntel {
         input: NewDocumentCommentThread<'_>,
         quote: Option<&str>,
     ) -> DocumentResult<DocumentCommentThreadCreated> {
+        self.create_document_comment_thread_in_margin(input, quote, None)
+            .await
+    }
+
+    /// Start a thread in the margin: on a block, narrowed to its words, and pinned to them in the
+    /// live document by a Yjs range so the mark follows the words through later edits.
+    pub async fn create_document_comment_thread_in_margin(
+        &self,
+        input: NewDocumentCommentThread<'_>,
+        quote: Option<&str>,
+        range: Option<DocumentCommentRange<'_>>,
+    ) -> DocumentResult<DocumentCommentThreadCreated> {
         let mut tx = self.pool.begin().await?;
-        let result = create_document_comment_thread_in_tx(&mut tx, input, quote).await?;
+        let result = create_document_comment_thread_in_tx(&mut tx, input, quote, range).await?;
         tx.commit().await?;
         Ok(result)
     }
@@ -7162,14 +7232,33 @@ impl OrgIntel {
         .bind(limit + 1)
         .fetch_all(&mut *tx)
         .await?;
-        tx.commit().await?;
         let next_cursor = page_tail(&mut rows, limit, |row| DocumentPageCursor {
             created_at: row.created_at,
             id: row.id,
         });
+        // Each thread's first comment still standing and how many it holds: the margin card.
+        let thread_ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
+        let openings = sqlx::query_as::<_, DocumentCommentOpening>(
+            "SELECT DISTINCT ON (c.thread_id) c.thread_id,c.author_actor_id, \
+               left(c.plain_text,$2) AS excerpt, \
+               count(*) OVER (PARTITION BY c.thread_id) AS comment_count \
+             FROM native_document_comments c \
+             WHERE c.thread_id=ANY($1) AND c.deleted_at IS NULL \
+             ORDER BY c.thread_id,c.created_at,c.id",
+        )
+        .bind(&thread_ids)
+        .bind(COMMENT_OPENING_EXCERPT)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let mut openings: HashMap<Uuid, DocumentCommentOpening> = openings
+            .into_iter()
+            .map(|opening| (opening.thread_id, opening))
+            .collect();
         let items = rows
             .into_iter()
             .map(|thread| {
+                let opening = openings.remove(&thread.id);
                 let anchor_state = match &thread.block_id {
                     None => DocumentCommentAnchorState::Document,
                     Some(block_id) if active_blocks.contains(block_id) => {
@@ -7180,6 +7269,7 @@ impl OrgIntel {
                 DocumentCommentThreadView {
                     thread,
                     anchor_state,
+                    opening,
                 }
             })
             .collect();
@@ -7958,6 +8048,7 @@ impl OrgIntel {
                         block_id: None,
                         content_json: &content,
                     },
+                    None,
                     None,
                 )
                 .await?;
@@ -10564,9 +10655,24 @@ pub(super) async fn create_document_comment_thread_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     input: NewDocumentCommentThread<'_>,
     quote: Option<&str>,
+    range: Option<DocumentCommentRange<'_>>,
 ) -> DocumentResult<DocumentCommentThreadCreated> {
     let content = validated_comment_content(input.content_json)?;
     let block_id = input.block_id.map(validate_block_id).transpose()?;
+    let range = range
+        .map(|range| {
+            if block_id.is_none() {
+                return Err(DocumentError::Invalid(
+                    "Only a comment on a block can point at words in it.".into(),
+                ));
+            }
+            Ok((
+                validate_comment_range_position(range.from)?.to_string(),
+                validate_comment_range_position(range.to)?.to_string(),
+            ))
+        })
+        .transpose()?;
+    let (anchor_from, anchor_to) = range.unzip();
     let quote = quote
         .map(str::trim)
         .filter(|quote| !quote.is_empty())
@@ -10585,16 +10691,19 @@ pub(super) async fn create_document_comment_thread_in_tx(
         })
         .transpose()?;
     let mentions = mentioned_actor_ids(&content)?;
-    let fingerprint = request_fingerprint(
-        "comment_thread_create",
-        json!({
-            "document_id": input.document_id,
-            "actor_id": input.actor_id,
-            "block_id": block_id,
-            "anchor_quote": quote,
-            "content_json": content.content_json,
-        }),
-    );
+    let mut fingerprinted = json!({
+        "document_id": input.document_id,
+        "actor_id": input.actor_id,
+        "block_id": block_id,
+        "anchor_quote": quote,
+        "content_json": content.content_json,
+    });
+    // Only a margin range joins the fingerprint, so commands sent before ranges existed replay.
+    if let (Some(from), Some(to)) = (&anchor_from, &anchor_to) {
+        fingerprinted["anchor_from"] = json!(from);
+        fingerprinted["anchor_to"] = json!(to);
+    }
+    let fingerprint = request_fingerprint("comment_thread_create", fingerprinted);
     lock_document_command(tx, input.command_id).await?;
     // Take the write lock before access checks acquire their shared lock:
     // two simultaneous anchored comments must not deadlock on an upgrade.
@@ -10647,6 +10756,7 @@ pub(super) async fn create_document_comment_thread_in_tx(
         .ok_or_else(|| {
             DocumentError::Corrupt("comment command receipt has no first comment".into())
         })?;
+        let first_comment = validate_comment_row(first_comment)?;
         return Ok(DocumentCommentThreadCreated {
             thread: DocumentCommentThreadView {
                 anchor_state: if thread.block_id.is_some() {
@@ -10654,9 +10764,10 @@ pub(super) async fn create_document_comment_thread_in_tx(
                 } else {
                     DocumentCommentAnchorState::Document
                 },
+                opening: Some(opening_from_first_comment(&first_comment)),
                 thread,
             },
-            first_comment: validate_comment_row(first_comment)?,
+            first_comment,
         });
     }
     require_mentioned_actor_access(tx, input.document_id, &mentions).await?;
@@ -10684,8 +10795,9 @@ pub(super) async fn create_document_comment_thread_in_tx(
     let comment_id = Uuid::new_v4();
     let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
         "INSERT INTO native_document_comment_threads \
-             (id,document_id,anchored_version_id,block_id,created_by_actor_id,anchor_quote) \
-             VALUES ($1,$2,$3,$4,$5,$6) RETURNING {}",
+             (id,document_id,anchored_version_id,block_id,created_by_actor_id,anchor_quote,\
+              anchor_from,anchor_to) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING {}",
         comment_thread_columns()
     ))
     .bind(thread_id)
@@ -10694,6 +10806,8 @@ pub(super) async fn create_document_comment_thread_in_tx(
     .bind(&block_id)
     .bind(input.actor_id)
     .bind(&quote)
+    .bind(&anchor_from)
+    .bind(&anchor_to)
     .fetch_one(&mut **tx)
     .await?;
     let first_comment = sqlx::query_as::<_, DocumentCommentRow>(&format!(
@@ -10740,6 +10854,7 @@ pub(super) async fn create_document_comment_thread_in_tx(
         }),
     )
     .await?;
+    let first_comment = validate_comment_row(first_comment)?;
     Ok(DocumentCommentThreadCreated {
         thread: DocumentCommentThreadView {
             anchor_state: if thread.block_id.is_some() {
@@ -10747,9 +10862,10 @@ pub(super) async fn create_document_comment_thread_in_tx(
             } else {
                 DocumentCommentAnchorState::Document
             },
+            opening: Some(opening_from_first_comment(&first_comment)),
             thread,
         },
-        first_comment: validate_comment_row(first_comment)?,
+        first_comment,
     })
 }
 

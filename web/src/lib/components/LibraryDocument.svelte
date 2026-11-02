@@ -97,6 +97,8 @@
 	let commentBlockId = $state<string | null>(null);
 	/* The words selected when the comment began, so the thread points at them, not the block. */
 	let commentQuote = $state<string | null>(null);
+	/* Where those words are in the live document, so the thread's mark follows them. */
+	let commentRange = $state<{ from: string; to: string } | null>(null);
 	let documentDirty = $state(false);
 	let othersEditing = $state<string[]>([]);
 	const failure = $derived(shellPrincipal.failure ?? detail.failure ?? null);
@@ -205,6 +207,10 @@
 		}
 		return blocks;
 	});
+	/* The same open threads on blocks still in the document, carded in the margin. */
+	const marginThreads = $derived(
+		openThreads.filter((item) => item.thread.block_id && item.anchor_state === 'active')
+	);
 	/* A margin mark opens its thread, even when that thread is already in the address and the
 	 * person has since looked at another. */
 	let threadRequest = $state(0);
@@ -596,9 +602,14 @@
 	function closeInspector(): void {
 		void navigate(documentHref(), { keepFocus: true, noScroll: true });
 	}
-	function openBlockComment(blockId: string | null, quote: string | null = null): void {
+	function openBlockComment(
+		blockId: string | null,
+		quote: string | null = null,
+		range: { from: string; to: string } | null = null
+	): void {
 		commentBlockId = blockId;
 		commentQuote = blockId ? quote : null;
+		commentRange = blockId && quote ? range : null;
 		changePanel('comments');
 	}
 	function acceptDocument(target: DocumentTarget, view: DocumentReadView): void {
@@ -677,6 +688,8 @@
 				onaccept={acceptDocument}
 				oncomment={openBlockComment}
 				{commentedBlocks}
+				commentThreads={marginThreads}
+				margin
 				onopenthread={openThread}
 				oncopyblocklink={(blockId) => void copyBlockLink(blockId)}
 				{suggestions}
@@ -729,8 +742,7 @@
 					{/if}
 					<button
 						type="button"
-						class="btn small icon"
-						class:counted={openThreads.length > 0}
+						class="btn small icon counted"
 						aria-label={openThreads.length
 							? `Comments (${openThreads.length} open) and history`
 							: 'Comments and history'}
@@ -740,9 +752,10 @@
 						aria-expanded={inspectorOpen && !sharing}
 						onclick={() => (inspectorOpen && !sharing ? closeInspector() : changePanel('comments'))}
 					>
-						<MessageSquare size={15} aria-hidden="true" />{#if openThreads.length}<span
-								class="count">{openThreads.length}</span
-							>{/if}
+						<!-- The count's place is held while threads load, so arriving moves nothing. -->
+						<MessageSquare size={15} aria-hidden="true" /><span class="count" aria-hidden="true"
+							>{openThreads.length || ''}</span
+						>
 					</button>
 				{/snippet}
 				{#snippet moreActions()}
@@ -959,11 +972,15 @@
 					{othersEditing}
 					{commentBlockId}
 					{commentQuote}
+					{commentRange}
 					ondismiss={closeInspector}
 					onpanelchange={changePanel}
 					oncommenttargetchange={(value: string | null) => {
 						commentBlockId = value;
-						if (!value) commentQuote = null;
+						if (!value) {
+							commentQuote = null;
+							commentRange = null;
+						}
 					}}
 					onaccept={acceptDocument}
 					onshowblock={showBlock}
@@ -1072,8 +1089,10 @@
 		padding: 0 8px;
 	}
 	.count {
+		min-width: 2ch;
 		font-size: var(--t-label);
 		font-variant-numeric: tabular-nums;
+		text-align: left;
 	}
 	.document-stage,
 	.inspector-pane {
