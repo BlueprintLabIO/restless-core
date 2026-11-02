@@ -1,0 +1,13 @@
+# Local PR checks (scripts/release/local/pr-checks.sh). Install:
+#   cp scripts/release/local/systemd/restless-pr-checks.* ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now restless-pr-checks.timer
+[Unit]
+Description=Restless local PR checks (qualify each open pull request, post local-ci)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/code/work/ghapp-fix
+# A login shell, so node, npm, gh and dagger are on PATH as they are for the owner.
+ExecStart=/bin/bash -lc %h/code/work/ghapp-fix/scripts/release/local/pr-checks.sh
+Nice=10
+TimeoutStartSec=8h

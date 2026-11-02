@@ -1,0 +1,9 @@
+[Unit]
+Description=Look for new pull request commits to check every five minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+
+[Install]
+WantedBy=timers.target
