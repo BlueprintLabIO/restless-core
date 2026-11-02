@@ -52,7 +52,7 @@ pub(crate) enum DocumentCommand {
         #[arg(long)]
         key: String,
     },
-    /// Read the current shared body and block hashes for guarded edits.
+    /// Read the current shared body, block hashes for guarded edits, and open suggestions.
     Read { document: String },
     /// Apply and persist live edits immediately; no checkpoint or approval is needed.
     #[command(after_long_help = r#"WORKFLOW
@@ -72,6 +72,19 @@ OPERATIONS FILE
   Delete using the exact observed hash:
     [{"op":"delete","block_id":"BLOCK_ID","expected_hash":"SHA256_FROM_READ"}]
 
+SUGGESTIONS (changes a person accepts or rejects in place)
+  Suggest new words for a block: send the block as it should read, same structure and IDs; the
+  difference becomes suggestions in your name. Struck words are already on their way out.
+    [{"op":"suggest","block_id":"BLOCK_ID","expected_hash":"SHA256_FROM_READ","block":{"type":"paragraph","attrs":{"block_id":"BLOCK_ID"},"content":[{"type":"text","text":"Proposed wording"}]}}]
+  Suggest a new block of words, or striking a whole block of words:
+    [{"op":"suggest_insert","after":"BLOCK_ID","block":{"type":"paragraph","attrs":{"block_id":"NEW_UNIQUE_ID"},"content":[{"type":"text","text":"Proposed paragraph"}]}}]
+    [{"op":"suggest_delete","block_id":"BLOCK_ID","expected_hash":"SHA256_FROM_READ"}]
+  Each takes an optional "thread":"COMMENT_THREAD_ID" when it answers a comment; reply on that
+  thread too. Mentions, pictures, files and line breaks are not suggested: change those directly.
+  read lists open suggestions (id, kind, author, inserted, deleted, thread, block_id). Settle one:
+    [{"op":"accept","suggestion":"SUGGESTION_ID"}]   [{"op":"reject","suggestion":"SUGGESTION_ID"}]
+  Accept or reject only when the person who decides asked you to.
+
 CONTENT AND CONFLICTS
   Blocks use the editor JSON returned by read. Preserve untouched nodes and attributes.
   Each block needs a unique attrs.block_id (including nested block nodes); text nodes do not.
@@ -81,6 +94,7 @@ CONTENT AND CONFLICTS
   An image block (attrs.attachment_id, attrs.alt, attrs.caption) shows a company file, and a file
   block (attrs.attachment_id, attrs.name) carries one; keep both unchanged.
   Inline text: {"type":"text","text":"..."}; optional marks include bold, italic, underline, strike, code, link, highlight and textColor (attrs.color from a small named palette).
+  suggestedInsert and suggestedDelete marks are suggestions; keep others' as they are.
   Copy an existing block when changing text rather than reconstructing unfamiliar structure.
   A block can be edited only once in one command. All guards are checked before any update.
   A stale hash, missing anchor, or changed checkpoint is a conflict, not permission to overwrite.

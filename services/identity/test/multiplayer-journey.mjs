@@ -905,6 +905,117 @@ try {
   for (const who of [owner, alice]) await who.page.setViewportSize({ width: 1280, height: 900 });
   pass("a reader sees margin comments read-only; a phone keeps the count mark");
 
+  // 9b''. Suggestions (S109 E4): Alice switches to Suggesting and replaces a word; the owner sees
+  //       the change carded in the margin beside its words and accepts it while Bob types in the
+  //       same document. Every copy converges on the accepted text, and it survives reload.
+  const suggestionDoc = await coreApi(owner, `${base}/documents`, {
+    method: "POST",
+    expected: 201,
+    body: {
+      title: "Suggestion plan",
+      kind: "brief",
+      visibility: "participants",
+      content_json: { type: "doc", content: [
+        { type: "paragraph", attrs: { block_id: randomUUID() }, content: [{ type: "text", text: "We ship on Friday." }] },
+        { type: "paragraph", attrs: { block_id: randomUUID() }, content: [{ type: "text", text: "Second line." }] },
+      ] },
+      reason: "Suggestions smoke",
+    },
+  });
+  for (const who of [alice, bob]) {
+    const current = (await coreApi(owner, `${base}/documents/${suggestionDoc.document_id}`)).document;
+    await coreApi(owner, `${base}/documents/${suggestionDoc.document_id}/participants/${who.principal.actor_id}`, {
+      method: "PUT",
+      body: { expected_document_version: current.version, access: "edit" },
+    });
+  }
+  const suggestionUrl = `${core}/${company}/library/documents?document=${suggestionDoc.document_id}`;
+  for (const who of [owner, alice, bob]) {
+    await who.page.setViewportSize({ width: 1680, height: 900 });
+    await who.page.goto(suggestionUrl);
+    who.body = who.page.getByLabel("Collaborative document body");
+    await who.body.getByText("We ship on Friday.").waitFor({ timeout: 30000 });
+  }
+  await alice.page.getByRole("button", { name: "Editing", exact: true }).click();
+  await alice.page.getByRole("button", { name: "Suggesting", exact: true }).waitFor({ timeout: 10000 });
+  await alice.body.getByText("We ship on Friday.").click();
+  await alice.page.waitForTimeout(150);
+  await alice.body.evaluate((body) => {
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.data.indexOf("Friday");
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + "Friday".length);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      return;
+    }
+  });
+  await alice.page.waitForTimeout(150);
+  await alice.page.keyboard.type("Monday", { delay: 40 });
+  await alice.body.locator("del[data-suggestion]", { hasText: "Friday" }).waitFor({ timeout: 10000 });
+  await alice.body.locator("ins[data-suggestion]", { hasText: "Monday" }).waitFor({ timeout: 10000 });
+  const suggestionCard = owner.page.locator("[data-margin-suggestion]").filter({ hasText: "Replace “Friday” with “Monday”" });
+  await suggestionCard.waitFor({ timeout: 20000 });
+  const suggestionLevel = await owner.page.evaluate(() => {
+    const card = document.querySelector("[data-margin-suggestion]")?.getBoundingClientRect();
+    const words = document.querySelector(".native-document-body del[data-suggestion]")?.getBoundingClientRect();
+    return card && words ? Math.abs(card.top - words.top) : null;
+  });
+  assert(suggestionLevel !== null && suggestionLevel < 40, `the suggestion's card sits beside its words (off by ${suggestionLevel}px)`);
+  assert.equal(await bob.body.locator("del[data-suggestion]", { hasText: "Friday" }).count(), 1, "a co-editor sees the suggestion live");
+  await shot(owner, "suggestion-card");
+  // At 1440, and on a phone where the suggestion at the caret opens its card over the text,
+  // in light and dark.
+  for (const scheme of ["light", "dark"]) {
+    await owner.page.emulateMedia({ colorScheme: scheme });
+    await owner.page.setViewportSize({ width: 1440, height: 900 });
+    await owner.body.locator("ins[data-suggestion]", { hasText: "Monday" }).waitFor({ timeout: 10000 });
+    await shot(owner, `suggestion-1440-${scheme}`);
+    await alice.page.emulateMedia({ colorScheme: scheme });
+    await alice.page.setViewportSize({ width: 390, height: 844 });
+    await alice.body.locator("ins[data-suggestion]", { hasText: "Monday" }).click();
+    const pop = alice.page.locator(".suggestion-pop").filter({ hasText: "Replace “Friday” with “Monday”" });
+    await pop.waitFor({ timeout: 10000 });
+    assert.equal(await alice.page.locator(".comment-margin").count(), 0, "a phone has no margin column");
+    assert(
+      await alice.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      "the phone page does not scroll sideways with a suggestion open",
+    );
+    await shot(alice, `suggestion-390-${scheme}`);
+  }
+  for (const who of [owner, alice]) {
+    await who.page.emulateMedia({ colorScheme: "light" });
+    await who.page.setViewportSize({ width: 1680, height: 900 });
+  }
+  await suggestionCard.waitFor({ timeout: 20000 });
+  // The owner accepts while Bob is typing at the end of the second line.
+  await bob.body.getByText("Second line.").click();
+  await bob.page.waitForTimeout(150);
+  await bob.page.keyboard.press("End");
+  await Promise.all([
+    bob.page.keyboard.type(" Bob types while the owner accepts.", { delay: 40 }),
+    (async () => {
+      await owner.page.waitForTimeout(400);
+      await suggestionCard.getByRole("button", { name: "Accept" }).click();
+    })(),
+  ]);
+  for (const who of [owner, alice, bob]) {
+    await who.body.getByText("We ship on Monday.").waitFor({ timeout: 20000 });
+    await who.body.getByText("Second line. Bob types while the owner accepts.").waitFor({ timeout: 20000 });
+    assert.equal(await who.body.locator("del[data-suggestion], ins[data-suggestion]").count(), 0, `${who.name} sees no open suggestion`);
+  }
+  await suggestionCard.waitFor({ state: "detached", timeout: 10000 });
+  for (const who of [owner, alice, bob]) {
+    await who.page.reload();
+    await who.page.getByLabel("Collaborative document body").getByText("We ship on Monday.").waitFor({ timeout: 30000 });
+    await who.page.getByText("Second line. Bob types while the owner accepts.").waitFor({ timeout: 20000 });
+  }
+  for (const who of [owner, alice, bob]) await who.page.setViewportSize({ width: 1280, height: 900 });
+  pass("a member suggested a replacement; the owner accepted it in the margin while another member typed; all converge and it persists");
+
   await owner.page.goto(documentUrl);
   const ownerBody = owner.page.getByLabel("Collaborative document body");
   await ownerBody.waitFor({ timeout: 30000 });

@@ -43,6 +43,8 @@ test('the browser editor schema is the exact sidecar-compatible node and mark se
 		'italic',
 		'link',
 		'strike',
+		'suggestedDelete',
+		'suggestedInsert',
 		'textColor',
 		'underline'
 	]);
@@ -87,7 +89,9 @@ test('no browser node or mark can carry an attribute the sidecar refuses', (cont
 				? ['href', 'title']
 				: ['highlight', 'textColor'].includes(name)
 					? ['color']
-					: [],
+					: ['suggestedInsert', 'suggestedDelete'].includes(name)
+						? ['at', 'author', 'id', 'thread']
+						: [],
 			`${name} attributes`
 		);
 	}

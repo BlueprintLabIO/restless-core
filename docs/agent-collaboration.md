@@ -23,6 +23,14 @@ checks used by the human API.
   [{"op":"replace","block_id":"opening","expected_hash":"<hash from read>","block":{"type":"paragraph","attrs":{"block_id":"opening"},"content":[{"type":"text","text":"Revised opening"}]}}]
   ```
 
+  To propose rather than change, use suggestions (Sprint 109 E4): `suggest` sends a block as it
+  should read and the service marks the difference as insertions and deletions in the caller's
+  name; `suggest_insert` proposes a new block of words; `suggest_delete` strikes a block's words.
+  Each takes an optional comment `thread` it answers. `read` lists open suggestions with their
+  id, author, words and thread, and `accept`/`reject` settle one by id. A person accepts or rejects
+  them in the document's margin. A suggestion is always in its author's name: Core and the
+  service refuse a new suggestion mark attributed to anyone else.
+
   Core retains the prepared CRDT delta before applying it. Retry with the exact same key and
   operations after a transport failure; do not generate a fresh key just because no reply arrived.
   A stale block or changed named checkpoint requires rereading and reviewing the current body.

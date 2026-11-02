@@ -1,7 +1,10 @@
 /* A native document as a Word file (.docx), written in the browser from its saved body. It keeps
  * what Word can hold of the company schema: headings, paragraphs, bulleted, numbered and task
  * lists, tables, quotes, code, rules and line breaks, with bold, italic, underlined, struck,
- * coloured, highlighted, code and linked text, and each paragraph's alignment. Pictures and comments are not carried. */
+ * coloured, highlighted, code and linked text, and each paragraph's alignment. Pictures and comments are not carried.
+ * Suggestions (Sprint 109 E4) become Word's own tracked changes, by author and time, to accept or
+ * reject in Word; or, for a copy of the agreed text only, proposed words are left out and words
+ * proposed for deletion stay. A code block always carries its agreed text. */
 import { strToU8, zipSync } from 'fflate';
 import type { DocumentContent, DocumentNode } from './documents';
 
@@ -16,8 +19,19 @@ const escape = (text: string) =>
 		// Characters XML 1.0 cannot carry at all.
 		.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, '');
 
+/** What a Word copy does with open suggestions: Word's tracked changes, or the agreed text only. */
+export interface DocxOptions {
+	suggestions?: 'tracked' | 'agreed';
+	/** A suggestion's author as Word names them. */
+	nameOf?: (actorId: string) => string;
+}
+
 interface Writer {
 	links: string[];
+	suggestions: 'tracked' | 'agreed';
+	nameOf: (actorId: string) => string;
+	/** Tracked changes are numbered across the document. */
+	revisions: number;
 	/** One numbering instance per list, so every numbered list starts at its own number. */
 	lists: { ordered: boolean; start: number }[];
 }
@@ -64,6 +78,11 @@ function runs(nodes: DocumentNode[] | undefined, writer: Writer): string {
 		if (!text) continue;
 		const marks = node.marks ?? [];
 		const has = (type: string) => marks.some((mark) => mark.type === type);
+		const inserted = marks.find((mark) => mark.type === 'suggestedInsert');
+		const deleted = marks.find((mark) => mark.type === 'suggestedDelete');
+		/* The agreed text: proposed words wait, words proposed for deletion still read. */
+		if (inserted && writer.suggestions === 'agreed') continue;
+		const change = writer.suggestions === 'tracked' ? (inserted ?? deleted) : undefined;
 		const colour = (type: string, palette: Record<string, string>) =>
 			palette[String(marks.find((mark) => mark.type === type)?.attrs?.color ?? '')] ?? '';
 		const link = marks.find((mark) => mark.type === 'link');
@@ -80,7 +99,15 @@ function runs(nodes: DocumentNode[] | undefined, writer: Writer): string {
 		if (has('underline')) props += '<w:u w:val="single"/>';
 		const highlight = colour('highlight', HIGHLIGHTS);
 		if (highlight) props += `<w:shd w:val="clear" w:color="auto" w:fill="${highlight}"/>`;
-		const run = `<w:r>${props ? `<w:rPr>${props}</w:rPr>` : ''}<w:t xml:space="preserve">${escape(text)}</w:t></w:r>`;
+		const textTag = change && !inserted ? 'w:delText' : 'w:t';
+		let run = `<w:r>${props ? `<w:rPr>${props}</w:rPr>` : ''}<${textTag} xml:space="preserve">${escape(text)}</${textTag}></w:r>`;
+		if (change) {
+			writer.revisions += 1;
+			const author = escape(writer.nameOf(String(change.attrs?.author ?? '')) || 'Someone');
+			const date = String(change.attrs?.at ?? '').replace(/\.\d+Z$/u, 'Z');
+			const tag = inserted ? 'w:ins' : 'w:del';
+			run = `<${tag} w:id="${writer.revisions}" w:author="${author}" w:date="${escape(date)}">${run}</${tag}>`;
+		}
 		if (href && /^(https?:|mailto:)/i.test(href)) {
 			writer.links.push(href);
 			out += `<w:hyperlink r:id="rIdLink${writer.links.length}" w:history="1">${run}</w:hyperlink>`;
@@ -136,6 +163,7 @@ function block(node: DocumentNode, writer: Writer, context: Context): string {
 			return blocks(node.content, writer, { ...context, quote: true });
 		case 'codeBlock': {
 			const lines = (node.content ?? [])
+				.filter((child) => !child.marks?.some((mark) => mark.type === 'suggestedInsert'))
 				.map((child) => child.text ?? '')
 				.join('')
 				.split('\n');
@@ -255,8 +283,18 @@ function numberingXml(lists: Writer['lists']): string {
 }
 
 /** The document as a .docx file: its title as the first heading unless the body starts with it. */
-export function documentDocx(title: string, content: DocumentContent): Blob {
-	const writer: Writer = { links: [], lists: [] };
+export function documentDocx(
+	title: string,
+	content: DocumentContent,
+	options: DocxOptions = {}
+): Blob {
+	const writer: Writer = {
+		links: [],
+		lists: [],
+		suggestions: options.suggestions ?? 'tracked',
+		nameOf: options.nameOf ?? ((actorId) => actorId),
+		revisions: 0
+	};
 	const first = content.content[0];
 	const firstText = (first?.content ?? []).map((node) => node.text ?? '').join('');
 	const heading =

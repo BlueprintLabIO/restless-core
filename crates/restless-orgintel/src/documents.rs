@@ -1429,6 +1429,8 @@ fn validate_marks(value: Option<&Value>) -> DocumentResult<()> {
                 | "link"
                 | "highlight"
                 | "textColor"
+                | "suggestedInsert"
+                | "suggestedDelete"
         ) {
             return Err(DocumentError::Invalid(format!(
                 "mark {mark_type:?} is unsupported"
@@ -1473,6 +1475,8 @@ fn validate_marks(value: Option<&Value>) -> DocumentResult<()> {
                     "mark {mark_type:?} needs a colour from the company palette"
                 )));
             }
+        } else if matches!(mark_type, "suggestedInsert" | "suggestedDelete") {
+            validate_suggestion_attrs(attrs)?;
         } else if !attrs.is_empty() {
             return Err(DocumentError::Invalid(format!(
                 "mark {mark_type:?} does not accept attributes"
@@ -1480,6 +1484,92 @@ fn validate_marks(value: Option<&Value>) -> DocumentResult<()> {
         }
     }
     Ok(())
+}
+
+/// A tracked change (Sprint 109 E4): words someone proposes to add or take out, by whom, when,
+/// and the comment thread it answers, if any. One `id` names one change, which may span several
+/// text runs and blocks; a replacement is an insertion and a deletion under the same id. The
+/// mirrors are services/native-documents-collaboration/src/document-codec.ts and
+/// web/src/lib/model/document-editor-schema.ts.
+fn validate_suggestion_attrs(attrs: &Map<String, Value>) -> DocumentResult<()> {
+    reject_unknown_keys(
+        attrs,
+        &["id", "author", "at", "thread"],
+        "suggestion mark attrs",
+    )?;
+    let id = bounded_string(
+        "suggestion id",
+        attrs
+            .get("id")
+            .ok_or_else(|| DocumentError::Invalid("a suggestion needs an id".into()))?,
+        64,
+    )?;
+    if !id
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err(DocumentError::Invalid("suggestion id is invalid".into()));
+    }
+    bounded_string(
+        "suggestion author",
+        attrs
+            .get("author")
+            .ok_or_else(|| DocumentError::Invalid("a suggestion needs an author".into()))?,
+        128,
+    )?;
+    let at = bounded_string(
+        "suggestion time",
+        attrs
+            .get("at")
+            .ok_or_else(|| DocumentError::Invalid("a suggestion needs a time".into()))?,
+        40,
+    )?;
+    if !at.ends_with('Z') || DateTime::parse_from_rfc3339(at).is_err() {
+        return Err(DocumentError::Invalid(
+            "suggestion time must be an RFC 3339 UTC time".into(),
+        ));
+    }
+    match attrs.get("thread") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(thread)) if Uuid::parse_str(thread).is_ok() && thread.len() == 36 => {}
+        Some(_) => {
+            return Err(DocumentError::Invalid(
+                "suggestion thread must be a comment thread id".into(),
+            ))
+        }
+    }
+    Ok(())
+}
+
+fn has_mark(object: &Map<String, Value>, mark_type: &str) -> bool {
+    object
+        .get("marks")
+        .and_then(Value::as_array)
+        .is_some_and(|marks| {
+            marks
+                .iter()
+                .any(|mark| mark.get("type").and_then(Value::as_str) == Some(mark_type))
+        })
+}
+
+/// Words someone has proposed adding and nobody has accepted are not yet the document's text:
+/// Markdown, plain text and search read the agreed text only.
+fn pending_insertion(object: &Map<String, Value>) -> bool {
+    object.get("type").and_then(Value::as_str) == Some("text")
+        && has_mark(object, "suggestedInsert")
+}
+
+/// The same hue a browser gives this actor (web/src/lib/model/page-faces.ts caretHue), so an
+/// exported page draws each person's suggestions in their colour.
+fn suggestion_hue(actor: &str) -> u32 {
+    let mut hash: u32 = 0;
+    // JavaScript walks code points and reads each one's first UTF-16 unit.
+    for character in actor.chars() {
+        let mut units = [0u16; 2];
+        let unit = character.encode_utf16(&mut units)[0];
+        hash = hash.wrapping_mul(31).wrapping_add(u32::from(unit));
+    }
+    hash % 360
 }
 
 fn optional_object<'a>(
@@ -3013,6 +3103,33 @@ fn render_text(object: &Map<String, Value>) -> DocumentResult<String> {
                 "underline" => rendered = format!("<u>{rendered}</u>"),
                 "strike" => rendered = format!("<s>{rendered}</s>"),
                 "code" => rendered = format!("<code>{rendered}</code>"),
+                "suggestedInsert" | "suggestedDelete" => {
+                    let attrs = mark
+                        .get("attrs")
+                        .and_then(Value::as_object)
+                        .ok_or_else(|| {
+                            DocumentError::Corrupt("stored suggestion has no attributes".into())
+                        })?;
+                    let field = |name: &str| attrs.get(name).and_then(Value::as_str).unwrap_or("");
+                    let tag = if mark.get("type").and_then(Value::as_str) == Some("suggestedInsert")
+                    {
+                        "ins"
+                    } else {
+                        "del"
+                    };
+                    let thread = attrs
+                        .get("thread")
+                        .and_then(Value::as_str)
+                        .map(|thread| format!(" data-thread=\"{}\"", escape_html_attribute(thread)))
+                        .unwrap_or_default();
+                    rendered = format!(
+                        "<{tag} data-suggestion=\"{}\" data-author=\"{}\" datetime=\"{}\"{thread} style=\"--suggestion-hue:{}\">{rendered}</{tag}>",
+                        escape_html_attribute(field("id")),
+                        escape_html_attribute(field("author")),
+                        escape_html_attribute(field("at")),
+                        suggestion_hue(field("author")),
+                    );
+                }
                 "highlight" | "textColor" => {
                     let color = escape_html_attribute(
                         mark.get("attrs")
@@ -3168,6 +3285,9 @@ fn render_markdown_block(value: &Value, depth: usize) -> DocumentResult<String> 
                 let child = child.as_object().ok_or_else(|| {
                     DocumentError::Corrupt("stored code child is not an object".into())
                 })?;
+                if pending_insertion(child) {
+                    continue;
+                }
                 code.push_str(
                     child
                         .get("text")
@@ -3337,6 +3457,9 @@ fn render_markdown_inline(value: &Value) -> DocumentResult<String> {
         .and_then(Value::as_str)
         .unwrap_or_default()
     {
+        // Markdown cannot carry a tracked change: it says the agreed text, so a proposed
+        // addition waits and a proposed deletion still reads.
+        "text" if pending_insertion(object) => Ok(String::new()),
         "text" => {
             let raw = object
                 .get("text")
@@ -3354,7 +3477,7 @@ fn render_markdown_inline(value: &Value) -> DocumentResult<String> {
                         "strike" => rendered = format!("~~{rendered}~~"),
                         "code" => rendered = format!("`{rendered}`"),
                         // Markdown has no underline or colour: the words carry over plainly.
-                        "underline" | "highlight" | "textColor" => {}
+                        "underline" | "highlight" | "textColor" | "suggestedDelete" => {}
                         "link" => {
                             let attrs =
                                 mark.get("attrs")
@@ -3447,6 +3570,7 @@ fn collect_plain_text(value: &Value, output: &mut String) -> DocumentResult<()> 
         .and_then(Value::as_str)
         .ok_or_else(|| DocumentError::Corrupt("stored node has no type".into()))?;
     match node_type {
+        "text" if pending_insertion(object) => {}
         "text" => output.push_str(
             object
                 .get("text")
@@ -9193,6 +9317,70 @@ mod tests {
         ] {
             assert!(validate_document_json(&body(marks, attrs)).is_err());
         }
+    }
+
+    #[test]
+    fn suggestions_are_tracked_changes_and_exports_read_the_agreed_text() {
+        let suggestion = |id: &str, thread: Value| json!({"id":id,"author":"agent-exec","at":"2026-11-03T09:30:00.000Z","thread":thread});
+        let thread = "8a6f2c1e-1b2a-4c3d-9e8f-0a1b2c3d4e5f";
+        let content = json!({"type":"doc","content":[
+            {"type":"paragraph","attrs":{"block_id":"p"},"content":[
+                {"type":"text","text":"Ship on "},
+                {"type":"text","text":"Friday","marks":[{"type":"suggestedDelete","attrs":suggestion("s1", Value::Null)}]},
+                {"type":"text","text":"Monday","marks":[{"type":"bold"},{"type":"suggestedInsert","attrs":suggestion("s1", json!(thread))}]},
+                {"type":"text","text":"."}
+            ]},
+            {"type":"paragraph","attrs":{"block_id":"q"},"content":[
+                {"type":"text","text":"A whole new line","marks":[{"type":"suggestedInsert","attrs":suggestion("s2", Value::Null)}]}
+            ]},
+            {"type":"codeBlock","attrs":{"block_id":"c"},"content":[
+                {"type":"text","text":"let a = 1;"},
+                {"type":"text","text":" // new","marks":[{"type":"suggestedInsert","attrs":suggestion("s3", Value::Null)}]}
+            ]}
+        ]});
+        let validated = validate_document_json(&content).unwrap();
+        let hue = suggestion_hue("agent-exec");
+        assert!(validated.rendered_html.contains(&format!(
+            "<del data-suggestion=\"s1\" data-author=\"agent-exec\" datetime=\"2026-11-03T09:30:00.000Z\" style=\"--suggestion-hue:{hue}\">Friday</del>"
+        )));
+        assert!(validated.rendered_html.contains(&format!(
+            "<ins data-suggestion=\"s1\" data-author=\"agent-exec\" datetime=\"2026-11-03T09:30:00.000Z\" data-thread=\"{thread}\" style=\"--suggestion-hue:{hue}\">"
+        )));
+        // Markdown, plain text and search say the agreed text: a deletion still reads, an
+        // addition waits for someone to accept it.
+        assert_eq!(
+            validated.markdown,
+            "Ship on Friday.\n\n```\nlet a = 1;\n```"
+        );
+        assert_eq!(validated.plain_text, "Ship on Friday.\n\nlet a = 1;");
+        // The hue is the browser's caretHue: 31-hash over UTF-16 units, modulo 360.
+        assert_eq!(suggestion_hue("a"), 97);
+        assert_eq!(suggestion_hue(""), 0);
+
+        let body = |attrs: Value| {
+            json!({"type":"doc","content":[{"type":"paragraph","attrs":{"block_id":"p"},"content":[
+                {"type":"text","text":"x","marks":[{"type":"suggestedInsert","attrs":attrs}]}
+            ]}]})
+        };
+        for invalid in [
+            json!({"author":"a","at":"2026-11-03T09:30:00Z"}),
+            json!({"id":"s 1","author":"a","at":"2026-11-03T09:30:00Z"}),
+            json!({"id":"s1","at":"2026-11-03T09:30:00Z"}),
+            json!({"id":"s1","author":" ","at":"2026-11-03T09:30:00Z"}),
+            json!({"id":"s1","author":"a","at":"yesterday"}),
+            json!({"id":"s1","author":"a","at":"2026-11-03T09:30:00+10:00"}),
+            json!({"id":"s1","author":"a","at":"2026-11-03T09:30:00Z","thread":"not-a-thread"}),
+            json!({"id":"s1","author":"a","at":"2026-11-03T09:30:00Z","colour":"red"}),
+        ] {
+            assert!(
+                validate_document_json(&body(invalid.clone())).is_err(),
+                "{invalid} must be refused"
+            );
+        }
+        assert!(validate_document_json(&body(
+            json!({"id":"s1","author":"a","at":"2026-11-03T09:30:00Z"})
+        ))
+        .is_ok());
     }
 
     #[test]

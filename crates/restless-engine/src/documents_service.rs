@@ -27,6 +27,11 @@ pub const NATIVE_DOCUMENTS_SERVICE_PORT: u16 = 6688;
 
 pub const NATIVE_DOCUMENTS_PROTOCOL_VERSION: u32 = 1;
 
+/// The body grammar the sidecar keeps. It is pinned to 1 by the published hosting contract
+/// (contracts/company-collaboration/v1). Additions that keep every existing body valid, such as
+/// the suggestion marks (Sprint 109 E4), stay version 1: Core and the sidecar ship in one release
+/// tuple, and no stored body needs migrating. Only a change that existing bodies or older peers
+/// cannot read takes a new hosting contract version.
 pub const NATIVE_DOCUMENTS_SCHEMA_VERSION: u32 = 1;
 
 pub const MAX_NATIVE_DOCUMENTS_HEALTH_BYTES: usize = 2 * 1024;
