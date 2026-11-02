@@ -72,14 +72,20 @@ fi
 
 built_documents_image=""
 if [[ -z "${RESTLESS_NATIVE_DOCUMENTS_IMAGE:-}" ]]; then
-  built_documents_image="restless-native-documents:multiplayer-smoke_test"
+  # One tag per run: a concurrent smoke must not rebuild or remove the image this run is using.
+  built_documents_image="restless-native-documents:multiplayer-smoke-$$-${RANDOM}_test"
   docker build --quiet --tag "$built_documents_image" "$root/services/native-documents-collaboration" >/dev/null
   export RESTLESS_NATIVE_DOCUMENTS_IMAGE="$built_documents_image"
 fi
+# Run a private copy of restlessd: a concurrent smoke sharing CARGO_TARGET_DIR may rebuild the
+# shared binary for another revision while this journey (re)starts Core.
+daemon_copy="$(mktemp -d)"
+cp "${CARGO_TARGET_DIR:-$root/target}/debug/restlessd" "$daemon_copy/restlessd"
 cleanup() {
   if [[ -n "$built_documents_image" ]]; then
     docker image rm "$built_documents_image" >/dev/null 2>&1 || true
   fi
+  rm -rf "$daemon_copy"
 }
 trap cleanup EXIT
 
@@ -90,7 +96,7 @@ if [[ -z "${RESTLESS_BROWSER_EXECUTABLE:-}" ]]; then
   export RESTLESS_BROWSER_EXECUTABLE
 fi
 
-export RESTLESS_TEST_DAEMON="${CARGO_TARGET_DIR:-$root/target}/debug/restlessd"
+export RESTLESS_TEST_DAEMON="$daemon_copy/restlessd"
 export RESTLESS_TEST_JOURNEY="$journey"
 status=0
 (cd "$root/services/identity" && node test/run-core.mjs) || status=$?
