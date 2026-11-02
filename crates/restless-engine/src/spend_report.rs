@@ -128,7 +128,42 @@ pub struct SpendReport {
     pub payment_totals: Vec<PaymentTotal>,
     pub payments_status: &'static str,
     pub pricing_updated_at: Option<u64>,
+    /// Catalogue rates for the models in this report, so a price shown is never a design value.
+    pub prices: Vec<ModelPrice>,
     pub coverage: Vec<String>,
+}
+
+/// A model's current public catalogue rates, in US dollars per million tokens: the same rates the
+/// API-equivalent estimate uses. None when the catalogue has no input and output price for it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ModelPrice {
+    pub model: String,
+    pub currency: &'static str,
+    pub input_per_million: f64,
+    pub output_per_million: f64,
+    pub cached_input_per_million: Option<f64>,
+}
+
+fn catalogue_price(model_id: &str, catalog: &serde_json::Value) -> Option<ModelPrice> {
+    let (provider, model) = model_id.split_once('/')?;
+    let provider = match provider {
+        "openai-codex" | "native-codex-api" | "native-codex-oauth" | "litellm" => "openai",
+        "native-claude-api" | "native-claude-oauth" => "anthropic",
+        value => value,
+    };
+    let rates = &catalog["catalog"][provider]["models"][model]["cost"];
+    let rate = |key: &str| {
+        rates[key]
+            .as_f64()
+            .filter(|value| value.is_finite() && *value >= 0.0)
+    };
+    Some(ModelPrice {
+        model: model_id.to_string(),
+        currency: "USD",
+        input_per_million: rate("input")?,
+        output_per_million: rate("output")?,
+        cached_input_per_million: rate("cache_read"),
+    })
 }
 
 /// API-equivalent value at the current public catalogue snapshot. It is not an invoice, a
@@ -153,23 +188,14 @@ fn estimate(record: &SpendRecord, catalog: Option<&serde_json::Value>) -> Option
     if record.input_tokens == 0 && record.output_tokens == 0 && record.total_tokens == 0 {
         return None;
     }
-    let (provider, model) = record.model.split_once('/')?;
-    let provider = match provider {
-        "openai-codex" | "native-codex-api" | "native-codex-oauth" | "litellm" => "openai",
-        "native-claude-api" | "native-claude-oauth" => "anthropic",
-        value => value,
-    };
-    let rates = &catalog?["catalog"][provider]["models"][model]["cost"];
-    let rate = |key: &str| {
-        rates[key]
-            .as_f64()
-            .filter(|value| value.is_finite() && *value >= 0.0)
-    };
-    let input_rate = rate("input")?;
-    let output_rate = rate("output")?;
+    let ModelPrice {
+        input_per_million: input_rate,
+        output_per_million: output_rate,
+        cached_input_per_million: cache_rate,
+        ..
+    } = catalogue_price(&record.model, catalog?)?;
     let cached = record.cached_input_tokens.unwrap_or_default();
     let ordinary = record.input_tokens.checked_sub(cached)?;
-    let cache_rate = rate("cache_read");
     let value = (ordinary as f64 * input_rate
         + cached as f64 * cache_rate.unwrap_or(input_rate)
         + record.output_tokens as f64 * output_rate)
@@ -417,10 +443,20 @@ pub async fn report(
         });
     }
     payments.sort_by_key(|payment| std::cmp::Reverse(payment.occurred_at));
+    let prices = catalog
+        .as_ref()
+        .map(|catalog| {
+            by_model
+                .iter()
+                .filter_map(|group| catalogue_price(&group.key, catalog))
+                .collect()
+        })
+        .unwrap_or_default();
     Ok(SpendReport {
         observed_at: now, since, totals, by_actor, by_model, by_day, activity, next_before, payments,
         payment_totals: payment_totals.into_values().collect(), payments_status,
         pricing_updated_at: catalog.as_ref().and_then(|catalog| catalog["updatedAt"].as_u64()),
+        prices,
         coverage: vec![
             "Estimates are API-equivalent token values at the current models.dev catalogue rates, not invoices or subscription allowance percentages. They are separate from recorded spend and must not be added to it.".into(),
             "Catalogue base rates may omit cache writes, context/service-tier surcharges, negotiated discounts, fees and taxes. Their pricing provenance is not present in older request records.".into(),

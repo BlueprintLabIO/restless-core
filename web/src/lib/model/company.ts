@@ -360,7 +360,21 @@ export interface ComputeSample {
 	cpu_used_cores: number | null;
 	cpu_limit_cores: number | null;
 }
+/** One five-minute observation of the account pool, kept for seven days (Resources history). */
+export interface ComputePoint {
+	at: string;
+	working_set_bytes: number;
+	memory_limit_bytes: number;
+	cpu_cores: number | null;
+	cpu_limit_cores: number | null;
+	/** New AI turns and Work were held for memory at that moment. */
+	waiting: boolean;
+	/** Times Linux slowed the pool at its soft limit since the previous point. */
+	throttled: number;
+	oom_kills: number;
+}
 export interface ComputeReading {
+	history?: ComputePoint[];
 	limits?: ComputeLimitsView | null;
 	status: 'available' | 'not_configured' | 'unavailable';
 	detail?: string;
