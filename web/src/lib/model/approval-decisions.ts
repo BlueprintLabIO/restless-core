@@ -9,7 +9,15 @@ export { approvalDecision, approvalTarget, type ApprovalDecision } from './appro
 /* An Inbox Approve or Decline is saved with Authority, which holds its Undo window: nothing is
  * granted, declined or told to the company until the window ends (C1, instant-decisions.md). */
 export type ApprovalDecisionReceipt = HumanDecisionReceipt & {
-	kind: 'approve' | 'approve_always' | 'decline' | 'request_changes';
+	kind:
+		| 'approve'
+		| 'approve_always'
+		| 'decline'
+		| 'request_changes'
+		| 'fine'
+		| 'freeze'
+		| 'deny'
+		| 'authorize';
 };
 type Clock = { server_now: string; startedAt: number };
 export type ApprovalDecisionRead = Clock & { items: ApprovalDecisionReceipt[] };

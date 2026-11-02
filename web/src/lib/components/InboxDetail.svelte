@@ -15,15 +15,12 @@
 	import { queueHandoffDecision } from '$lib/model/handoff-decisions';
 	import { askExecAboutItem, replyInExec } from '$lib/model/ask-exec';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
-	import { decideEmailMandateProposal } from '$lib/model/company-actions';
-	import { decidePayee } from '$lib/model/company';
-	import { authorizePublication, stopPublication } from '$lib/model/publications';
 	import { failureSentence } from '$lib/model/failure';
 	import { tick, untrack, type Snippet } from 'svelte';
 	import AttentionFooter from './AttentionFooter.svelte';
 	import AccountUseNote from './AccountUseNote.svelte';
 	import { grantSummary, kindPhrase } from '$lib/model/owner-accounts';
-	import { answerAccountCode, ownerAccounts } from '$lib/model/owner-accounts-client';
+	import { answerAccountCode } from '$lib/model/owner-accounts-client';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import type { AttentionItem } from '$lib/model/view';
 	import {
@@ -63,6 +60,7 @@
 	import { inlineHabit, noteInlineAnswer } from '$lib/model/inline-habits';
 	import InlineBrandDrift from './inbox/InlineBrandDrift.svelte';
 	import InlineBrandProposal from './inbox/InlineBrandProposal.svelte';
+	import InlineSkillCandidate from './inbox/InlineSkillCandidate.svelte';
 	import InlineMachine from './inbox/InlineMachine.svelte';
 	import InlineReconnect from './inbox/InlineReconnect.svelte';
 	import InlineStartComputer from './inbox/InlineStartComputer.svelte';
@@ -296,6 +294,7 @@
 	const spendSurface = $derived(SPEND_KINDS.includes(item.source.kind));
 	const driftSurface = $derived(item.source.kind === 'identity_drift');
 	const proposalSurface = $derived(item.source.kind === 'identity_proposal');
+	const skillSurface = $derived(item.source.kind === 'skill_candidate');
 	const machineSurface = $derived(item.source.kind === 'machine_offline');
 	const reconnectSurface = $derived(item.source.kind === 'connection_sign_in');
 	const startSurface = $derived(
@@ -315,6 +314,7 @@
 			spendSurface ||
 			driftSurface ||
 			proposalSurface ||
+			skillSurface ||
 			machineSurface ||
 			reconnectSurface ||
 			startSurface
@@ -646,69 +646,37 @@
 			'That was not recorded. Try again.'
 		);
 	};
+	/* Mandates, payees, account notices and requests, and publications wait out the same Authority
+	 * Undo window: nothing is granted, frozen, paid or put online until it ends. */
 	const decideMandate = (decision: 'approve' | 'decline', note = '') =>
-		run(
-			async () => {
-				await decideEmailMandateProposal(companyId, item.source.reference, decision, note);
-				await refreshAttention(client, companyId);
-			},
-			decision === 'approve'
-				? 'Mandate approved'
-				: note.trim()
-					? 'Mandate declined. Exec has your note.'
-					: 'Mandate declined',
+		answerApproval(
+			approvalDecision(decision === 'approve' ? 'grant' : 'decline', { note }),
+			decision === 'approve' ? 'Mandate approved' : 'Mandate declined',
 			'The mandate decision was not recorded. Try again.'
 		);
 	const answerPayee = (approve: boolean, note = '') =>
-		run(
-			async () => {
-				await decidePayee(companyId, item.source.reference, approve, note);
-				await refreshAttention(client, companyId);
-			},
-			approve ? 'Payee approved' : note.trim() ? 'Declined. Exec has your note.' : 'Declined',
-			'The payee decision was not recorded. Try again.',
-			execHref
+		answerApproval(
+			approvalDecision(approve ? 'grant' : 'decline', { note }),
+			approve ? 'Payee approved' : 'Declined',
+			'The payee decision was not recorded. Try again.'
 		);
 	const answerNotice = (decision: 'fine' | 'freeze') =>
-		run(
-			async () => {
-				await ownerAccounts.decideNotice(
-					item.accountUse!.account.id,
-					item.source.reference,
-					decision
-				);
-				await refreshAttention(client, companyId);
-			},
-			decision === 'fine'
-				? 'Fine. The company keeps using it.'
-				: 'Frozen. This company can’t use the account until you unfreeze it.',
+		answerApproval(
+			approvalDecision(decision === 'fine' ? 'grant' : 'decline'),
+			decision === 'fine' ? 'Fine' : 'Frozen',
 			'That was not recorded. Try again.'
 		);
 	const answerRequest = (decision: 'approved' | 'denied') =>
-		run(
-			async () => {
-				await ownerAccounts.settleRequest(item.source.reference, { decision });
-				await refreshAttention(client, companyId);
-			},
-			decision === 'approved'
-				? 'Approved. The company can use it now.'
-				: 'Denied. The company is told.',
+		answerApproval(
+			approvalDecision(decision === 'approved' ? 'grant' : 'decline'),
+			decision === 'approved' ? 'Approved' : 'Denied',
 			'That was not recorded. Try again.'
 		);
 	/* A prepared publication: the owner's yes puts the exact build online; no stops it. */
 	const decidePublication = (authorize: boolean) =>
-		run(
-			async () => {
-				if (authorize) await authorizePublication(companyId, item.source.reference);
-				else
-					await stopPublication(
-						companyId,
-						item.source.reference,
-						'Declined by the owner from the Inbox'
-					);
-				await refreshAttention(client, companyId);
-			},
-			authorize ? 'Authorised. It goes online shortly.' : 'Declined. Nothing went online.',
+		answerApproval(
+			approvalDecision(authorize ? 'grant' : 'decline'),
+			authorize ? 'Authorised' : 'Declined',
 			'That was not recorded. Try again.'
 		);
 	async function openDocument() {
@@ -921,6 +889,13 @@
 						{#if proposalSurface}<InlineBrandProposal
 								{companyId}
 								proposal={item.source.reference}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
+						{#if skillSurface}<InlineSkillCandidate
+								{companyId}
+								skill={item.source.reference}
+								href={action('open-skill')?.href}
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
