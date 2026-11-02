@@ -149,6 +149,9 @@
 		() => !!failure && { text: 'That was not recorded', tone: 'failure', details: failure }
 	);
 	toastWhile(() => !!notice && { text: notice });
+	/** A release note, or "No note" when it holds no words (a lone "." read as a stray mark). */
+	const noteOrNone = (note: string | null | undefined) =>
+		/[\p{L}\p{N}]/u.test(note ?? '') ? note : 'No note';
 </script>
 
 <CompanyTitle title="Brand" {companyId} />
@@ -231,9 +234,7 @@
 				<Row label="What changed" stack>
 					<!-- A note with no words (a lone "." from a release) reads as a stray mark, not a value. -->
 					<span class="change"
-						>{/[\p{L}\p{N}]/u.test(view.current_release.change_account ?? '')
-							? view.current_release.change_account
-							: 'No note'}</span
+						>{noteOrNone(view.current_release.change_account)}</span
 					>
 				</Row>
 			</Section>
