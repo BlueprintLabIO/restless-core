@@ -341,6 +341,14 @@ pub async fn wake_if_owed(daemon: &Daemon, config: &CompanyConfig) -> bool {
     if owed.is_empty() {
         return false;
     }
+    // Owed demand keeps; the next scan wakes the computer once the account pool has room.
+    if runtime::automatic_start_waits_for_memory() {
+        tracing::info!(
+            company,
+            "sleeping computer waits for account memory before waking"
+        );
+        return false;
+    }
     wake(daemon, config, &names(&owed)).await
 }
 

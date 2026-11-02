@@ -88,6 +88,21 @@ async fn invalidate_cockpit_health(company: &str) {
     crate::native_harness::forget_status(company).await;
 }
 
+/// One computer start or replacement at a time across the whole account (A0.3). Starts are the
+/// burst that fills a small pool: every company waking at once, or a release rebuilding each
+/// computer while others wake, otherwise all charge their startup memory together. Starts queue
+/// here instead; a computer that is already running never takes the lane.
+static ACCOUNT_START_LANE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Whether the account workload pool is too full for an automatic computer start. A start that
+/// cannot be observed is allowed: without a configured pool there is nothing shared to protect.
+pub fn automatic_start_waits_for_memory() -> bool {
+    shared_workload_admission()
+        .ok()
+        .flatten()
+        .is_some_and(|admission| admission.waiting_for_memory)
+}
+
 pub(crate) async fn company_start_guard(company: &str) -> tokio::sync::OwnedMutexGuard<()> {
     let lock = COMPANY_START_LOCKS
         .lock()
@@ -3122,6 +3137,11 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let mut fetched = false;
     let mut replaced = false;
     workload_cgroup_parent()?;
+    let _lane = if reconcile || status(company).await? != ContainerStatus::Running {
+        Some(ACCOUNT_START_LANE.lock().await)
+    } else {
+        None
+    };
     if reconcile {
         fetched = ensure_image_available(&image).await?;
         if status(company).await? != ContainerStatus::Absent

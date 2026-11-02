@@ -48,6 +48,12 @@ if [ "$qualify" = yes ]; then
   # phone widths, against an isolated company; also without the release secrets.
   env -i HOME="$HOME" USER="${USER:-}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" TERM="${TERM:-dumb}" \
     "$root/scripts/release/local/jank-gate.sh"
+  log "constrained-host resource gate"
+  # Sprint 109 A0.6: a production-sized account pool, small Runtime, simultaneous wakes, idle and
+  # restart, with owner entry probed throughout; also without the release secrets.
+  env -i HOME="$HOME" USER="${USER:-}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" TERM="${TERM:-dumb}" \
+    RESTLESS_CLOUD_DIR="$cloud" ${RESTLESS_CLOUD_AGENT:+RESTLESS_CLOUD_AGENT="$RESTLESS_CLOUD_AGENT"} \
+    "$root/scripts/release/local/resource-gate.sh"
 fi
 
 log "publish into staging ($platform)"

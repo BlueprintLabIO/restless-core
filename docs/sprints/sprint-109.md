@@ -78,6 +78,12 @@ one pressured account cannot consume another account's capacity or the platform'
   well as health. Verify platform services and another owner's account remain responsive; an
   account's backlog must throttle or wait without causing a site-wide failure.
 
+  [Account start lane and constrained-host gate](sprint-109/constrained-host-gate.md), 3
+  November. Computer starts and roll-forward rebuilds share one account lane, and automatic
+  wakes wait for memory. The "two chats stall a 768 MiB Runtime" case no longer reproduces on
+  main, and the gate now guards it. `resource-gate.sh` runs in `core-release.sh` after the jank
+  gate. Local evidence only. Process-count admission (#548) and production remain open.
+
 The outage exposed eager computer startup and independent per-company limits whose combined
 allowance can exceed the host. Increasing VM size provides headroom; completion requires the
 measured efficiency and shared-capacity controls above. Paid capacity changes require a separate,
