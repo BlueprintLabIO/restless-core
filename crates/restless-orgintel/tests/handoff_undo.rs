@@ -119,11 +119,11 @@ impl Fixture {
                 )
                 .await
                 .unwrap();
+            self.artifact(work, "first.md").await;
             self.org
                 .escalate_handoff(handoff, "exec", "The owner judges this exact outcome")
                 .await
                 .unwrap();
-            self.artifact(work, "first.md").await;
             self.org
                 .finish_work_attempt(
                     attempt_id.unwrap(),

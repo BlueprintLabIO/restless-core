@@ -183,6 +183,14 @@ pub enum OwnerReviewDecision {
     ChangesRequested,
 }
 
+/// Whether an escalation reached its next reviewer or was returned for repair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandoffEscalation {
+    Escalated,
+    ReturnedForPreparation,
+    DeferredUntilAttemptFinishes,
+}
+
 /// What the owner's cited conversation message said about one handoff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OwnerChatAnswer {

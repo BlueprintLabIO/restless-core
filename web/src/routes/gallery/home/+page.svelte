@@ -89,6 +89,7 @@
 			items: companies.map((company) => ({
 				label: company.name,
 				href: '#open',
+				mark: { id: company.id, logoUrl: company.logoUrl },
 				count: company.card?.decisionsWaiting || undefined
 			})),
 			action: { label: 'New company', href: '#new' }

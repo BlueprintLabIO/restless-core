@@ -691,6 +691,46 @@ pub async fn project(
 }
 
 /// The owner's queue with what the spend ledger adds: a warning before the spend limit.
+/// Accepting an outcome review approves the outcome the reviewer saw, so its linked preview must
+/// still open when the acceptance is recorded: a file deleted or a preview stopped since it was
+/// shown is no longer that outcome. Returns the target's status and why it cannot be accepted, or
+/// `None` when it can (including a handoff this projection does not carry: OrgIntel refuses a
+/// review with no linked candidate itself).
+pub async fn unavailable_review_outcome(
+    config: &CompanyConfig,
+    authority: &crate::authority::AuthorityStore,
+    org: &OrgIntel,
+    handoff: uuid::Uuid,
+    reviewer: &str,
+) -> Result<Option<(&'static str, String)>> {
+    let view = if reviewer == "owner" {
+        project(config, authority, Some(org)).await?
+    } else {
+        project_for(config, authority, Some(org), reviewer).await?
+    };
+    let reference = handoff.to_string();
+    Ok(view
+        .items
+        .iter()
+        .find(|item| {
+            item.category == "review"
+                && item.source.kind == "owner_handoff"
+                && item.source.reference == reference
+        })
+        .and_then(|item| item.review_target.as_ref())
+        .filter(|target| target.status != "available")
+        .map(|target| {
+            let reason = target
+                .unavailable_reason
+                .as_deref()
+                .unwrap_or("The prepared outcome is unavailable.");
+            (
+                target.status,
+                format!("The outcome can no longer be opened, so it was not accepted. {reason}"),
+            )
+        }))
+}
+
 pub async fn project_with_spend(
     config: &CompanyConfig,
     authority: &crate::authority::AuthorityStore,
@@ -5507,9 +5547,30 @@ mod tests {
             .is_some_and(|body| body.contains("UNSENT")));
         println!("{}", serde_json::to_string_pretty(item).unwrap());
 
+        // The displayed version must not become an approval of vanished work.
+        let removed = tokio::process::Command::new("docker")
+            .args(["exec", &container, "rm", "-f", output_path])
+            .output()
+            .await
+            .unwrap();
+        assert!(removed.status.success());
+        let missing = project(&config, &authority, Some(&org)).await.unwrap();
+        let item = missing
+            .items
+            .iter()
+            .find(|item| item.work_id == Some(work_id))
+            .unwrap();
+        assert_ne!(item.review_target.as_ref().unwrap().status, "available");
+        let refusal =
+            unavailable_review_outcome(&config, &authority, &org, handoff.id, "owner").await;
+        // Clean up even when the regression is still present and the assertion fails.
         if std::env::var("RESTLESS_S17_REVIEW_TEST_PRESERVE_STATE").as_deref() != Ok("1") {
             org.drop_schema().await.unwrap();
         }
+        assert!(
+            refusal.unwrap().is_some(),
+            "a missing preview must not be accepted"
+        );
     }
 
     #[test]

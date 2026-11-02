@@ -194,7 +194,8 @@
 													><b><CountUp value={company.card.peopleWorking} /></b> working</span
 												>{/if}
 											{#if company.card.outcomesLastDay != null}<span
-													><b><CountUp value={company.card.outcomesLastDay} /></b> outcomes today</span
+													><b><CountUp value={company.card.outcomesLastDay} /></b>
+													{company.card.outcomesLastDay === 1 ? 'outcome' : 'outcomes'} today</span
 												>{/if}
 											{#if company.card.execReady != null}<span
 													>Exec <b
