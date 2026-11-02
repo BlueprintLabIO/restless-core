@@ -22,17 +22,41 @@ export interface ExecInboxNote {
 	at: string;
 }
 
-/** One of Exec's changes in the last few minutes, for the notice that says it happened. */
-export interface ExecInboxActivity {
-	id: string;
+/** One of Exec's changes in the last few minutes: the notice that says it happened reads it, and
+ * so does an open card before the full Inbox read has caught up. */
+export interface ExecInboxActivity extends ExecInboxNote {
 	item_id: string;
 	title: string;
-	verb: ExecVerb;
-	state: ExecInboxNote['state'];
-	undo_until: string;
-	problem: string | null;
-	source_message_id: number;
-	owner_words: string;
+}
+
+export interface ExecInboxActivityRead {
+	items: ExecInboxActivity[];
+	server_now: string;
+	/** When the read left this browser, to turn server deadlines into local ones. */
+	startedAt: number;
+}
+
+export const execActionsKey = (company: string) => ['exec-inbox-actions', company] as const;
+
+/** Exec's changes in the last few minutes (the owner's only). */
+export async function readExecActions(
+	company: string,
+	signal?: AbortSignal
+): Promise<ExecInboxActivityRead> {
+	const startedAt = Date.now();
+	const reply = await ownerRequest<Omit<ExecInboxActivityRead, 'startedAt'>>(
+		`/api/companies/${encodeURIComponent(company)}/exec-inbox-actions`,
+		{ signal }
+	);
+	return { ...reply, startedAt };
+}
+
+/** A server deadline on this browser's clock, never later than the server meant. */
+export function localDeadline(
+	at: string,
+	read: Pick<ExecInboxActivityRead, 'server_now' | 'startedAt'>
+) {
+	return Date.parse(at) - (Date.parse(read.server_now) - read.startedAt);
 }
 
 const done: Record<ExecVerb, string> = {

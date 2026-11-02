@@ -1813,11 +1813,7 @@
 <PendingHandoffDecisions {companyId} />
 <PendingDocumentDecisions {companyId} />
 <PendingApprovalDecisions {companyId} />
-{#if ownerAccess && attention.view}<ExecInboxNotices
-		{companyId}
-		actions={attention.view.execActions ?? []}
-		serverNow={attention.view.serverNow}
-	/>{/if}
+{#if ownerAccess}<ExecInboxNotices {companyId} />{/if}
 
 {#snippet executiveRail(wide = false, header?: Snippet<[Snippet, Snippet]>)}
 	{#if ExecutiveRail}

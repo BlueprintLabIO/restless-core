@@ -777,7 +777,7 @@
 			</p>
 		</header>
 		<h1 class="title">{attentionTitle(item)}</h1>
-		{#if item.execAction}<ExecNote {companyId} note={item.execAction} />{/if}
+		<ExecNote {companyId} {item} owner={canSetAside} />
 
 		{#if preview}<div class="detail-preview">{@render preview()}</div>{/if}
 		{#if content}<div class="detail-preview" hidden={!!preview}>{@render content(item)}</div>

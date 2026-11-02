@@ -257,6 +257,18 @@ async fn only_the_owners_own_message_to_exec_changes_the_owners_inbox() {
     assert_eq!(saved.state, "pending");
     assert_eq!(saved.owner_words, "yes ship it");
     assert_eq!(saved.source_message_id, owner);
+    // The page the owner sent it from is context for Exec, not the owner's words.
+    let from_a_page = f
+        .says(
+            "owner",
+            "exec",
+            "no, drop that\n\n[Owner cockpit context]\n/acme?item=x\n\n<!--restless-context:{\"path\":\"/acme?item=x\"}-->",
+        )
+        .await;
+    assert_eq!(
+        f.org.owner_words_to_exec(from_a_page).await.unwrap(),
+        "no, drop that"
+    );
     assert!(
         saved.undo_until > saved.created_at,
         "it waits out an Undo window"

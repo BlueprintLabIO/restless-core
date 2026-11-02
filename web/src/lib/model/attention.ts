@@ -1,4 +1,4 @@
-import type { ExecInboxActivity, ExecInboxNote } from './exec-inbox';
+import type { ExecInboxNote } from './exec-inbox';
 import { openLiveEvents } from './live-events.ts';
 import type { AttentionItem, DecisionContinuation, OwnerReviewVersion } from './view';
 import { ownerAttention } from './attention-presentation';
@@ -32,10 +32,6 @@ export interface AttentionView {
 	workGraph: WorkGraphSnapshot | null;
 	items: AttentionItem[];
 	pendingDecisionItems?: string[];
-	/** Exec's changes to the owner's Inbox in the last few minutes (owner only). */
-	execActions?: ExecInboxActivity[];
-	/** The server's clock when this was read, for Undo deadlines. */
-	serverNow?: string;
 	refreshedAt: string;
 }
 
@@ -278,8 +274,6 @@ export async function getAttention(company: string, signal?: AbortSignal): Promi
 				createdAt: item.created_at
 			}))
 		),
-		execActions: wire.exec_actions ?? [],
-		serverNow: wire.server_now,
 		refreshedAt: wire.refreshed_at
 	};
 }

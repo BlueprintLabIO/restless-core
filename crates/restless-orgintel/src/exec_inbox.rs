@@ -135,7 +135,14 @@ impl OrgIntel {
                 )));
             }
         }
-        Ok(body)
+        // The owner's words only: the page they sent it from rides along for Exec's context
+        // (`transcript::CONTEXT_BLOCK` / `CONTEXT_MARKER`) and is not what they said.
+        let words = ["\n\n[Owner cockpit context]\n", "\n\n<!--restless-context:"]
+            .iter()
+            .filter_map(|marker| body.find(marker))
+            .min()
+            .map_or(body.as_str(), |end| &body[..end]);
+        Ok(words.trim().to_string())
     }
 
     /// [`Self::owner_message_to_exec`], as the short excerpt the Inbox quotes.

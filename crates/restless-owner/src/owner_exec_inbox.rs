@@ -7,10 +7,76 @@ use restless_engine::approval_decisions::{self, ApprovalDecision, ApprovalTarget
 use restless_orgintel::{ExecInboxAction, ExecInboxVerb, OwnerChatAnswer};
 
 pub(super) fn routes() -> Router<OwnerState> {
-    Router::new().route(
-        "/companies/{company}/exec-inbox-actions/{action}",
-        delete(undo),
-    )
+    Router::new()
+        .route("/companies/{company}/exec-inbox-actions", get(recent))
+        .route(
+            "/companies/{company}/exec-inbox-actions/{action}",
+            delete(undo),
+        )
+}
+
+/// Exec's changes in the last few minutes, each with its item, state and Undo deadline: what the
+/// cockpit's notice and an open card's note read. One small read, so the owner hears of a change
+/// within its window even while the full Inbox read is busy.
+async fn recent(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" || !principal.permits_company(&company) {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "exec_inbox",
+            "Only the owner sees what Exec did in their Inbox.",
+        );
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                "The company is temporarily unavailable.",
+            )
+        }
+    };
+    let actions = match org.recent_exec_inbox_actions(20).await {
+        Ok(actions) => actions,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "exec_inbox",
+                logged(error, "What Exec did could not be read. Try again."),
+            )
+        }
+    };
+    let items = actions
+        .into_iter()
+        .filter(|action| action.created_at > Utc::now() - ChronoDuration::minutes(15))
+        .map(|action| {
+            serde_json::json!({
+                "id": action.id,
+                "item_id": action.item_id,
+                "title": action.item_title,
+                "verb": action.verb,
+                "state": action.state,
+                "note": action.note,
+                "undo_until": action.undo_until,
+                "problem": action.problem,
+                "snooze_until": action.snooze_until,
+                "position": action.position,
+                "source_message_id": action.source_message_id,
+                "owner_words": action.owner_words,
+                "at": action.created_at,
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut response =
+        Json(serde_json::json!({ "items": items, "server_now": Utc::now() })).into_response();
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 /// The company owner, as the route the owner's click takes sees them.
@@ -70,9 +136,8 @@ async fn undo(
     }
 }
 
-/// The note and place each item carries in the owner's Inbox, and the last few minutes of Exec's
-/// actions for the cockpit's notice. Added to the owner's Inbox read so a row and its note arrive
-/// together.
+/// The note and place each item carries in the owner's Inbox, added to the owner's Inbox read so
+/// a row and its note arrive together.
 pub(super) async fn decorate(org: &restless_orgintel::OrgIntel, output: &mut serde_json::Value) {
     let notes = match restless_engine::exec_inbox::notes(org).await {
         Ok(notes) => notes,
@@ -94,28 +159,6 @@ pub(super) async fn decorate(org: &restless_orgintel::OrgIntel, output: &mut ser
             }
         }
     }
-    let recent = org
-        .recent_exec_inbox_actions(20)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|action| action.created_at > Utc::now() - ChronoDuration::minutes(15))
-        .map(|action| {
-            serde_json::json!({
-                "id": action.id,
-                "item_id": action.item_id,
-                "title": action.item_title,
-                "verb": action.verb,
-                "state": action.state,
-                "undo_until": action.undo_until,
-                "problem": action.problem,
-                "source_message_id": action.source_message_id,
-                "owner_words": action.owner_words,
-            })
-        })
-        .collect::<Vec<_>>();
-    output["exec_actions"] = serde_json::json!(recent);
-    output["server_now"] = serde_json::json!(Utc::now());
 }
 
 /// Apply every Exec action in this company whose Undo window has ended.
