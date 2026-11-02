@@ -1114,6 +1114,23 @@
 		if (place) instance.chain().focus().setTextSelection(place).run();
 		else instance.commands.focus();
 	}
+	/* Suggestion cards share the margin with comment cards and stack with them, so they arrive
+	 * with the comments' cards, never before (a comment card landing later would push them). A
+	 * thread that cannot be placed holds them back for a moment at most. */
+	let commentsWaited = $state(false);
+	$effect(() => {
+		if (!commentsReady) {
+			commentsWaited = false;
+			return;
+		}
+		const timer = window.setTimeout(() => (commentsWaited = true), 1500);
+		return () => window.clearTimeout(timer);
+	});
+	const suggestionsPlaced = $derived(
+		commentsReady &&
+			(commentsWaited ||
+				commentThreads.every((item) => !item.thread.block_id || marginAnchors.has(item.thread.id)))
+	);
 	/* On a page too narrow for the margin, the suggestion at the caret opens a small card there. */
 	let caretSuggestion = $state<{ id: string; left: number; top: number } | null>(null);
 	$effect(() => {
@@ -2298,7 +2315,7 @@
 				onhover={(threadId) => (hoveredThread = threadId)}
 				ondraftdone={marginDraftDone}
 				onopenpanel={(threadId) => onopenthread(threadId)}
-				suggestions={commentsReady ? suggestionList : []}
+				suggestions={suggestionsPlaced ? suggestionList : []}
 				{suggestionAnchors}
 				canSettle={canWriteLive}
 				canSuggest={canWriteLive}
