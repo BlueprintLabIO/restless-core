@@ -419,6 +419,7 @@ impl OrgIntel {
             .await?;
         let org = Self { pool, schema };
         org.align_colleague_names().await?;
+        org.return_unprepared_owner_reviews().await?;
         Ok(org)
     }
 

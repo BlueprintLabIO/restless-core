@@ -6,6 +6,78 @@ use sqlx::FromRow as _;
 
 const MAX_HANDOFF_CONTEXT_BYTES: usize = 64 * 1024;
 
+/// Return an incomplete review and its exact feedback atomically under the Work and handoff locks.
+pub(super) async fn return_unprepared_review_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    handoff_id: Uuid,
+    work_id: Uuid,
+    sender: &str,
+    author: &str,
+) -> Result<()> {
+    let feedback = "The review has no linked prepared preview. Prepare and link the actual outcome before requesting review again.";
+    sqlx::query(
+        "UPDATE owner_handoffs SET state='resolved', resolution=$2, resolved_at=now(), deferred_review_attempt_id=NULL, deferred_review_by=NULL, deferred_review_fingerprint=NULL WHERE id=$1",
+    )
+    .bind(handoff_id)
+    .bind(feedback)
+    .execute(&mut **tx)
+    .await?;
+    let room = ensure_direct_message_room_in_tx(tx, sender, Some(author)).await?;
+    let message: i64 = sqlx::query_scalar(
+        "INSERT INTO messages (room_id,from_actor,to_actor,body) VALUES ($1,$2,$3,$4) RETURNING id",
+    )
+    .bind(room)
+    .bind(sender)
+    .bind(author)
+    .bind(feedback)
+    .fetch_one(&mut **tx)
+    .await?;
+    sqlx::query("INSERT INTO work_feedback (work_id,message_id,linked_by) VALUES ($1,$2,$3)")
+        .bind(work_id)
+        .bind(message)
+        .bind(sender)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("UPDATE work SET status='active', resolution=$2, \
+        attempt_limit=CASE WHEN attempt_limit IS NOT NULL \
+          AND NOT EXISTS (SELECT 1 FROM work_attempts a WHERE a.work_id=work.id AND a.state='running') \
+          AND (SELECT count(*) FROM work_attempts a WHERE a.work_id=work.id AND a.revision=work.revision AND a.state <> 'superseded') >= attempt_limit \
+          AND attempt_limit < 2147483647 THEN attempt_limit + 1 ELSE attempt_limit END \
+        WHERE id=$1")
+        .bind(work_id).bind(feedback).execute(&mut **tx).await?;
+    Ok(())
+}
+
+impl OrgIntel {
+    /// Idempotent repair when a company is opened: an outcome review already owed to a person
+    /// with no linked prepared preview (from before reviews were refused at admission) goes back
+    /// to its author with the same feedback a refused escalation gets, instead of waiting in an
+    /// Inbox as an empty card. Reviews whose Work is still running, or that wait on a named
+    /// document review or an Undo window, are left alone.
+    pub async fn return_unprepared_owner_reviews(&self) -> Result<usize> {
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
+            "SELECT h.id, h.work_id, COALESCE(h.escalated_from, 'exec') AS sender, w.owner_id              FROM owner_handoffs h JOIN work w ON w.id=h.work_id              WHERE h.state='pending' AND h.owner_brief->>'kind'='outcome_review'                AND w.status IN ('active','blocked')                AND (h.assigned_to IS NULL OR EXISTS (SELECT 1 FROM actors a                     WHERE a.id=h.assigned_to AND a.actor_class='human'))                AND NOT EXISTS (SELECT 1 FROM artifact_refs r WHERE r.work_id=h.work_id                     AND r.state='available' AND r.kind='review_target'                     AND (h.attempt_id IS NULL OR r.attempt_id=h.attempt_id))                AND NOT EXISTS (SELECT 1 FROM work_attempts a                     WHERE a.work_id=h.work_id AND a.state='running')                AND NOT EXISTS (SELECT 1 FROM native_document_work_review_dependencies d                     WHERE d.work_id=h.work_id AND d.status='pending')                AND NOT EXISTS (SELECT 1 FROM owner_handoff_decisions d                     WHERE d.handoff_id=h.id AND d.state='pending')              ORDER BY h.created_at, h.id FOR UPDATE OF h, w",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for row in &rows {
+            let author: String = row.get("owner_id");
+            let sender: String = row.get("sender");
+            return_unprepared_review_in_tx(
+                &mut tx,
+                row.get("id"),
+                row.get("work_id"),
+                &sender,
+                &author,
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(rows.len())
+    }
+}
+
 fn validate_handoff_context(
     requested_action: &str,
     prepared_state: &str,
@@ -573,6 +645,14 @@ impl OrgIntel {
                 "a payment is confirmed by the provider, not by a message".into(),
             ));
         }
+        // Determine the review before changing its routing. Review decisions validate and
+        // commit under the Work/handoff locks in `decide_review`, including owner chat answers.
+        let review = category == OwnerHandoffCategory::OwnerJudgement
+            && (row
+                .get::<Option<serde_json::Value>, _>("owner_brief")
+                .and_then(|value| serde_json::from_value::<OwnerBrief>(value).ok())
+                .is_some_and(|brief| brief.kind == OwnerBriefKind::OutcomeReview)
+                || row.get::<bool, _>("produced_review"));
         if let Some(assigned) = row.get::<Option<String>, _>("assigned_to") {
             // The owner's answer settles it wherever it sits below them, but never decides for
             // another person.
@@ -587,14 +667,16 @@ impl OrgIntel {
                     "this handoff is owed to {assigned}, not the owner"
                 )));
             }
-            sqlx::query(
-                "UPDATE owner_handoffs SET assigned_to=NULL \
-                 WHERE id=$1 AND assigned_to=$2 AND state IN ('pending','preparing')",
-            )
-            .bind(id)
-            .bind(&assigned)
-            .execute(&self.pool)
-            .await?;
+            if !review {
+                sqlx::query(
+                    "UPDATE owner_handoffs SET assigned_to=NULL \
+                     WHERE id=$1 AND assigned_to=$2 AND state IN ('pending','preparing')",
+                )
+                .bind(id)
+                .bind(&assigned)
+                .execute(&self.pool)
+                .await?;
+            }
         }
         let quoted = format!(
             "The owner, in conversation (message {message_id}): {}",
@@ -604,14 +686,6 @@ impl OrgIntel {
             "" => quoted,
             note => format!("{note}\n\n{quoted}"),
         };
-        // An outcome review is the judgement on a produced result, whether or not its card brief
-        // was written yet; resolving it like a question would re-run the Work instead.
-        let review = category == OwnerHandoffCategory::OwnerJudgement
-            && (row
-                .get::<Option<serde_json::Value>, _>("owner_brief")
-                .and_then(|value| serde_json::from_value::<OwnerBrief>(value).ok())
-                .is_some_and(|brief| brief.kind == OwnerBriefKind::OutcomeReview)
-                || row.get::<bool, _>("produced_review"));
         match (review, answer) {
             (true, OwnerChatAnswer::Yes) => {
                 self.decide_review(
@@ -800,7 +874,7 @@ impl OrgIntel {
             .await?;
         }
         sqlx::query(
-            "UPDATE owner_handoffs SET state=$2, resolution=$3, resolved_at=now() WHERE id=$1",
+            "UPDATE owner_handoffs SET state=$2, resolution=$3, resolved_at=now(), deferred_review_attempt_id=NULL, deferred_review_by=NULL, deferred_review_fingerprint=NULL WHERE id=$1",
         )
         .bind(id)
         .bind(state)
@@ -951,6 +1025,14 @@ impl OrgIntel {
         let assigned_to: Option<String> = row.get("assigned_to");
         let reviewer_owns = match assigned_to.as_deref() {
             None => reviewer == "owner",
+            Some(assigned) if owner_words && reviewer == "owner" => {
+                sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1 AND actor_class<>'human')",
+                )
+                .bind(assigned)
+                .fetch_one(&mut *tx)
+                .await?
+            }
             Some(assigned) => {
                 assigned == reviewer
                     && accountability.responsible_actor_id.as_deref() == Some(reviewer)
@@ -974,27 +1056,22 @@ impl OrgIntel {
             )
             .await?;
         }
-        if let Some(expected) = expected {
-            let current = OwnerHandoffRow::from_row(&row)?.conversation_input();
-            let artifact_id = sqlx::query_scalar::<_, Uuid>(
-                "SELECT id FROM artifact_refs WHERE work_id=$1 AND state='available' \
+        let artifact_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM artifact_refs WHERE work_id=$1 AND state='available' \
                  AND kind='review_target' AND ($2::uuid IS NULL OR attempt_id=$2) \
                  ORDER BY created_at DESC,id DESC LIMIT 1",
-            )
-            .bind(work_id)
-            .bind(row.get::<Option<Uuid>, _>("attempt_id"))
-            .fetch_optional(&mut *tx)
-            .await?;
+        )
+        .bind(work_id)
+        .bind(row.get::<Option<Uuid>, _>("attempt_id"))
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(expected) = expected {
+            let current = OwnerHandoffRow::from_row(&row)?.conversation_input();
             if expected.handoff != current
                 || expected.work_revision != accountability.revision
                 || expected.artifact_id != artifact_id
             {
                 return Err(OrgIntelError::ReviewChanged);
-            }
-            if decision == OwnerReviewDecision::Accepted && artifact_id.is_none() {
-                return Err(OrgIntelError::InvalidWork(
-                    "this outcome needs a prepared preview before it can be accepted".into(),
-                ));
             }
         }
         if !owner_words {
@@ -1026,6 +1103,11 @@ impl OrgIntel {
                     "only an outcome_review brief has accept/request-changes semantics".into(),
                 ));
             }
+        }
+        if decision == OwnerReviewDecision::Accepted && artifact_id.is_none() {
+            return Err(OrgIntelError::InvalidWork(
+                "this outcome needs a prepared preview before it can be accepted".into(),
+            ));
         }
         let has_running_attempt: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM work_attempts WHERE work_id=$1 AND state='running')",
@@ -1109,7 +1191,7 @@ impl OrgIntel {
             ),
         };
         sqlx::query(
-            "UPDATE owner_handoffs SET state=$2,resolution=$3,resolved_at=now() WHERE id=$1",
+            "UPDATE owner_handoffs SET state=$2,resolution=$3,resolved_at=now(),deferred_review_attempt_id=NULL,deferred_review_by=NULL,deferred_review_fingerprint=NULL WHERE id=$1",
         )
         .bind(id)
         .bind(handoff_state)
