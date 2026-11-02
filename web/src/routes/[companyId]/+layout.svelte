@@ -5,6 +5,7 @@
 	import { companySetup, takeSetupHandoff } from '$lib/model/company-setup.svelte';
 	import { reenterIfLapsed } from '$lib/model/reenter';
 	import { firstPaint } from '$lib/model/first-paint.svelte';
+	import { rememberShell } from '$lib/model/shell-snapshot';
 	import WelcomeTour from '$lib/components/WelcomeTour.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { prefetchOnIntent } from '$lib/model/prefetch';
@@ -118,6 +119,21 @@
 	const companyId = $derived(page.params.companyId ?? '');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const entry = firstPaint(() => companyId);
+	/* Each settled company page leaves its layout for the next cold load's loading screen
+	 * (shell-snapshot.ts): once revealed, after each navigation, and as the tab is left. */
+	$effect(() => {
+		if (!entry.ready) return;
+		void page.url.pathname;
+		let frame = requestAnimationFrame(() => {
+			frame = requestAnimationFrame(() => rememberShell(document, window));
+		});
+		const leave = () => rememberShell(document, window);
+		addEventListener('pagehide', leave);
+		return () => {
+			cancelAnimationFrame(frame);
+			removeEventListener('pagehide', leave);
+		};
+	});
 	const principal = $derived(principalProjection.view);
 	const ownerAccess = $derived(hasOwnerSurfaceAccess(principal));
 	const applianceIdentity = applianceQuery(() => ownerAccess);
@@ -2131,6 +2147,11 @@
 	}
 	.company-browser-link-capture:not(.first-paint-pending) {
 		animation: first-paint-in 120ms var(--ease-standard, ease-out) backwards;
+	}
+	/* Over a loading screen that already shows this layout (app.html), the panes fill in place;
+	 * fading them in would blink the panes out first. */
+	:global(html.boot-shell) .company-browser-link-capture:not(.first-paint-pending) {
+		animation: none;
 	}
 	@keyframes first-paint-in {
 		from {

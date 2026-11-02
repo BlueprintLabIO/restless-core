@@ -44,6 +44,8 @@
 					if (match) role = localStorage.getItem('restless:role:' + decodeURIComponent(match[1]));
 				} catch (error) {}
 				var urls = !fixtures && planeOwner ? ['/api/companies'] : [];
+				/* A company page paints its last layout while it loads (the .boot script below). */
+				window.__restlessCompanyPage = !!(match && !top[match[1]] && match[1] !== 'archived');
 				if (match && !top[match[1]]) {
 					var base = '/api/companies/' + match[1];
 					urls.push(base + '/principal');
@@ -165,6 +167,41 @@
 					animation: none;
 				}
 			}
+			/* A company page shows its own layout instead (2 Nov): the surfaces this browser last saw
+			 * there (lib/model/shell-snapshot.ts), or the top bar alone, in the app's own colours, so
+			 * the reveal fills panes already on screen rather than replacing a dotted page. */
+			.boot.shell {
+				background: var(--bg-app, #eff1f6);
+			}
+			html[data-theme='dark'] .boot.shell {
+				background: var(--bg-app, #0e1014);
+			}
+			.boot.shell::before,
+			.boot.shell .boot-field {
+				display: none;
+			}
+			.boot-panel {
+				position: absolute;
+				box-sizing: border-box;
+			}
+			.boot-panel.fallback {
+				top: max(var(--app-gutter, 8px), env(safe-area-inset-top));
+				left: max(var(--app-gutter, 8px), env(safe-area-inset-left));
+				right: max(var(--app-gutter, 8px), env(safe-area-inset-right));
+				height: var(--topbar-h, 46px);
+				border-radius: 6px;
+				border-bottom: 1px solid var(--border, rgba(76, 88, 117, 0.1));
+				background: var(--glass, rgba(250, 251, 253, 0.74));
+			}
+			html[data-theme='dark'] .boot-panel.fallback {
+				border-bottom-color: var(--border, rgba(255, 255, 255, 0.07));
+				background: var(--glass, rgba(17, 19, 24, 0.8));
+			}
+			@media (max-width: 760px) {
+				.boot-panel.fallback {
+					--app-gutter: 4px;
+				}
+			}
 		</style>
 	</head>
 	<body data-sveltekit-preload-data="hover">
@@ -172,13 +209,61 @@
 			<canvas class="boot-field" aria-hidden="true"></canvas>
 		</div>
 		<script>
+			/* A company page's loading screen is its layout: the surfaces lib/model/shell-snapshot.ts
+			 * recorded at this width and theme (shellFor there is this choice), else the top bar. */
+			(function () {
+				var boot = document.querySelector('.boot');
+				if (!boot || !window.__restlessCompanyPage) return;
+				boot.classList.add('shell');
+				document.documentElement.classList.add('boot-shell');
+				var shell = null;
+				try {
+					var stored = JSON.parse(localStorage.getItem('restless:shell') || 'null');
+					if (stored && stored.v === 1 && stored.sections) {
+						var section = location.pathname.split('/')[2] || '';
+						var found = stored.sections[section] || stored.sections[stored.last];
+						if (
+							found &&
+							found.w === innerWidth &&
+							found.theme === document.documentElement.dataset.theme &&
+							Array.isArray(found.panels)
+						)
+							shell = found;
+					}
+				} catch (error) {}
+				if (!shell) {
+					var bar = document.createElement('div');
+					bar.className = 'boot-panel fallback';
+					boot.appendChild(bar);
+					return;
+				}
+				if (shell.bg) boot.style.background = shell.bg;
+				shell.panels.forEach(function (panel) {
+					var box = document.createElement('div');
+					box.className = 'boot-panel';
+					var style = box.style;
+					style.top = panel.t + 'px';
+					style.left = panel.l + 'px';
+					style.right = panel.r + 'px';
+					style.bottom = panel.b + 'px';
+					style.setProperty('background', panel.bg);
+					style.setProperty('border-radius', panel.radius);
+					style.setProperty('border-width', panel.bw);
+					style.setProperty('border-style', panel.bs);
+					style.setProperty('border-color', panel.bc);
+					style.setProperty('box-shadow', panel.shadow);
+					boot.appendChild(box);
+				});
+			})();
+		</script>
+		<script>
 			/* Draws the field while the loading screen shows; entering a company shows it again, so
 			 * it rests while hidden rather than stopping. Same pattern and clock as MatrixField. */
 			(function () {
 				var boot = document.querySelector('.boot');
 				var canvas = boot && boot.querySelector('canvas');
 				var context = canvas && canvas.getContext && canvas.getContext('2d');
-				if (!context) return;
+				if (!context || boot.classList.contains('shell')) return;
 				var still = matchMedia('(prefers-reduced-motion: reduce)').matches;
 				var step = 9;
 				var drawn = false;
