@@ -34,7 +34,9 @@ cleanup() {
 }
 trap cleanup EXIT
 export PATH="$HOME/.cargo/bin:$PATH" CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-8}"
-# The connections smoke's build of this checkout: restlessd is already compiled there.
+# The connections smoke's build directory, shared by every checkout so a build is mostly cached.
+# multiplayer-smoke builds and copies restlessd under a lock and refuses a copy that does not carry
+# this tree's revision; the daemon runs this checkout's Sheets worker (run-core.mjs).
 export CARGO_TARGET_DIR="$state/connections-target"
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   IMAGE="$image" REVISION="$revision" bash scripts/release/with-company-builder.sh bash -c '

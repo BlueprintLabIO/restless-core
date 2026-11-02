@@ -291,6 +291,10 @@ try {
     RESTLESS_TEST_REPO: repo,
     RESTLESS_TEST_DAEMON: daemon,
     RESTLESS_TEST_DAEMON_LOG: coreLog,
+    // Core runs Native Sheets in a Node worker: this checkout's, never the checkout the daemon
+    // happened to be compiled in (sheet_commands.rs falls back to its compile-time path, which a
+    // shared target directory makes whichever worktree built it last, and may since be deleted).
+    RESTLESS_SHEETS_WORKER: join(repo, "services/native-sheets/src/worker.mjs"),
     RESTLESS_TEST_RESULT: result,
     RESTLESS_AUTH_TEST_DATABASE: replaceDatabase(adminUrl, accountsDatabase),
     RESTLESS_RESOURCE_NAMESPACE: namespace,
