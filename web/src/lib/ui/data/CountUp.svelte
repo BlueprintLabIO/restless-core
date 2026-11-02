@@ -1,12 +1,13 @@
 <script lang="ts">
-	/* A figure that counts to its value when it first appears and when it changes, so a number
-	 * reads as fresh rather than printed. The server renders the final value; reduced motion
-	 * keeps it still. */
+	/* A figure that counts to its new value when it changes, so a number reads as fresh rather than
+	 * printed. It first appears at its final value, as the server rendered it: counting up from 0 on
+	 * load flashed the real figure, then 0, then the count (and "-0" mid-ease). Reduced motion keeps
+	 * it still. */
 	import { onMount } from 'svelte';
 
 	let {
 		value,
-		format = (n: number) => Math.round(n).toLocaleString(),
+		format = (n: number) => (Math.round(n) || 0).toLocaleString(),
 		duration = 900
 	}: {
 		value: number;
@@ -34,8 +35,8 @@
 	}
 
 	onMount(() => {
+		shown = value;
 		mounted = true;
-		run(0, value);
 		return () => cancelAnimationFrame(frame);
 	});
 	$effect(() => {
