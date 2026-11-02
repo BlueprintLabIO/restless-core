@@ -789,3 +789,32 @@ deployment remain open. This is not A0 completion or a new production release.
   window (`/tmp/restless-identity-core-evidence-dN1Xok`). Frontend check, 334 unit tests,
   check:type and check:ui pass. Publication Authorise runs the provider inside the decision
   worker, so a slow provider delays other due decisions until it returns.
+
+### Small finishes, 3 November
+
+- B1: the schedules page's last "Discuss with Exec" (row menu) and "Discuss" (failed-run notice)
+  are "Ask Exec about this" and "Ask Exec", linking the schedule into the rail's one chat. Exec
+  already records decisions itself: `restless work resolve-handoff --as exec --source-message <id>`
+  (since 20 October). Open question for the owner: `converse-with-owner.md` says conversational
+  agreement never approves a review, while Exec's context lets that command accept an outcome
+  review from the owner's chat answer.
+- A4 (#571, supersedes #541): an outcome review with no linked preview goes back to its author at
+  escalation; accepting checks the outcome still opens (at the click, after the Undo window, and
+  for Exec's chat answer), so a preview deleted after it was shown is refused; opening a company
+  returns existing empty owner reviews to their authors once. The "No prepared preview was linked"
+  fallback is gone.
+- C1: the next Inbox item's review ticket is asked for while the current one is open, so its
+  outcome shows without the round trip (live: 104 to 230 ms to the stage, no second ticket).
+- B5: the More menu is a `popover` in the top layer, fixed and sized to the viewport; live it sat
+  on top and inside the window at 1440 and 390, light and dark. No change needed.
+- A1: the Work panel beside a chat (a person's "Working on" card, Exec's Monitoring list) now
+  carries the one waiting line; Work rows, board cards, the Work page and Inbox rows already did.
+- H3 (#573): agents link places to Google Maps and embed the keyless live map with that link
+  beside it (owner-readable prompt, company-tools skill). Library and review frames now let a
+  link open its tab outside the sandbox; before, Google refused the sandboxed tab.
+- B2 still open: an app whose tools changed upstream waits on Apps only. Its answer is a per-tool
+  choice that would need an inline card with the same Undo window as other approvals.
+- Evidence: disposable PostgreSQL `escalation`, `handoff_undo`, `outcome_review` and
+  `people_own_teams` pass; a local Reno-scale stack, driven headless at 1440 and 390 in light and
+  dark, passed every check above, and live refusals were observed for a previewless escalation
+  and for accepting a review whose file was removed.
