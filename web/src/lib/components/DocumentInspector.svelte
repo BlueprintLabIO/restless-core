@@ -143,6 +143,8 @@
 		commentBlockId?: string | null;
 		/** The words selected for a new block comment, when a passage was chosen. */
 		commentQuote?: string | null;
+		/** Where those words are in the live document, so the thread's mark follows them. */
+		commentRange?: { from: string; to: string } | null;
 		onpanelchange?: (panel: DocumentInspectorPanel) => void;
 		oncommenttargetchange?: (blockId: string | null) => void;
 		onaccept?: (target: DocumentTarget, view: DocumentReadView) => void;
@@ -173,6 +175,7 @@
 		othersEditing = [],
 		commentBlockId = null,
 		commentQuote = null,
+		commentRange = null,
 		onpanelchange = () => {},
 		oncommenttargetchange = () => {},
 		onaccept = () => {},
@@ -296,6 +299,7 @@
 				target: DocumentTarget;
 				blockId: string | null;
 				quote: string | null;
+				range: { from: string; to: string } | null;
 				contentJson: DocumentContent;
 		  }
 		| {
@@ -645,6 +649,7 @@
 			mode,
 			blockId: mode === 'thread' ? commentBlockId : null,
 			quote: mode === 'thread' ? commentQuote : null,
+			range: mode === 'thread' ? commentRange : null,
 			threadId: mode === 'reply' ? selectedThreadId : null,
 			body,
 			picked
@@ -657,6 +662,7 @@
 						target,
 						blockId: commentBlockId,
 						quote: commentBlockId ? commentQuote : null,
+						range: commentBlockId && commentQuote ? commentRange : null,
 						contentJson
 					}
 				: {
@@ -676,7 +682,8 @@
 					attempt.input.blockId,
 					attempt.input.contentJson,
 					attempt.command.id,
-					attempt.input.quote
+					attempt.input.quote,
+					attempt.input.range
 				);
 				threads.acceptCreated(attempt.input.target, created);
 				if (isCurrentTarget(attempt.input.target)) {

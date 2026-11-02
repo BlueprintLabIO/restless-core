@@ -820,6 +820,91 @@ try {
   assert.equal(await alice.page.locator(".block-handle").isVisible(), false, "a reader sees no block grip");
   pass("general access 'company can view' gives a member a read-only page");
 
+  // 9b'. Comments in the margin (S109 E4): a member selects words and comments beside them; the
+  //      card sits level with the words, the comment is pinned to them, and it reaches the doc's
+  //      author, who replies and resolves in the margin. A reader sees cards but cannot reply,
+  //      and a phone keeps the count mark instead of the margin.
+  const marginUrl = `${core}/${company}/library/documents?document=${documentId}`;
+  // Wide enough for the margin beside the text even with the owner's Exec rail open.
+  for (const who of [owner, alice]) await who.page.setViewportSize({ width: 1680, height: 900 });
+  await alice.page.goto(marginUrl);
+  const aliceBody = alice.page.getByLabel("Collaborative document body");
+  await aliceBody.getByText("Shared plan.").waitFor({ timeout: 30000 });
+  await alice.page.locator(".comment-margin").waitFor({ state: "attached", timeout: 15000 });
+  await aliceBody.evaluate((body) => {
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.data.indexOf("Shared plan.");
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at + "Shared ".length);
+      range.setEnd(node, at + "Shared plan".length);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      return;
+    }
+  });
+  await alice.page.locator(".selection-bubble .bubble-comment").click();
+  const draft = alice.page.getByRole("textbox", { name: "Comment", exact: true });
+  await draft.fill("Which plan is this?");
+  await draft.press("Control+Enter");
+  const aliceCard = alice.page.locator(".margin-card").filter({ hasText: "Which plan is this?" });
+  await aliceCard.waitFor({ timeout: 20000 });
+  const marginThread = (await coreApi(owner, `${base}/documents/${documentId}/comments`)).items.find(
+    (item) => item.opening?.excerpt === "Which plan is this?",
+  );
+  assert.equal(marginThread?.thread.anchor_quote, "plan", "the margin comment quotes the chosen words");
+  assert(marginThread.thread.anchor_from && marginThread.thread.anchor_to, "the margin comment is pinned to its words by a Yjs range");
+  const level = await alice.page.evaluate((id) => {
+    const card = document.querySelector(`[data-margin-thread="${id}"]`)?.getBoundingClientRect();
+    const words = document.querySelector(`.commented-words[data-comment-thread="${id}"]`)?.getBoundingClientRect();
+    return card && words ? Math.abs(card.top - words.top) : null;
+  }, marginThread.thread.id);
+  assert(level !== null && level < 40, `the card sits beside its words (off by ${level}px)`);
+  await shot(alice, "margin-comment");
+  await until(
+    async () => (await forYou(owner)).items.some((item) => item.key === `thread:${marginThread.thread.id}` && item.kind === "comment" && item.unread),
+    "the margin comment reaches the doc's author in For you",
+    30,
+  );
+  await owner.page.goto(marginUrl);
+  const ownerCard = owner.page.locator(`[data-margin-thread="${marginThread.thread.id}"]`);
+  await ownerCard.waitFor({ timeout: 30000 });
+  await ownerCard.hover();
+  await owner.page.locator(`.commented-words.active-comment[data-comment-thread="${marginThread.thread.id}"]`).waitFor({ timeout: 10000 });
+  await ownerCard.locator(".card-summary").click();
+  await ownerCard.getByRole("textbox", { name: "Reply" }).fill("The spring launch plan.");
+  await ownerCard.getByRole("button", { name: "Reply", exact: true }).click();
+  await ownerCard.getByText("The spring launch plan.").waitFor({ timeout: 20000 });
+  await ownerCard.getByRole("button", { name: "Resolve" }).click();
+  await ownerCard.waitFor({ state: "detached", timeout: 20000 });
+  assert.equal(
+    (await coreApi(owner, `${base}/documents/${documentId}/comments`)).items.find((item) => item.thread.id === marginThread.thread.id)?.thread.status,
+    "resolved",
+    "Resolve in the margin resolves the thread",
+  );
+  pass("a member commented in the margin beside her words; the author heard of it, replied and resolved it in place");
+
+  const readView = await coreApi(owner, `${base}/documents/${viewOnly.document_id}`);
+  const policyBlock = readView.current_version.version.content_json.content[0].attrs.block_id;
+  await coreApi(owner, `${base}/documents/${viewOnly.document_id}/comments`, {
+    method: "POST",
+    expected: 201,
+    body: { block_id: policyBlock, quote: "Policy", content_json: commentBody("Policy needs a date.") },
+  });
+  await alice.page.goto(`${core}/${company}/library/documents?document=${viewOnly.document_id}`);
+  const readerCard = alice.page.locator(".margin-card").filter({ hasText: "Policy needs a date." });
+  await readerCard.waitFor({ timeout: 30000 });
+  await readerCard.locator(".card-summary").click();
+  await readerCard.getByText("You can read comments").waitFor({ timeout: 10000 });
+  assert.equal(await readerCard.getByRole("textbox", { name: "Reply" }).count(), 0, "a reader cannot reply in the margin");
+  assert.equal(await readerCard.getByRole("button", { name: "Resolve" }).count(), 0, "a reader cannot resolve in the margin");
+  await alice.page.setViewportSize({ width: 390, height: 844 });
+  await alice.page.locator(".thread-mark").first().waitFor({ timeout: 10000 });
+  assert.equal(await alice.page.locator(".comment-margin").count(), 0, "a phone has no margin column");
+  for (const who of [owner, alice]) await who.page.setViewportSize({ width: 1280, height: 900 });
+  pass("a reader sees margin comments read-only; a phone keeps the count mark");
+
   await owner.page.goto(documentUrl);
   const ownerBody = owner.page.getByLabel("Collaborative document body");
   await ownerBody.waitFor({ timeout: 30000 });

@@ -27,10 +27,12 @@ import {
 	TextSelection,
 	type EditorState
 } from '@tiptap/pm/state';
+import type { Mappable } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import type { HocuspocusProvider } from '@hocuspocus/provider';
 import type { Doc } from 'yjs';
 import type { DocumentContent, DocumentMark, DocumentNode } from './documents';
+import { commentRangeBinding, resolveCommentRange, type CommentRange } from './document-margin.ts';
 import { caretHue } from './page-faces.ts';
 
 export const DOCUMENT_COLLABORATION_FRAGMENT = 'default';
@@ -928,57 +930,138 @@ export interface DocumentEditorHooks {
 	mentionKey?: (event: KeyboardEvent) => boolean;
 	/** Open the actions of the top-level block at a position, beside an anchor. */
 	blockMenu?: (target: { pos: number; anchor: DOMRect; fromKeyboard?: boolean }) => void;
-	/** The top-level blocks that have an open comment thread, with the words each thread quotes,
-	 * marked in the text: the quoted words where they are still found, else the whole block. */
-	commentedBlocks?: () => ReadonlyMap<string, readonly string[]>;
+	/** The open comment threads on blocks, marked in the text: a margin comment's own range while
+	 * its words are still there, else the words it quotes, else its whole block. */
+	commentThreads?: () => readonly CommentMarkThread[];
+	/** The thread whose card is hovered or open; its words are marked more strongly. */
+	activeComment?: () => string | null;
+}
+
+/** An open thread on a block, as the text marks it. */
+export interface CommentMarkThread {
+	threadId: string;
+	blockId: string;
+	quote: string | null;
+	range: CommentRange | null;
+}
+
+/** Where each open thread's words are in the editor now, and the marks that show them. */
+export interface CommentMarksState {
+	decorations: DecorationSet;
+	places: ReadonlyMap<string, { from: number; to: number }>;
+	/** The threads placed by their own range, not by a quote or their block. */
+	ranged: ReadonlySet<string>;
 }
 
 /* Blocks with an open comment thread wear a quiet highlight, as commented text does in Notion.
- * The page says which blocks; it dispatches this key when the threads change. */
-export const commentMarksKey = new PluginKey<DecorationSet>('documentCommentMarks');
+ * The page says which threads; it dispatches this key when the threads (or the one in focus)
+ * change. */
+export const commentMarksKey = new PluginKey<CommentMarksState>('documentCommentMarks');
 
-function commentMarks(
-	doc: ProseMirrorNode,
-	blocks: ReadonlyMap<string, readonly string[]> | undefined
-) {
-	if (!blocks?.size) return DecorationSet.empty;
-	const marks: Decoration[] = [];
+/** Where the text marks each thread, by thread: the margin aligns its cards to these. */
+export function commentPlaces(
+	state: EditorState
+): ReadonlyMap<string, { from: number; to: number }> {
+	return commentMarksKey.getState(state)?.places ?? new Map();
+}
+
+/**
+ * `carried` is the last placing and the change since: the shared Yjs document catches up with a
+ * local edit only after the editor has applied it, so a range is mapped through the edit then,
+ * and read from Yjs afresh when the change came from Yjs (or nothing changed).
+ */
+export function commentMarks(
+	state: EditorState,
+	threads: readonly CommentMarkThread[] | undefined,
+	active: string | null = null,
+	carried?: { previous: CommentMarksState; mapping: Mappable }
+): CommentMarksState {
+	const places = new Map<string, { from: number; to: number }>();
+	const ranged = new Set<string>();
+	if (!threads?.length) return { decorations: DecorationSet.empty, places, ranged };
+	const doc = state.doc;
+	const binding = carried ? null : commentRangeBinding(state);
+	const rangeOf = (thread: CommentMarkThread): { from: number; to: number } | null => {
+		if (!thread.range) return null;
+		if (!carried) return resolveCommentRange(binding, thread.range);
+		const before = carried.previous.ranged.has(thread.threadId)
+			? carried.previous.places.get(thread.threadId)
+			: undefined;
+		if (!before) return null;
+		const from = carried.mapping.map(before.from, 1);
+		const to = carried.mapping.map(before.to, -1);
+		return to > from ? { from, to } : null;
+	};
+	const blocks = new Map<string, { node: ProseMirrorNode; offset: number }>();
 	doc.forEach((node, offset) => {
-		const quotes = blocks.get(node.attrs.block_id);
-		if (!quotes) return;
-		const words = quotes.flatMap((quote) => {
-			const text = quote.replace(/\s+/gu, ' ').trim();
-			const found = text ? findMatches(node, text, 1, offset)[0] : undefined;
-			return found ? [found] : [];
-		});
-		/* A thread without quoted words, or whose words have since changed, marks the block. */
-		if (words.length < quotes.length || !quotes.length)
-			marks.push(Decoration.node(offset, offset + node.nodeSize, { class: 'has-comments' }));
-		for (const match of words)
+		const id = node.attrs.block_id;
+		if (typeof id === 'string' && !blocks.has(id)) blocks.set(id, { node, offset });
+	});
+	const marks: Decoration[] = [];
+	const wholeBlocks = new Map<string, boolean>();
+	for (const thread of threads) {
+		const block = blocks.get(thread.blockId);
+		const focused = thread.threadId === active;
+		/* The range first: it follows the words wherever they went, even out of the block. */
+		const own = rangeOf(thread);
+		if (own) ranged.add(thread.threadId);
+		const quoted =
+			own ??
+			(() => {
+				const text = (thread.quote ?? '').replace(/\s+/gu, ' ').trim();
+				return block && text ? findMatches(block.node, text, 1, block.offset)[0] : undefined;
+			})();
+		if (quoted && quoted.to <= doc.content.size) {
+			places.set(thread.threadId, { from: quoted.from, to: quoted.to });
 			marks.push(
-				Decoration.inline(match.from, match.to, {
-					class: 'commented-words'
+				Decoration.inline(quoted.from, quoted.to, {
+					class: focused ? 'commented-words active-comment' : 'commented-words',
+					'data-comment-thread': thread.threadId
 				})
 			);
-	});
-	return DecorationSet.create(doc, marks);
+			continue;
+		}
+		if (!block) continue;
+		/* A thread without words, or whose words have gone, marks its block. */
+		places.set(thread.threadId, {
+			from: block.offset,
+			to: block.offset + block.node.nodeSize
+		});
+		wholeBlocks.set(thread.blockId, (wholeBlocks.get(thread.blockId) ?? false) || focused);
+	}
+	for (const [blockId, focused] of wholeBlocks) {
+		const block = blocks.get(blockId);
+		if (!block) continue;
+		marks.push(
+			Decoration.node(block.offset, block.offset + block.node.nodeSize, {
+				class: focused ? 'has-comments active-comment' : 'has-comments'
+			})
+		);
+	}
+	return { decorations: DecorationSet.create(doc, marks), places, ranged };
 }
 
 function commentMarksExtension(hooks: DocumentEditorHooks) {
+	const build = (state: EditorState, carried?: Parameters<typeof commentMarks>[3]) =>
+		commentMarks(state, hooks.commentThreads?.(), hooks.activeComment?.() ?? null, carried);
 	return Extension.create({
 		name: 'documentCommentMarks',
 		addProseMirrorPlugins() {
 			return [
-				new Plugin<DecorationSet>({
+				new Plugin<CommentMarksState>({
 					key: commentMarksKey,
 					state: {
-						init: (_, state) => commentMarks(state.doc, hooks.commentedBlocks?.()),
-						apply: (tr, marks, _old, state) =>
-							tr.getMeta(commentMarksKey) || tr.docChanged
-								? commentMarks(state.doc, hooks.commentedBlocks?.())
-								: marks
+						init: (_, state) => build(state),
+						apply: (tr, marks, _old, state) => {
+							if (!tr.docChanged) return tr.getMeta(commentMarksKey) ? build(state) : marks;
+							/* A change from Yjs is already in the shared document: read the ranges
+							 * afresh. A local edit reaches Yjs after this, so map through it. */
+							return isChangeOrigin(tr)
+								? build(state)
+								: build(state, { previous: marks, mapping: tr.mapping });
+						}
 					},
-					props: { decorations: (state) => commentMarksKey.getState(state) }
+					props: { decorations: (state) => commentMarksKey.getState(state)?.decorations }
 				})
 			];
 		}

@@ -593,8 +593,23 @@ async function seed(owner, alice) {
     expected: 201,
     body: { expected_document_version: view.document.version, expected_current_version_id: view.current_version.version.id, summary: "Alice checks the voice", reviewer_actor_id: requester },
   });
+  /* Comments in the margin (S109 E4): the plan carries two threads on its words, so its view
+   * loads with cards beside the text, and must not move the text when they arrive. */
+  const plan = documents[0].document_id;
+  const planView = await coreApi(owner, `${base}/documents/${plan}`);
+  const [firstBlock, secondBlock] = planView.current_version.version.content_json.content;
+  for (const [block, quote, text] of [
+    [firstBlock, "First draft", "Is this still the first draft?"],
+    [secondBlock, "more words", "Fewer words here, please."],
+  ])
+    await coreApi(owner, `${base}/documents/${plan}/comments`, {
+      method: "POST",
+      expected: 201,
+      body: { block_id: block.attrs.block_id, quote, content_json: { type: "doc", content: [paragraph(text)] } },
+    });
   await until(async () => (await coreApi(owner, `${base}/attention`)).items.length >= 2, "seeded Inbox items", 30);
-  pass("seeded documents, a sheet, goals, a team, a room with a mention, direction requests, a charter draft and a review");
+  pass("seeded documents, a sheet, goals, a team, a room with a mention, direction requests, a charter draft, a review and margin comments");
+  return { path: `/${company}/library/documents?document=${plan}`, name: "document" };
 }
 
 await run("multiplayer-jank", async () => {
@@ -617,11 +632,14 @@ await run("multiplayer-jank", async () => {
   await pass_(alice, "member", "empty", surfaces.member, ["cold"]);
   pass("empty state measured");
 
-  await seed(owner, alice);
+  const documentView = await seed(owner, alice);
   for (const state of ["populated", "slow", "failure"]) {
     // With every read failing the shell has no navigation to arrive by, so that state has no nav load.
     await pass_(owner, "owner", state, surfaces.owner, state === "failure" ? ["cold", "warm"] : undefined);
     await pass_(alice, "member", state, surfaces.member, state === "failure" ? ["cold"] : ["cold", "nav"]);
+    // A document with margin comments: opened by its address (no tab arrives at it).
+    await pass_(owner, "owner", state, [documentView], ["cold", "warm"]);
+    await pass_(alice, "member", state, [documentView], ["cold"]);
     pass(`${state} state measured`);
   }
   const kinds = { owner: await cardPass(owner, "owner"), member: await cardPass(alice, "member") };

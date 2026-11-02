@@ -3,9 +3,9 @@
 //! schema when Postgres is available.
 
 use restless_orgintel::{
-    document_json_from_markdown, validate_document_json, DocumentAccess, DocumentError,
-    DocumentKind, DocumentVisibility, NewDocument, NewDocumentCommentThread, OrgIntel,
-    OwnerAttachmentRegistration, SetDocumentParticipant,
+    document_json_from_markdown, validate_document_json, DocumentAccess, DocumentCommentRange,
+    DocumentError, DocumentKind, DocumentVisibility, NewDocument, NewDocumentCommentThread,
+    OrgIntel, OwnerAttachmentRegistration, ReplyToDocumentComment, SetDocumentParticipant,
 };
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -310,6 +310,94 @@ async fn a_duplicate_shows_the_images_it_was_made_with() {
     share(&org, mine_copy, "blair", "casey", DocumentAccess::Read).await;
     assert!(!sees(&org, secret, "casey").await);
     assert!(!sees(&org, secret, "blair").await);
+}
+
+#[tokio::test]
+async fn a_margin_comment_keeps_its_range_shows_its_opening_and_reaches_the_author() {
+    let Some(org) = company("docmargin").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping margin comment scenario");
+        return;
+    };
+    let body = json!({"type":"doc","content":[{"type":"paragraph","attrs":{"block_id":"p"},"content":[{"type":"text","text":"Ship the price list on Friday"}]}]});
+    let document_id = private_document(&org, "alex", &body).await;
+    share(&org, document_id, "alex", "blair", DocumentAccess::Comment).await;
+    let comment = json!({"type":"doc","content":[{"type":"paragraph","attrs":{"block_id":"c"},"content":[{"type":"text","text":"Which Friday?"}]}]});
+    let input = |block_id| NewDocumentCommentThread {
+        document_id,
+        actor_id: "blair",
+        command_id: Uuid::new_v4(),
+        block_id,
+        content_json: &comment,
+    };
+    let range = DocumentCommentRange {
+        from: "AQKr0cMLBQA=",
+        to: "AQKr0cMLCgE=",
+    };
+    let created = org
+        .create_document_comment_thread_in_margin(input(Some("p")), Some("on Friday"), Some(range))
+        .await
+        .unwrap();
+    assert_eq!(
+        created.thread.thread.anchor_from.as_deref(),
+        Some("AQKr0cMLBQA=")
+    );
+    assert_eq!(
+        created.thread.opening.as_ref().map(|o| o.excerpt.as_str()),
+        Some("Which Friday?")
+    );
+    org.reply_to_document_comment(ReplyToDocumentComment {
+        document_id,
+        thread_id: created.thread.thread.id,
+        reply_to_comment_id: None,
+        actor_id: "alex",
+        command_id: Uuid::new_v4(),
+        content_json: &comment,
+    })
+    .await
+    .unwrap();
+    // A reader of the list sees the range, who began the thread, what they said and its size.
+    let listed = org
+        .list_document_comment_threads(document_id, "alex", None, 10)
+        .await
+        .unwrap();
+    let view = &listed.items[0];
+    assert_eq!(view.thread.anchor_to.as_deref(), Some("AQKr0cMLCgE="));
+    let opening = view
+        .opening
+        .as_ref()
+        .expect("the margin card has an opening");
+    assert_eq!(opening.author_actor_id, "blair");
+    assert_eq!(opening.excerpt, "Which Friday?");
+    assert_eq!(opening.comment_count, 2);
+
+    // The doc's author hears about a margin comment someone else began.
+    let page = org.for_you_page("alex", None, 50).await.unwrap();
+    let key = format!("thread:{}", created.thread.thread.id);
+    assert!(
+        page.items.iter().any(|item| item.key == key),
+        "the author follows their own document"
+    );
+
+    // A range belongs to a block, and is only ever a position the editor encoded.
+    assert!(matches!(
+        org.create_document_comment_thread_in_margin(input(None), None, Some(range))
+            .await,
+        Err(DocumentError::Invalid(_))
+    ));
+    for bad in ["", "abc", "not base64!", &"A".repeat(300)] {
+        assert!(matches!(
+            org.create_document_comment_thread_in_margin(
+                input(Some("p")),
+                None,
+                Some(DocumentCommentRange {
+                    from: bad,
+                    to: "AQKr0cMLCgE="
+                })
+            )
+            .await,
+            Err(DocumentError::Invalid(_))
+        ));
+    }
 }
 
 #[tokio::test]

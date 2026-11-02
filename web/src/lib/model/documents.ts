@@ -185,6 +185,9 @@ export interface DocumentCommentThreadRow {
 	block_id: string | null;
 	/** The words in the block the comment is about, when a passage was selected. */
 	anchor_quote?: string | null;
+	/** A margin comment's words in the live document: two Yjs relative positions (base64). */
+	anchor_from?: string | null;
+	anchor_to?: string | null;
 	status: DocumentCommentStatus;
 	created_by_actor_id: string;
 	created_at: string;
@@ -196,6 +199,8 @@ export interface DocumentCommentThreadRow {
 export interface DocumentCommentThreadView {
 	thread: DocumentCommentThreadRow;
 	anchor_state: DocumentCommentAnchorState;
+	/** Who began the thread, what they said and how many comments it holds: its margin card. */
+	opening?: { author_actor_id: string; excerpt: string; comment_count: number } | null;
 }
 
 export interface DocumentCommentThreadPage {
@@ -643,12 +648,18 @@ export function createDocumentCommentThread(
 	blockId: string | null,
 	contentJson: DocumentContent,
 	commandId: string,
-	quote: string | null = null
+	quote: string | null = null,
+	range: { from: string; to: string } | null = null
 ): Promise<DocumentCommentThreadCreated> {
 	return documentJson(
 		`${documentsPath(company, document)}/comments`,
 		mutation(
-			{ block_id: blockId, content_json: contentJson, ...(blockId && quote ? { quote } : {}) },
+			{
+				block_id: blockId,
+				content_json: contentJson,
+				...(blockId && quote ? { quote } : {}),
+				...(blockId && range ? { range } : {})
+			},
 			commandId
 		)
 	);

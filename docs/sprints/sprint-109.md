@@ -406,6 +406,23 @@ walkthrough. This batch adds:
   reopen a lasting warning. Permanent content and field errors stay inline.
 - **E3.** Every list item has its own grip and hover wash. Checkboxes align with the first line.
   Readers never see a grip; the role journey caught a regression here.
+- **E4 (part).** Comments sit in a margin column beside their words on a wide page: one card
+  per open thread, level with its words, stacked without overlap. Opening a card shows the
+  thread with Reply and Resolve in place; hovering it marks its words. A selection's Comment
+  button (or Ctrl+Shift+M) writes the comment in the margin. Each new comment stores two Yjs
+  relative positions, so its mark follows the words through edits; older threads fall back to
+  quote, then block. The column is reserved, so cards arriving never move the text; the jank
+  gate now opens a document with comments. Narrower pages keep the count marks and the
+  comments panel. Readers see the cards and cannot reply. The doc's author already hears every
+  new thread in For you, since creating a document follows it.
+  - Still open: the author replying with tracked changes to accept in place. The editor has no
+    suggestion marks. Today's revision proposals replace whole blocks and are reviewed in the
+    panel. Design: add `suggestedInsert` and `suggestedDelete` marks carrying author and
+    thread ids to the editor schema and to Core's document validator (`allowed_marks`, Markdown
+    and docx export drop them). Add a "Suggest" mode where typing wraps inserts and turns
+    deletes into marks, and Accept/Reject on a mark's card that unwraps or removes the text in
+    one Yjs transaction. A reply carries the suggestion's thread id. Each export path and
+    agent's document read must learn the marks, so this is its own change.
 - **F3/F4.** One chat spacing scale. Header and strip heights are tokens. No tooltip on "About".
 - **F5 (part).** Archived stays whole in the narrow Library strip. The card-footer chip [29] needs
   the owner's screenshot.

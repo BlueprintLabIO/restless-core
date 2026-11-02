@@ -668,7 +668,17 @@ struct CreateDocumentCommentInput {
     /// The words in the block the comment is about, when a passage was selected.
     #[serde(default)]
     quote: Option<String>,
+    /// A margin comment's exact words in the live document, as two Yjs relative positions.
+    #[serde(default)]
+    range: Option<DocumentCommentRangeInput>,
     content_json: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DocumentCommentRangeInput {
+    from: String,
+    to: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1747,7 +1757,7 @@ async fn create_document_comment(
         }
     }
     match org
-        .create_document_comment_thread_on_words(
+        .create_document_comment_thread_in_margin(
             restless_orgintel::NewDocumentCommentThread {
                 document_id: document,
                 actor_id: principal.actor_id(),
@@ -1756,6 +1766,13 @@ async fn create_document_comment(
                 content_json: &input.content_json,
             },
             input.quote.as_deref(),
+            input
+                .range
+                .as_ref()
+                .map(|range| restless_orgintel::DocumentCommentRange {
+                    from: &range.from,
+                    to: &range.to,
+                }),
         )
         .await
     {
