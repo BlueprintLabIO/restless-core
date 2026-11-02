@@ -10,7 +10,7 @@ import { openLiveEvents } from './live-events.ts';
 import { getApplianceStatus } from './appliance';
 import { nextFollow, turnUnderWay } from './queued-sends';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-import { onMount } from 'svelte';
+import { onMount, untrack } from 'svelte';
 import type { QueryClient } from '@tanstack/svelte-query';
 import {
 	getActorConversation,
@@ -607,6 +607,16 @@ export function turnWorking(turn: ActiveAgentTurn | null | undefined): boolean {
  * state: a completed event simply invalidates its OrgIntel query.
  */
 export function conversationQuery(
+	...args: Parameters<typeof trackedConversationQuery>
+): ReturnType<typeof trackedConversationQuery> {
+	/* Callers build this inside a $derived, which tracks every read made while it runs, and
+	 * createQuery reads its options (the principal, through `enabled`) as it starts. So each
+	 * time the principal's read landed again, the caller's derived built the whole conversation
+	 * anew, and the activity stream the old one had just opened closed before it connected, on
+	 * every page. Only the arguments decide which conversation this is; nothing read inside. */
+	return untrack(() => trackedConversationQuery(...args));
+}
+function trackedConversationQuery(
 	companyId: string,
 	actorId: string,
 	workId?: string,
@@ -736,13 +746,18 @@ export function conversationQuery(
 	 * a mention. One quiet connection per open conversation, held between turns. When such a
 	 * turn ends, its reply (if any) is in the conversation. */
 	let ambient = $state<AgentActivityState | null>(null);
+	/* Whether to follow, as one yes or no: the effect below reran whenever a value these read
+	 * was replaced by an equal one (the principal's read landing again), closing the stream it
+	 * had just opened before it connected, on every page. A derived boolean only changes when
+	 * the answer does. */
+	const followingAmbient = $derived(
+		queryEnabled(enabled) &&
+			queryEnabled(followLiveActivity) &&
+			queryEnabled(followAmbient) &&
+			typeof EventSource !== 'undefined'
+	);
 	$effect(() => {
-		if (
-			!queryEnabled(enabled) ||
-			!queryEnabled(followLiveActivity) ||
-			!queryEnabled(followAmbient) ||
-			typeof EventSource === 'undefined'
-		) {
+		if (!followingAmbient) {
 			ambient = null;
 			return;
 		}

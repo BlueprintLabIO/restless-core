@@ -597,6 +597,10 @@
 					? ''
 					: ''
 	);
+	/* The rail's conversation is rebuilt only when whose it is changes. Reading the principal itself
+	 * here rebuilt it whenever the principal's read landed again with the same person, and each
+	 * rebuild closed the activity stream it had just opened, before it connected. */
+	const railViewerId = $derived(principal?.actor_id ?? 'owner');
 	const railConversation = $derived(
 		conversationQuery(
 			companyId,
@@ -604,7 +608,7 @@
 			railWorkId,
 			undefined,
 			() => !!principal,
-			principal?.actor_id ?? 'owner',
+			railViewerId,
 			true,
 			true
 		)

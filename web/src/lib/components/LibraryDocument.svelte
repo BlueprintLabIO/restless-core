@@ -1134,14 +1134,23 @@
 		padding: 0;
 		justify-content: center;
 	}
+	/* The bar keeps its own height and the inspector under it takes the rest of the pane. Both
+	 * used to shrink together to fit the pane, so whatever loaded into the inspector (a review's
+	 * actions, "No agent revisions are waiting") changed the bar's share: 46px, then 48px on a
+	 * phone, and the inspector 34px shorter at 1440 (S109 C7). Its controls set its height; no
+	 * vertical padding, so a phone's 44px targets make it no taller than they are. */
 	.inspector-bar {
 		display: none;
+		flex: none;
 		grid-template-columns: auto minmax(0, 1fr);
 		align-items: center;
 		gap: var(--space-2);
 		min-height: var(--pane-head-h);
-		padding: var(--space-1) 9px;
+		padding: 0 9px;
 		border-bottom: 1px solid var(--border);
+	}
+	.inspector-pane > :global(.document-inspector) {
+		flex: 1 1 0;
 	}
 	.inspector-bar button {
 		display: grid;

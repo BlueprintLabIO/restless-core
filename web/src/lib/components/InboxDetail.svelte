@@ -1762,26 +1762,8 @@
 		color: var(--text-secondary);
 		font-size: var(--t-body);
 	}
-	/* Choosing another item settles its detail in place: a short fade and a
-	 * 4px rise after the selection lands, instead of swapping the pane. */
-	.head,
-	.title,
-	.body {
-		animation: inbox-detail-in 260ms var(--ease-out) 30ms backwards;
-	}
-	@keyframes inbox-detail-in {
-		from {
-			opacity: 0;
-			transform: translateY(4px);
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.head,
-		.title,
-		.body {
-			animation: none;
-		}
-	}
+	/* The detail arrives as it stays: no fade and rise on mount. The rise settled the header and
+	 * title by a pixel after every load, a reveal the owner did not ask for (S109 C7). */
 	@container page (max-width: 560px) {
 		.head,
 		.title,
