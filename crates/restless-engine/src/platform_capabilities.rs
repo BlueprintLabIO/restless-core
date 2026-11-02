@@ -76,7 +76,7 @@ const INTEGRATIONS: &[Integration] = &[
         built: true,
         keys: &[credential::RESEND_SEND_BINDING],
         also: Some(credential::is_resend_send_name),
-        note: "Sends and observes company email; the key is resend.production.",
+        note: "Sends and observes company email; the key is resend.production. Its state is the status to state: not_connected, key_only (never tried), ready or failing, with the action to take.",
     },
     Integration {
         name: "Payments (Airwallex)",

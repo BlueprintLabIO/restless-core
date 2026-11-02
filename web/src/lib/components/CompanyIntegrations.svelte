@@ -84,6 +84,17 @@
 				action: { label: 'Retry', run: () => source.refresh() }
 			}
 	);
+	/* The status in the owner's words on this page; agents get the same facts with a pointer here. */
+	const statusLine = $derived.by(() => {
+		if (!email) return '';
+		if (email.state === 'ready') return 'Agents can send email.';
+		if (email.state === 'failing') return email.last_send?.detail ?? 'The last email was not sent.';
+		if (email.state === 'key_only')
+			return 'Not known to work until an email is sent. Send a test to find out.';
+		return owner
+			? 'Add a Resend key with sending access to the Vault.'
+			: 'The owner adds the company’s Resend key.';
+	});
 	const keyLine = $derived.by(() => {
 		if (!email) return '';
 		if (email.key) return `${email.key} · in the Vault`;
@@ -115,7 +126,7 @@
 	{:else if email && shown}
 		<Section title="Email" info="Company email is sent through the owner's own Resend account.">
 			{#snippet actions()}
-				<span class="state" title={email.action ?? 'Agents can send email.'}>
+				<span class="state" title={statusLine}>
 					<Dot show tone={shown.tone} label={shown.label} />
 				</span>
 				{#if owner}<button
@@ -127,7 +138,7 @@
 						onclick={openTest}>Send a test</button
 					>{/if}
 			{/snippet}
-			<Item title="Status" meta={email.action ?? 'Agents can send email.'}>
+			<Item title="Status" meta={statusLine}>
 				{#snippet leading()}<Mail size={15} strokeWidth={1.8} />{/snippet}
 			</Item>
 			<Item title="Key" meta={keyLine} href={owner ? `${root}/company/vault` : undefined}>
@@ -143,7 +154,7 @@
 				{#snippet leading()}<Send size={15} strokeWidth={1.8} />{/snippet}
 			</Item>
 			<Item
-				title="Waiting for you"
+				title={owner ? 'Waiting for you' : 'Waiting for the owner'}
 				meta={email.waiting_for_owner
 					? `${email.waiting_for_owner} ${email.waiting_for_owner === 1 ? 'email' : 'emails'} in the Inbox`
 					: 'None'}
@@ -153,7 +164,7 @@
 			</Item>
 			<Item
 				title="Who can send"
-				meta={whoSends(email)}
+				meta={whoSends(email, owner)}
 				href={manager ? `${root}/company/resources` : undefined}
 			>
 				{#snippet leading()}<ShieldCheck size={15} strokeWidth={1.8} />{/snippet}

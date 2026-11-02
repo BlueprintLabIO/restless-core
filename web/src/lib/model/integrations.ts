@@ -46,16 +46,24 @@ export const EMAIL_STATE: Record<
 	failing: { label: 'Not sending', tone: 'danger' }
 };
 
-/** The latest email, as one line: when, and what Resend said. */
+/** The latest email, as one line: when, and whether Resend took it. Why it refused is the
+ * status line's to say. */
 export function lastSendLine(send: LastSend | null, relative: (at: string) => string): string {
 	if (!send) return 'Nothing sent yet';
 	const what = send.test ? 'Test' : 'Email';
 	if (send.outcome === 'accepted') return `${what} accepted by Resend ${relative(send.at)}`;
-	return `${send.detail ?? `${what} not accepted`} ${relative(send.at)}`;
+	if (send.outcome === 'refused') return `${what} refused by Resend ${relative(send.at)}`;
+	return `${what} outcome unknown, ${relative(send.at)}`;
 }
 
-/** Who may send, as one line. */
-export function whoSends(email: Pick<EmailStatus, 'mandate_daily' | 'sent_today'>): string {
-	if (email.mandate_daily === null) return 'Each email waits for your approval in the Inbox';
+/** Who may send, as one line, to the owner or to someone else in the company. */
+export function whoSends(
+	email: Pick<EmailStatus, 'mandate_daily' | 'sent_today'>,
+	owner: boolean
+): string {
+	if (email.mandate_daily === null)
+		return owner
+			? 'Each email waits for your approval in the Inbox'
+			: 'Each email waits for the owner’s approval';
 	return `Exec, up to ${email.mandate_daily} a day under the mandate (${email.sent_today ?? 0} today)`;
 }
