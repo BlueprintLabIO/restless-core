@@ -16,6 +16,15 @@ impl OrgIntel {
         .await?;
         Ok(seconds.map(std::time::Duration::from_secs_f64))
     }
+
+    /// The same membership check a handoff decision makes, for a decision another
+    /// plane holds (an Authority approval's Undo window). Read-only.
+    pub async fn check_decision_principal(&self, principal: &HumanDecisionPrincipal) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        check_decision_principal_in_tx(&mut tx, principal).await?;
+        tx.commit().await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

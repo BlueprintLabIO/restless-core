@@ -109,6 +109,75 @@ pub fn canonical_binding(binding: &str) -> &str {
     }
 }
 
+/// The Vault name a service's key is known by (S109 A2/B6): `Resend`, `resend.com` and
+/// `https://api.resend.com/v1` are all `resend`. Lowercase, the registrable label of a host
+/// (ignoring `www.`/`api.` and a two-part public suffix such as `.com.au`), with anything outside
+/// the Vault's name alphabet dropped. `None` when nothing nameable is left.
+pub fn service_slug(site: &str) -> Option<String> {
+    let lowered = site.trim().to_ascii_lowercase();
+    let host = lowered
+        .split_once("://")
+        .map_or(lowered.as_str(), |(_, rest)| rest)
+        .split(['/', '?', '#', ':'])
+        .next()
+        .unwrap_or_default();
+    let labels: Vec<&str> = host.split('.').filter(|label| !label.is_empty()).collect();
+    const SECOND_LEVEL: &[&str] = &["com", "co", "net", "org", "gov", "edu", "ac"];
+    let label = match labels.as_slice() {
+        [] => "",
+        [only] => only,
+        [.., second, last] if SECOND_LEVEL.contains(second) && last.len() == 2 => labels
+            .get(labels.len().wrapping_sub(3))
+            .copied()
+            .unwrap_or(second),
+        [.., second, _] => second,
+    };
+    let slug: String = label
+        .chars()
+        .map(|character| {
+            if character.is_whitespace() {
+                '-'
+            } else {
+                character
+            }
+        })
+        .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+        .collect();
+    let slug = slug.trim_matches(['-', '_']).to_string();
+    (!slug.is_empty()).then_some(slug)
+}
+
+/// The name a new key for this service is saved under: the integration's own binding where
+/// Restless owns one (`resend` → `resend.production`), otherwise the service's slug.
+pub fn vault_name_for_service(site: &str) -> Option<String> {
+    service_slug(site).map(|slug| canonical_binding(&slug).to_string())
+}
+
+/// A Vault name that already holds this service's key, by the same rule the Vault's token picker
+/// uses: the canonical binding first, then any name that is the slug or starts with it followed by
+/// `.`, `-` or `_` (`resend`, `resend.production`, `resend-token`, `RESEND_API_KEY`). Model and
+/// finance keys are never a service's general key.
+pub fn held_key_for<'a>(names: impl IntoIterator<Item = &'a str>, site: &str) -> Option<&'a str> {
+    let slug = service_slug(site)?;
+    let canonical = canonical_binding(&slug);
+    let names: Vec<&'a str> = names
+        .into_iter()
+        .filter(|name| !name.starts_with("model.inference") && !finance_binding(name))
+        .collect();
+    if let Some(name) = names
+        .iter()
+        .find(|name| name.eq_ignore_ascii_case(canonical))
+    {
+        return Some(name);
+    }
+    names.into_iter().find(|name| {
+        let lowered = name.to_ascii_lowercase();
+        lowered
+            .strip_prefix(&slug)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['.', '-', '_']))
+    })
+}
+
 /// Upgrade old company bindings without moving or reading secret values. A configured production
 /// binding wins a collision; the other value remains in the Vault as an unbound secret.
 pub fn migrate_bindings(bindings: &mut std::collections::BTreeMap<String, String>) {
@@ -1404,6 +1473,63 @@ fn vault_metadata(base: &str, body: &serde_json::Value) -> Result<Vec<serde_json
     }
     rows.sort_by_key(|row| row["reference"].as_str().unwrap_or_default().to_owned());
     Ok(rows)
+}
+
+#[cfg(test)]
+mod service_name_tests {
+    use super::*;
+
+    #[test]
+    fn a_service_has_one_vault_name_however_it_is_written() {
+        for site in [
+            "Resend",
+            "resend.com",
+            "https://api.resend.com/v1/emails",
+            "www.resend.com",
+        ] {
+            assert_eq!(service_slug(site).as_deref(), Some("resend"), "{site}");
+            assert_eq!(
+                vault_name_for_service(site).as_deref(),
+                Some(RESEND_SEND_BINDING)
+            );
+        }
+        assert_eq!(
+            service_slug("shop.example.com.au").as_deref(),
+            Some("example")
+        );
+        assert_eq!(service_slug("Go Shippo").as_deref(), Some("go-shippo"));
+        assert_eq!(vault_name_for_service("Shippo").as_deref(), Some("shippo"));
+        assert_eq!(service_slug("  ://  "), None);
+    }
+
+    #[test]
+    fn a_held_key_is_found_by_the_same_rule_as_the_vault_picker() {
+        let names = [
+            "model.inference.anthropic",
+            "finance.airwallex.read",
+            "resend-token",
+            "resend.production",
+            "SHIPPO_API_KEY",
+            "resendish",
+        ];
+        assert_eq!(
+            held_key_for(names, "api.resend.com"),
+            Some("resend.production")
+        );
+        assert_eq!(
+            held_key_for(["resend-token"], "Resend"),
+            Some("resend-token")
+        );
+        assert_eq!(held_key_for(names, "goshippo.com"), None);
+        assert_eq!(held_key_for(names, "shippo"), Some("SHIPPO_API_KEY"));
+        assert_eq!(held_key_for(["resendish"], "resend"), None);
+        assert_eq!(
+            held_key_for(names, "anthropic"),
+            None,
+            "a model key is not a service key"
+        );
+        assert_eq!(held_key_for(names, "airwallex"), None);
+    }
 }
 
 #[cfg(test)]

@@ -17,6 +17,8 @@ mod accounts_api;
 mod agent_exchanges_api;
 #[path = "owner_appliance.rs"]
 mod appliance_api;
+#[path = "owner_approval_decisions.rs"]
+mod approval_decisions_api;
 #[path = "owner_capacity_activity.rs"]
 pub mod capacity_activity;
 #[path = "owner_cli.rs"]
@@ -1700,6 +1702,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(owner_vault::rename_secret),
         )
         .route(
+            "/companies/{company}/vault/requests/{request}",
+            post(owner_vault::answer_key_request),
+        )
+        .route(
             "/companies/{company}/intelligence/{actor}",
             axum::routing::put(update_agent_intelligence),
         )
@@ -1992,6 +1998,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .merge(handoff_decisions_api::routes())
         .merge(document_decisions_api::routes())
+        .merge(approval_decisions_api::routes())
         .route(
             "/companies/{company}/handoffs/{handoff}/review",
             post(review_outcome),
@@ -2724,6 +2731,7 @@ fn membership_boundary_violation(
         || is_handoff_answer(method, path)
         || handoff_decisions_api::is_own_route(method,path)
         || document_decisions_api::is_own_route(method,path)
+        || approval_decisions_api::is_own_route(method, path)
         // Each person's Inbox: the handler projects only what is assigned to them. Exactly the
         // read: the owner's set-aside list and dismissals stay the owner's.
         || is_own_attention_read(method, path)
@@ -7393,12 +7401,62 @@ async fn attention_view(
                     Err(error) => return documents_api::document_error(error),
                 }
             }
+            // An approval this person answered stays off their Inbox through its Undo window.
+            let mut pending_approval_ids = Vec::new();
+            match restless_engine::approval_decisions::for_actor(
+                &state.daemon.authority,
+                &company,
+                principal.actor_id(),
+            )
+            .await
+            {
+                Ok(decisions) => {
+                    let pending: Vec<_> = decisions
+                        .iter()
+                        .filter(|decision| {
+                            decision.state == "pending"
+                                && decision.principal == *principal.human_decision_principal()
+                        })
+                        .collect();
+                    view.items.retain(|item| {
+                        let hidden = item.source.kind == "approval_required"
+                            && pending.iter().any(|decision| match &decision.target {
+                                restless_engine::approval_decisions::ApprovalTarget::Party {
+                                    party,
+                                } => {
+                                    item.source.call_key.is_none()
+                                        && item
+                                            .source
+                                            .party
+                                            .as_deref()
+                                            .map(|candidate| candidate.trim().to_lowercase())
+                                            == Some(party.clone())
+                                }
+                                restless_engine::approval_decisions::ApprovalTarget::ToolCall {
+                                    call_key,
+                                } => item.source.call_key.as_deref() == Some(call_key.as_str()),
+                            });
+                        if hidden {
+                            pending_approval_ids.push(item.id.clone());
+                        }
+                        !hidden
+                    });
+                }
+                Err(error) => {
+                    return api_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "approval_decision",
+                        format!("{error:#}"),
+                    )
+                }
+            }
             if !query.include_work_graph {
                 view.work_graph = None;
             }
             let mut output = serde_json::json!(view);
             output["pending_handoff_decisions"] = serde_json::json!(pending_ids);
             output["pending_document_decisions"] = serde_json::json!(pending_document_ids);
+            output["pending_approval_decisions"] = serde_json::json!(pending_approval_ids);
             Json(output).into_response()
         }
         Err(error) => api_error(

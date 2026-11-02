@@ -347,6 +347,14 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 return Response::err("Name the site and why: restless apps ask-account --kind website_login --site facebook.com --reason '...'");
             };
             let pool = daemon.authority.pool();
+            // A key the company already holds is the answer, not a new Inbox item (S109 B6).
+            if kind == "api" {
+                if let Ok(config) = runtime::CompanyConfig::load(&daemon.root, company) {
+                    if let Some(held) = crate::platform_capabilities::already_held(pool, &config, site).await {
+                        return Response::ok(held);
+                    }
+                }
+            }
             if let Ok(open) = crate::account_broker::open_requests(pool, company).await {
                 if let Some(same) = open.iter().find(|open| open.kind.as_deref() == Some(kind) && open.reason.starts_with(&format!("{}:", site.trim()))) {
                     return Response::ok(serde_json::json!({
@@ -357,13 +365,69 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             }
             let asked = format!("{}: {}", site.trim().chars().take(120).collect::<String>(), reason.trim().chars().take(800).collect::<String>());
             match crate::account_broker::create_request(pool, company, None, Some(kind), None, &asked, actor).await {
-                Ok(request) => Response::ok(serde_json::json!({
-                    "requested": true,
-                    "id": request.id,
-                    "message": format!("Asked. The owner sees {} in their Inbox. When they add it in Settings › Accounts and give it to this company, its tools appear in your tool list.", site.trim()),
-                })),
+                Ok(request) => Response::ok(match (kind, credential::vault_name_for_service(site)) {
+                    // An API key is the company's own: the owner adds it to Company › Vault.
+                    ("api", Some(name)) => serde_json::json!({
+                        "requested": true,
+                        "id": request.id,
+                        "name": name,
+                        "message": format!("Asked. The owner sees {} in their Inbox. Their answer goes into the company Vault as {name}; then `restless effect --secret API_KEY={name} ...` uses it.", site.trim()),
+                    }),
+                    _ => serde_json::json!({
+                        "requested": true,
+                        "id": request.id,
+                        "message": format!("Asked. The owner sees {} in their Inbox. When they add it in Settings › Accounts and give it to this company, its tools appear in your tool list.", site.trim()),
+                    }),
+                }),
                 Err(error) => Response::err(format!("{error:#}")),
             }
+        }
+        // What Restless can do here, by name and health (S109 D3): read before stating a fact
+        // about Restless. Read-only; no secret value or reference path is in it.
+        "capabilities" => match crate::platform_capabilities::read(daemon, company).await {
+            Ok(view) => Response::ok(view),
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        // A fault in Restless itself, with its evidence, for the Restless company (S109 D3).
+        "restless-fault" => {
+            let actor = if principal == Principal::Owner { "owner" } else {
+                match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
+            };
+            let summary = request.common.body.as_deref().unwrap_or_default();
+            let evidence = request.common.reason.as_deref().unwrap_or_default();
+            let pool = daemon.authority.pool();
+            let target = crate::platform_capabilities::faults_company(company);
+            let mut fault = match crate::platform_capabilities::record_fault(pool, company, actor, summary, evidence, target.as_deref()).await {
+                Ok(fault) => fault,
+                Err(error) => return Response::err(format!("{error:#}")),
+            };
+            if let (Some(target), false) = (target.as_deref(), fault.repeat) {
+                let body = crate::platform_capabilities::fault_message(company, actor, &fault.id, summary.trim(), evidence.trim());
+                let delivered = match daemon.orgintel.get(target).await {
+                    Ok(org) => {
+                        let _ = org.ensure_actor("daemon", "system", "system-sender", "The daemon").await;
+                        org.send_message("daemon", Some("exec"), &body).await.ok()
+                    }
+                    Err(_) => None,
+                };
+                if let Some(message) = delivered {
+                    let _ = crate::platform_capabilities::record_delivery(pool, &fault.id, message).await;
+                    fault.delivered_message = Some(message);
+                }
+            }
+            let message = match (&fault.filed_to, fault.delivered_message, fault.repeat) {
+                (_, _, true) => "Already filed today; the earlier report stands.".to_string(),
+                (Some(target), Some(_), _) => format!("Filed to the Restless company ({target}) with your evidence."),
+                (Some(target), None, _) => format!("Recorded. The Restless company ({target}) could not be reached just now; the report is kept."),
+                (None, _, _) => "Recorded for Restless on this plane; no Restless company is hosted here to deliver it to.".to_string(),
+            };
+            Response::ok(serde_json::json!({
+                "fault": fault.id,
+                "filed_to": fault.filed_to,
+                "delivered": fault.delivered_message.is_some(),
+                "repeat": fault.repeat,
+                "message": message,
+            }))
         }
         "apps-search" => {
             // The public Apps catalogue (Sprint 87): what Exec may recommend, each with the page in
@@ -4681,6 +4745,8 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "tools-list"
         | "tools-check"
         | "account-ask"
+        | "capabilities"
+        | "restless-fault"
         | "document-review-request" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
         "publish-build" | "publish-candidate" | "publish-request" => {
             pin_actor(&mut request.publication.actor, actor, "publication actor")?

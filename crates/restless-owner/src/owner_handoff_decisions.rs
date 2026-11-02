@@ -224,6 +224,10 @@ pub(super) async fn run(state: OwnerState) -> std::io::Result<()> {
     let mut wakes = state.daemon.cell_wakes.subscribe();
     loop {
         let mut until = tokio::time::Instant::now() + Duration::from_secs(2);
+        // Inbox approvals: Authority holds their windows for every company at once.
+        if let Some(next) = super::approval_decisions_api::apply_due(&state).await {
+            until = until.min(tokio::time::Instant::now() + next.max(Duration::from_millis(200)));
+        }
         let companies = match crate::daemon::configured_companies(&state.daemon.root) {
             Ok(companies) => companies,
             Err(error) => {

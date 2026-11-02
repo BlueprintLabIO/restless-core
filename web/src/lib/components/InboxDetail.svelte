@@ -28,16 +28,16 @@
 	import type { AttentionItem } from '$lib/model/view';
 	import {
 		reviewAction,
-		approvalAction,
 		delegateHandoff,
 		passHandoffToOwner,
 		resolveHandoffDecision
 	} from '$lib/model/attention';
+	import { cockpitQuery, refreshAttention } from '$lib/model/queries.svelte';
 	import {
-		cockpitQuery,
-		refreshAttention,
-		removeConfirmedAttention
-	} from '$lib/model/queries.svelte';
+		approvalDecision,
+		queueApprovalDecision,
+		type ApprovalDecision
+	} from '$lib/model/approval-decisions';
 	import {
 		attentionAsker,
 		attentionKindLabel,
@@ -233,7 +233,9 @@
 		if (ask.account_id) return 'Approve as asked, or set its access below and give it. Or deny.';
 		if (ask.kind === 'website_login' || ask.kind === 'browser_profile')
 			return 'Sign in below, then choose what the company may do there. Or deny.';
-		if (ask.kind === 'api' || ask.kind === 'github')
+		if (ask.kind === 'api')
+			return 'Add the key below. It goes into Company › Vault under the name shown. Or deny.';
+		if (ask.kind === 'github')
 			return `Add ${kindPhrase(ask.kind)} below, or choose one you hold, then choose what the company may do with it. Or deny.`;
 		return item.requestedAction;
 	});
@@ -568,6 +570,12 @@
 			CATALOGUE.find((entry) => entry.key === appRequest.catalogueKey)?.auth === 'token'
 		)
 			return settingHome(companyId, 'vault');
+		if (
+			item.accountRequest &&
+			!item.accountRequest.account_id &&
+			item.accountRequest.kind === 'api'
+		)
+			return settingHome(companyId, 'vault');
 		if (reconnectSurface || item.accountRequest || appRequest)
 			return settingHome(companyId, 'accounts');
 		if (
@@ -601,24 +609,25 @@
 			markingDone = false;
 		}
 	}
-	const approvalTarget = (always = false) => {
-		const target = item.source.call_key
-			? { call_key: item.source.call_key, ...(always ? { always: true } : {}) }
-			: item.source.party;
-		if (!target) throw new Error('This request has no approval target. Refresh and try again.');
-		return target;
-	};
-	/* A grant acts as soon as Authority records it, so the card leaves on that answer, straight onto
-	 * the next one. Its Undo window needs an Authority-held pending grant (C1, instant-decisions.md). */
-	const approve = (always = false) =>
+	/* An answer is saved with Authority, which holds its few seconds of Undo; the card leaves at
+	 * once, straight onto the next one. Nothing is granted, declined or told to the company until
+	 * the window ends (C1, instant-decisions.md). The receipt's notice carries Undo. */
+	const answerApproval = (decision: ApprovalDecision, sent: string, fallback: string) =>
 		run(
 			async () => {
-				await approvalAction(companyId, 'grant', approvalTarget(always));
-				await removeConfirmedAttention(client, companyId, item.id, true);
+				if (!(await queueApprovalDecision(client, companyId, item, decision)))
+					throw new Error(fallback);
 			},
+			sent,
+			fallback,
+			execHref,
+			true
+		);
+	const approve = (always = false) =>
+		answerApproval(
+			approvalDecision('grant', { always }),
 			always ? 'Approved. It won’t ask again.' : 'Approved',
-			'The approval was not recorded. Try again.',
-			execHref
+			'The approval was not recorded. Try again.'
 		);
 	/* Declined either way: a request for changes tells the company to prepare a changed draft,
 	 * which comes back here; a plain decline tells it not to go ahead. */
@@ -627,21 +636,14 @@
 		if (declinePayee) return answerPayee(false, reason);
 		const changes = approvalNote === 'changes';
 		if (changes && !reason.trim()) return;
-		return run(
-			async () => {
-				await approvalAction(companyId, 'decline', approvalTarget(), {
-					note: reason,
-					changesRequested: changes
-				});
-				await removeConfirmedAttention(client, companyId, item.id, true);
-			},
+		return answerApproval(
+			approvalDecision('decline', { note: reason, changesRequested: changes }),
 			changes
 				? 'Changes sent to Exec'
 				: reason.trim()
 					? 'Declined. Exec has your note.'
 					: 'Declined',
-			'That was not recorded. Try again.',
-			execHref
+			'That was not recorded. Try again.'
 		);
 	};
 	const decideMandate = (decision: 'approve' | 'decline', note = '') =>

@@ -89,6 +89,19 @@ export function renameVaultSecret(
 	);
 }
 
+/** Answer an agent's API-key request (S109 B6): the key goes into this company's Vault under the
+ * service's name (or `name`), and the request closes. No account is created. */
+export function answerKeyRequest(
+	company: string,
+	request: string,
+	body: { secret: string; name?: string }
+) {
+	return ownerRequest<{ name: string }>(
+		`${base(company)}/vault/requests/${encodeURIComponent(request)}`,
+		{ method: 'POST', json: body }
+	);
+}
+
 /** Where a credential kept outside the vault lives, as an owner would say it. */
 export function referenceSource(reference: string): string {
 	if (reference.startsWith('env:')) return 'Set on the server running the company';

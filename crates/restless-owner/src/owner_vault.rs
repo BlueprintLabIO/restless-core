@@ -184,9 +184,188 @@ pub(super) async fn store_secret(
         if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "vault", "The secret was stored, but its company binding could not be saved. Retry after checking host storage.");
         }
+        // A key saved here answers any agent's open request for it (S109 B6).
+        if let Ok(settled) = restless_engine::account_broker::settle_requests_held_in_vault(
+            state.daemon.authority.pool(),
+            &company,
+            &[binding],
+        )
+        .await
+        {
+            for ask in settled {
+                tell_asker(&state, &company, &ask, binding).await;
+            }
+        }
         return stored;
     }
     store_and_confirm(&reference, &input.secret, Some(binding)).await
+}
+
+/// The agent that asked for a key learns the Vault name it can use, without the owner relaying it.
+async fn tell_asker(
+    state: &OwnerState,
+    company: &str,
+    ask: &restless_engine::account_broker::AccountRequest,
+    name: &str,
+) {
+    let Ok(org) = state.daemon.orgintel.get(company).await else {
+        return;
+    };
+    let asker_is_agent = org.list_actors().await.is_ok_and(|actors| {
+        actors
+            .iter()
+            .any(|actor| actor.id == ask.requested_by && actor.actor_class == "agent")
+    });
+    if !asker_is_agent {
+        return;
+    }
+    let site = restless_engine::account_broker::requested_site(ask).unwrap_or("API");
+    let _ = org
+        .ensure_actor("daemon", "system", "system-sender", "The daemon")
+        .await;
+    let _ = org
+        .send_message(
+            "daemon",
+            Some(&ask.requested_by),
+            &format!("The owner added the {site} key you asked for to the company Vault as {name}. Use it with `restless effect --secret API_KEY={name} ...`."),
+        )
+        .await;
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct KeyAnswerInput {
+    secret: String,
+    /// The Vault name; defaults to the service's (`resend` → `resend.production`).
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// The owner answers an agent's API-key request (S109 B6): the key goes into this company's Vault
+/// under the service's name and the request is settled with that name. No owner account is made;
+/// a company's own key lives in its Vault, as the card says.
+pub(super) async fn answer_key_request(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, request)): AxumPath<(String, String)>,
+    Json(input): Json<KeyAnswerInput>,
+) -> Response {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "vault",
+            "Only the owner can change the vault.",
+        );
+    }
+    if input.secret.trim().is_empty() || input.secret.len() > 32_768 {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "vault_secret",
+            "Enter a secret up to 32,768 bytes.",
+        );
+    }
+    let pool = state.daemon.authority.pool();
+    let ask = match restless_engine::account_broker::request(pool, &request).await {
+        Ok(Some(ask)) if ask.company == company => ask,
+        Ok(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "accounts",
+                "That request no longer exists.",
+            )
+        }
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "accounts",
+                "The request could not be read. Try again.",
+            )
+        }
+    };
+    if ask.state != "open" || ask.account_id.is_some() || ask.kind.as_deref() != Some("api") {
+        return api_error(
+            StatusCode::CONFLICT,
+            "accounts",
+            "Only an open request for an API key is answered from the Vault.",
+        );
+    }
+    let site = restless_engine::account_broker::requested_site(&ask).unwrap_or_default();
+    let name = match input
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        Some(name) => credential::canonical_binding(name).to_string(),
+        None => match credential::vault_name_for_service(site) {
+            Some(name) => name,
+            None => {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "vault_binding",
+                    "Name the key: letters, numbers, dots, underscores and hyphens.",
+                )
+            }
+        },
+    };
+    if !valid_secret_name(&name)
+        || name.starts_with("model.inference")
+        || name.starts_with("finance")
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "vault_binding",
+            "Name the key: letters, numbers, dots, underscores and hyphens.",
+        );
+    }
+
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    // Never overwrite a key the Vault holds: the owner names another, or uses that one.
+    let reference = format!("infisical:/companies/{company}/{name}");
+    let taken = config.credentials.contains_key(&name)
+        || match credential::probe_reference(&reference).await.status {
+            credential::ProbeStatus::Present => true,
+            credential::ProbeStatus::Absent => false,
+            credential::ProbeStatus::Invalid => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "vault",
+                    "Could not check whether that secret already exists. Try again.",
+                );
+            }
+        };
+    if taken {
+        return api_error(
+            StatusCode::CONFLICT,
+            "vault_exists",
+            format!("The Vault already has a key named {name}. Choose another name, or use it from Company › Vault."),
+        );
+    }
+    let stored = create_and_confirm(&reference, &input.secret, Some(&name)).await;
+    if !stored.status().is_success() {
+        return stored;
+    }
+    config.credentials.insert(name.clone(), reference);
+    if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "vault", "The secret was stored, but its company binding could not be saved. Retry after checking host storage.");
+    }
+    drop(_write);
+    let settled =
+        match restless_engine::account_broker::settle_request_in_vault(pool, &request, &name).await
+        {
+            Ok(Some(settled)) => settled,
+            _ => {
+                return api_error(StatusCode::SERVICE_UNAVAILABLE, "accounts", format!("The key is in the Vault as {name}, but the request could not be closed. Deny it from the card; the key stays."))
+            }
+        };
+    tell_asker(&state, &company, &settled, &name).await;
+    no_store(Json(
+        serde_json::json!({ "request": settled, "name": name }),
+    ))
 }
 
 async fn create_and_confirm(reference: &str, secret: &str, binding: Option<&str>) -> Response {

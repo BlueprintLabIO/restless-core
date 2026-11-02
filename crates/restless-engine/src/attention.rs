@@ -1444,11 +1444,23 @@ async fn account_items(
         } else {
             request.reason.clone()
         };
-        item.why_it_matters = "Companies use your accounts only as you grant them; nothing is shared until you say so.".into();
-        item.recommendation =
-            "Approve as asked, or approve with limits to choose the abilities, scope and caps."
-                .into();
-        item.requested_action = "Approve, approve with limits, or deny.".into();
+        // An API key is the company's own and lives in its Vault (S109 B6), not among your accounts.
+        let vault_key = request.account_id.is_none() && request.kind.as_deref() == Some("api");
+        let vault_name = vault_key
+            .then(|| crate::account_broker::requested_site(&request))
+            .flatten()
+            .and_then(crate::credential::vault_name_for_service);
+        if vault_key {
+            item.why_it_matters = "The key is kept in this company's Vault. Agents use it by name and never see it in chat.".into();
+            item.recommendation = "Add the key to Company › Vault, or deny.".into();
+            item.requested_action = "Add the key, or deny.".into();
+        } else {
+            item.why_it_matters = "Companies use your accounts only as you grant them; nothing is shared until you say so.".into();
+            item.recommendation =
+                "Approve as asked, or approve with limits to choose the abilities, scope and caps."
+                    .into();
+            item.requested_action = "Approve, approve with limits, or deny.".into();
+        }
         item.if_no_action = "The company goes without it.".into();
         let mut href = format!(
             "/account/settings/accounts?company={company}&request={}",
@@ -1483,6 +1495,7 @@ async fn account_items(
             "abilities": request.abilities,
             "reason": request.reason,
             "site": site,
+            "vault_name": vault_name,
             "requested_by_display": who,
         }));
         item.actions = Vec::new();
@@ -1502,6 +1515,14 @@ async fn account_items(
                 "Opens the grant in Settings, filled in as asked.",
                 "Saving the grant answers the request.",
                 Some(href),
+            ));
+        } else if vault_key {
+            item.actions.push(action(
+                "approve-with-limits",
+                "Add it",
+                "Opens Company › Vault.",
+                "A key saved there under the service's name answers the request.",
+                Some(format!("/{company}/vault")),
             ));
         } else {
             item.actions.push(action(
