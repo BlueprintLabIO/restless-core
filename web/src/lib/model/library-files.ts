@@ -71,6 +71,26 @@ function namesNothing(label: string): boolean {
 	return GENERIC_LABEL.test(label) || ADDRESS_LABEL.test(label);
 }
 
+/* A file name or slug an agent wrote, not a title a person gave: one run of letters and digits
+ * joined by hyphens, underscores or dots, with no spaces ("lazarus-cc-notes.md"). */
+const SLUG = /^[\p{L}\p{N}]+(?:[-_.]+[\p{L}\p{N}]+)+$/u;
+/** Whether a label is a file name or slug rather than a title. */
+export function isSlug(label: string): boolean {
+	return SLUG.test(label.trim());
+}
+
+/** A slug read as a title: "concept-a1000-upgrade-report.md" is "Concept a1000 upgrade report".
+ * Anything that is not a slug is kept as written. */
+export function humanTitle(label: string): string {
+	const given = label.trim();
+	if (!isSlug(given)) return given;
+	const words = given
+		.replace(/\.[a-z0-9]{1,10}$/i, '')
+		.replace(/[-_.]+/g, ' ')
+		.trim();
+	return words ? words.charAt(0).toUpperCase() + words.slice(1) : given;
+}
+
 function fileName(uri: string): string {
 	try {
 		const url = new URL(uri);
@@ -126,14 +146,16 @@ export function libraryKind(
  * scratch folder. */
 const SCRATCH_FOLDER = /^(scratch|scratchpad|tmp|temp|wip|working)$/i;
 /** Whether a file is an agent's working note rather than something made for the owner: anything
- * under /company/org, a note outside the outputs and downloads folders, or a file in a scratch
- * folder. These leave the default views for their own (S109-G5). */
-export function isWorkingNote(file: Pick<LibraryFile, 'kind' | 'uri'>): boolean {
+ * under /company/org, a note outside the outputs and downloads folders, a note in outputs that its
+ * recorder gave no title (an agent's review or notes file, known only by its slug), or a file in a
+ * scratch folder. These leave the default views for their own (S109-G5); nothing is moved. */
+export function isWorkingNote(file: Pick<LibraryFile, 'kind' | 'uri'> & { named?: boolean }): boolean {
 	const path = file.uri.split(/[?#]/)[0];
 	if (!path.startsWith('/company/')) return false;
 	if (path.startsWith('/company/org/')) return true;
-	const delivered = path.startsWith('/company/outputs/') || path.startsWith('/company/downloads/');
-	if (!delivered && file.kind === 'text') return true;
+	if (path.startsWith('/company/downloads/')) return false;
+	const delivered = path.startsWith('/company/outputs/');
+	if (file.kind === 'text' && (!delivered || !file.named)) return true;
 	return path
 		.split('/')
 		.slice(2, -1)
@@ -157,10 +179,10 @@ export function officeFormat(uri: string): 'docx' | 'xlsx' | 'pptx' | null {
  * then its own file name, then the Work it came from. */
 export function fileLabel(label: string, uri: string, workTitle?: string): string {
 	const given = label.trim();
-	if (given && !namesNothing(given)) return given;
+	if (given && !namesNothing(given)) return humanTitle(given);
 	const path = uri.split(/[?#]/)[0];
 	const name = path.startsWith('/company/') ? pathName(path) : fileName(uri);
-	if (name && !namesNothing(name)) return name;
+	if (name && !namesNothing(name)) return humanTitle(name);
 	/* A page is its folder: `…/q4-review/deck/index.html` is the Q4 review. */
 	if (/^index\.html?$/i.test(name)) {
 		const folder = path
@@ -171,7 +193,7 @@ export function fileLabel(label: string, uri: string, workTitle?: string): strin
 				(segment) =>
 					!/^(deck|slides|presentation|site|dist|build|public|out|www|outputs)$/i.test(segment)
 			);
-		if (folder) return pathName(folder);
+		if (folder) return humanTitle(pathName(folder));
 	}
 	return workTitle?.trim() || given || name || uri;
 }
@@ -193,7 +215,11 @@ export function libraryFiles(
 		if (artifact.state !== 'available' || artifact.superseded_at || !artifact.work_id) continue;
 		const kind = libraryKind(artifact);
 		if (!kind) continue;
-		const named = artifact.label.trim() && !namesNothing(artifact.label.trim());
+		/* A title a person would give, not a recorder's default or the file's own slug. */
+		const named =
+			artifact.label.trim() &&
+			!namesNothing(artifact.label.trim()) &&
+			!isSlug(artifact.label.trim());
 		const merged = byUri.get(artifact.uri);
 		if (merged) {
 			merged.ids?.push(artifact.id);

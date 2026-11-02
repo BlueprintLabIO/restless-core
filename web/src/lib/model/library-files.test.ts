@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+	humanTitle,
 	isWorkingNote,
 	libraryFileById,
 	libraryFiles,
@@ -30,7 +31,7 @@ test('agents’ plans, journals and scratch files are working notes; outputs are
 	assert.equal(note('/company/repos/site/NOTES.md'), true);
 	assert.equal(note('/company/outputs/scratch/draft.html', 'site'), true);
 	assert.equal(note('/company/outputs/q4/wip/chart.png', 'image'), true);
-	assert.equal(note('/company/outputs/meeting-notes.md'), false);
+	assert.equal(isWorkingNote({ kind: 'text', uri: '/company/outputs/meeting-notes.md', named: true }), false);
 	assert.equal(note('/company/downloads/brief.txt'), false);
 	assert.equal(note('/company/repos/site/dist/index.html', 'site'), false);
 	assert.equal(note('http://127.0.0.1:8650/', 'site'), false);
@@ -58,7 +59,31 @@ test('an unlabelled output is named after its file, or its folder for a page', (
 		record({ id: 'f', uri: '/company/outputs/run/plan.pdf', label: '' })
 	]);
 	assert.equal(page.label, 'q4');
-	assert.equal(pdf.label, 'plan.pdf');
+	assert.equal(pdf.label, 'Plan');
+});
+
+/* Seen in production (Reno, 3 Nov): agents' review and notes files, known only by their slugs,
+ * were listed in All files beside the owner's documents. */
+test('a note an agent left in outputs under its slug is a working note; a titled one is not', () => {
+	const files = libraryFiles([
+		record({ id: 'r', kind: 'document', uri: '/company/outputs/arbpro/arbpro-tree-specialists-review.md', label: 'arbpro-tree-specialists-review.md' }),
+		record({ id: 'n', kind: 'document', uri: '/company/outputs/lazarus-cc-notes.md', label: '' }),
+		record({ id: 't', kind: 'document', uri: '/company/outputs/q4-summary.md', label: 'Q4 summary for the board' })
+	]);
+	const byId = Object.fromEntries(files.map((file) => [file.id, file]));
+	assert.equal(isWorkingNote(byId.r), true);
+	assert.equal(isWorkingNote(byId.n), true);
+	assert.equal(isWorkingNote(byId.t), false);
+	assert.equal(byId.r.label, 'Arbpro tree specialists review');
+	assert.equal(byId.r.name, 'arbpro-tree-specialists-review.md', 'the file name stays findable');
+});
+
+test('a slug reads as a title; a title is kept as written', () => {
+	assert.equal(humanTitle('concept-a1000-upgrade-report.md'), 'Concept a1000 upgrade report');
+	assert.equal(humanTitle('desktop_1440.png'), 'Desktop 1440');
+	assert.equal(humanTitle('Q4 review: port 8080 migration'), 'Q4 review: port 8080 migration');
+	assert.equal(humanTitle("Reno's first landing page.html"), "Reno's first landing page.html");
+	assert.equal(humanTitle('q4'), 'q4');
 });
 
 /* Seen in production: a local site whose page title was its dev-server address. */

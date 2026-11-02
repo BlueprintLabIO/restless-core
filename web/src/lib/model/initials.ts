@@ -17,13 +17,17 @@ export function teamName(name: string, companyId = ''): string {
 
 /** A name prefix for an avatar. Team characters are allocated in prefix order, so
  * multiword names keep that prefix too (Ebenezer Scrooge → Eb, Edna Mode → Ed).
- * A repeated character retains its number: Eeyore 2 → Ee2, distinct from Eeyore. */
+ * An avatar holds letters only (3 Nov walkthrough: "Ea2" read as noise): a repeated
+ * character's number stays in its name beside the avatar, so Eeyore 2 → Ee, and R2-D2 → Rd. */
 export function initials(name: string): string {
 	const words = name
 		.trim()
 		.split(/\s+/)
 		.filter((part) => part && !/^(the|a|an)$/i.test(part));
-	const round = words.length > 1 && /^\d+$/.test(words.at(-1) ?? '') ? (words.pop() ?? '') : '';
-	const letters = [...(words[0] ?? '').replace(/[^\p{L}\p{N}]/gu, '')];
-	return (letters[0]?.toUpperCase() ?? '') + (letters[1]?.toLowerCase() ?? '') + round;
+	if (words.length > 1 && /^\d+$/.test(words.at(-1) ?? '')) words.pop();
+	const word = words[0] ?? '';
+	const letters = [...word.replace(/[^\p{L}]/gu, '')];
+	/* A name with no letters at all keeps what it has rather than an empty circle. */
+	const marks = letters.length ? letters : [...word.replace(/[^\p{N}]/gu, '')];
+	return (marks[0]?.toUpperCase() ?? '') + (marks[1]?.toLowerCase() ?? '');
 }
