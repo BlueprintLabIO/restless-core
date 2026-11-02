@@ -70,6 +70,8 @@ export type AccountAsk = {
 	abilities: Abilities;
 	reason: string;
 	site?: string | null;
+	/** For an API key: the Vault name the server will save it under (S109 B6). */
+	vault_name?: string | null;
 	requested_by_display: string;
 };
 

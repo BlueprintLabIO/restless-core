@@ -514,7 +514,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          say so plainly: it is a Restless fault, not bad luck and not outside anyone's control. \
          Name the attempt, quote the exact error, and say whether retrying is safe. Never tell the \
          owner nothing points to a fix when the records show a platform fault; the fix belongs to \
-         Restless, and the owner needs the evidence to get it fixed.\n\n\
+         Restless, and the owner needs the evidence to get it fixed. File it with `restless \
+         capabilities fault --summary <what failed> --evidence <exact error, ids, time>`.\n\
+         Before stating a fact about Restless (what is built in or connected, a key's name, model \
+         or computer health), read `restless capabilities`; say only what it shows.\n\n\
          # Work and teams [internal decision]\n\
          Before delegating, inspect `restless people` and `restless teams list`. Actors are durable \
          company roles, not disposable task labels: reuse an existing specialist across assignments \
@@ -729,7 +732,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          it in the owner's Inbox, where finished work belongs, rather than only in chat. \
          When work needs a login or account the company does not have, file the request yourself \
          with `restless apps ask-account --kind website_login|api|github --site <site> --reason \
-         <what it is for>`; it reaches the owner's Inbox. Never tell the owner to go and set it up \
+         <what it is for>`; it reaches the owner's Inbox, or names the key the Vault already \
+         holds. Never tell the owner to go and set it up \
          in Settings, and never ask for a password in chat.\n\
          When a proactive update asks the owner for anything, end it with the intent marker \
          described below (kind conversation) and put the exact question in `ownerNeed`; \
@@ -936,6 +940,14 @@ mod tests {
         eprintln!("exec fixed prompt: {bytes} bytes");
         // 80,590 bytes before Sprint 99 split tool procedures into a skill; 70,702 after.
         assert!(bytes <= 74_000, "Exec fixed prompt grew to {bytes} bytes");
+    }
+
+    /// S109 D3: Exec checks what Restless has before stating it, and files Restless faults.
+    #[test]
+    fn exec_checks_restless_capabilities_and_files_its_faults() {
+        let prompt = assemble(&snapshot()).system_prompt;
+        assert!(prompt.contains("read `restless capabilities`"));
+        assert!(prompt.contains("`restless capabilities fault --summary"));
     }
 
     #[test]

@@ -1700,6 +1700,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(owner_vault::rename_secret),
         )
         .route(
+            "/companies/{company}/vault/requests/{request}",
+            post(owner_vault::answer_key_request),
+        )
+        .route(
             "/companies/{company}/intelligence/{actor}",
             axum::routing::put(update_agent_intelligence),
         )

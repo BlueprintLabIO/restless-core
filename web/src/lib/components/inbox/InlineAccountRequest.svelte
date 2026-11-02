@@ -19,6 +19,7 @@
 	import InlineChoice from './InlineChoice.svelte';
 	import InlineDesktop from './InlineDesktop.svelte';
 	import InlineSiteSignIn from './InlineSiteSignIn.svelte';
+	import InlineVaultKey from './InlineVaultKey.svelte';
 	import AccountFieldsEditor from '../editors/AccountFieldsEditor.svelte';
 	import GrantEditor from '../editors/GrantEditor.svelte';
 
@@ -39,13 +40,15 @@
 		(ask.kind === 'website_login' ? 'browser_profile' : (ask.kind ?? '')) as AccountKind
 	);
 	const addable = $derived(!ask.account_id && ADDABLE_KINDS.includes(kind));
+	/* An API key is the company's own: it goes into its Vault, not among the owner's accounts (S109 B6). */
+	const vaultKey = $derived(!ask.account_id && kind === 'api');
 	let held = $state<Account[]>([]);
 	let account = $state<string | null>(null);
 	let pendingSignIn = $state<Account | null>(null);
 	let loaded = $state(false);
 
 	$effect(() => {
-		if (!owner) return;
+		if (!owner || vaultKey) return;
 		void ownerAccounts
 			.list()
 			.then((accounts) => {
@@ -91,6 +94,8 @@
 		label="Account request"
 		note={`Waiting for the owner to give ${kindPhrase((kind || 'api') as AccountKind)}.`}
 	/>
+{:else if vaultKey}
+	<InlineVaultKey {ask} {ondone} />
 {:else if pendingSignIn}
 	{@const signing = pendingSignIn}
 	{#key signing.id}<InlineSiteSignIn

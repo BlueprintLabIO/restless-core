@@ -73,4 +73,5 @@ When the work needs a site someone signs in to (eBay, Facebook Marketplace, a su
 API key or GitHub, ask for it with `restless apps ask-account --kind website_login --site <site>
 --reason '<why>'` (kind `api` or `github` for the others). It reaches the owner's Inbox; they add
 the login once in Settings › Accounts and give it to this company, and its tools then appear in your
-tool list, signed in. Never ask anyone for a password in chat.
+tool list, signed in. An API key goes into the company Vault instead, and a key the Vault already
+holds is named back to you rather than asked for again. Never ask anyone for a password in chat.

@@ -95,6 +95,19 @@ enum AppsCommand {
 }
 
 #[derive(Subcommand)]
+enum CapabilitiesCommand {
+    /// File a fault in Restless itself (not in your own work) to the Restless company.
+    Fault {
+        /// What failed, in one line.
+        #[arg(long)]
+        summary: String,
+        /// The exact error, the command, the Work or attempt id and when it happened.
+        #[arg(long)]
+        evidence: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum Command {
     /// Sign this terminal in to a Restless: Cloud (`restless.run`), a self-hosted address, or
     /// this computer's. You approve the code it prints in Settings › Computers.
@@ -276,6 +289,18 @@ enum Command {
         company: Option<String>,
         #[command(subcommand)]
         command: ToolsCommand,
+    },
+    /// What Restless can do here: what is built in, which integrations are built and connected,
+    /// the company's apps and accounts, each Vault key by name (never its value), and how the
+    /// model, the computer and each key are. Read it before stating a fact about Restless.
+    ///
+    /// `restless capabilities fault --summary '...' --evidence '...'` files a fault in Restless
+    /// itself to the Restless company, with the exact error, command, Work or attempt id and time.
+    Capabilities {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: Option<CapabilitiesCommand>,
     },
     /// Bring a company environment up (create if absent, then start).
     Up {
@@ -2944,6 +2969,18 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         }
         Command::Charter { company, command } => {
             command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
+        }
+        Command::Capabilities { company, command } => {
+            let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
+            match command {
+                None => serde_json::json!({ "cmd": "capabilities", "company": company }),
+                Some(CapabilitiesCommand::Fault { summary, evidence }) => serde_json::json!({
+                    "cmd": "restless-fault",
+                    "company": company,
+                    "body": summary,
+                    "reason": evidence,
+                }),
+            }
         }
         Command::Tools { company, command } => {
             let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
