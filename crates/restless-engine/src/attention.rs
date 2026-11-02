@@ -248,7 +248,16 @@ fn review_target_availability(
             Some("The company computer is stopped, so this outcome cannot be opened until it starts.".into()),
         );
     }
-    ("unavailable", Some(detail))
+    // The card shows a sentence; the raw reason (a shell's "realpath: …: No such file or
+    // directory", a probe error) is for the log, never for the owner.
+    // Info, not warn: the Inbox projects this on every read while the outcome stays missing.
+    tracing::info!(company, error = %detail, "review outcome is unavailable");
+    let reason = if detail.contains("No such file") || detail.contains("not found") {
+        "The prepared outcome is no longer on the company computer."
+    } else {
+        "The prepared outcome could not be opened on the company computer."
+    };
+    ("unavailable", Some(reason.into()))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -5097,6 +5106,31 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn an_unavailable_review_outcome_reads_as_a_sentence_never_the_raw_reason() {
+        let (status, reason) = review_target_availability(
+            "raw-reason-company_test",
+            Err(anyhow::anyhow!(
+                "realpath: /company/outputs/site/index.html: No such file or directory"
+            )),
+        );
+        assert_eq!(status, "unavailable");
+        let reason = reason.expect("a reason");
+        assert_eq!(
+            reason,
+            "The prepared outcome is no longer on the company computer."
+        );
+        assert!(!reason.contains("realpath") && !reason.contains("/company/"));
+        let (_, other) = review_target_availability(
+            "raw-reason-company_test",
+            Err(anyhow::anyhow!("connection reset by peer")),
+        );
+        assert_eq!(
+            other.as_deref(),
+            Some("The prepared outcome could not be opened on the company computer.")
+        );
+    }
 
     #[test]
     fn a_refused_company_model_reaches_the_inbox_with_a_way_out() {

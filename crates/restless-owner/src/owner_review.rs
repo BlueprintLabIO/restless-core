@@ -164,7 +164,7 @@ pub(crate) async fn review_outcome(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -211,6 +211,14 @@ pub(crate) async fn review_outcome(
 /// Accepting approves the outcome that was shown, so it must still open when the acceptance is
 /// recorded: at the click, and again when an Undo window ends. A computer that went to sleep is
 /// woken to check; a stopped one, or a file that has gone, refuses the acceptance in a sentence.
+/// What the owner reads when a review cannot be served: a plain sentence. The raw reason (a
+/// path, a shell's "realpath: … No such file or directory", a bridge error) goes to the log,
+/// never to the card.
+fn logged(error: impl std::fmt::Display, sentence: &'static str) -> &'static str {
+    tracing::warn!(error = %format!("{error:#}"), "{sentence}");
+    sentence
+}
+
 pub(crate) async fn outcome_still_opens(
     state: &OwnerState,
     company: &str,
@@ -274,7 +282,13 @@ pub(crate) async fn issue_review_ticket(
 ) -> impl IntoResponse {
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     // Wake before projecting, so the projection observes the file on a running computer.
     if let Err(refusal) = wake_for_owner_read(&state, &company, "the owner opened a review").await {
@@ -287,7 +301,7 @@ pub(crate) async fn issue_review_ticket(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "projection",
-                format!("{error:#}"),
+                logged(error, "The Inbox could not be read. Try again."),
             )
         }
     };
@@ -362,7 +376,11 @@ pub(crate) async fn issue_library_ticket(
     Json(input): Json<LibraryTicketRequest>,
 ) -> impl IntoResponse {
     if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
-        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(error, "This company could not be found."),
+        );
     }
     // A teammate opens the files of the Work they can see, not any path on the computer.
     if principal.membership_role() != "owner" {
@@ -466,7 +484,7 @@ async fn teammate_library(
         api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            format!("{error:#}"),
+            logged(error, "The company is temporarily unavailable. Try again."),
         )
     };
     let org = state
@@ -508,7 +526,7 @@ async fn recorded_library_file(
             return Err(api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             ))
         }
     };
@@ -525,7 +543,7 @@ async fn recorded_library_file(
             return Err(api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The file could not be looked up. Try again."),
             ))
         }
     };
@@ -585,7 +603,11 @@ pub(crate) async fn library_file_content(
         );
     }
     if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
-        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(error, "This company could not be found."),
+        );
     }
     if let Err(refusal) =
         wake_for_owner_read(&state, &company, "the owner opened a Library file").await
@@ -608,7 +630,7 @@ pub(crate) async fn library_file_content(
             return api_error(
                 StatusCode::NOT_FOUND,
                 "library",
-                format!("the file could not be read: {error:#}"),
+                logged(error, "The file could not be read."),
             )
         }
     };
@@ -649,7 +671,10 @@ async fn open_review_origin(
                 return Err(api_error(
                     StatusCode::BAD_REQUEST,
                     "review",
-                    format!("invalid review target: {error:#}"),
+                    logged(
+                        error,
+                        "This outcome's address is not one Restless can open.",
+                    ),
                 ))
             }
         };
@@ -666,7 +691,10 @@ async fn open_review_origin(
             return Err(api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "review",
-                format!("prepared outcome is unavailable: {error:#}"),
+                logged(
+                    error,
+                    "The prepared outcome could not be opened on the company computer.",
+                ),
             ));
         }
         let path = format!("/{}", percent_encode_segment(&entry));
@@ -678,7 +706,10 @@ async fn open_review_origin(
                 return Err(api_error(
                     StatusCode::BAD_REQUEST,
                     "review",
-                    format!("invalid review target: {error:#}"),
+                    logged(
+                        error,
+                        "This outcome's address is not one Restless can open.",
+                    ),
                 ))
             }
         };
@@ -686,7 +717,10 @@ async fn open_review_origin(
             return Err(api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "review",
-                format!("live outcome is unavailable: {error:#}"),
+                logged(
+                    error,
+                    "The live outcome is not answering on the company computer.",
+                ),
             ));
         }
         let path = target.path_and_query.clone();
@@ -700,7 +734,7 @@ async fn open_review_origin(
             return Err(api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "review",
-                format!("review origin is invalid: {error:#}"),
+                logged(error, "The review could not be opened. Try again."),
             ))
         }
     };
@@ -862,7 +896,10 @@ async fn serve_review(
                     return api_error(
                         StatusCode::BAD_GATEWAY,
                         "review",
-                        format!("live outcome bridge: {error:#}"),
+                        logged(
+                            error,
+                            "The live outcome stopped answering. Reload to try again.",
+                        ),
                     )
                 }
             }
@@ -873,7 +910,11 @@ async fn serve_review(
             let resolved = match runtime::resolve_review_file(root, entry, path) {
                 Ok(resolved) => resolved,
                 Err(error) => {
-                    return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"))
+                    return api_error(
+                        StatusCode::NOT_FOUND,
+                        "review",
+                        logged(error, "This page of the outcome was not found."),
+                    )
                 }
             };
             // The ticket's own file streams, a page as much as a recording or a long PDF, and
@@ -958,7 +999,11 @@ async fn serve_review(
                     return finish_review_response(response, &session, path, &isolation);
                 }
                 Err(error) => {
-                    return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"))
+                    return api_error(
+                        StatusCode::NOT_FOUND,
+                        "review",
+                        logged(error, "This page of the outcome was not found."),
+                    )
                 }
             }
         }
