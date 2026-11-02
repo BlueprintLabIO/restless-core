@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import { getSchema } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
@@ -98,8 +98,18 @@ const texts = (state: EditorState) => {
 	return out;
 };
 
-test('the editor and the documents service share one suggestions core', () => {
-	const below = (path: string) =>
+/* The service's copy is outside this package: a check of the web package alone (CI's container)
+ * cannot see it, so the comparison runs wherever the whole repository is checked out. */
+const SERVICE_CORE = new URL(
+	'../../../../services/native-documents-collaboration/src/suggestions.ts',
+	import.meta.url
+);
+test('the editor and the documents service share one suggestions core', (context) => {
+	if (!existsSync(SERVICE_CORE)) {
+		context.skip('the documents service is not in this checkout');
+		return;
+	}
+	const below = (path: string | URL) =>
 		readFileSync(new URL(path, import.meta.url), 'utf8')
 			.split('\n')
 			.filter(
@@ -109,10 +119,7 @@ test('the editor and the documents service share one suggestions core', () => {
 					!/^ \* (imports|service's imports)\./u.test(line)
 			)
 			.join('\n');
-	assert.equal(
-		below('./document-suggestions-core.ts'),
-		below('../../../../services/native-documents-collaboration/src/suggestions.ts')
-	);
+	assert.equal(below('./document-suggestions-core.ts'), below(SERVICE_CORE));
 });
 
 test('typing while suggesting is one insertion in the writer’s name, not the document’s words', () => {
