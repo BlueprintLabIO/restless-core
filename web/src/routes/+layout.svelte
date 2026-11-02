@@ -211,7 +211,8 @@
 	});
 	/* Widths, views, filters and folds are the person's, on every device (S109 F2). */
 	provideViewPreferences(viewPreferenceStore);
-	onMount(syncPreferences);
+	/* The design gallery runs without a plane, so it keeps this browser's copy only. */
+	onMount(() => (page.url.pathname.startsWith('/gallery') ? undefined : syncPreferences()));
 
 	onMount(() => {
 		let backgrounded = document.visibilityState === 'hidden';
