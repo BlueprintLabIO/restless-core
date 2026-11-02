@@ -61,26 +61,14 @@ if ! getent ahosts plane.localhost | head -1 | grep -Eq '^127\.0\.0\.1[[:space:]
   ' bash "$hosts" "$(id -u)" "$(id -g)" "${BASH_SOURCE[0]}" "$@"
 fi
 
-if (( ! skip_build )); then
-  "$root/scripts/restless-cargo" build -p restlessd
-  npm --prefix "$root/services/identity" ci --ignore-scripts
-  # Core runs Native Sheets in a Node worker from this checkout (sheet_commands.rs).
-  npm --prefix "$root/services/native-sheets" ci --ignore-scripts
-  npm --prefix "$root/web" ci --ignore-scripts
-  npm --prefix "$root/web" run build
-fi
-
-built_documents_image=""
-if [[ -z "${RESTLESS_NATIVE_DOCUMENTS_IMAGE:-}" ]]; then
-  # One tag per run: a concurrent smoke must not rebuild or remove the image this run is using.
-  built_documents_image="restless-native-documents:multiplayer-smoke-$$-${RANDOM}_test"
-  docker build --quiet --tag "$built_documents_image" "$root/services/native-documents-collaboration" >/dev/null
-  export RESTLESS_NATIVE_DOCUMENTS_IMAGE="$built_documents_image"
-fi
-# Run a private copy of restlessd: a concurrent smoke sharing CARGO_TARGET_DIR may rebuild the
-# shared binary for another revision while this journey (re)starts Core.
+# Run a private copy of restlessd built from this tree. CARGO_TARGET_DIR may be shared by other
+# checkouts (the release gates share one): another checkout's build replaces debug/restlessd, and
+# Cargo does not put this tree's binary back when its own build is still fresh. So the build and
+# the copy hold one lock, the copy is taken at once, and it must carry this tree's revision (the
+# build stamps it, crates/restlessd/build.rs); if it does not, the binary is relinked from here.
+target="${CARGO_TARGET_DIR:-$root/target}"
 daemon_copy="$(mktemp -d)"
-cp "${CARGO_TARGET_DIR:-$root/target}/debug/restlessd" "$daemon_copy/restlessd"
+built_documents_image=""
 cleanup() {
   if [[ -n "$built_documents_image" ]]; then
     docker image rm "$built_documents_image" >/dev/null 2>&1 || true
@@ -88,7 +76,45 @@ cleanup() {
   rm -rf "$daemon_copy"
 }
 trap cleanup EXIT
+revision="$(git -C "$root" rev-parse HEAD)"
+ours() { grep -aqF "$revision" "$daemon_copy/restlessd"; }
+if (( ! skip_build )); then
+  mkdir -p "$target"
+  exec 9>"$target/.restlessd-build.lock"
+  flock 9
+  # Plain cargo: restless-cargo would interrupt another checkout's compile in a shared directory.
+  cargo build -p restlessd
+  cp "$target/debug/restlessd" "$daemon_copy/restlessd"
+  if ! ours; then
+    echo "multiplayer-smoke: $target/debug/restlessd is another checkout's build; relinking it from this tree" >&2
+    touch "$root/crates/restlessd/src/main.rs"
+    cargo build -p restlessd
+    cp "$target/debug/restlessd" "$daemon_copy/restlessd"
+    ours || fail "the restlessd built in $target does not carry this tree's revision ($revision)"
+  fi
+  exec 9>&-
+else
+  cp "$target/debug/restlessd" "$daemon_copy/restlessd"
+  ours || echo "multiplayer-smoke: --skip-build: $target/debug/restlessd was not built from $revision" >&2
+fi
 
+if (( ! skip_build )); then
+  npm --prefix "$root/services/identity" ci --ignore-scripts
+  # Core runs Native Sheets in a Node worker from this checkout (sheet_commands.rs).
+  npm --prefix "$root/services/native-sheets" ci --ignore-scripts
+  npm --prefix "$root/web" ci --ignore-scripts
+  npm --prefix "$root/web" run build
+fi
+
+[[ -d "$root/services/native-sheets/node_modules/@odoo/o-spreadsheet" ]] \
+  || fail "Native Sheets is not installed in this checkout; run 'npm --prefix services/native-sheets ci'"
+
+if [[ -z "${RESTLESS_NATIVE_DOCUMENTS_IMAGE:-}" ]]; then
+  # One tag per run: a concurrent smoke must not rebuild or remove the image this run is using.
+  built_documents_image="restless-native-documents:multiplayer-smoke-$$-${RANDOM}_test"
+  docker build --quiet --tag "$built_documents_image" "$root/services/native-documents-collaboration" >/dev/null
+  export RESTLESS_NATIVE_DOCUMENTS_IMAGE="$built_documents_image"
+fi
 if [[ -z "${RESTLESS_BROWSER_EXECUTABLE:-}" ]]; then
   RESTLESS_BROWSER_EXECUTABLE="$(cd "$root/web" && node -e 'console.log(require("playwright").chromium.executablePath())')"
   [[ -x "$RESTLESS_BROWSER_EXECUTABLE" ]] \

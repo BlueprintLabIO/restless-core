@@ -193,6 +193,52 @@ async function watchLandmarks(page, ms) {
       }
       return false;
     };
+    /* What made a landmark move: every element of the page as it was revealed, so a report names
+     * the innermost elements that changed size and those that arrived since (a reserved line
+     * that came late, a button that grew), not only the landmark they pushed. */
+    const root = document.querySelector("#main-content") ?? document.body;
+    const sized = (element) => {
+      const r = element.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) };
+    };
+    const STYLE = ["paddingTop", "paddingBottom", "borderTopWidth", "borderBottomWidth", "minHeight", "lineHeight", "fontSize", "display", "gridTemplateRows", "rowGap", "marginTop", "marginBottom", "transform"];
+    const styled = (element) => {
+      const style = getComputedStyle(element);
+      return STYLE.map((name) => style[name]).join("|");
+    };
+    const before = new Map([...root.querySelectorAll("*")].map((element) => [element, { ...sized(element), style: styled(element), scroll: element.scrollTop }]));
+    const causes = (landmark) => {
+      const changed = [];
+      for (const element of root.querySelectorAll("*")) {
+        const now = sized(element);
+        if (!now.w && !now.h) continue;
+        const was = before.get(element);
+        if (was && was.w === now.w && was.h === now.h) continue;
+        changed.push({ element, was: was ?? null, now });
+      }
+      const set = new Set(changed.map((entry) => entry.element));
+      const found = changed
+        .filter((entry) => ![...set].some((other) => other !== entry.element && entry.element.contains(other)))
+        .slice(0, 8)
+        .map((entry) => {
+          const restyled = entry.was && entry.was.style !== styled(entry.element);
+          return {
+            node: describe(entry.element),
+            text: (entry.element.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 40),
+            was: entry.was && { w: entry.was.w, h: entry.was.h },
+            now: entry.now,
+            ...(restyled ? { styleWas: entry.was.style, styleNow: styled(entry.element) } : {}),
+          };
+        });
+      /* A landmark that moved with nothing resized: a scrolled ancestor, or one restyled. */
+      for (let node = landmark; node && node !== document.body; node = node.parentElement) {
+        const was = before.get(node);
+        if (!was) continue;
+        if (was.scroll !== node.scrollTop) found.push({ node: describe(node), scrolled: [was.scroll, node.scrollTop] });
+        if (was.style !== styled(node)) found.push({ node: describe(node), styleWas: was.style, styleNow: styled(node) });
+      }
+      return found;
+    };
     while (performance.now() - started < ms) {
       const now = performance.now();
       const input = window.__jank.inputs.some((t) => t <= now && now - t < 500);
@@ -207,7 +253,7 @@ async function watchLandmarks(page, ms) {
         if (delta >= 1) {
           first.reported = true;
           if (!input && !fixed(element))
-            moved.push({ t: Math.round(now), node: describe(element), text: (element.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 60), before: first.box, after: box, delta });
+            moved.push({ t: Math.round(now), node: describe(element), text: (element.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 60), before: first.box, after: box, delta, causes: causes(element) });
         }
       }
       await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -326,11 +372,29 @@ function routeFor(state) {
   };
 }
 
+/* The wall clock stands still for a visit: a relative time ("9m ago") ticking over to "10m ago"
+ * mid-measurement is the clock, not the page. Only Date is fixed, at the moment the visit's
+ * context opens; timers, animation frames and performance.now run, so a loading label replaced
+ * by its value, or anything else the page swaps, still moves and still fails. */
+function fixedClock(now) {
+  const Real = Date;
+  function Fixed(...parts) {
+    if (!new.target) return new Real(now).toString();
+    return parts.length ? new Real(...parts) : new Real(now);
+  }
+  Fixed.prototype = Real.prototype;
+  Fixed.now = () => now;
+  Fixed.parse = Real.parse;
+  Fixed.UTC = Real.UTC;
+  globalThis.Date = Fixed;
+}
+
 async function freshContext(who, width, state) {
   const context = await browser.newContext({
     viewport: WIDTHS[width],
     storageState: { cookies: await who.context.cookies(), origins: [] },
   });
+  await context.addInitScript(fixedClock, Date.now());
   await context.addInitScript(probe);
   /* What the page said before a visit failed: its errors and console errors. */
   context.on("page", (page) => {
