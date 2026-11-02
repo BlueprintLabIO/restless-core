@@ -118,7 +118,10 @@
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
-	const entry = firstPaint(() => companyId);
+	const entry = firstPaint(
+		() => companyId,
+		() => page.url.pathname
+	);
 	/* Each settled company page leaves its layout for the next cold load's loading screen
 	 * (shell-snapshot.ts): once revealed, after each navigation, and as the tab is left. */
 	$effect(() => {

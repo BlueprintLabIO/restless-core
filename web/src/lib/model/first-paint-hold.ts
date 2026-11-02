@@ -15,6 +15,13 @@ export const CRITICAL = new Set([
 	'direction-digest'
 ]);
 
+/* Reads the shell starts on every page that only one surface shows: they hold the reveal there
+ * and nowhere else (3 Nov walkthrough: a direct load of Resources or the Library waited on the
+ * Inbox's own reads). A route's own reads hold it by being read only where they are shown. */
+const ONLY_ON: Record<string, string> = {
+	'direction-digest': 'inbox'
+};
+
 type CachedRead = {
 	queryKey: readonly unknown[];
 	state: { data: unknown; status: string; fetchStatus: string };
@@ -30,11 +37,19 @@ function placeholder(read: CachedRead): boolean {
 	return health?.authority === 'unknown';
 }
 
+/** The surface a company path shows: `inbox` for the company's root, else its first segment. */
+export function surfaceOf(pathname: string, companyId: string): string {
+	const rest = pathname.slice(companyId.length + 2).split('/')[0];
+	return rest || 'inbox';
+}
+
 /** Whether one cached read still holds the reveal: a critical read for this company (or the
- * account-wide ones) fetching its first answer, or fetching past a persisted placeholder. */
-export function holdsReveal(read: CachedRead, companyId: string): boolean {
+ * account-wide ones) fetching its first answer, or fetching past a persisted placeholder. A read
+ * that only one surface shows holds it only on that surface. */
+export function holdsReveal(read: CachedRead, companyId: string, surface = 'inbox'): boolean {
 	const key = String(read.queryKey[0]);
 	if (!CRITICAL.has(key)) return false;
+	if (ONLY_ON[key] && ONLY_ON[key] !== surface) return false;
 	if (!['companies', 'appliance'].includes(key) && read.queryKey[1] !== companyId) return false;
 	// A failed read has a recovery state to show. A retry of its persisted
 	// placeholder must not hide the whole app again while the source is down.

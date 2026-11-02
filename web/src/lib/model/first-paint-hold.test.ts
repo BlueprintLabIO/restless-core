@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { holdsReveal } from './first-paint-hold.ts';
+import { holdsReveal, surfaceOf } from './first-paint-hold.ts';
 
 const read = (key: unknown[], data: unknown, status: string, fetchStatus: string) => ({
 	queryKey: key,
@@ -56,4 +56,17 @@ test('a failed placeholder read reveals its recovery state while background retr
 		holdsReveal(read(['attention', 'acme'], undefined, 'error', 'fetching'), 'acme'),
 		false
 	);
+});
+
+/* 3 Nov walkthrough: a direct load of Resources or the Library waited on the Inbox's own reads. */
+test("a read only the Inbox shows holds the reveal on the Inbox and nowhere else", () => {
+	const digest = read(['direction-digest', 'acme'], undefined, 'pending', 'fetching');
+	assert.equal(holdsReveal(digest, 'acme', 'inbox'), true);
+	assert.equal(holdsReveal(digest, 'acme', 'library'), false);
+	assert.equal(holdsReveal(digest, 'acme', 'company'), false);
+	const shell = read(['attention', 'acme'], undefined, 'pending', 'fetching');
+	assert.equal(holdsReveal(shell, 'acme', 'library'), true, 'the shell still waits for its badge');
+	assert.equal(surfaceOf('/acme', 'acme'), 'inbox');
+	assert.equal(surfaceOf('/acme/', 'acme'), 'inbox');
+	assert.equal(surfaceOf('/acme/company/resources', 'acme'), 'company');
 });

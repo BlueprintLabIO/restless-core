@@ -11,7 +11,7 @@ import { getApplianceStatus } from './appliance';
 import { nextFollow, turnUnderWay } from './queued-sends';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 import { onMount, untrack } from 'svelte';
-import type { QueryClient } from '@tanstack/svelte-query';
+import type { Query, QueryClient } from '@tanstack/svelte-query';
 import {
 	getActorConversation,
 	getAttention,
@@ -1190,13 +1190,27 @@ export function companyChangeStream(companyId: () => string, enabled: QueryEnabl
 				flush = undefined;
 				const kinds = [...pending];
 				pending = new Set();
+				const refetchType = document.hidden ? 'none' : 'active';
+				const touched = (query: Query) =>
+					query.queryKey.includes(company) &&
+					!ROOM_STREAM_OWNED.has(String(query.queryKey[0])) &&
+					hintTouches(kinds, query.queryKey);
+				/* A read still fetching its first answer is not cancelled and started again: the page's
+				 * own arrival (its presence, its first reads) sends hints within a second, and
+				 * restarting the Inbox read then held a cold page's first paint for a second read
+				 * (3 Nov walkthrough). It finishes, then reads once more for what the hint named. */
+				const first = (query: Query) =>
+					query.state.data === undefined && query.state.fetchStatus === 'fetching';
 				void client.invalidateQueries({
-					predicate: (query) =>
-						query.queryKey.includes(company) &&
-						!ROOM_STREAM_OWNED.has(String(query.queryKey[0])) &&
-						hintTouches(kinds, query.queryKey),
-					refetchType: document.hidden ? 'none' : 'active'
+					predicate: (query) => touched(query) && !first(query),
+					refetchType
 				});
+				for (const query of client.getQueryCache().findAll({ predicate: (query) => touched(query) && first(query) }))
+					void query.promise
+						?.catch(() => undefined)
+						.then(() =>
+							client.invalidateQueries({ queryKey: query.queryKey, exact: true, refetchType })
+						);
 			}, HINT_GATHER_MS);
 		});
 		return () => {

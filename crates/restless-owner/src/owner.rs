@@ -726,8 +726,6 @@ struct CompanyCatalogEntry {
     logo_url: Option<String>,
 }
 
-/// How long the companies list waits for any one company's card.
-const PORTFOLIO_CARD_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// The one high-value owner read model. This remains a projection: every
 /// field is assembled from its authoritative plane immediately before the
@@ -7143,32 +7141,27 @@ async fn company_catalog(
         };
         configs.push((config, "archived"));
     }
-    let runtime_statuses = runtime::cockpit_company_statuses(
-        &configs
-            .iter()
-            .map(|(config, _)| config.clone())
-            .collect::<Vec<_>>(),
-    )
-    .await
-    .ok();
-    let cards = futures_util::future::join_all(configs.iter().map(|(config, lifecycle)| {
-        let daemon = state.daemon.clone();
-        let company = config.name.clone();
-        let active = *lifecycle == "active";
-        async move {
-            if !active {
-                return None;
+    let plain_configs = configs
+        .iter()
+        .map(|(config, _)| config.clone())
+        .collect::<Vec<_>>();
+    // The Docker inventory and the cards are independent reads: run them side by side, so the
+    // list costs the slower of them, not both.
+    let (runtime_statuses, cards) = tokio::join!(
+        runtime::cockpit_company_statuses(&plain_configs),
+        futures_util::future::join_all(configs.iter().map(|(config, lifecycle)| {
+            let daemon = state.daemon.clone();
+            let company = config.name.clone();
+            let active = *lifecycle == "active";
+            async move {
+                if !active {
+                    return None;
+                }
+                crate::company_projection::portfolio_card(&daemon, &company).await
             }
-            tokio::time::timeout(
-                PORTFOLIO_CARD_TIMEOUT,
-                crate::company_projection::card_for(&daemon, &company),
-            )
-            .await
-            .ok()
-            .and_then(Result::ok)
-        }
-    }))
-    .await;
+        }))
+    );
+    let runtime_statuses = runtime_statuses.ok();
     let mut catalog = Vec::with_capacity(configs.len());
     for ((config, lifecycle), card) in configs.into_iter().zip(cards) {
         let status = runtime_statuses

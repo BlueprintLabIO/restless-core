@@ -303,7 +303,75 @@ pub fn summarize_parts(
 
 /// The card for one company, as the plane sees it now. Unavailable company state is an error, never
 /// a smaller queue or a quieter company.
+/// A card younger than this answers the portfolio as it is.
+const CARD_FRESH: Duration = Duration::from_secs(5);
+/// A card younger than this still answers the portfolio at once while a fresh one is read behind it.
+/// Older (or none) is read before answering.
+const CARD_USABLE: Duration = Duration::from_secs(600);
+
+#[derive(Default)]
+struct CardCache {
+    cards: HashMap<String, (Instant, Summary)>,
+    refreshing: std::collections::HashSet<String>,
+}
+static CARDS: std::sync::LazyLock<std::sync::Mutex<CardCache>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// The portfolio's card for a company (GET /api/companies). Reading a card projects the whole
+/// Inbox, which on a company in real use takes a second or more; the company list is read on every
+/// company page's first paint, so it answers from the last card read (here, or by the Fleet
+/// projection loop) and refreshes it behind the answer (3 Nov walkthrough: a cold company page
+/// waited about 2 s on this list). Accepted risk: a count can trail by one read, at most
+/// [`CARD_USABLE`] old; the next read carries the refreshed one.
+pub async fn portfolio_card(daemon: &Arc<Daemon>, company: &str) -> Option<Summary> {
+    let cached = CARDS
+        .lock()
+        .ok()
+        .and_then(|cache| cache.cards.get(company).copied());
+    if let Some((at, card)) = cached {
+        if at.elapsed() >= CARD_FRESH && at.elapsed() < CARD_USABLE {
+            let starts = CARDS
+                .lock()
+                .map(|mut cache| cache.refreshing.insert(company.to_owned()))
+                .unwrap_or(false);
+            if starts {
+                let daemon = daemon.clone();
+                let company = company.to_owned();
+                tokio::spawn(async move {
+                    let _ = tokio::time::timeout(CARD_REFRESH_TIMEOUT, card_for(&daemon, &company))
+                        .await;
+                    if let Ok(mut cache) = CARDS.lock() {
+                        cache.refreshing.remove(&company);
+                    }
+                });
+            }
+        }
+        if at.elapsed() < CARD_USABLE {
+            return Some(card);
+        }
+    }
+    tokio::time::timeout(CARD_FIRST_READ_TIMEOUT, card_for(daemon, company))
+        .await
+        .ok()
+        .and_then(Result::ok)
+}
+/// How long the first read of a card may hold the company list.
+const CARD_FIRST_READ_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long a background refresh may run before the next read tries again.
+const CARD_REFRESH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Read a company's card now, and keep it for the portfolio.
 pub async fn card_for(daemon: &Daemon, company: &str) -> Result<Summary> {
+    let card = read_card(daemon, company).await?;
+    if let Ok(mut cache) = CARDS.lock() {
+        cache
+            .cards
+            .insert(company.to_owned(), (Instant::now(), card));
+    }
+    Ok(card)
+}
+
+async fn read_card(daemon: &Daemon, company: &str) -> Result<Summary> {
     let config = runtime::CompanyConfig::load(&daemon.root, company)?;
     let org = daemon.orgintel.get(company).await?;
     let view = attention::project_with_spend(&config, &daemon.authority, Some(&org), &daemon.spend)
