@@ -998,7 +998,7 @@ pub(crate) fn finish_review_response(
             HeaderValue::from_static(if pdf {
                 "frame-ancestors 'self'"
             } else {
-                "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads; frame-ancestors 'self'"
+                "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads; frame-ancestors 'self'"
             }),
         );
     }

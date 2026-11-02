@@ -37,3 +37,7 @@ placeholders such as `[LINK TO …]`: say what a thing is in words, or link it. 
 changed it goes in the version note (`document checkpoint --reason`), which people see in the
 document's history, never at the top of the document. Restless checks this when you share or send
 for review and refuses a document that is not ready, saying what to fix.
+
+A place you name (an address, a venue, a suburb) links to Google Maps, so the reader can see it:
+`[Bondi Pavilion](https://www.google.com/maps/search/?api=1&query=Bondi%20Pavilion)`. On a page you
+build, follow the map pattern in the company-tools skill.

@@ -50,6 +50,14 @@ artifact kind `review_target`. A Work declared `--owner-review`
 must provide exactly one available ReviewTarget and pass its `review-target-live-probe` gate; an
 ordinary linked target is evidence only, not owner delivery.
 
+Pages people open (a concept page, a site, a deck) show places on a live map, never a picture of
+one. Link each place with `https://www.google.com/maps/search/?api=1&query=<place, URL-encoded>`
+and `target="_blank" rel="noopener"`: the Library and review frames open new tabs, but a map link
+followed inside the frame is refused. Where a map helps, embed it so it zooms and pans, with that
+link beside it: `<iframe src="https://www.google.com/maps?q=<place, URL-encoded>&output=embed"
+title="Map of <place>" loading="lazy" style="border:0;width:100%;height:360px"></iframe>`. It needs
+no key.
+
 Use the company supervisor for any service that must survive the current agent: put this Work's
 `*.conf` file in `/company/services/supervisor`, then use `company-supervisorctl reread`, `update`,
 and `status`. On cleanup, stop the Work-owned service, remove that exact `*.conf`, then run `reread`,
