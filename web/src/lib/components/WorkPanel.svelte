@@ -33,7 +33,8 @@
 		highlight = '',
 		spend = null,
 		hrefFor,
-		ondetails
+		ondetails,
+		waiting
 	}: {
 		companyId: string;
 		/** Whose Work this is, for "All of Arlo's work". */
@@ -54,6 +55,9 @@
 		/** Where a piece of Work opens beside this chat. */
 		hrefFor: (workId: string) => string;
 		ondetails: (workId: string) => void;
+		/** Why an open Work waits and on whom, in one line (S109 A1). Empty until it can be said
+		 * without changing, and the line's height is held either way. */
+		waiting?: (workId: string) => string;
 	} = $props();
 
 	const monitored = $derived(
@@ -130,6 +134,10 @@
 							>
 						</div>
 						<a href={hrefFor(item.id)}>{item.title}</a>
+						{#if waiting}{@const line = waiting(item.id)}<span
+								class="work-waiting"
+								title={line || undefined}>{line}</span
+							>{/if}
 					</li>
 				{/each}
 			</ul>
@@ -137,10 +145,16 @@
 	{:else}
 		<!-- One piece of Work, read like an issue's properties: every value has its label, so nothing
 		     on the card is a bare number or an unexplained pill (20 October). -->
-		<h3>{panel.nowDelivered ? 'Last delivered' : team ? 'The team is working on' : 'Working on'}</h3>
+		<h3>
+			{panel.nowDelivered ? 'Last delivered' : team ? 'The team is working on' : 'Working on'}
+		</h3>
 		{#if now}
 			<article class="work-now" class:highlighted={highlight === now.id}>
 				<a class="work-now-title" href={hrefFor(now.id)}>{now.title}</a>
+				{#if waiting && !panel.nowDelivered}{@const line = waiting(now.id)}<span
+						class="work-waiting"
+						title={line || undefined}>{line}</span
+					>{/if}
 				<dl class="work-props">
 					<dt>Status</dt>
 					<dd>
@@ -247,6 +261,17 @@
 	}
 	.monitor-owner a {
 		font-weight: 600;
+	}
+	/* One line, its height held while it is still empty, as on the board's cards. */
+	.work-waiting {
+		display: block;
+		height: 1.4em;
+		overflow: hidden;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		line-height: 1.4;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	h3 {
 		display: flex;

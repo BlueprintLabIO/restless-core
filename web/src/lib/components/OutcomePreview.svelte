@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import type { AttentionItem } from '$lib/model/view';
-	import { issueReviewTicket } from '$lib/model/attention';
+	import { reviewTicket } from '$lib/model/review-tickets';
 	import { recoverCompany } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
 	import { fileAtPath, libraryKind, type LibraryFile } from '$lib/model/library-files';
@@ -28,8 +29,7 @@
 	const targetStatus = $derived(target?.status),
 		targetKind = $derived(target?.kind);
 	const targetFailure = $derived(target?.unavailableReason),
-		hasTarget = $derived(!!target),
-		itemId = $derived(item.id);
+		hasTarget = $derived(!!target);
 	/* A stopped computer starts from the review itself, so the outcome opens where it is judged. */
 	let starting = $state(false);
 	async function startComputer() {
@@ -51,7 +51,6 @@
 		attempt = $state(0);
 	$effect(() => {
 		const key = requestKey,
-			id = itemId,
 			status = targetStatus,
 			kind = targetKind,
 			exists = hasTarget,
@@ -79,7 +78,12 @@
 				controller.abort();
 			}
 		}, 30000);
-		void issueReviewTicket(companyId, id, controller.signal)
+		/* The item as it is now, without re-asking on every Inbox poll that rebuilds it. */
+		void reviewTicket(
+			companyId,
+			untrack(() => item),
+			controller.signal
+		)
 			.then((next) => {
 				if (!current || key !== requestKey) return;
 				if (next) {
