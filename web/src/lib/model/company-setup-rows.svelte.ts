@@ -63,6 +63,9 @@ export interface CompanySectionRow {
 	todo: number;
 	/** The area's current value, in words. */
 	reading?: string;
+	/** The row carries a value (now or once its read lands), so a list that gives the value a
+	 * line of its own reserves that line from the first frame. */
+	valued?: boolean;
 	readingTone?: 'work' | 'wait' | 'block' | '';
 	/** The explanation on hover. */
 	tooltip?: string;
@@ -339,6 +342,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 							todo: setupRow.todo,
 							tooltip: setupRow.todo && setupRow.task ? setupRow.task : setupRow.value,
 							reading: setupRow.value,
+							valued: true,
 							readingTone:
 								setupRow.unavailable || setupRow.alert ? 'block' : setupRow.todo ? 'wait' : ''
 						}
@@ -348,6 +352,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 							href: companyPageHref(companyId, target),
 							icon: record!,
 							todo: 0,
+							valued: target.key === 'health',
 							tooltip:
 								target.key === 'tokens'
 									? 'Token consumption and clearly labelled API-equivalent estimates'
@@ -376,6 +381,7 @@ export function createCompanySetup(companyIdOf: () => string) {
 				icon: LinkIcon,
 				todo: 0,
 				reading: 'Account',
+				valued: true,
 				tooltip: MODEL_CONNECTIONS_WHY
 			});
 		}

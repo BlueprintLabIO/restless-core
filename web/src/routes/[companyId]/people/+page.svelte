@@ -2311,7 +2311,8 @@
 		gap: var(--space-2);
 		padding: var(--space-6);
 		text-align: center;
-		animation: bridge-disclosure-in var(--motion-disclosure) var(--ease-out) both;
+		/* No entrance: it is the page as loaded, and a drop-in settled its heading a pixel after
+		 * the reveal (S109 C7). */
 	}
 	.conversation-empty-mark {
 		display: grid;

@@ -120,58 +120,72 @@
 </script>
 
 <!-- A chosen model whose connection is still loading names that model: it is the choice, and it
-     is ready within seconds. "Checking model…" and back was the jank of every switch (S109). -->
-{#if !allowed}{:else if routeState !== 'ready' && !(routeState === 'starting' && agent)}
-	<a
-		class="chip-link"
-		href={`/${encodeURIComponent(companyId)}/company/provider`}
-		title={actorId === 'exec' && source.view?.company_issue
-			? source.view.company_issue
-			: 'Check this agent’s model connection in Intelligence'}
-		>{routeState === 'checking' || routeState === 'starting'
-			? 'Checking model…'
-			: routeState === 'needs_connection'
-				? 'Choose a model'
-				: 'Model unavailable'}</a
-	>
-{:else if agent}
-	<div
-		class="chip"
-		title={`${name} thinks with ${modelLabel(agent.effective_model)}, ${effortLabel(agent.thinking_effort).toLowerCase()} effort`}
-	>
-		<Popover label={`${name}’s model`}>
-			{#snippet trigger()}<span class="face"
-					><Brain size={14} strokeWidth={1.8} aria-hidden="true" /><span class="model-name"
-						>{shortModel}</span
-					></span
-				>{/snippet}
-			{#snippet children(close)}
-				<!-- Only what choosing needs: effort, the models, a way to the rest. -->
-				<div class="effort">
-					<EffortSlider
-						id={`efforts-${actorId}`}
-						value={agent?.thinking_effort}
-						disabled={busy}
-						hint={false}
-						onchange={(effort) => chooseEffort(effort)}
-					/>
-				</div>
-				<ModelPicker
-					models={choices}
-					{current}
-					disabled={busy || !assignment}
-					label={`Model for ${name}`}
-					onchoose={(model) => choose(model, close)}
-				/>
-				{#if failure}<p class="failure" role="alert">{failure}</p>{/if}
-				<a class="more" href={`/${encodeURIComponent(companyId)}/company/provider`}>More settings</a
-				>
-			{/snippet}
-		</Popover>
-	</div>
-{/if}
+     is ready within seconds. "Checking model…" and back was the jank of every switch (S109).
+     Whatever it says, the chip keeps one width, so "Checking model…" becoming the model's name
+     never moves the controls beside it (S109 C7). -->
+{#if allowed}<div class="model-slot">
+		{#if routeState !== 'ready' && !(routeState === 'starting' && agent)}
+			<a
+				class="chip-link"
+				href={`/${encodeURIComponent(companyId)}/company/provider`}
+				title={actorId === 'exec' && source.view?.company_issue
+					? source.view.company_issue
+					: 'Check this agent’s model connection in Intelligence'}
+				>{routeState === 'checking' || routeState === 'starting'
+					? 'Checking model…'
+					: routeState === 'needs_connection'
+						? 'Choose a model'
+						: 'Model unavailable'}</a
+			>
+		{:else if agent}
+			<div
+				class="chip"
+				title={`${name} thinks with ${modelLabel(agent.effective_model)}, ${effortLabel(agent.thinking_effort).toLowerCase()} effort`}
+			>
+				<Popover label={`${name}’s model`}>
+					{#snippet trigger()}<span class="face"
+							><Brain size={14} strokeWidth={1.8} aria-hidden="true" /><span class="model-name"
+								>{shortModel}</span
+							></span
+						>{/snippet}
+					{#snippet children(close)}
+						<!-- Only what choosing needs: effort, the models, a way to the rest. -->
+						<div class="effort">
+							<EffortSlider
+								id={`efforts-${actorId}`}
+								value={agent?.thinking_effort}
+								disabled={busy}
+								hint={false}
+								onchange={(effort) => chooseEffort(effort)}
+							/>
+						</div>
+						<ModelPicker
+							models={choices}
+							{current}
+							disabled={busy || !assignment}
+							label={`Model for ${name}`}
+							onchoose={(model) => choose(model, close)}
+						/>
+						{#if failure}<p class="failure" role="alert">{failure}</p>{/if}
+						<a class="more" href={`/${encodeURIComponent(companyId)}/company/provider`}
+							>More settings</a
+						>
+					{/snippet}
+				</Popover>
+			</div>
+		{/if}
+	</div>{/if}
 
 <style>
+	/* One width for every state: room for "Checking model…", "Model unavailable" and the longest
+	 * short model name (18 characters) with its mark; a longer label ends in an ellipsis. */
+	.model-slot {
+		display: flex;
+		align-items: center;
+		flex: none;
+		width: 136px;
+		min-width: 0;
+	}
 	.chip,
 	.chip :global(.selection-popover) {
 		flex: 0 1 auto;
@@ -228,10 +242,13 @@
 	.more:hover {
 		color: var(--ink);
 	}
-	/* One line, never "Choose / a / model": the context chip beside it gives way instead. */
+	/* One line, never "Choose / a / model". */
 	.chip-link {
-		flex: none;
+		flex: 0 1 auto;
+		min-width: 0;
 		padding: 0 8px;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--text-secondary);
 		font-size: var(--t-label);

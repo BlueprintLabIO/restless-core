@@ -183,11 +183,20 @@
 				<Section title={group.label} group>
 					{#each group.rows as row (row.key)}
 						{@const Icon = row.icon}
-						<Item title={row.label} href={row.href}>
+						<!-- The value takes a line of its own under the name, reserved from the first frame:
+						     beside the chevron it arrived late and widened the row, cutting the name
+						     short on a phone (S109 C7). Here neither moves and neither is cut. -->
+						<Item
+							title={row.label}
+							href={row.href}
+							note={row.valued ? (row.reading ?? '') : undefined}
+						>
 							{#snippet leading()}<Icon size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
-							{#snippet trailing()}{#if row.reading}<span class="row-value" title={row.tooltip}
-										>{row.reading}</span
-									>{/if}<ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+							{#snippet trailing()}<ChevronRight
+									size={14}
+									strokeWidth={1.8}
+									aria-hidden="true"
+								/>{/snippet}
 						</Item>
 					{/each}
 				</Section>
@@ -271,15 +280,6 @@
 		text-underline-offset: 3px;
 	}
 
-	/* The current value sits beside the chevron, so it survives on phones where row meta hides. */
-	.row-value {
-		max-width: min(46ch, 44vw);
-		overflow: hidden;
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
 	/* Facts as a line of plain text, each a link with its explanation on hover. */
 	.company-facts {
 		display: flex;
