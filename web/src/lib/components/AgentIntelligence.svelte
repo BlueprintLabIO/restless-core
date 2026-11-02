@@ -99,9 +99,7 @@
 	}
 	holdQueries(() => [source]);
 	/* Outcomes are toasts, never banners that push the next section down. */
-	toastWhile(
-		() => !!error && { text: 'Could not save the model', tone: 'failure', details: error }
-	);
+	toastWhile(() => !!error && { text: error, tone: 'failure' });
 	toastWhile(() => !!notice && { text: notice });
 </script>
 

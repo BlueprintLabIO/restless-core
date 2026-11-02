@@ -91,7 +91,7 @@ pub(super) async fn upload_attachments(
                 return api_error(
                     StatusCode::BAD_REQUEST,
                     "attachment",
-                    format!("the upload could not be read: {error}"),
+                    logged(error, "The upload could not be read. Try again."),
                 )
             }
         };
@@ -116,7 +116,7 @@ pub(super) async fn upload_attachments(
                 return api_error(
                     StatusCode::BAD_REQUEST,
                     "attachment",
-                    format!("{name} could not be read: {error}"),
+                    logged(error, format!("{name} could not be read. Try again.")),
                 )
             }
         };
@@ -145,7 +145,7 @@ pub(super) async fn upload_attachments(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -163,7 +163,7 @@ pub(super) async fn upload_attachments(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     }
@@ -329,7 +329,7 @@ pub(super) async fn archive_work_file(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -357,7 +357,7 @@ pub(super) async fn archive_work_file(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            format!("{error:#}"),
+            logged(error, "The file was not archived. Try again."),
         ),
     }
 }
@@ -511,7 +511,7 @@ pub(super) async fn library_modified(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -521,7 +521,7 @@ pub(super) async fn library_modified(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The Library could not be read. Try again."),
             )
         }
     };
@@ -569,7 +569,7 @@ pub(super) async fn archived_work_files(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -578,7 +578,7 @@ pub(super) async fn archived_work_files(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            format!("{error:#}"),
+            logged(error, "Archived files could not be read. Try again."),
         ),
     }
 }
@@ -615,7 +615,7 @@ pub(super) async fn rename_library_file(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -649,7 +649,7 @@ pub(super) async fn rename_library_file(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            format!("{error:#}"),
+            logged(error, "The file was not renamed. Try again."),
         ),
     }
 }
@@ -681,7 +681,7 @@ pub(super) async fn remove_archived_work_file(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -698,7 +698,7 @@ pub(super) async fn remove_archived_work_file(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            format!("{error:#}"),
+            logged(error, "The file was not removed. Try again."),
         ),
     }
 }

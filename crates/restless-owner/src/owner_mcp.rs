@@ -524,7 +524,7 @@ pub(super) async fn list_access(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "mcp_access",
-            format!("{error:#}"),
+            logged(error, "Access tokens could not be read. Try again."),
         ),
     }
 }
@@ -548,7 +548,10 @@ pub(super) async fn issue_access(
         Ok((token, secret)) => {
             Json(serde_json::json!({ "token": token, "secret": secret })).into_response()
         }
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "mcp_access", format!("{error:#}")),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "mcp_access", refusal_or_logged(
+                error,
+                "The access token could not be created. Name it in 1 to 80 characters and try again.",
+            )),
     }
 }
 
@@ -572,7 +575,7 @@ pub(super) async fn revoke_access(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "mcp_access",
-            format!("{error:#}"),
+            logged(error, "The access token could not be revoked. Try again."),
         ),
     }
 }

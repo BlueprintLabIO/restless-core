@@ -35,7 +35,7 @@ async fn org_for(
         api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            format!("{error:#}"),
+            logged(error, "The company is temporarily unavailable. Try again."),
         )
     })
 }
@@ -101,7 +101,7 @@ pub(super) async fn list(
         "usable": usable,
         "scan": match scan {
             Ok(()) => json!({ "state": "observed" }),
-            Err(error) => json!({ "state": "unavailable", "message": format!("{error:#}") }),
+            Err(error) => json!({ "state": "unavailable", "message": logged(error, "Know-how on the company computer could not be checked.") }),
         },
     }))
     .into_response()
@@ -166,7 +166,10 @@ pub(super) async fn package(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "skills",
-            format!("{error:#}"),
+            logged(
+                error,
+                "This know-how could not be read from the company computer. Try again.",
+            ),
         ),
     }
 }
@@ -231,7 +234,13 @@ pub(super) async fn create(
     let observed = match crate::skills::write_skill_md(&company, &dir, &name, &input.skill_md).await
     {
         Ok(observed) => observed,
-        Err(error) => return api_error(StatusCode::BAD_REQUEST, "skills", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "skills",
+                refusal_or_logged(error, "The know-how could not be saved. Try again."),
+            )
+        }
     };
     match org
         .register_skill_candidate(&observed, principal.actor_id(), None, None)
@@ -278,7 +287,7 @@ pub(super) async fn catalogue_instructions(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "catalogue",
-                error.to_string(),
+                logged(error, "The catalogue could not be reached. Try again."),
             )
         }
     };
@@ -294,7 +303,7 @@ pub(super) async fn catalogue_instructions(
         Err(error) => api_error(
             StatusCode::BAD_GATEWAY,
             "catalogue",
-            format!("The publisher's instructions could not be read: {error:#}"),
+            logged(error, "The publisher's instructions could not be read."),
         ),
     }
 }
@@ -325,7 +334,7 @@ pub(super) async fn install_from_catalogue(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "catalogue",
-                error.to_string(),
+                logged(error, "The catalogue could not be reached. Try again."),
             )
         }
     };
@@ -346,7 +355,7 @@ pub(super) async fn install_from_catalogue(
             return api_error(
                 StatusCode::BAD_GATEWAY,
                 "catalogue",
-                format!("The skill could not be fetched: {error:#}"),
+                logged(error, "The skill could not be fetched."),
             )
         }
     };
@@ -396,17 +405,30 @@ pub(super) async fn install_from_catalogue(
                 return api_error(
                     StatusCode::BAD_GATEWAY,
                     "catalogue",
-                    format!("{file} could not be fetched: {error:#}"),
+                    logged(error, format!("{file} could not be fetched. Try again.")),
                 )
             }
         };
         if let Err(error) = crate::skills::write_skill_file(&company, &dir, file, &bytes).await {
-            return api_error(StatusCode::BAD_REQUEST, "catalogue", format!("{error:#}"));
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "catalogue",
+                refusal_or_logged(
+                    error,
+                    format!("{file} could not be added. Try again.").as_str(),
+                ),
+            );
         }
     }
     let observed = match crate::skills::write_skill_md(&company, &dir, &name, &skill_md).await {
         Ok(observed) => observed,
-        Err(error) => return api_error(StatusCode::BAD_REQUEST, "catalogue", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "catalogue",
+                refusal_or_logged(error, "The know-how could not be added. Try again."),
+            )
+        }
     };
     match org
         .register_skill_candidate(&observed, principal.actor_id(), None, None)
@@ -465,7 +487,10 @@ pub(super) async fn edit(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "skills",
-                format!("{error:#}"),
+                logged(
+                    error,
+                    "This know-how could not be checked for changes. Try again.",
+                ),
             )
         }
     }
@@ -478,7 +503,13 @@ pub(super) async fn edit(
     .await
     {
         Ok(observed) => observed,
-        Err(error) => return api_error(StatusCode::BAD_REQUEST, "skills", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "skills",
+                refusal_or_logged(error, "The know-how could not be saved. Try again."),
+            )
+        }
     };
     if let Err(error) = org.observe_skills(std::slice::from_ref(&observed)).await {
         return orgintel_error(error);
@@ -1406,7 +1437,7 @@ pub(super) async fn test_schedule_trigger(
         Err(error) => api_error(
             StatusCode::BAD_REQUEST,
             "schedule_test",
-            format!("{error:#}"),
+            logged(error, "The schedule test could not run."),
         ),
     }
 }

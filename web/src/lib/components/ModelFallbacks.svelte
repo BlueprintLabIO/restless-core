@@ -78,7 +78,8 @@
 		const target = fallbackRoute(model, connections);
 		if (target.state !== 'billed' || target.connection.id !== account.id)
 			return void (failure = `${modelLabel(model)} is not served by ${connectionLabel(account.id, connections)}.`);
-		if (models.includes(model)) return void (failure = `${modelLabel(model)} is already a fallback.`);
+		if (models.includes(model))
+			return void (failure = `${modelLabel(model)} is already a fallback.`);
 		if (await save([...models, model], `${modelLabel(model)} added as a fallback`)) {
 			draft = '';
 			adding = false;
@@ -91,7 +92,7 @@
 		void save(next, 'Fallback order saved');
 	}
 	/* A change that failed is a toast, never a banner that pushes the next section down. */
-	toastWhile(() => !!failure && { text: 'Nothing changed', tone: 'failure', details: failure });
+	toastWhile(() => !!failure && { text: failure, tone: 'failure' });
 </script>
 
 <Section
@@ -110,7 +111,9 @@
 	{#each models as model, index (model)}
 		<Item
 			title={`${index + 1}. ${modelLabel(model)}`}
-			meta={intelligence.view ? routeSentence(fallbackRoute(model, connections), connections) : model}
+			meta={intelligence.view
+				? routeSentence(fallbackRoute(model, connections), connections)
+				: model}
 		>
 			{#snippet actions()}
 				<button

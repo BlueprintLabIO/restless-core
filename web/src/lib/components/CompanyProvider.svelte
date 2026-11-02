@@ -458,18 +458,13 @@
 				action: { label: 'Back to setup', run: () => goto(returnTo) }
 			}
 	);
-	toastWhile(
-		() => !!error && { text: 'That change was not saved', tone: 'failure', details: error }
-	);
+	toastWhile(() => !!error && { text: error, tone: 'failure' });
 	toastWhile(() => !!notice && { text: notice });
 	toastWhile(
 		() =>
 			!!accountError && {
-				text: accountActionError
-					? 'That connection change failed'
-					: 'Could not load reusable connections',
+				text: accountError,
 				tone: 'failure',
-				details: accountError,
 				dedupeKey: `reusable-connections:${companyId}`
 			}
 	);
@@ -552,7 +547,9 @@
 							? null
 							: name,
 						item.kind === 'oauth' ? 'Account sign-in' : 'API key',
-						item.companies.length && !companyGrant ? `used by ${item.companies.length} other ${item.companies.length === 1 ? 'company' : 'companies'}` : null
+						item.companies.length && !companyGrant
+							? `used by ${item.companies.length} other ${item.companies.length === 1 ? 'company' : 'companies'}`
+							: null
 					]
 						.filter(Boolean)
 						.join(' · ')}

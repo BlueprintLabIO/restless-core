@@ -23,7 +23,11 @@ pub(super) async fn view(
         );
     }
     if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
-        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(error, "This company could not be found."),
+        );
     }
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
@@ -31,14 +35,14 @@ pub(super) async fn view(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
     if query.context {
         return match tokio::try_join!(org.list_work(), org.list_artifact_refs(None)) {
             Ok((work, artifacts)) => Json(serde_json::json!({ "work": work, "artifacts": artifacts.into_iter().filter(|artifact| artifact.work_id.is_some()).collect::<Vec<_>>() })).into_response(),
-            Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}")),
+            Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", logged(error, "The Work graph could not be read. Try again.")),
         };
     }
     match org.work_graph_snapshot().await {
@@ -46,7 +50,7 @@ pub(super) async fn view(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            format!("{error:#}"),
+            logged(error, "The Work graph could not be read. Try again."),
         ),
     }
 }

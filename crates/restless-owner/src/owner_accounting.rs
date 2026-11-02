@@ -11,7 +11,7 @@ pub(super) async fn list(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "accounting",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -67,7 +67,7 @@ pub(super) async fn save(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "accounting",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };

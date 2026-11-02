@@ -49,7 +49,7 @@ pub(super) fn local_appliance(state: &OwnerState) -> std::result::Result<(), Res
             "This is a {} profile; only the installed appliance is managed from here.",
             profile.kind.as_str()
         ))),
-        Err(error) => Err(refuse(format!("The machine profile is invalid: {error:#}"))),
+        Err(error) => Err(refuse(logged(error, "The machine profile is invalid."))),
     }
 }
 
@@ -250,13 +250,13 @@ pub(super) async fn run(
     }
     let cli = match cli_beside_plane() {
         Ok(cli) => cli,
-        Err(error) => return refuse(format!("{error:#}")),
+        Err(error) => return refuse(logged(error, "The restless command was not found beside this plane. Reinstall Restless and try again.")),
     };
     let (cli, args): (PathBuf, Vec<String>) = match op.as_str() {
         "backup" => {
             let folder = root.join(BACKUPS);
             if let Err(error) = std::fs::create_dir_all(&folder) {
-                return refuse(format!("Could not prepare the backup folder: {error}"));
+                return refuse(logged(error, "The backup folder could not be prepared."));
             }
             prune_backups(&folder, 2);
             let name = format!("restless-backup-{}.tar", Utc::now().format("%Y%m%d-%H%M%S"));
@@ -290,7 +290,12 @@ pub(super) async fn run(
                 // The release's own command stages it, as the terminal upgrade does.
                 (release.join("bin/restless"), args)
             }
-            Err(error) => return refuse(format!("{error:#}")),
+            Err(error) => {
+                return refuse(logged(
+                    error,
+                    "The blocked upgrade cannot be retried. Upgrade again from a new build.",
+                ))
+            }
         },
         _ => {
             return api_error(
@@ -307,7 +312,7 @@ pub(super) async fn run(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "appliance",
-            format!("{error:#}"),
+            logged(error, "The operation could not be started. Try again."),
         ),
     }
 }
@@ -388,7 +393,13 @@ pub(super) async fn download_backup(State(state): State<OwnerState>) -> Response
         .await
     {
         Ok(served) => served,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "appliance", format!("{error}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "appliance",
+                logged(error, "There is no backup to download."),
+            )
+        }
     };
     let mut response = served.map(Body::new);
     let headers = response.headers_mut();
@@ -410,7 +421,7 @@ pub(super) async fn resume(State(state): State<OwnerState>) -> Response<Body> {
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "appliance",
-            format!("{error:#}"),
+            logged(error, "Work could not be resumed. Try again."),
         ),
     }
 }

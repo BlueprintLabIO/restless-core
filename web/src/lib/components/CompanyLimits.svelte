@@ -283,20 +283,9 @@
 	}
 	holdQueries(() => [source, spendSource, principal]);
 	/* Outcomes are toasts, never banners that push the limits down. */
-	toastWhile(
-		() => !!resumeError && { text: 'Nothing changed', tone: 'failure', details: resumeError }
-	);
-	toastWhile(
-		() => !!pauseError && { text: 'Nothing changed', tone: 'failure', details: pauseError }
-	);
-	toastWhile(
-		() =>
-			!!revokeError && {
-				text: 'The approval was not revoked',
-				tone: 'failure',
-				details: revokeError
-			}
-	);
+	toastWhile(() => !!resumeError && { text: resumeError, tone: 'failure' });
+	toastWhile(() => !!pauseError && { text: pauseError, tone: 'failure' });
+	toastWhile(() => !!revokeError && { text: revokeError, tone: 'failure' });
 	toastWhile(() => !!nativeNotice && { text: nativeNotice });
 	toastWhile(() => !!runtimeNotice && { text: runtimeNotice });
 </script>
@@ -339,7 +328,9 @@
 						? `${unpriced.length === 1 ? 'One model call' : `${unpriced.length} model calls`} reported no price`
 						: 'Spend accounting was interrupted'}
 				>
-					The total is a lower bound; the actual charge may be higher. New paid work is paused once known spending reaches the limit, but requests already in progress can add charges beyond it.
+					The total is a lower bound; the actual charge may be higher. New paid work is paused once
+					known spending reaches the limit, but requests already in progress can add charges beyond
+					it.
 					{#snippet actions()}{#if canEdit}<button
 								class="btn small"
 								type="button"

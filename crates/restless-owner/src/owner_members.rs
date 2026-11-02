@@ -107,7 +107,7 @@ pub(super) async fn members_view(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "members",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -128,7 +128,7 @@ pub(super) async fn members_view(
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "members",
-                    format!("{error:#}"),
+                    logged(error, "Members could not be read. Try again."),
                 )
             }
         };
@@ -184,7 +184,10 @@ pub(super) async fn ownership_handover_view(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "members",
-                format!("{error:#}"),
+                logged(
+                    error,
+                    "The ownership handover could not be read. Try again.",
+                ),
             )
         }
     };
@@ -198,7 +201,7 @@ pub(super) async fn ownership_handover_view(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "members",
-                format!("{error:#}"),
+                logged(error, "Members could not be read. Try again."),
             )
         }
     };

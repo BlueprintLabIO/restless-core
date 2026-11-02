@@ -183,9 +183,7 @@
 	let openMandate = $state('');
 	/* A change that failed is a toast, never a banner that pushes the mandates down. A first read
 	 * that failed is the section's content and stays in place. */
-	toastWhile(
-		() => !!error && { text: 'That change was not made', tone: 'failure', details: error }
-	);
+	toastWhile(() => !!error && { text: error, tone: 'failure' });
 </script>
 
 <Section

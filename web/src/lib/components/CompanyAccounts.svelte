@@ -129,7 +129,7 @@
 	);
 	/* Outcomes are toasts, never banners that push the accounts down. */
 	toastWhile(() => !!failure && { text: failure, tone: 'failure' });
-	toastWhile(() => !!sent && { text: sent, details: 'It waits in the owner’s Inbox.' });
+	toastWhile(() => !!sent && { text: `${sent} It waits in the owner’s Inbox.` });
 </script>
 
 <CompanyTitle title="Accounts" {companyId} />

@@ -1203,9 +1203,8 @@
 			() =>
 				searchesDocuments &&
 				!!docSearch.failure && {
-					text: 'Only titles are being searched',
+					text: `Only titles are being searched. ${docSearch.failure}`,
 					tone: 'failure',
-					details: docSearch.failure,
 					dedupeKey: `library-search:${companyId}`
 				}
 		)

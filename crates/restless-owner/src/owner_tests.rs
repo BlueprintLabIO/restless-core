@@ -4930,3 +4930,40 @@ fn only_the_recorded_account_owner_is_known_as_the_account_owner() {
     assert!(record_account_owner(&root, "", "user_1").is_err());
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+/// What the owner reads is a plain sentence: the raw reason (a path, a shell's output, a store
+/// error) is logged, never returned. A refusal the handler wrote for people reads as written.
+#[test]
+fn raw_errors_never_reach_the_owner() {
+    let raw = anyhow::anyhow!("realpath: /company/outputs/site: No such file or directory")
+        .context("read the prepared outcome");
+    assert_eq!(
+        logged(&raw, "The file could not be read."),
+        "The file could not be read."
+    );
+
+    let io = std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        "/root/.restless: denied",
+    );
+    let said = refusal_or_logged(io, "The connection could not be saved. Try again.");
+    assert_eq!(said, "The connection could not be saved. Try again.");
+
+    let chained = anyhow::Error::from(std::io::Error::other("sqlx: pool timed out"))
+        .context("Sign in to this harness first");
+    let said = refusal_or_logged(chained, "That harness action did not finish. Try again.");
+    assert_eq!(said, "That harness action did not finish. Try again.");
+    assert!(!said.contains("sqlx"));
+
+    let written = anyhow::anyhow!("Archive the company before deleting it.");
+    assert_eq!(
+        refusal_or_logged(written, "The company could not be deleted. Try again."),
+        "Archive the company before deleting it."
+    );
+    let name = "acme";
+    let formatted = anyhow::anyhow!("Type {name} exactly to delete it.");
+    assert_eq!(
+        refusal_or_logged(formatted, "The company could not be deleted. Try again."),
+        "Type acme exactly to delete it."
+    );
+}

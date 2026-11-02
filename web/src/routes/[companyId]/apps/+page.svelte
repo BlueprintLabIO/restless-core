@@ -114,8 +114,7 @@
 	toastWhile(
 		() =>
 			!!notice && {
-				text: notice,
-				details: skippedImport.length ? `Not added: ${skippedImport.join('; ')}.` : null,
+				text: skippedImport.length ? `${notice} Not added: ${skippedImport.join('; ')}.` : notice,
 				...(reviewHref ? { action: { label: 'Review', run: () => goto(reviewHref) } } : {})
 			}
 	);
@@ -125,15 +124,13 @@
 			return {
 				text: 'Apps could not be refreshed. Showing the last read.',
 				tone: 'failure',
-				details: data.failure,
 				dedupeKey: `apps-read:${companyId}`,
 				action: { label: 'Try again', run: retry }
 			};
 		if (partial)
 			return {
-				text: partial,
+				text: `${partial} What did load is shown. Nothing was removed.`,
 				tone: 'failure',
-				details: 'What did load is shown. Nothing was removed.',
 				dedupeKey: `apps-partial:${companyId}`,
 				action: { label: 'Try again', run: retry }
 			};
@@ -493,7 +490,10 @@
 						</div>{/if}
 					<div class="app-grid">
 						<!-- Whole, once the first read is in: tiles arriving source by source pushed the page down. -->
-						{#each data.ready ? shownTiles : [] as app (app.key)}<AppCard {app} href={route(app.key)} />
+						{#each data.ready ? shownTiles : [] as app (app.key)}<AppCard
+								{app}
+								href={route(app.key)}
+							/>
 						{:else}
 							{#if data.catalogueLoading || !data.ready}<Skeleton
 									label="Reading the catalogue…"

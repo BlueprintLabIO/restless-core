@@ -651,7 +651,10 @@ async fn preferences_response(
         Err(error) => no_store(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            error.to_string(),
+            logged(
+                error,
+                "Your notification settings could not be read. Try again.",
+            ),
         )),
     }
 }
@@ -711,7 +714,10 @@ async fn set_notification_preferences(
         Err(error) => no_store(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            error.to_string(),
+            logged(
+                error,
+                "Your notification settings could not be saved. Try again.",
+            ),
         )),
     }
 }
@@ -778,7 +784,7 @@ async fn subscribe_push(
         Err(error) => no_store(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            error.to_string(),
+            logged(error, "Notifications could not be turned on. Try again."),
         )),
     }
 }
@@ -801,7 +807,7 @@ async fn unsubscribe_push(
         Err(error) => no_store(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            error.to_string(),
+            logged(error, "Notifications could not be turned off. Try again."),
         )),
     }
 }

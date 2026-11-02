@@ -343,10 +343,7 @@
 				action: { label: 'Back to where you started', run: () => goto(signedInReturn) }
 			}
 	);
-	toastWhile(
-		() =>
-			shown && !!failure && { text: 'That change was not made', tone: 'failure', details: failure }
-	);
+	toastWhile(() => shown && !!failure && { text: failure, tone: 'failure' });
 	toastWhile(() => shown && !!notice && { text: notice });
 	const partialWarning = toastWhile(
 		() =>

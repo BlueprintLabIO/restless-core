@@ -24,7 +24,6 @@ export function staleRefreshMessage(
 			? `Couldn’t refresh ${subject}. Showing the last update.`
 			: `${view.title}. ${view.detail}`,
 		tone: 'failure',
-		details: view.technical ?? null,
 		dedupeKey,
 		...(retry && view.retryable ? { action: { label: 'Retry', run: retry } } : {})
 	};

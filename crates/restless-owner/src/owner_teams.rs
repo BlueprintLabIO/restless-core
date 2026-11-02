@@ -42,7 +42,7 @@ async fn org_for(
         api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            format!("{error:#}"),
+            logged(error, "The company is temporarily unavailable. Try again."),
         )
     })
 }
