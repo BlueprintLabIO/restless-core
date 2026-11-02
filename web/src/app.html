@@ -47,7 +47,12 @@
 				if (match && !top[match[1]]) {
 					var base = '/api/companies/' + match[1];
 					urls.push(base + '/principal');
-					if (role === 'owner') urls.push(base + '/cockpit', base + '/attention');
+					/* Each URL exactly as its reader asks for it (boot-preload.test.ts): a preload
+					 * nobody claims is a second download. The bare `/attention` read here from
+					 * 16 October carried the whole work graph (4 MB on Reno) beside the Inbox's own
+					 * `include_work_graph=false` read, and slowed every read the reveal waits on. */
+					if (role === 'owner')
+						urls.push(base + '/cockpit', base + '/attention?include_work_graph=false');
 					/* A person's conversation: the room list, and the room itself when
 					 * this browser has opened it before (RoomConversation remembers it). */
 					if (/^\/[^/]+\/people\/?$/.test(location.pathname)) {
