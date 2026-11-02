@@ -81,6 +81,10 @@ export interface AttentionItem {
 	settingProposal?: SettingProposal;
 	/** The short answers the asker offers (S101). */
 	ownerReplies?: string[];
+	/** What Exec last did to this item from the owner's chat, shown beside it with Undo. */
+	execAction?: import('./exec-inbox').ExecInboxNote;
+	/** Exec's place for this item in the owner's list, from their chat: 1 the top, 0 the bottom. */
+	execPosition?: number | null;
 	ifNoAction: string;
 	uncertainty?: string;
 	deadline?: string;

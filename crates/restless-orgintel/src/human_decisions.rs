@@ -9,7 +9,8 @@ impl OrgIntel {
         let seconds: Option<f64> = sqlx::query_scalar(
             "SELECT GREATEST(0, EXTRACT(EPOCH FROM (MIN(undo_until) - clock_timestamp())))::double precision \
              FROM (SELECT undo_until FROM owner_handoff_decisions WHERE state='pending' \
-                   UNION ALL SELECT undo_until FROM owner_document_decisions WHERE state='pending'                    UNION ALL SELECT undo_until FROM exec_inbox_actions WHERE state='pending') pending \
+                   UNION ALL SELECT undo_until FROM owner_document_decisions WHERE state='pending' \
+                   UNION ALL SELECT undo_until FROM exec_inbox_actions WHERE state='pending') pending \
              HAVING COUNT(*) > 0",
         )
         .fetch_optional(&self.pool)

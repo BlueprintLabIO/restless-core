@@ -148,6 +148,28 @@ fn snooze_until(raw: &str, now: DateTime<Utc>) -> Result<DateTime<Utc>, String> 
     Ok(until)
 }
 
+/// Who may act and on whose word: Exec only, and only citing a message. Whether that message
+/// is the owner's own is OrgIntel's check when the action is saved.
+fn admit(
+    as_actor: Option<&str>,
+    source_message: Option<i64>,
+    verb: &str,
+) -> Result<(ExecInboxVerb, i64), String> {
+    if as_actor != Some("exec") {
+        return Err("only Exec changes the owner's Inbox from their chat".into());
+    }
+    let verb = ExecInboxVerb::parse(verb.trim()).ok_or_else(|| {
+        "the action is accept, decline, answer, snooze, dismiss, move or add".to_string()
+    })?;
+    let Some(source_message) = source_message else {
+        return Err(
+            "cite the owner's message that asked for this with --source-message <id>; without their words, leave the Inbox as it is"
+                .into(),
+        );
+    };
+    Ok((verb, source_message))
+}
+
 /// Save one Exec action, or say plainly why it cannot be taken. Only Exec acts, and only on the
 /// owner's own message to it.
 pub async fn queue(
@@ -157,18 +179,7 @@ pub async fn queue(
     source_message: Option<i64>,
     action: &AttentionAction,
 ) -> Result<serde_json::Value, String> {
-    if as_actor != Some("exec") {
-        return Err("only Exec changes the owner's Inbox from their chat".into());
-    }
-    let verb = ExecInboxVerb::parse(action.verb.trim()).ok_or_else(|| {
-        "the action is accept, decline, answer, snooze, dismiss, move or add".to_string()
-    })?;
-    let Some(source_message) = source_message else {
-        return Err(
-            "cite the owner's message that asked for this with --source-message <id>; without their words, leave the Inbox as it is"
-                .into(),
-        );
-    };
+    let (verb, source_message) = admit(as_actor, source_message, &action.verb)?;
     let note = action.note.as_deref().unwrap_or_default().trim();
     let config =
         CompanyConfig::load(&daemon.root, company).map_err(|error| format!("{error:#}"))?;
@@ -419,4 +430,161 @@ pub async fn notes(org: &restless_orgintel::OrgIntel) -> Result<ExecNotes> {
         out.positions.insert(item, position);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::attention::{AttentionActorRef, AttentionSource};
+
+    fn item(kind: &str, category: &str) -> AttentionItem {
+        let mut item = added_item(&restless_orgintel::ExecInboxAction {
+            id: uuid::Uuid::nil(),
+            item_id: format!("test:{kind}"),
+            item_title: "Launch page".into(),
+            verb: "add".into(),
+            note: String::new(),
+            target: serde_json::json!({}),
+            snooze_until: None,
+            position: None,
+            source_message_id: 1,
+            owner_words: String::new(),
+            undo_until: Utc::now(),
+            state: "applied".into(),
+            problem: None,
+            created_at: Utc::now(),
+            completed_at: None,
+        });
+        item.source = AttentionSource {
+            plane: "orgintel",
+            kind: kind.into(),
+            reference: uuid::Uuid::nil().to_string(),
+            party: None,
+            call_key: None,
+        };
+        item.category = category.into();
+        item.responsible_actor = Some(AttentionActorRef {
+            id: "site-lead".into(),
+            display: "Avery".into(),
+            role: "lead".into(),
+        });
+        item
+    }
+
+    #[test]
+    fn only_exec_acts_and_only_on_a_cited_message() {
+        assert!(admit(Some("owner"), Some(4), "accept").is_err());
+        assert!(admit(Some("site-lead"), Some(4), "accept").is_err());
+        assert!(admit(None, Some(4), "accept").is_err());
+        let refusal = admit(Some("exec"), None, "accept").unwrap_err();
+        assert!(refusal.contains("--source-message"), "{refusal}");
+        assert!(admit(Some("exec"), Some(4), "approve-everything").is_err());
+        assert_eq!(
+            admit(Some("exec"), Some(4), " snooze ").unwrap(),
+            (ExecInboxVerb::Snooze, 4)
+        );
+    }
+
+    #[test]
+    fn every_item_kind_can_be_snoozed_moved_or_dismissed() {
+        for kind in [
+            "owner_handoff",
+            "approval_required",
+            "skill_candidate",
+            "identity_proposal",
+            "setting_proposal",
+            "charter_proposal",
+            "spend_warning",
+            "machine_offline",
+            "teammate_message",
+            "exec_item",
+        ] {
+            for verb in [
+                ExecInboxVerb::Snooze,
+                ExecInboxVerb::Move,
+                ExecInboxVerb::Dismiss,
+            ] {
+                assert!(
+                    applies(&item(kind, "decision"), verb, false).is_ok(),
+                    "{kind} {verb:?}"
+                );
+            }
+            assert!(applies(&item(kind, "decision"), ExecInboxVerb::Add, false).is_err());
+        }
+    }
+
+    #[test]
+    fn each_decision_kind_has_its_path_and_the_rest_say_where_to_go() {
+        let decide = |kind: &str, category: &str, verb| applies(&item(kind, category), verb, false);
+        // Questions, decisions and human steps: accept, decline, answer.
+        for verb in [
+            ExecInboxVerb::Accept,
+            ExecInboxVerb::Decline,
+            ExecInboxVerb::Answer,
+        ] {
+            assert!(
+                decide("owner_handoff", "decision", verb).is_ok(),
+                "{verb:?}"
+            );
+        }
+        // An outcome review is accepted or sent back, never "answered".
+        assert!(decide("owner_handoff", "review", ExecInboxVerb::Accept).is_ok());
+        assert!(decide("owner_handoff", "review", ExecInboxVerb::Decline).is_ok());
+        assert!(decide("owner_handoff", "review", ExecInboxVerb::Answer).is_err());
+        // Every Authority approval and every proposal kind decides both ways.
+        for kind in APPROVAL_KINDS.iter().chain(&[
+            "skill_candidate",
+            "identity_proposal",
+            "direction_request",
+        ]) {
+            assert!(
+                decide(kind, "approval", ExecInboxVerb::Accept).is_ok(),
+                "{kind}"
+            );
+            assert!(
+                decide(kind, "approval", ExecInboxVerb::Decline).is_ok(),
+                "{kind}"
+            );
+            assert!(
+                decide(kind, "approval", ExecInboxVerb::Answer).is_err(),
+                "{kind}"
+            );
+        }
+        // Declined in chat; applied where the value can be adjusted, or by Exec's own command.
+        assert!(decide("setting_proposal", "approval", ExecInboxVerb::Decline).is_ok());
+        assert!(decide("setting_proposal", "approval", ExecInboxVerb::Accept).is_err());
+        assert!(decide("charter_proposal", "approval", ExecInboxVerb::Decline).is_ok());
+        let charter = decide("charter_proposal", "approval", ExecInboxVerb::Accept).unwrap_err();
+        assert!(charter.contains("restless charter apply"), "{charter}");
+        // A finished result is seen (accepted), not declined.
+        assert!(decide("conversation_owner_review", "review", ExecInboxVerb::Accept).is_ok());
+        assert!(decide(
+            "conversation_owner_review",
+            "review",
+            ExecInboxVerb::Decline
+        )
+        .is_err());
+        // Status notices have nothing to decide.
+        assert!(decide("spend_warning", "blocker", ExecInboxVerb::Accept).is_err());
+        // An app request resumes when its app is added; Exec may decline it, not accept it.
+        let app = item("owner_handoff", "human_step");
+        assert!(applies(&app, ExecInboxVerb::Accept, true).is_err());
+        assert!(applies(&app, ExecInboxVerb::Decline, true).is_ok());
+    }
+
+    #[test]
+    fn places_and_snoozes_are_bounded() {
+        assert_eq!(position("top").unwrap(), 1);
+        assert_eq!(position("bottom").unwrap(), 0);
+        assert_eq!(position("3").unwrap(), 3);
+        assert!(position("0").is_err());
+        assert!(position("soon").is_err());
+        let now = Utc::now();
+        assert!(snooze_until("2020-01-01T09:00:00Z", now).is_err());
+        assert!(snooze_until("tomorrow", now).is_err());
+        let tomorrow = (now + chrono::Duration::days(1)).to_rfc3339();
+        assert!(snooze_until(&tomorrow, now).is_ok());
+        let far = (now + chrono::Duration::days(120)).to_rfc3339();
+        assert!(snooze_until(&far, now).is_err());
+    }
 }

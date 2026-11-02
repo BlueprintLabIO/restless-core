@@ -87,6 +87,7 @@
 	import { initials } from '$lib/model/initials';
 	import { companyFileLinks, type CompanyFileLink } from '$lib/model/inbox-files';
 	import type { LibraryArtifact } from '$lib/model/library-files';
+	import ExecNote from './inbox/ExecNote.svelte';
 
 	let {
 		companyId,
@@ -776,6 +777,7 @@
 			</p>
 		</header>
 		<h1 class="title">{attentionTitle(item)}</h1>
+		{#if item.execAction}<ExecNote {companyId} note={item.execAction} />{/if}
 
 		{#if preview}<div class="detail-preview">{@render preview()}</div>{/if}
 		{#if content}<div class="detail-preview" hidden={!!preview}>{@render content(item)}</div>

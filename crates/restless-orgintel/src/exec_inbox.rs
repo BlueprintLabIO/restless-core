@@ -119,14 +119,19 @@ impl OrgIntel {
         if from != "owner" {
             // A company owner who signed in through a membership has their own human Actor.
             let owner: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings binding                  JOIN actors actor ON actor.id=binding.actor_id                  WHERE binding.actor_id=$1 AND binding.membership_role='owner'                    AND binding.membership_status='active' AND actor.actor_class='human'                    AND actor.retired_at IS NULL)",
+                "SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings binding \
+                 JOIN actors actor ON actor.id=binding.actor_id \
+                 WHERE binding.actor_id=$1 AND binding.membership_role='owner' \
+                   AND binding.membership_status='active' AND actor.actor_class='human' \
+                   AND actor.retired_at IS NULL)",
             )
             .bind(&from)
             .fetch_one(&self.pool)
             .await?;
             if !owner {
                 return Err(OrgIntelError::InvalidWork(format!(
-                    "message {message_id} is from {from}, not the owner; only the owner's own words                      decide what waits on the owner"
+                    "message {message_id} is not the owner's message ({from} wrote it); only the \
+                     owner's own words decide what waits on the owner"
                 )));
             }
         }
@@ -297,8 +302,7 @@ impl OrgIntel {
         Ok(sqlx::query_as(
             "SELECT action.* FROM exec_inbox_actions action \
              WHERE action.verb='add' AND action.state='applied' \
-               AND NOT EXISTS (SELECT 1 FROM attention_dismissals dismissal \
-                               WHERE dismissal.item_id=action.item_id) \
+               AND action.completed_at > clock_timestamp() - INTERVAL '90 days' \
              ORDER BY action.created_at",
         )
         .fetch_all(&self.pool)
