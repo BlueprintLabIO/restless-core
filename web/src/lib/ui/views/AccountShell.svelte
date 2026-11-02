@@ -7,6 +7,8 @@
 	import { dismissable } from '../controls/dismissable';
 	import type { AccountGroup, AccountTab } from '../account';
 	import { viewPreferences } from '../preferences.svelte';
+	import CompanyMark from '../glyph/CompanyMark.svelte';
+	import MatrixGlyph, { GLYPHS } from '../glyph/MatrixGlyph.svelte';
 
 	/* The frame for every page outside one company, after Firecrawl's: the product at the top, the
 	 * rail's rows (Home), labelled groups (the companies, then the account's own rows such as
@@ -141,7 +143,12 @@
 				size={16}
 				strokeWidth={1.75}
 				aria-hidden="true"
-			/>{:else if kind === 'company'}<span class="account-mark" aria-hidden="true"
+			/>{:else if kind === 'company' && tab.mark}<span
+				class="account-mark figure"
+				class:logo={!!tab.mark.logoUrl}
+				aria-hidden="true"
+				><CompanyMark id={tab.mark.id} logoUrl={tab.mark.logoUrl} size={9} /></span
+			>{:else if kind === 'company'}<span class="account-mark" aria-hidden="true"
 				>{initialsOf(tab.label).slice(0, 1)}</span
 			>{/if}<span class="account-tab-label">{tab.label}</span>{#if tab.tone}<i
 				class="account-dot"
@@ -189,7 +196,9 @@
 	<header class="account-bar">
 		<div class="account-head">
 			<a class="account-brand" href={homeHref} title={collapsed ? brandName : undefined}
-				><span class="account-brand-mark" aria-hidden="true">{brandName.slice(0, 1)}</span><span
+				><span class="account-brand-mark" aria-hidden="true"
+					><MatrixGlyph rows={GLYPHS.r} size={9} /></span
+				><span
 					class="account-tab-label">{brandName}</span
 				></a
 			>
@@ -516,6 +525,17 @@
 		color: var(--text-secondary);
 		font-size: var(--t-label);
 		font-weight: 600;
+	}
+	/* The company's own figure, in its card's colours (AccountHome .company-mark). */
+	.account-mark.figure {
+		background: var(--accent-soft);
+		color: var(--accent-strong);
+	}
+	/* An uploaded logo sits on a neutral tile, so its own colours read true. */
+	.account-mark.logo {
+		overflow: hidden;
+		background: var(--surface);
+		box-shadow: inset 0 0 0 1px var(--border);
 	}
 	.account-dot {
 		flex: none;
