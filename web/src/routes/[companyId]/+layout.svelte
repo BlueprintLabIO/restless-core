@@ -2007,7 +2007,9 @@
 	}
 	.startup-error-scrim {
 		position: fixed;
-		z-index: var(--z-overlay);
+		/* Above the toasts (--z-app): with the app inert behind it, failure toasts from its reads
+		 * stacked over the card and covered its action on a phone. */
+		z-index: calc(var(--z-app) + 1);
 		inset: 0;
 		display: grid;
 		place-items: center;
