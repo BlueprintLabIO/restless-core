@@ -22,7 +22,17 @@ if [ -f "$passed/$tree" ]; then
   exit 0
 fi
 revision="$(git rev-parse HEAD)"
-agent="${RESTLESS_CLOUD_AGENT:-${RESTLESS_CLOUD_DIR:-$HOME/code/restless-cloud}/services/vm-provider/agent/restless-agent.sh}"
+# The Cloud clone's working tree may be stale; take the agent from its origin/main.
+agent="${RESTLESS_CLOUD_AGENT:-}" fetched_agent=
+if [ -z "$agent" ]; then
+  cloud_dir="${RESTLESS_CLOUD_DIR:-$HOME/code/restless-cloud}"
+  agent="$(mktemp -t restless-agent.XXXXXX.sh)" fetched_agent="$agent"
+  trap 'rm -f "$fetched_agent"' EXIT
+  git -C "$cloud_dir" fetch -q origin main &&
+    git -C "$cloud_dir" show origin/main:services/vm-provider/agent/restless-agent.sh > "$agent" ||
+    { echo "resource gate: can't read Cloud's VM agent script from $cloud_dir origin/main; set RESTLESS_CLOUD_AGENT" >&2; exit 1; }
+  chmod +x "$agent"
+fi
 [ -f "$agent" ] || { echo "resource gate: Cloud's VM agent script is not at $agent; set RESTLESS_CLOUD_AGENT" >&2; exit 1; }
 sudo -n true 2>/dev/null || { echo "resource gate: needs passwordless sudo for its transient slice" >&2; exit 1; }
 export PATH="$HOME/.cargo/bin:$PATH" CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-8}"
@@ -32,7 +42,7 @@ scripts/restless-cargo build -p restlessd
 [ -d infra/host-tools/node_modules ] || npm --prefix infra/host-tools ci --no-audit --no-fund >/dev/null
 # A private copy: a concurrent build sharing the target may replace the binary mid-run.
 copy="$(mktemp -d)"
-trap 'rm -rf "$copy"' EXIT
+trap 'rm -rf "$copy"; [ -z "$fetched_agent" ] || rm -f "$fetched_agent"' EXIT
 cp "$CARGO_TARGET_DIR/debug/restlessd" "$copy/restlessd"
 evidence="$state/resources/$revision-$(date -u +%H%M%S)"
 mkdir -p "$evidence"
