@@ -1170,44 +1170,33 @@
 	});
 	/* A part of the Library that could not be read is said as a toast with Retry, never a banner
 	 * that pushes the list down; the "!" beside the count brings back whatever is still wrong. */
-	/* Documents, sheets and files fail together in an outage, each as its read reports. One notice
+	/* Documents, sheets, files and the archived and "From you" lists fail together in an outage,
+	 * each as its read reports. One notice
 	 * with the same words whichever parts failed: a toast per part stacked upward as each landed,
 	 * moving the ones already shown (S109 C5/C7). Retry retries whatever is failing when pressed. */
+	const archivedShownFailed = $derived(!!archivedFailure && filter === 'archived');
+	const keptShownFailed = $derived(!!keptFailure && (filter === 'yours' || filter === 'all'));
 	function retryLibraryReads() {
 		const retries: unknown[] = [];
 		if (documents.failure) retries.push(documents.refresh());
 		if (sheetsFailure) retries.push(refreshSheets());
 		if (outputReadFailed) retries.push(refreshOutputs());
+		if (archivedShownFailed) retries.push(loadArchived());
+		if (keptShownFailed) retries.push(loadKept());
 		return Promise.all(retries);
 	}
 	const libraryWarnings = [
 		toastWhile(
 			() =>
-				(!!documents.failure || !!sheetsFailure || outputReadFailed) && {
+				(!!documents.failure ||
+					!!sheetsFailure ||
+					outputReadFailed ||
+					archivedShownFailed ||
+					keptShownFailed) && {
 					text: 'Part of the Library could not be read',
 					tone: 'failure',
 					dedupeKey: `library-reads:${companyId}`,
 					action: { label: 'Retry', run: retryLibraryReads }
-				}
-		),
-		toastWhile(
-			() =>
-				!!archivedFailure &&
-				filter === 'archived' && {
-					text: archivedFailure,
-					tone: 'failure',
-					dedupeKey: `library-archived:${companyId}`,
-					action: { label: 'Retry', run: loadArchived }
-				}
-		),
-		toastWhile(
-			() =>
-				!!keptFailure &&
-				(filter === 'yours' || filter === 'all') && {
-					text: keptFailure,
-					tone: 'failure',
-					dedupeKey: `library-kept:${companyId}`,
-					action: { label: 'Retry', run: loadKept }
 				}
 		),
 		toastWhile(
