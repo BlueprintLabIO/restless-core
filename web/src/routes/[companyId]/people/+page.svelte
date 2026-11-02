@@ -28,6 +28,9 @@
 	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
 	import SidebarEmpty from '$lib/ui/views/SidebarEmpty.svelte';
+	import { workWaitingLine } from '$lib/work/waiting';
+	import { agentRouteState } from '$lib/model/intelligence-route';
+	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import type { SidebarTone } from '$lib/ui/views/SidebarRow.svelte';
 	import {
@@ -575,6 +578,31 @@
 		(owner ? attention.view?.workGraph : collaboration.view?.work_graph) as
 			PanelGraph | null | undefined
 	);
+	/* Why each open Work beside the chat waits and on whom, read as the Work page reads it (S109
+	 * A1). Until the model routes are read the line stays empty rather than naming a lead and
+	 * then switching to the model. */
+	const intelligence = $derived(intelligenceQuery(companyId, () => !!principal.view));
+	const routesRead = $derived(!!intelligence.view || !!intelligence.error);
+	function workWaiting(id: string): string {
+		const graph = owner ? attention.view?.workGraph : collaboration.view?.work_graph;
+		const work = graph?.work.find((row) => row.id === id);
+		if (!graph || !work || !routesRead) return '';
+		return (
+			workWaitingLine(work, {
+				viewer: principal.view?.actor_id ?? null,
+				viewerIsOwner: owner,
+				name: (actor) =>
+					personName(everyone.find((person) => person.actor_id === actor)?.display ?? actor),
+				items: owner ? (attention.view?.items ?? []) : [],
+				viewerHandoffs: owner ? [] : (collaboration.view?.attention.handoffs ?? []),
+				handoffs: 'handoffs' in graph ? graph.handoffs : [],
+				edges: graph.edges ?? [],
+				work: graph.work,
+				attempts: graph.attempts ?? [],
+				route: intelligence.view ? (actor) => agentRouteState(intelligence.view, actor) : undefined
+			}) ?? ''
+		);
+	}
 	/* Opened by a Work's address with no chat named: the chat is whoever does it. */
 	$effect(() => {
 		if (!workId) return;
@@ -1743,6 +1771,7 @@
 					spend={workSpend}
 					hrefFor={workHref}
 					ondetails={openDetails}
+					waiting={workWaiting}
 				/>
 			{/if}
 		</aside>

@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import type { AttentionItem } from '$lib/model/view';
-	import { issueReviewTicket } from '$lib/model/attention';
+	import { reviewTicket } from '$lib/model/review-tickets';
 	import { recoverCompany } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
 	import { fileAtPath, libraryKind, type LibraryFile } from '$lib/model/library-files';
@@ -73,7 +74,12 @@
 				controller.abort();
 			}
 		}, 30000);
-		void issueReviewTicket(companyId, id, controller.signal)
+		void reviewTicket(
+			companyId,
+			id,
+			untrack(() => target),
+			controller.signal
+		)
 			.then((next) => {
 				if (!current || key !== requestKey) return;
 				if (next) {

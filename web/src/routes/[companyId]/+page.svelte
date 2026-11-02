@@ -12,6 +12,7 @@
 	import { goto, beforeNavigate } from '$app/navigation';
 	import InboxPreview from '$lib/components/InboxPreview.svelte';
 	import OutcomePreview from '$lib/components/OutcomePreview.svelte';
+	import { prefetchReviewTicket } from '$lib/model/review-tickets';
 	import AttentionFooter from '$lib/components/AttentionFooter.svelte';
 	import { inboxPreviewTarget, inboxPreviewHref, inboxPreviewBack } from '$lib/model/inbox-preview';
 	import AttentionDocument from '$lib/components/AttentionDocument.svelte';
@@ -222,6 +223,17 @@
 		}
 		if (['skipped', 'done'].includes(inboxFilter)) return null;
 		return currentVisibleItems[0] ?? null;
+	});
+	/* The item that takes the selected one's place when it is decided or set aside (S109 C1): its
+	 * prepared outcome is asked for now, so moving on shows it at once. */
+	const nextItem = $derived.by(() => {
+		if (!selectedItem) return null;
+		const rows = currentVisibleItems;
+		const index = rows.findIndex((row) => row.id === selectedItem.id);
+		return index < 0 ? null : (rows[index + 1] ?? rows[index - 1] ?? null);
+	});
+	$effect(() => {
+		if (nextItem) prefetchReviewTicket(companyId, nextItem);
 	});
 	let missingNotice = $state('');
 	let missingDecisionHref = $state('');

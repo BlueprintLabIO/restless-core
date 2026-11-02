@@ -37,6 +37,7 @@
 		type Cadence
 	} from '$lib/model/schedule-cadence';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
+	import { askExec, linkDraft } from '$lib/model/ask-exec';
 	const companyId = $derived(page.params.companyId ?? '');
 	/* Owners and admins run the schedules; everyone else sees them. */
 	const principal = $derived(companyPrincipalQuery(companyId));
@@ -151,6 +152,18 @@
 				cadence = newCadence(timeZone);
 			},
 			'Schedule created'
+		);
+	}
+	/* Questions about a schedule go to the one Exec chat in the rail, with the schedule linked. */
+	function askExecAbout(item: MonitoredSchedule, lead?: string) {
+		const reason = item.schedule.reason.replace(/\s+/gu, ' ').trim();
+		const title = reason.length > 80 ? `${reason.slice(0, 79)}…` : reason;
+		askExec(
+			linkDraft(
+				title,
+				`/${encodeURIComponent(companyId)}/company/schedules?schedule=${encodeURIComponent(item.schedule.id)}`,
+				lead
+			)
 		);
 	}
 	function beginEdit(item: MonitoredSchedule) {
@@ -386,7 +399,7 @@
 										''
 									)}>Check it can start</button
 							>
-							<a href={`/${companyId}/people?person=exec&view=people`}>Discuss with Exec</a>
+							<button onclick={() => askExecAbout(item)}>Ask Exec about this</button>
 							<button disabled={!!busy} onclick={() => remove(item)}>Delete schedule</button>
 						</ActionMenu>
 					{/if}{/snippet}
@@ -399,9 +412,11 @@
 							{@const text = headline(problem.outcome, problem.outcome_reason)}
 							<Notice tone="warning" title="The last run didn’t finish" details={text.full || null}
 								>{text.line}
-								{#snippet actions()}<a
+								{#snippet actions()}<button
 										class="btn small"
-										href={`/${companyId}/people?person=exec&view=people`}>Discuss</a
+										type="button"
+										onclick={() => askExecAbout(item, 'Why didn’t the last run finish for')}
+										>Ask Exec</button
 									>{/snippet}</Notice
 							>
 						{/if}
