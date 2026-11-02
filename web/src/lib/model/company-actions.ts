@@ -8,22 +8,6 @@ import { ownerRequest } from './setting.svelte';
 
 const api = (company: string) => `/api/companies/${encodeURIComponent(company)}`;
 
-export function decideEmailMandateProposal(
-	company: string,
-	proposal: string,
-	decision: 'approve' | 'decline',
-	/** Why, for a decline: it reaches Exec with the decision. */
-	note = ''
-) {
-	return ownerRequest<unknown>(
-		`${api(company)}/email-mandates/proposals/${encodeURIComponent(proposal)}/decision`,
-		{
-			method: 'POST',
-			json: { decision, ...(note.trim() ? { owner_note: note.trim() } : {}) }
-		}
-	);
-}
-
 export function setTeamOwner(company: string, team: string, person: string | null, reason: string) {
 	return ownerRequest<unknown>(`${api(company)}/teams/${encodeURIComponent(team)}/owner`, {
 		method: 'POST',

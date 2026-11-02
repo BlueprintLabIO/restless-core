@@ -1335,6 +1335,50 @@ try {
     pass("direction: act then tell with Undo, ask first with Approve and Done, always allow until revoked, make owner, one answer wins, the digest counts, and a member sees only her own");
   }
 
+  // 9i-2. An email mandate answer waits out Authority's Undo window (S109 C1): only the owner may
+  //       give it, nobody else can undo it, Undo puts the card back, and after the window it
+  //       applies once.
+  {
+    const { proposal_id: proposal } = await coreApi(owner, `${base}/email-mandates/proposals`, {
+      method: "POST",
+      body: {
+        proposal: {
+          purpose: "Invite past clients to the open day", audience_guidance: "People who bought in the last two years",
+          sender: "hello@example.com", max_per_day: 5, max_total: 100, timezone: "UTC",
+          expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+        },
+      },
+    });
+    const itemId = `authority:email_mandate_proposal:${proposal}`;
+    const answer = (who, expected, decision = { action: "grant" }) =>
+      coreApi(who, `${base}/approvals/pending-decision`, {
+        method: "POST", expected,
+        body: { id: randomUUID(), item_id: itemId, target: { kind: "email_mandate", proposal }, decision },
+      });
+    const inInbox = async () => (await coreApi(owner, `${base}/attention`)).items.some((item) => item.id === itemId);
+    assert(await inInbox(), "the mandate proposal is in the owner's Inbox");
+    await answer(bob, 403);
+    await answer(alice, 403);
+    const undone = await answer(owner, 200);
+    assert.equal(undone.state, "pending");
+    assert.equal(undone.kind, "approve");
+    assert(!(await inInbox()), "the card leaves at once");
+    await coreApi(bob, `${base}/approval-decisions/${undone.id}`, { method: "DELETE", expected: 400 });
+    assert.equal((await coreApi(owner, `${base}/approval-decisions/${undone.id}`, { method: "DELETE" })).state, "canceled");
+    assert(await inInbox(), "Undo puts the card back");
+    const saved = await answer(owner, 200);
+    const deadline = Date.now() + 20000;
+    let state = saved.state;
+    while (state === "pending" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      state = (await coreApi(owner, `${base}/approval-decisions`)).items.find((item) => item.id === saved.id)?.state ?? "gone";
+    }
+    assert.equal(state, "applied", "the mandate is granted after the window");
+    assert(!(await inInbox()), "answered: the card stays gone");
+    await answer(owner, 400, { action: "decline" });
+    pass("mandate answer: owner only, Undo by the decider only, applies once after the window");
+  }
+
 
   // 9j. The work is the surface (S82): Exec works on the real charter. The owner's own direction
   //     saves it; anyone else's becomes a draft only the owner sees, on Company › Charter and as

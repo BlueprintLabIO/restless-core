@@ -7419,7 +7419,13 @@ async fn attention_view(
                         })
                         .collect();
                     view.items.retain(|item| {
-                        let hidden = item.source.kind == "approval_required"
+                        let hidden = pending.iter().any(|decision| {
+                            !matches!(
+                                decision.target,
+                                restless_engine::approval_decisions::ApprovalTarget::Party { .. }
+                                    | restless_engine::approval_decisions::ApprovalTarget::ToolCall { .. }
+                            ) && item.id == decision.item_id
+                        }) || item.source.kind == "approval_required"
                             && pending.iter().any(|decision| match &decision.target {
                                 restless_engine::approval_decisions::ApprovalTarget::Party {
                                     party,
@@ -7435,6 +7441,7 @@ async fn attention_view(
                                 restless_engine::approval_decisions::ApprovalTarget::ToolCall {
                                     call_key,
                                 } => item.source.call_key.as_deref() == Some(call_key.as_str()),
+                                _ => false,
                             });
                         if hidden {
                             pending_approval_ids.push(item.id.clone());

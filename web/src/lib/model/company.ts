@@ -685,15 +685,6 @@ export function probePaymentRail(company: string) {
 	return postCompany<PaymentRailResult>(company, '/company/payment-rail/probe', {});
 }
 
-/** The owner's answer to a payee request from the Inbox. */
-export function decidePayee(company: string, proposal: string, approve: boolean, note?: string) {
-	return postCompany<{ decided: boolean }>(
-		company,
-		`/company/payees/${encodeURIComponent(proposal)}/decide`,
-		{ approve, note }
-	);
-}
-
 /** Preview or apply copying setup sections from another company. */
 export function copyCompanySetup<T>(company: string, preview: boolean, body: unknown) {
 	return postCompany<T>(company, `/copy-setup${preview ? '/preview' : ''}`, body);
