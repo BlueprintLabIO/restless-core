@@ -2775,6 +2775,8 @@ fn an_admin_reads_activity_spend_and_apps_but_changes_none_of_them() {
         "/api/companies/aris/attention/history",
         "/api/companies/aris/tool-connections",
         "/api/companies/aris/app-requests",
+        "/api/app-catalogue",
+        "/api/app-catalogue/skill",
         "/api/companies/aris/actors/exec/exchanges",
         "/api/companies/aris/actors/lead-1/exchanges",
     ] {
@@ -2812,6 +2814,7 @@ fn an_admin_reads_activity_spend_and_apps_but_changes_none_of_them() {
         (Method::POST, "/api/companies/aris/actors/exec/exchanges"),
         (Method::DELETE, "/api/companies/aris/actors/exec/exchanges"),
         (Method::POST, "/api/companies/aris/app-requests"),
+        (Method::POST, "/api/companies/aris/app-catalogue/install"),
         (Method::POST, "/api/companies/aris/attention/dismiss"),
         (Method::POST, "/api/companies/aris/tool-connections/plugins"),
         (Method::PATCH, "/api/companies/aris/tool-connections/github"),

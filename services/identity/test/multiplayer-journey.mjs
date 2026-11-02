@@ -1135,7 +1135,7 @@ try {
       adminRefused.push(`${response.status()} ${response.request().method()} ${url.pathname} (on ${adminScreen || "Inbox"})`);
   };
   bob.page.on("response", watchAdmin);
-  for (const path of ["", "/library", "/people", "/work", "/company", "/company/members", "/company/identity", "/company/schedules"]) {
+  for (const path of ["", "/library", "/people", "/work", "/apps", "/company", "/company/members", "/company/identity", "/company/schedules"]) {
     adminScreen = path;
     await bob.page.goto(`${core}/${company}${path}`);
     await pause(3500);

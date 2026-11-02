@@ -87,7 +87,10 @@ pub(super) async fn list(
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
-    if let Err(refusal) = owner_gate(&state, &company, &principal).await {
+    // The apps the company uses are company record an admin reads with the owner, as the
+    // boundary already allows; the owner gate here refused them, so an admin's Apps page said
+    // "Apps could not be read". Credentials are never in the view (`auth` is not serialized).
+    if let Err(refusal) = record_reader_gate(&state, &company, &principal).await {
         return refusal;
     }
     let pool = state.daemon.authority.pool();
