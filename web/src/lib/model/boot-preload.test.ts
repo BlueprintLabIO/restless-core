@@ -1,0 +1,235 @@
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import test from 'node:test';
+import vm from 'node:vm';
+import { shellFor, SHELL_KEY, withSection, type ShellSnapshot } from './shell-snapshot.ts';
+
+/* app.html's inline scripts run before the app's code, so they repeat a few of its rules by name.
+ * These tests run those scripts as written and hold them to the modules they stand in for. */
+
+const html = readFileSync(new URL('../../app.html', import.meta.url), 'utf8');
+const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+const bootScript = scripts.find((source) => source.includes('__restlessBoot'))!;
+const shellScript = scripts.find((source) => source.includes("'restless:shell'"))!;
+
+function storage(values: Record<string, string>) {
+	return { getItem: (key: string) => values[key] ?? null };
+}
+
+function preloads(pathname: string, values: Record<string, string>): string[] {
+	const urls: string[] = [];
+	const window: Record<string, unknown> = {};
+	vm.runInNewContext(bootScript, {
+		window,
+		location: { pathname, search: '' },
+		localStorage: storage(values),
+		URLSearchParams,
+		AbortSignal: { timeout: () => undefined },
+		fetch: (url: string) => {
+			urls.push(url);
+			return Promise.resolve();
+		}
+	});
+	return urls;
+}
+
+/* The model's readers, where each preloaded URL must appear exactly as its reader builds it. */
+const modelDirectory = new URL('./', import.meta.url);
+const readers = readdirSync(modelDirectory)
+	.filter((name) => name.endsWith('.ts') && !name.includes('.test.'))
+	.map((name) => readFileSync(new URL(name, modelDirectory), 'utf8'))
+	.join('\n');
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/* 2 Nov: app.html preloaded `/attention` while the Inbox read `/attention?include_work_graph=false`,
+ * so nobody claimed the preload and every owner load downloaded the whole work graph (4 MB on
+ * Reno) beside the reads the reveal waits on. */
+test("every read an owner's cold company load starts early is one a reader claims", () => {
+	const urls = preloads('/acme/work', {
+		'restless:plane-owner': '1',
+		'restless:role:acme': 'owner'
+	});
+	assert.ok(urls.length >= 4, `expected the owner's preloads, got ${urls.join(', ')}`);
+	for (const url of urls) {
+		const template = url.replace(
+			/^\/api\/companies\/acme/,
+			'/api/companies/${encodeURIComponent(company)}'
+		);
+		const built =
+			url === '/api/companies'
+				? new RegExp(`bootFetch\\(\\s*'${escape(url)}'`)
+				: new RegExp('`' + escape(template) + '(`|\\$\\{query\\}`)');
+		assert.match(readers, built, `${url} is preloaded but no reader asks for exactly that`);
+	}
+});
+
+test("a member's cold load starts only what everyone may read", () => {
+	assert.deepEqual(preloads('/acme/work', { 'restless:role:acme': 'member' }), [
+		'/api/companies/acme/principal'
+	]);
+});
+
+function element() {
+	const classes = new Set<string>();
+	const children: { className: string; style: Record<string, string> }[] = [];
+	return {
+		classes,
+		children,
+		style: {} as Record<string, string>,
+		classList: {
+			add: (name: string) => classes.add(name),
+			contains: (name: string) => classes.has(name)
+		},
+		appendChild(child: { className: string; style: Record<string, string> }) {
+			children.push(child);
+		}
+	};
+}
+
+function loadingScreen(input: {
+	pathname: string;
+	width: number;
+	theme: string;
+	stored: unknown;
+	companyPage?: boolean;
+}) {
+	const boot = element();
+	const root = { ...element(), dataset: { theme: input.theme } };
+	vm.runInNewContext(shellScript, {
+		window: { __restlessCompanyPage: input.companyPage ?? true },
+		innerWidth: input.width,
+		location: { pathname: input.pathname },
+		localStorage: storage(
+			input.stored === undefined ? {} : { [SHELL_KEY]: JSON.stringify(input.stored) }
+		),
+		document: {
+			documentElement: root,
+			querySelector: () => boot,
+			createElement: () => {
+				const style: Record<string, string> & { setProperty?: unknown } = {};
+				style.setProperty = (key: string, value: string) => (style[key] = value);
+				return { className: '', style };
+			}
+		}
+	});
+	return { boot, root };
+}
+
+const snapshot = (width: number, theme = 'light'): ShellSnapshot => ({
+	w: width,
+	theme,
+	bg: 'rgb(239, 241, 246)',
+	panels: [
+		{
+			t: 8,
+			l: 8,
+			r: 8,
+			b: 534,
+			bg: 'rgba(250, 251, 253, 0.74)',
+			radius: '6px',
+			bw: '0px 0px 1px',
+			bs: 'solid',
+			bc: 'rgba(76, 88, 117, 0.1)',
+			shadow: 'none'
+		},
+		{
+			t: 60,
+			l: 8,
+			r: 367,
+			b: 8,
+			bg: 'rgb(250, 251, 254)',
+			radius: '6px',
+			bw: '1px',
+			bs: 'solid',
+			bc: 'rgba(76, 88, 117, 0.18)',
+			shadow: 'none'
+		}
+	]
+});
+
+test('a company page loads in the layout it last showed, at the same width and theme', () => {
+	const stored = withSection(null, 'work', snapshot(1062));
+	const { boot, root } = loadingScreen({
+		pathname: '/acme/work',
+		width: 1062,
+		theme: 'light',
+		stored
+	});
+	assert.ok(boot.classes.has('shell'));
+	assert.ok(root.classes.has('boot-shell'));
+	assert.equal(boot.style.background, 'rgb(239, 241, 246)');
+	assert.deepEqual(
+		boot.children.map((child) => [
+			child.className,
+			child.style.top,
+			child.style.right,
+			child.style.bottom
+		]),
+		[
+			['boot-panel', '8px', '8px', '534px'],
+			['boot-panel', '60px', '367px', '8px']
+		]
+	);
+	assert.equal(boot.children[1].style['border-color'], 'rgba(76, 88, 117, 0.18)');
+});
+
+test("the loading screen's choice of snapshot is shellFor's", () => {
+	let stored = withSection(null, 'work', snapshot(1062));
+	stored = withSection(stored, 'library', snapshot(1440));
+	const cases = [
+		{ pathname: '/acme/work', width: 1062, theme: 'light' },
+		{ pathname: '/acme/library', width: 1440, theme: 'light' },
+		/* An unseen section takes the last page shown, at its width. */
+		{ pathname: '/acme/people', width: 1440, theme: 'light' },
+		{ pathname: '/acme/people', width: 1062, theme: 'light' },
+		{ pathname: '/acme/work', width: 1063, theme: 'light' },
+		{ pathname: '/acme/work', width: 1062, theme: 'dark' }
+	];
+	for (const input of cases) {
+		const expected = shellFor(stored, input.pathname, input.width, input.theme);
+		const { boot } = loadingScreen({ ...input, stored });
+		const drawn = boot.children.filter((child) => child.className === 'boot-panel').length;
+		assert.equal(drawn, expected?.panels.length ?? 0, JSON.stringify(input));
+	}
+});
+
+test('without a snapshot a company page loads with its top bar, and other pages keep the field', () => {
+	const fresh = loadingScreen({ pathname: '/acme', width: 390, theme: 'dark', stored: undefined });
+	assert.deepEqual(
+		fresh.boot.children.map((child) => child.className),
+		['boot-panel fallback']
+	);
+	const damaged = loadingScreen({ pathname: '/acme', width: 390, theme: 'dark', stored: { v: 0 } });
+	assert.deepEqual(
+		damaged.boot.children.map((child) => child.className),
+		['boot-panel fallback']
+	);
+	const account = loadingScreen({
+		pathname: '/account',
+		width: 390,
+		theme: 'light',
+		stored: undefined,
+		companyPage: false
+	});
+	assert.equal(account.boot.classes.has('shell'), false);
+	assert.equal(account.boot.children.length, 0);
+});
+
+test('only a company page is marked for its layout', () => {
+	const marked = (pathname: string) => {
+		const window: Record<string, unknown> = {};
+		vm.runInNewContext(bootScript, {
+			window,
+			location: { pathname, search: '' },
+			localStorage: storage({}),
+			URLSearchParams,
+			AbortSignal: { timeout: () => undefined },
+			fetch: () => Promise.resolve()
+		});
+		return window.__restlessCompanyPage;
+	};
+	assert.equal(marked('/acme/work'), true);
+	assert.equal(marked('/acme'), true);
+	for (const pathname of ['/', '/account/settings', '/gallery', '/archived/acme', '/documents/x'])
+		assert.equal(marked(pathname), false, pathname);
+});

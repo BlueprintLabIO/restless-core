@@ -9,6 +9,8 @@
 # filmstrips of failing loads) is kept under ~/.cache/restless-release/jank/<revision>.
 #
 # Fast lane: a tree that already passed on this computer is not measured again.
+# Concurrent runs (two release candidates at once) each get their own PostgreSQL container, Core
+# port block, Documents image and restlessd copy, so one run never removes another's.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
@@ -21,7 +23,8 @@ if [ -f "$passed/$tree" ]; then
 fi
 revision="$(git rev-parse HEAD)"
 image=restless-company-image:release-connections
-database=restless-release-jank-postgres_test
+database="restless-release-jank-$$-$(head -c 4 /dev/urandom | od -An -tx1 | tr -d ' 
+')-postgres_test"
 evidence="$state/jank/$revision-$(date -u +%H%M%S)"
 mkdir -p "$state/jank"
 secret="$(mktemp -d)"
@@ -42,8 +45,9 @@ pinned="$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/d
 [ -n "$pinned" ] || pinned="$image@$(docker image inspect --format '{{.Id}}' "$image")"
 
 password="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
-docker rm -f "$database" >/dev/null 2>&1 || true
-docker run -d --name "$database" -e POSTGRES_PASSWORD="$password" -p 127.0.0.1::5432 postgres:16 >/dev/null
+# Remove databases left by runs that were killed before their trap ran; never a live run's.
+docker ps -a --filter label=restless.jank-gate.pid --format '{{.Names}} {{.Label "restless.jank-gate.pid"}}'   | while read -r name pid; do kill -0 "$pid" 2>/dev/null || docker rm -f "$name" >/dev/null 2>&1 || true; done
+docker run -d --name "$database" --label restless.jank-gate.pid=$$ -e POSTGRES_PASSWORD="$password" -p 127.0.0.1::5432 postgres:16 >/dev/null
 port="$(docker port "$database" 5432/tcp | head -1 | cut -d: -f2)"
 for _ in $(seq 1 30); do docker exec "$database" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 2; done
 (umask 077; printf 'postgres://postgres:%s@127.0.0.1:%s/postgres\n' "$password" "$port" >"$secret/database-url")

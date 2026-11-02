@@ -19,7 +19,7 @@ use axum::{
         HeaderMap, HeaderValue, StatusCode,
     },
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
 use chrono::{Duration, Utc};
@@ -193,13 +193,122 @@ pub(super) fn routes() -> Router<OwnerState> {
             "/internal/v1/planes/{plane_id}/readiness",
             post(observe_plane_readiness),
         )
+        .route("/internal/v1/planes/{plane_id}/vault", get(observe_vault))
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
 }
 
+/// Fleet's readiness route and the provider's vault route: both carry the readiness bearer,
+/// checked by their handlers, never a browser session.
 pub(super) fn is_plane_readiness_path(path: &str) -> bool {
     path.strip_prefix("/internal/v1/planes/")
-        .and_then(|rest| rest.strip_suffix("/readiness"))
+        .and_then(|rest| {
+            rest.strip_suffix("/readiness")
+                .or_else(|| rest.strip_suffix("/vault"))
+        })
         .is_some_and(|plane| plane.parse::<Uuid>().is_ok())
+}
+
+const VAULT_CONTRACT_VERSION: u32 = 1;
+const MAX_REPORTED_MISMATCHES: usize = 100;
+
+#[derive(Debug, Serialize)]
+struct VaultObservation {
+    contract_version: u32,
+    plane_id: Uuid,
+    backend: &'static str,
+    vault: &'static str,
+    last_success_at: Option<chrono::DateTime<Utc>>,
+    vault_migration: &'static str,
+    manifest_entries: usize,
+    mismatched: Vec<String>,
+}
+
+/// The VM provider's view of this plane's vault (restless-cloud ADR 0013 §14): which backend,
+/// whether it answers, and whether the migrated copies match their manifest. Paths only.
+async fn observe_vault(
+    State(state): State<OwnerState>,
+    AxumPath(path_plane_id): AxumPath<Uuid>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(deployment) = state.plane_readiness.deployment() else {
+        return refusal(StatusCode::NOT_FOUND, "plane_readiness_unavailable");
+    };
+    if !authorized_machine(
+        &headers,
+        &deployment.identity.hostname,
+        deployment.token.as_ref(),
+        false,
+    ) {
+        return refusal(StatusCode::UNAUTHORIZED, "plane_readiness_unauthorized");
+    }
+    if path_plane_id != deployment.identity.plane_id {
+        return refusal(StatusCode::CONFLICT, "plane_readiness_identity_mismatch");
+    }
+    let (health, migration) = tokio::join!(
+        credential::vault_health(),
+        credential::verify_vault_migration(deployment.identity.plane_id),
+    );
+    let mut response = Json(vault_observation(
+        deployment.identity.plane_id,
+        credential::vault_backend(),
+        health,
+        migration,
+    ))
+    .into_response();
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+fn vault_observation(
+    plane_id: Uuid,
+    backend: &'static str,
+    health: credential::VaultHealth,
+    migration: credential::MigrationReport,
+) -> VaultObservation {
+    VaultObservation {
+        contract_version: VAULT_CONTRACT_VERSION,
+        plane_id,
+        backend,
+        vault: health.vault,
+        last_success_at: health.last_success_at,
+        vault_migration: migration.status,
+        manifest_entries: migration.entries,
+        mismatched: migration
+            .mismatched
+            .into_iter()
+            .take(MAX_REPORTED_MISMATCHES)
+            .collect(),
+    }
+}
+
+/// On the first readiness observation with the OpenBao backend, check the migration once and
+/// log the outcome (paths only).
+fn verify_migration_once(plane_id: Uuid) {
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if credential::vault_backend() != "openbao"
+        || STARTED.swap(true, std::sync::atomic::Ordering::SeqCst)
+    {
+        return;
+    }
+    tokio::spawn(async move {
+        let report = credential::verify_vault_migration(plane_id).await;
+        if report.status == "mismatch" {
+            tracing::error!(
+                vault_migration = report.status,
+                entries = report.entries,
+                mismatched = ?report.mismatched,
+                "vault migration copies do not match their manifest"
+            );
+        } else {
+            tracing::info!(
+                vault_migration = report.status,
+                entries = report.entries,
+                "vault migration checked"
+            );
+        }
+    });
 }
 
 async fn observe_plane_readiness(
@@ -230,6 +339,7 @@ async fn observe_plane_readiness(
 }
 
 async fn live_checks(deployment: &PlaneReadinessDeployment) -> Vec<PlaneReadinessCheck> {
+    verify_migration_once(deployment.identity.plane_id);
     let (authority, custody, identity_handoff, plane_database) = tokio::join!(
         probe_authority(&deployment.daemon),
         credential::probe_plane_custody(deployment.identity.plane_id),
@@ -421,16 +531,23 @@ fn authorized(headers: &HeaderMap, deployment: &PlaneReadinessDeployment) -> boo
 }
 
 fn authorized_for(headers: &HeaderMap, hostname: &str, token: &[u8]) -> bool {
+    authorized_machine(headers, hostname, token, true)
+}
+
+/// A direct machine call with the readiness bearer for this plane's host. A POST must say it is
+/// JSON; a GET carries no body.
+fn authorized_machine(headers: &HeaderMap, hostname: &str, token: &[u8], json_body: bool) -> bool {
     if headers.contains_key(COOKIE)
         || headers.contains_key(ORIGIN)
         || headers.contains_key("forwarded")
         || headers.contains_key("x-forwarded-host")
         || headers.contains_key("x-forwarded-proto")
         || headers.contains_key("x-forwarded-for")
-        || !headers
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.eq_ignore_ascii_case("application/json"))
+        || (json_body
+            && !headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.eq_ignore_ascii_case("application/json")))
     {
         return false;
     }
@@ -578,6 +695,69 @@ mod tests {
         assert!(!is_plane_readiness_path(&format!(
             "/internal/v1/planes/{plane}/readiness/extra"
         )));
+        assert!(is_plane_readiness_path(&format!(
+            "/internal/v1/planes/{plane}/vault"
+        )));
+        assert!(!is_plane_readiness_path(&format!(
+            "/internal/v1/planes/{plane}/vault/extra"
+        )));
+        assert!(!is_plane_readiness_path(
+            "/internal/v1/planes/not-a-plane/vault"
+        ));
+    }
+
+    #[test]
+    fn the_vault_route_needs_the_bearer_but_no_json_body() {
+        let identity = identity();
+        let token = b"readiness-token-with-at-least-32-bytes";
+        let mut headers = HeaderMap::new();
+        headers.insert(HOST, HeaderValue::from_str(&identity.hostname).unwrap());
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer readiness-token-with-at-least-32-bytes"),
+        );
+        assert!(authorized_machine(
+            &headers,
+            &identity.hostname,
+            token,
+            false
+        ));
+        assert!(!authorized_for(&headers, &identity.hostname, token));
+        headers.insert(COOKIE, HeaderValue::from_static("session=1"));
+        assert!(!authorized_machine(
+            &headers,
+            &identity.hostname,
+            token,
+            false
+        ));
+    }
+
+    #[test]
+    fn the_vault_observation_carries_paths_never_values() {
+        let plane = identity().plane_id;
+        let observation = vault_observation(
+            plane,
+            "openbao",
+            credential::VaultHealth {
+                vault: "degraded",
+                last_success_at: None,
+            },
+            credential::MigrationReport {
+                status: "mismatch",
+                entries: 150,
+                mismatched: (0..150)
+                    .map(|index| format!("/companies/reno/K{index}"))
+                    .collect(),
+            },
+        );
+        let value = serde_json::to_value(&observation).unwrap();
+        assert_eq!(value["contract_version"], 1);
+        assert_eq!(value["backend"], "openbao");
+        assert_eq!(value["vault"], "degraded");
+        assert_eq!(value["vault_migration"], "mismatch");
+        assert_eq!(value["manifest_entries"], 150);
+        assert_eq!(value["mismatched"].as_array().unwrap().len(), 100);
+        assert!(value["last_success_at"].is_null());
     }
 
     #[test]
