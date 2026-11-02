@@ -56,11 +56,37 @@ struct QueueInput {
     decision: ApprovalDecision,
 }
 
+/// Who may give each answer: the same rule its direct route applies.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Decider {
+    /// First contact and held calls: the Authority owner, or a deputy while they are away.
+    OwnerOrDeputy,
+    /// Email mandates and publications: the current Authority owner only.
+    AuthorityOwner,
+    /// Payees: the company's owner.
+    CompanyOwner,
+    /// The owner's own accounts: the account owner's session only.
+    AccountOwner,
+}
+
+fn decider(target: &ApprovalTarget) -> Decider {
+    match target {
+        ApprovalTarget::Party { .. } | ApprovalTarget::ToolCall { .. } => Decider::OwnerOrDeputy,
+        ApprovalTarget::EmailMandate { .. } | ApprovalTarget::Publication { .. } => {
+            Decider::AuthorityOwner
+        }
+        ApprovalTarget::Payee { .. } => Decider::CompanyOwner,
+        ApprovalTarget::AccountNotice { .. } | ApprovalTarget::AccountRequest { .. } => {
+            Decider::AccountOwner
+        }
+    }
+}
+
 fn summary(saved: &PendingApprovalDecision) -> serde_json::Value {
     serde_json::json!({
         "id": saved.id,
         "item_id": saved.item_id,
-        "kind": saved.decision.kind(),
+        "kind": saved.receipt_kind(),
         "undo_until": saved.undo_until,
         "state": saved.state,
         "problem": saved.problem,
@@ -97,10 +123,34 @@ async fn queue(
     Json(input): Json<QueueInput>,
 ) -> Response<Body> {
     let standing = input.decision == (ApprovalDecision::Grant { always: true });
-    if let Err(refusal) =
-        require_authority_owner_or_deputy(&state, &company, &principal, standing).await
-    {
-        return refusal;
+    match decider(&input.target) {
+        Decider::OwnerOrDeputy => {
+            if let Err(refusal) =
+                require_authority_owner_or_deputy(&state, &company, &principal, standing).await
+            {
+                return refusal;
+            }
+        }
+        Decider::AuthorityOwner => {
+            if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
+                return refusal;
+            }
+        }
+        Decider::CompanyOwner if principal.membership_role() != "owner" => {
+            return api_error(
+                StatusCode::FORBIDDEN,
+                "approval_decision",
+                "Only the owner can answer this.",
+            )
+        }
+        Decider::AccountOwner if !principal.is_account_owner() => {
+            return api_error(
+                StatusCode::FORBIDDEN,
+                "approval_decision",
+                "Only the account owner answers for their accounts.",
+            )
+        }
+        Decider::CompanyOwner | Decider::AccountOwner => {}
     }
     let identity = principal.human_decision_principal();
     if !super::handoff_decisions_api::owner_access_current(&state, identity) {
@@ -228,6 +278,28 @@ async fn refusal(
         .membership
         .as_ref()
         .map_or("owner", |membership| membership.membership_role.as_str());
+    match decider(&saved.target) {
+        Decider::CompanyOwner => {
+            return Ok((role != "owner").then(|| "Only the owner can answer this now.".into()))
+        }
+        // An account owner's session has no membership; access was rechecked above.
+        Decider::AccountOwner => {
+            return Ok(principal
+                .membership
+                .is_some()
+                .then(|| "Only the account owner answers for their accounts.".into()))
+        }
+        Decider::AuthorityOwner => {
+            return match effective_authority_owner(state, &saved.company, org).await {
+                Ok(owner) if owner.actor_id == principal.actor_id => Ok(None),
+                Ok(_) => Ok(Some(
+                    "Only the company's owner may make this decision now.".into(),
+                )),
+                Err(_) => Err(()),
+            }
+        }
+        Decider::OwnerOrDeputy => {}
+    }
     let standing = saved.decision == (ApprovalDecision::Grant { always: true });
     if restless_engine::away::deputy_may_decide(
         &state.daemon.authority,
@@ -266,14 +338,23 @@ pub(super) async fn apply_due(state: &OwnerState) -> Option<Duration> {
                 };
                 let company = claim.decision().company.clone();
                 let org = state.daemon.orgintel.get(&company).await.ok();
+                // A publication starts or stops through the company; without it, try again.
+                if org.is_none()
+                    && matches!(claim.decision().target, ApprovalTarget::Publication { .. })
+                {
+                    continue;
+                }
                 // A transient failure drops the claim; the row stays pending.
                 let Ok(refusal) = refusal(state, claim.decision(), org.as_ref()).await else {
                     continue;
                 };
-                if let Err(error) = claim
-                    .settle(&state.daemon.root, authority, org.as_ref(), refusal)
-                    .await
-                {
+                let effects = approval_decisions::Effects {
+                    root: &state.daemon.root,
+                    authority,
+                    org: org.as_ref(),
+                    publication: Some(&state.daemon.publication),
+                };
+                if let Err(error) = claim.settle(&effects, refusal).await {
                     tracing::warn!(%error, company, "a pending approval decision could not be settled");
                 }
             }

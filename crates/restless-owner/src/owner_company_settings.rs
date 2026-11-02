@@ -1632,17 +1632,10 @@ pub(super) async fn decide_payee(
             "Only the owner can approve payees.",
         );
     }
-    let pending =
-        restless_engine::finance::pending_payee_proposals(&state.daemon.authority, &company)
-            .await
-            .ok()
-            .and_then(|pending| {
-                pending
-                    .into_iter()
-                    .find(|(record, _)| record.id == proposal)
-            });
-    if let Err(e) = restless_engine::finance::decide_payee(
+    let org = state.daemon.orgintel.get(&company).await.ok();
+    if let Err(e) = restless_engine::finance::answer_payee(
         &state.daemon.authority,
+        org.as_ref(),
         &company,
         principal.actor_id(),
         proposal,
@@ -1652,34 +1645,6 @@ pub(super) async fn decide_payee(
     .await
     {
         return api_error(StatusCode::CONFLICT, "payee", format!("{e:#}"));
-    }
-    if let (Some((record, payee)), Ok(org)) = (pending, state.daemon.orgintel.get(&company).await) {
-        let asker = record.actor_id.unwrap_or_else(|| "exec".into());
-        let mut body = format!(
-            "The owner {} {} as a {} payee.",
-            if input.approve {
-                "approved"
-            } else {
-                "declined"
-            },
-            payee.beneficiary_ref,
-            payee.currency
-        );
-        if let Some(note) = input
-            .note
-            .as_deref()
-            .map(str::trim)
-            .filter(|note| !note.is_empty())
-        {
-            body.push_str(&format!(" Their note: “{note}”"));
-        }
-        // A notice, not the owner's words: see the setting decision above.
-        let _ = org
-            .ensure_actor("daemon", "system", "system-sender", "The daemon")
-            .await;
-        if let Err(error) = org.send_message("daemon", Some(&asker), &body).await {
-            tracing::warn!(%error, "could not tell the asker about a payee decision");
-        }
     }
     Json(serde_json::json!({"decided": true})).into_response()
 }

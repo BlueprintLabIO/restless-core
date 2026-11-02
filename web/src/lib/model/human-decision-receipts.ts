@@ -30,7 +30,11 @@ const kindMessages: Record<string, string> = {
 	approve: 'Approved',
 	approve_always: 'Approved. It won’t ask again.',
 	decline: 'Declined',
-	request_changes: 'Changes sent to Exec'
+	request_changes: 'Changes sent to Exec',
+	fine: 'Fine. The company keeps using it.',
+	freeze: 'Frozen. This company can’t use the account until you unfreeze it.',
+	deny: 'Denied. The company is told.',
+	authorize: 'Authorised. It goes online shortly.'
 };
 export const receiptMessage = (receipt: Pick<HumanDecisionReceipt, 'kind'>) =>
 	kindMessages[receipt.kind] ?? 'Accepted';

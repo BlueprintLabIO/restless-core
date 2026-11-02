@@ -22,12 +22,25 @@ use uuid::Uuid;
 use crate::approval::{names_party, normalize_party, OwnerNote};
 use crate::authority::{AuthorityRecord, AuthorityStore};
 
-/// What the person answered. Exactly one prepared call, or one party's first contact.
+/// What the person answered: exactly one waiting request. Each kind keeps its own
+/// decision path; this only holds the answer until its Undo window ends.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ApprovalTarget {
+    /// One party's first contact.
     Party { party: String },
+    /// One prepared tool call.
     ToolCall { call_key: String },
+    /// A proposed email mandate and its exact limits.
+    EmailMandate { proposal: Uuid },
+    /// One more payee for a payment allowance.
+    Payee { proposal: i64 },
+    /// A notice about a use of one of the owner's accounts: Fine (grant) or Freeze (decline).
+    AccountNotice { account: String, notice: String },
+    /// A company asking for one of the owner's accounts, approved as asked or denied.
+    AccountRequest { request: String },
+    /// A prepared publication: Authorise puts the exact build online; Decline stops it.
+    Publication { publication: String },
 }
 
 impl ApprovalTarget {
@@ -35,6 +48,11 @@ impl ApprovalTarget {
         match self {
             Self::Party { party } => format!("party:{}", normalize_party(party)),
             Self::ToolCall { call_key } => format!("call:{call_key}"),
+            Self::EmailMandate { proposal } => format!("mandate:{proposal}"),
+            Self::Payee { proposal } => format!("payee:{proposal}"),
+            Self::AccountNotice { notice, .. } => format!("account-notice:{notice}"),
+            Self::AccountRequest { request } => format!("account-request:{request}"),
+            Self::Publication { publication } => format!("publication:{publication}"),
         }
     }
 
@@ -46,6 +64,49 @@ impl ApprovalTarget {
             Self::ToolCall { call_key } => Self::ToolCall {
                 call_key: call_key.trim().to_string(),
             },
+            Self::AccountNotice { account, notice } => Self::AccountNotice {
+                account: account.trim().to_string(),
+                notice: notice.trim().to_string(),
+            },
+            Self::AccountRequest { request } => Self::AccountRequest {
+                request: request.trim().to_string(),
+            },
+            Self::Publication { publication } => Self::Publication {
+                publication: publication.trim().to_string(),
+            },
+            other => other.clone(),
+        }
+    }
+
+    /// The Inbox item this answer comes from, exactly as the Inbox names it.
+    pub fn item_id(&self) -> Option<String> {
+        match self {
+            Self::Party { .. } => None,
+            Self::ToolCall { call_key } => Some(format!("authority:tool-call:{call_key}")),
+            Self::EmailMandate { proposal } => {
+                Some(format!("authority:email_mandate_proposal:{proposal}"))
+            }
+            Self::Payee { proposal } => Some(format!("authority:payee:{proposal}")),
+            Self::AccountNotice { notice, .. } => {
+                Some(format!("authority:account_notice:{notice}"))
+            }
+            Self::AccountRequest { request } => {
+                Some(format!("authority:account_request:{request}"))
+            }
+            Self::Publication { publication } => {
+                Some(format!("authority:publication:{publication}"))
+            }
+        }
+    }
+
+    fn empty(&self) -> bool {
+        match self {
+            Self::Party { party } => party.is_empty(),
+            Self::ToolCall { call_key } => call_key.is_empty(),
+            Self::EmailMandate { .. } | Self::Payee { .. } => false,
+            Self::AccountNotice { account, notice } => account.is_empty() || notice.is_empty(),
+            Self::AccountRequest { request } => request.is_empty(),
+            Self::Publication { publication } => publication.is_empty(),
         }
     }
 }
@@ -111,6 +172,28 @@ pub struct PendingApprovalDecision {
     pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub seen_at: Option<DateTime<Utc>>,
+}
+
+impl PendingApprovalDecision {
+    /// The receipt's kind, which the Inbox notice reads.
+    pub fn receipt_kind(&self) -> &'static str {
+        match (&self.target, &self.decision) {
+            (ApprovalTarget::AccountNotice { .. }, ApprovalDecision::Grant { .. }) => "fine",
+            (ApprovalTarget::AccountNotice { .. }, ApprovalDecision::Decline { .. }) => "freeze",
+            (ApprovalTarget::AccountRequest { .. }, ApprovalDecision::Decline { .. }) => "deny",
+            (ApprovalTarget::Publication { .. }, ApprovalDecision::Grant { .. }) => "authorize",
+            (_, decision) => decision.kind(),
+        }
+    }
+}
+
+/// What a decision may touch once its window ends. Publications need the manager
+/// that starts and stops their provider.
+pub struct Effects<'a> {
+    pub root: &'a Path,
+    pub authority: &'a AuthorityStore,
+    pub org: Option<&'a restless_orgintel::OrgIntel>,
+    pub publication: Option<&'a crate::publication::PublicationManager>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -260,17 +343,198 @@ async fn waiting_request(
             }
             Ok(Some(newest))
         }
+        _ => Ok(None),
     }
+}
+
+const PUBLICATION_SETTLED: [&str; 4] = [
+    "publication_authorized",
+    "publication_resource_grant",
+    "publication_failed",
+    "publication_stopped",
+];
+
+/// Whether the request is still waiting, and the version of it the person was shown.
+/// `None` once it was answered, withdrawn or expired.
+async fn waiting_digest(
+    authority: &AuthorityStore,
+    company: &str,
+    target: &ApprovalTarget,
+) -> Result<Option<String>> {
+    let pool = authority.pool();
+    Ok(match target {
+        ApprovalTarget::Party { .. } | ApprovalTarget::ToolCall { .. } => {
+            waiting_request(authority, company, target)
+                .await?
+                .map(|request| digest_of(&request))
+        }
+        ApprovalTarget::EmailMandate { proposal } => {
+            let proposal = proposal.to_string();
+            authority
+                .pending_email_mandate_proposals(company)
+                .await?
+                .into_iter()
+                .filter(|record| record.body["id"].as_str() == Some(proposal.as_str()))
+                .map(|record| record.id)
+                .max()
+                .map(|id| format!("record:{id}"))
+        }
+        ApprovalTarget::Payee { proposal } => {
+            crate::finance::pending_payee_proposals(authority, company)
+                .await?
+                .iter()
+                .any(|(record, _)| record.id == *proposal)
+                .then(|| format!("record:{proposal}"))
+        }
+        ApprovalTarget::AccountNotice { account, notice } => {
+            let row: Option<(String, i64)> = sqlx::query_as(
+                "SELECT state, use_id FROM restless_authority.owner_account_notices \
+                 WHERE id=$1 AND account_id=$2 AND company=$3",
+            )
+            .bind(notice)
+            .bind(account)
+            .bind(company)
+            .fetch_optional(pool)
+            .await?;
+            row.filter(|(state, _)| state == "open")
+                .map(|(_, used)| format!("use:{used}"))
+        }
+        ApprovalTarget::AccountRequest { request } => {
+            let row: Option<(String, Option<String>, Option<String>, String)> = sqlx::query_as(
+                "SELECT state, account_id, kind, abilities::text \
+                 FROM restless_authority.owner_account_requests WHERE id=$1 AND company=$2",
+            )
+            .bind(request)
+            .bind(company)
+            .fetch_optional(pool)
+            .await?;
+            row.filter(|(state, ..)| state == "open")
+                .map(|(_, account, kind, abilities)| {
+                    format!(
+                        "account:{}|kind:{}|abilities:{abilities}",
+                        account.unwrap_or_default(),
+                        kind.unwrap_or_default()
+                    )
+                })
+        }
+        ApprovalTarget::Publication { publication } => {
+            for kind in PUBLICATION_SETTLED {
+                if authority
+                    .find_body(company, kind, "publication_id", publication)
+                    .await?
+                    .is_some()
+                {
+                    return Ok(None);
+                }
+            }
+            let newest = authority
+                .records_of_kind(company, "publication_request")
+                .await?
+                .into_iter()
+                .filter(|record| {
+                    record.body["publication_id"].as_str() == Some(publication.as_str())
+                })
+                .max_by_key(|record| record.id);
+            newest
+                .filter(|record| {
+                    record.body["request"]["expires_at"]
+                        .as_str()
+                        .and_then(|at| DateTime::parse_from_rfc3339(at).ok())
+                        .is_none_or(|at| at.with_timezone(&Utc) > Utc::now())
+                })
+                .map(|record| format!("record:{}", record.id))
+        }
+    })
+}
+
+/// Whether this exact answer was already given by this person: a replay after a
+/// crash between the decision and settling its row finds it instead of giving it
+/// twice. Any other answer leaves the request no longer waiting, which the
+/// recheck refuses.
+async fn already_answered(
+    authority: &AuthorityStore,
+    company: &str,
+    saved: &PendingApprovalDecision,
+) -> Result<bool> {
+    let pool = authority.pool();
+    let grant = matches!(saved.decision, ApprovalDecision::Grant { .. });
+    let actor = saved.principal.actor_id.as_str();
+    Ok(match &saved.target {
+        ApprovalTarget::Party { .. } | ApprovalTarget::ToolCall { .. } => false,
+        ApprovalTarget::EmailMandate { proposal } => {
+            let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+                "SELECT actor_id, body->>'decision' FROM restless_authority.records \
+                 WHERE company=$1 AND kind='email_mandate_proposal_decision' \
+                 AND body->>'proposal_id'=$2 ORDER BY id LIMIT 1",
+            )
+            .bind(company)
+            .bind(proposal.to_string())
+            .fetch_optional(pool)
+            .await?;
+            row.is_some_and(|(by, decision)| {
+                by.as_deref() == Some(actor)
+                    && decision.as_deref() == Some(if grant { "approve" } else { "decline" })
+            })
+        }
+        ApprovalTarget::Payee { proposal } => {
+            let row: Option<(Option<String>, Option<bool>)> = sqlx::query_as(
+                "SELECT actor_id, (body->>'approve')::boolean FROM restless_authority.records \
+                 WHERE company=$1 AND kind=$2 AND body->>'proposal'=$3 ORDER BY id LIMIT 1",
+            )
+            .bind(company)
+            .bind(crate::finance::PAYEE_DECIDED_KIND)
+            .bind(proposal.to_string())
+            .fetch_optional(pool)
+            .await?;
+            row.is_some_and(|(by, approve)| by.as_deref() == Some(actor) && approve == Some(grant))
+        }
+        ApprovalTarget::AccountNotice { account, notice } => {
+            let row: Option<(String, Option<String>)> = sqlx::query_as(
+                "SELECT state, decided_by FROM restless_authority.owner_account_notices \
+                 WHERE id=$1 AND account_id=$2 AND company=$3",
+            )
+            .bind(notice)
+            .bind(account)
+            .bind(company)
+            .fetch_optional(pool)
+            .await?;
+            row.is_some_and(|(state, by)| {
+                by.as_deref() == Some(actor) && state == if grant { "fine" } else { "frozen" }
+            })
+        }
+        ApprovalTarget::AccountRequest { request } => {
+            let state: Option<String> = sqlx::query_scalar(
+                "SELECT state FROM restless_authority.owner_account_requests \
+                 WHERE id=$1 AND company=$2",
+            )
+            .bind(request)
+            .bind(company)
+            .fetch_optional(pool)
+            .await?;
+            state.as_deref() == Some(if grant { "approved" } else { "denied" })
+        }
+        ApprovalTarget::Publication { publication } => authority
+            .find_body(
+                company,
+                if grant {
+                    "publication_authorized"
+                } else {
+                    "publication_stopped"
+                },
+                "publication_id",
+                publication,
+            )
+            .await?
+            .is_some(),
+    })
 }
 
 fn valid_item_id(item_id: &str, target: &ApprovalTarget) -> bool {
     match target {
-        ApprovalTarget::ToolCall { call_key } => {
-            item_id == format!("authority:tool-call:{call_key}")
-        }
         ApprovalTarget::Party { party } => {
             item_id.starts_with("authority:approval:") && item_id.ends_with(&format!(":{party}"))
         }
+        other => other.item_id().is_some_and(|expected| expected == item_id),
     }
 }
 
@@ -308,8 +572,28 @@ pub async fn queue(
         (ApprovalTarget::ToolCall { call_key }, _) if call_key.is_empty() => {
             bail!("no prepared tool call is waiting under that key")
         }
-        (ApprovalTarget::Party { .. }, ApprovalDecision::Grant { always: true }) => {
+        (target, _) if target.empty() => bail!("Open the current request before deciding."),
+        (ApprovalTarget::ToolCall { .. }, _) => {}
+        (_, ApprovalDecision::Grant { always: true }) => {
             bail!("only a tool call can be allowed from now on")
+        }
+        (ApprovalTarget::Party { .. }, _) => {}
+        (
+            ApprovalTarget::EmailMandate { .. } | ApprovalTarget::Payee { .. },
+            ApprovalDecision::Decline {
+                changes_requested: true,
+                ..
+            },
+        ) => bail!("This is answered yes or no. Say what should change in a note with Decline."),
+        (ApprovalTarget::EmailMandate { .. } | ApprovalTarget::Payee { .. }, _) => {}
+        (
+            _,
+            ApprovalDecision::Decline {
+                note,
+                changes_requested,
+            },
+        ) if note.is_some() || *changes_requested => {
+            bail!("This answer carries no note.")
         }
         _ => {}
     }
@@ -330,9 +614,23 @@ pub async fn queue(
         tx.commit().await?;
         return Ok(saved);
     }
-    let Some(request) = waiting_request(authority, company, &target).await? else {
+    let Some(digest) = waiting_digest(authority, company, &target).await? else {
         bail!("This request is no longer waiting.");
     };
+    if let (ApprovalTarget::AccountRequest { request }, ApprovalDecision::Grant { .. }) =
+        (&target, decision)
+    {
+        // Approving as asked needs the account it names; otherwise the owner chooses one.
+        let named: Option<String> = sqlx::query_scalar(
+            "SELECT account_id FROM restless_authority.owner_account_requests WHERE id=$1",
+        )
+        .bind(request)
+        .fetch_one(&mut *tx)
+        .await?;
+        if named.is_none() {
+            bail!("Choose which account to grant: approve it with limits.");
+        }
+    }
     let inserted: Option<Row> = sqlx::query_as(&format!(
         "INSERT INTO {TABLE} (id,company,item_id,principal,target,target_key,decision,expected_digest) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING {COLUMNS}"
@@ -344,7 +642,7 @@ pub async fn queue(
     .bind(serde_json::to_value(&target)?)
     .bind(target.key())
     .bind(serde_json::to_value(decision)?)
-    .bind(digest_of(&request))
+    .bind(digest)
     .fetch_optional(&mut *tx)
     .await?;
     if let Some(row) = inserted {
@@ -499,14 +797,12 @@ impl Claim {
     /// it. Either way the row is settled with its outcome.
     pub async fn settle(
         mut self,
-        root: &Path,
-        authority: &AuthorityStore,
-        org: Option<&restless_orgintel::OrgIntel>,
+        effects: &Effects<'_>,
         refusal: Option<String>,
     ) -> Result<&'static str> {
         let outcome = match refusal {
             Some(problem) => Err(problem),
-            None => apply(root, authority, org, &self.saved)
+            None => apply(effects, &self.saved)
                 .await
                 .map_err(|error| format!("{error:#}")),
         };
@@ -557,23 +853,99 @@ async fn already_decided(
 }
 
 /// The ordinary Authority decision, now that its Undo window has ended.
-async fn apply(
-    root: &Path,
-    authority: &AuthorityStore,
-    org: Option<&restless_orgintel::OrgIntel>,
-    saved: &PendingApprovalDecision,
-) -> Result<()> {
+async fn apply(effects: &Effects<'_>, saved: &PendingApprovalDecision) -> Result<()> {
+    let Effects {
+        root,
+        authority,
+        org,
+        publication,
+    } = *effects;
     let company = saved.company.as_str();
     let actor = saved.principal.actor_id.as_str();
+    let grant = matches!(saved.decision, ApprovalDecision::Grant { .. });
     let recheck = || async {
-        let Some(request) = waiting_request(authority, company, &saved.target).await? else {
+        let Some(digest) = waiting_digest(authority, company, &saved.target).await? else {
             bail!("This request was already answered or is no longer waiting.");
         };
-        if digest_of(&request) != saved.expected_digest {
-            bail!("The draft changed after you decided. Review the new one.");
+        if digest != saved.expected_digest {
+            match saved.target {
+                ApprovalTarget::Party { .. } | ApprovalTarget::ToolCall { .. } => {
+                    bail!("The draft changed after you decided. Review the new one.")
+                }
+                _ => bail!("The request changed after you decided. Review the new one."),
+            }
         }
-        Ok::<_, anyhow::Error>(request)
+        Ok::<_, anyhow::Error>(())
     };
+    let note = saved.decision.note();
+    match &saved.target {
+        ApprovalTarget::EmailMandate { proposal } => {
+            if !already_answered(authority, company, saved).await? {
+                recheck().await?;
+                authority
+                    .decide_email_mandate_proposal(company, actor, *proposal, grant, note.text)
+                    .await?;
+            }
+            crate::approval::announce_decisions(company, authority, org).await;
+            return Ok(());
+        }
+        ApprovalTarget::Payee { proposal } => {
+            if !already_answered(authority, company, saved).await? {
+                recheck().await?;
+                crate::finance::answer_payee(
+                    authority, org, company, actor, *proposal, grant, note.text,
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+        ApprovalTarget::AccountNotice { account, notice } => {
+            if !already_answered(authority, company, saved).await? {
+                recheck().await?;
+                crate::account_broker::decide_notice(
+                    authority.pool(),
+                    account,
+                    notice,
+                    if grant { "fine" } else { "freeze" },
+                    actor,
+                )
+                .await?
+                .context("That notice no longer exists.")?;
+            }
+            return Ok(());
+        }
+        ApprovalTarget::AccountRequest { request } => {
+            if !already_answered(authority, company, saved).await? {
+                recheck().await?;
+                crate::account_broker::settle_request(
+                    authority.pool(),
+                    request,
+                    if grant { "approved" } else { "denied" },
+                    None,
+                    actor,
+                )
+                .await?
+                .context("That request no longer exists.")?;
+            }
+            return Ok(());
+        }
+        ApprovalTarget::Publication { publication: id } => {
+            if !already_answered(authority, company, saved).await? {
+                let manager = publication.context("Publications are unavailable right now.")?;
+                let org = org.context("The company is unavailable right now.")?;
+                recheck().await?;
+                if grant {
+                    manager.authorize(org, company, id).await?;
+                } else {
+                    manager
+                        .stop(org, company, id, "Declined by the owner from the Inbox")
+                        .await?;
+                }
+            }
+            return Ok(());
+        }
+        ApprovalTarget::Party { .. } | ApprovalTarget::ToolCall { .. } => {}
+    }
     match &saved.target {
         ApprovalTarget::ToolCall { call_key } => {
             let approve = matches!(saved.decision, ApprovalDecision::Grant { .. });
@@ -669,6 +1041,7 @@ async fn apply(
                 .await?;
             }
         },
+        _ => unreachable!("answered above"),
     }
     Ok(())
 }
@@ -767,12 +1140,13 @@ mod tests {
             org: Option<&restless_orgintel::OrgIntel>,
         ) -> Option<&'static str> {
             let claim = claim(&self.authority, id).await.unwrap()?;
-            Some(
-                claim
-                    .settle(&self.root, &self.authority, org, None)
-                    .await
-                    .unwrap(),
-            )
+            let effects = Effects {
+                root: &self.root,
+                authority: &self.authority,
+                org,
+                publication: None,
+            };
+            Some(claim.settle(&effects, None).await.unwrap())
         }
 
         async fn state(&self, id: Uuid) -> String {
@@ -1198,6 +1572,484 @@ mod tests {
                 .unwrap()
         );
         assert_eq!(fx.count("approval_granted").await, 1);
+        fx.done().await;
+    }
+
+    impl Fixture {
+        async fn answer(
+            &self,
+            target: &ApprovalTarget,
+            decision: &ApprovalDecision,
+        ) -> Result<PendingApprovalDecision> {
+            queue(
+                &self.authority,
+                Uuid::new_v4(),
+                &self.company,
+                &target.item_id().unwrap(),
+                &owner(),
+                target,
+                decision,
+            )
+            .await
+        }
+
+        /// A worker claims the due row, the decision is made, and the worker
+        /// dies before settling: the row stays pending for the next worker.
+        async fn crash_after(&self, id: Uuid, decide: impl std::future::Future<Output = ()>) {
+            let restarted = AuthorityStore::connect(&self.url).await.unwrap();
+            let held = claim(&restarted, id).await.unwrap().expect("claimable");
+            assert!(claim(&self.authority, id).await.unwrap().is_none());
+            decide.await;
+            drop(held);
+            restarted.pool().close().await;
+            assert_eq!(self.state(id).await, "pending");
+        }
+    }
+
+    const DECLINE: ApprovalDecision = ApprovalDecision::Decline {
+        note: None,
+        changes_requested: false,
+    };
+
+    /// An email mandate is granted only after its window; Undo leaves the proposal
+    /// waiting; a replay after a crash grants it once.
+    #[tokio::test]
+    async fn a_mandate_answer_waits_for_its_window() {
+        let Some(fx) = Fixture::new().await else {
+            return;
+        };
+        let proposal = |per_day| crate::mandate::NewEmailMandate {
+            purpose: "Invite past clients to the open day".into(),
+            audience_guidance: "People who bought in the last two years".into(),
+            sender: "hello@example.com".into(),
+            sender_name: None,
+            max_per_day: per_day,
+            max_total: 100,
+            timezone: "UTC".into(),
+            expires_at: Utc::now() + chrono::Duration::days(30),
+        };
+        let first = fx
+            .authority
+            .propose_email_mandate(&fx.company, "exec", proposal(5), None, None)
+            .await
+            .unwrap();
+        let target = ApprovalTarget::EmailMandate { proposal: first };
+        // Yes or no: a request for changes is refused at once, not after five seconds.
+        assert!(fx
+            .answer(
+                &target,
+                &ApprovalDecision::Decline {
+                    note: Some("smaller".into()),
+                    changes_requested: true
+                }
+            )
+            .await
+            .is_err());
+        let undone = fx.answer(&target, &GRANT).await.unwrap();
+        cancel(&fx.authority, &fx.company, undone.id, &owner())
+            .await
+            .unwrap();
+        fx.expire(undone.id).await;
+        assert!(fx.settle(undone.id, None).await.is_none());
+        assert_eq!(
+            fx.authority
+                .pending_email_mandate_proposals(&fx.company)
+                .await
+                .unwrap()
+                .len(),
+            1,
+            "undone: still waiting for an answer"
+        );
+
+        let saved = fx.answer(&target, &GRANT).await.unwrap();
+        assert_eq!(saved.receipt_kind(), "approve");
+        assert!(fx.settle(saved.id, None).await.is_none(), "not due yet");
+        assert!(fx
+            .authority
+            .list_email_mandates(&fx.company)
+            .await
+            .unwrap()
+            .is_empty());
+        fx.expire(saved.id).await;
+        fx.crash_after(saved.id, async {
+            fx.authority
+                .decide_email_mandate_proposal(&fx.company, "owner", first, true, None)
+                .await
+                .unwrap();
+        })
+        .await;
+        assert_eq!(fx.settle(saved.id, None).await, Some("applied"));
+        assert_eq!(
+            fx.authority
+                .list_email_mandates(&fx.company)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(fx.count("email_mandate_proposal_decision").await, 1);
+        assert!(fx.settle(saved.id, None).await.is_none());
+
+        // A decline with a note is recorded once, with the note.
+        let second = fx
+            .authority
+            .propose_email_mandate(&fx.company, "exec", proposal(9), None, None)
+            .await
+            .unwrap();
+        let declined = fx
+            .answer(
+                &ApprovalTarget::EmailMandate { proposal: second },
+                &ApprovalDecision::Decline {
+                    note: Some("Not before the launch".into()),
+                    changes_requested: false,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(fx.count("email_mandate_proposal_decision").await, 1);
+        fx.expire(declined.id).await;
+        assert_eq!(fx.settle(declined.id, None).await, Some("applied"));
+        let decisions = fx
+            .authority
+            .records_of_kind(&fx.company, "email_mandate_proposal_decision")
+            .await
+            .unwrap();
+        assert_eq!(decisions.len(), 2);
+        assert!(decisions
+            .iter()
+            .any(|record| record.body["owner_note"] == "Not before the launch"));
+        fx.done().await;
+    }
+
+    /// A payee joins the allowance only after the window; Undo leaves it waiting;
+    /// a crash after the answer replays to the one answer.
+    #[tokio::test]
+    async fn a_payee_answer_waits_for_its_window() {
+        let Some(fx) = Fixture::new().await else {
+            return;
+        };
+        crate::finance::set_envelope(
+            &fx.authority,
+            &fx.company,
+            crate::finance::MoneyEnvelopeInput {
+                source_account_ref: "wallet-aud".into(),
+                currency: "AUD".into(),
+                beneficiary_refs: vec!["beneficiary-1".into()],
+                per_payment_limit_minor: 1_000,
+                aggregate_limit_minor: 5_000,
+                frozen: false,
+            },
+            "owner",
+        )
+        .await
+        .unwrap();
+        let propose = |beneficiary: &str| crate::finance::PayeeProposalInput {
+            currency: "aud".into(),
+            beneficiary_ref: beneficiary.into(),
+            reason: "The printer for the open day.".into(),
+            work_id: None,
+        };
+        let payees = || async {
+            crate::finance::envelopes(&fx.authority, &fx.company)
+                .await
+                .unwrap()
+                .remove(0)
+                .limits
+                .beneficiary_refs
+        };
+        let asked = crate::finance::propose_payee(
+            &fx.authority,
+            &fx.company,
+            "exec",
+            propose("beneficiary-2"),
+        )
+        .await
+        .unwrap();
+        let target = ApprovalTarget::Payee { proposal: asked };
+        let undone = fx.answer(&target, &GRANT).await.unwrap();
+        cancel(&fx.authority, &fx.company, undone.id, &owner())
+            .await
+            .unwrap();
+        fx.expire(undone.id).await;
+        assert!(fx.settle(undone.id, None).await.is_none());
+        assert_eq!(payees().await, vec!["beneficiary-1".to_string()]);
+
+        let saved = fx.answer(&target, &GRANT).await.unwrap();
+        assert!(fx.settle(saved.id, None).await.is_none(), "not due yet");
+        assert_eq!(fx.count(crate::finance::PAYEE_DECIDED_KIND).await, 0);
+        fx.expire(saved.id).await;
+        fx.crash_after(saved.id, async {
+            crate::finance::decide_payee(&fx.authority, &fx.company, "owner", asked, true, None)
+                .await
+                .unwrap();
+        })
+        .await;
+        assert_eq!(fx.settle(saved.id, None).await, Some("applied"));
+        assert_eq!(fx.count(crate::finance::PAYEE_DECIDED_KIND).await, 1);
+        assert_eq!(
+            payees().await,
+            vec!["beneficiary-1".to_string(), "beneficiary-2".to_string()]
+        );
+
+        // Declined with a note, after the window, once.
+        let other = crate::finance::propose_payee(
+            &fx.authority,
+            &fx.company,
+            "exec",
+            propose("beneficiary-3"),
+        )
+        .await
+        .unwrap();
+        let declined = fx
+            .answer(
+                &ApprovalTarget::Payee { proposal: other },
+                &ApprovalDecision::Decline {
+                    note: Some("Use the usual printer".into()),
+                    changes_requested: false,
+                },
+            )
+            .await
+            .unwrap();
+        fx.expire(declined.id).await;
+        assert_eq!(fx.settle(declined.id, None).await, Some("applied"));
+        assert_eq!(fx.count(crate::finance::PAYEE_DECIDED_KIND).await, 2);
+        assert_eq!(payees().await.len(), 2);
+        fx.done().await;
+    }
+
+    /// A Freeze waits out the window before the grant is frozen; an account request
+    /// is granted as asked only after it; replays and Undo hold for both.
+    #[tokio::test]
+    async fn account_answers_wait_for_their_window() {
+        let Some(fx) = Fixture::new().await else {
+            return;
+        };
+        let pool = fx.authority.pool();
+        let account = Uuid::new_v4().simple().to_string();
+        sqlx::query(
+            "INSERT INTO restless_authority.owner_accounts (id, kind, label) \
+             VALUES ($1, 'github', 'GitHub')",
+        )
+        .bind(&account)
+        .execute(pool)
+        .await
+        .unwrap();
+        let grant = crate::accounts::create_grant(
+            pool,
+            &account,
+            crate::accounts::GrantInput {
+                company: Some(fx.company.clone()),
+                ..Default::default()
+            },
+            "owner",
+        )
+        .await
+        .unwrap();
+        let notice = Uuid::new_v4().simple().to_string();
+        sqlx::query(
+            "INSERT INTO restless_authority.owner_account_notices \
+             (id, account_id, grant_id, company, use_id, kind) VALUES ($1,$2,$3,$4,1,'first_use')",
+        )
+        .bind(&notice)
+        .bind(&account)
+        .bind(&grant.id)
+        .bind(&fx.company)
+        .execute(pool)
+        .await
+        .unwrap();
+        let frozen = || async {
+            crate::accounts::company_grants(pool, &fx.company)
+                .await
+                .unwrap()[0]
+                .0
+                .frozen
+        };
+        let target = ApprovalTarget::AccountNotice {
+            account: account.clone(),
+            notice: notice.clone(),
+        };
+        // Another company's Inbox cannot answer this notice.
+        assert!(queue(
+            &fx.authority,
+            Uuid::new_v4(),
+            "someone_else_test",
+            &target.item_id().unwrap(),
+            &owner(),
+            &target,
+            &DECLINE
+        )
+        .await
+        .is_err());
+        let freeze = fx.answer(&target, &DECLINE).await.unwrap();
+        assert_eq!(freeze.receipt_kind(), "freeze");
+        assert!(fx.settle(freeze.id, None).await.is_none(), "not due yet");
+        assert!(!frozen().await, "nothing is frozen inside the window");
+        cancel(&fx.authority, &fx.company, freeze.id, &owner())
+            .await
+            .unwrap();
+        let again = fx.answer(&target, &DECLINE).await.unwrap();
+        fx.expire(again.id).await;
+        assert_eq!(fx.settle(again.id, None).await, Some("applied"));
+        assert!(frozen().await);
+        assert!(fx.settle(again.id, None).await.is_none());
+        // Answered: a Fine for the same notice is no longer waiting.
+        assert!(fx.answer(&target, &GRANT).await.is_err());
+
+        let other = format!("{}_other", fx.company);
+        let asked = crate::accounts::Abilities {
+            act: "allow".into(),
+            ..Default::default()
+        };
+        let request = crate::account_broker::create_request(
+            pool,
+            &fx.company,
+            Some(&account),
+            None,
+            Some(asked.clone()),
+            "To open release PRs.",
+            "baloo",
+        )
+        .await
+        .unwrap();
+        let target = ApprovalTarget::AccountRequest {
+            request: request.id.clone(),
+        };
+        let approve = fx.answer(&target, &GRANT).await.unwrap();
+        assert!(fx.settle(approve.id, None).await.is_none(), "not due yet");
+        assert_eq!(
+            crate::account_broker::open_requests(pool, &fx.company)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        fx.expire(approve.id).await;
+        fx.crash_after(approve.id, async {
+            crate::account_broker::settle_request(pool, &request.id, "approved", None, "owner")
+                .await
+                .unwrap();
+        })
+        .await;
+        assert_eq!(fx.settle(approve.id, None).await, Some("applied"));
+        let granted = crate::accounts::company_grants(pool, &fx.company)
+            .await
+            .unwrap();
+        assert_eq!(granted[0].0.abilities, asked);
+
+        // A request that names no account is chosen with limits, not approved here.
+        let unnamed = crate::account_broker::create_request(
+            pool,
+            &fx.company,
+            None,
+            Some("github"),
+            None,
+            "Any GitHub",
+            "baloo",
+        )
+        .await
+        .unwrap();
+        let target = ApprovalTarget::AccountRequest {
+            request: unnamed.id.clone(),
+        };
+        assert!(fx.answer(&target, &GRANT).await.is_err());
+        let deny = fx.answer(&target, &DECLINE).await.unwrap();
+        assert_eq!(deny.receipt_kind(), "deny");
+        fx.expire(deny.id).await;
+        assert_eq!(fx.settle(deny.id, None).await, Some("applied"));
+        assert!(crate::account_broker::open_requests(pool, &fx.company)
+            .await
+            .unwrap()
+            .is_empty());
+
+        crate::accounts::delete(pool, &account).await.unwrap();
+        for table in ["owner_account_notices", "owner_account_requests"] {
+            sqlx::query(&format!(
+                "DELETE FROM restless_authority.{table} WHERE company = ANY($1)"
+            ))
+            .bind(vec![fx.company.clone(), other.clone()])
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+        fx.done().await;
+    }
+
+    /// Nothing is put online or stopped inside the window; a replay after the
+    /// provider was told settles to that one answer.
+    #[tokio::test]
+    async fn a_publication_answer_waits_for_its_window() {
+        let Some(fx) = Fixture::new().await else {
+            return;
+        };
+        let ask = |id: &str, expires: DateTime<Utc>| {
+            fx.authority.emit(
+                &fx.company,
+                "publication_request",
+                Some("game-builder"),
+                serde_json::json!({
+                    "publication_id": id,
+                    "request": {"expires_at": expires.to_rfc3339()},
+                }),
+            )
+        };
+        ask("pub-1", Utc::now() + chrono::Duration::hours(1))
+            .await
+            .unwrap();
+        ask("pub-old", Utc::now() - chrono::Duration::minutes(1))
+            .await
+            .unwrap();
+        assert!(fx
+            .answer(
+                &ApprovalTarget::Publication {
+                    publication: "pub-old".into()
+                },
+                &GRANT
+            )
+            .await
+            .is_err());
+        let target = ApprovalTarget::Publication {
+            publication: "pub-1".into(),
+        };
+        assert!(fx
+            .answer(
+                &target,
+                &ApprovalDecision::Decline {
+                    note: Some("no".into()),
+                    changes_requested: false
+                }
+            )
+            .await
+            .is_err());
+        let authorize = fx.answer(&target, &GRANT).await.unwrap();
+        assert_eq!(authorize.receipt_kind(), "authorize");
+        assert!(fx.settle(authorize.id, None).await.is_none(), "not due yet");
+        cancel(&fx.authority, &fx.company, authorize.id, &owner())
+            .await
+            .unwrap();
+        assert_eq!(fx.count("publication_authorized").await, 0);
+
+        // Without its manager the decision cannot be made: it fails visibly.
+        let failed = fx.answer(&target, &DECLINE).await.unwrap();
+        fx.expire(failed.id).await;
+        assert_eq!(fx.settle(failed.id, None).await, Some("failed"));
+        assert_eq!(fx.count("publication_stopped").await, 0);
+
+        let decline = fx.answer(&target, &DECLINE).await.unwrap();
+        fx.expire(decline.id).await;
+        fx.crash_after(decline.id, async {
+            fx.authority
+                .emit(
+                    &fx.company,
+                    "publication_stopped",
+                    Some("owner"),
+                    serde_json::json!({"publication_id": "pub-1"}),
+                )
+                .await
+                .unwrap();
+        })
+        .await;
+        assert_eq!(fx.settle(decline.id, None).await, Some("applied"));
+        assert_eq!(fx.count("publication_stopped").await, 1);
         fx.done().await;
     }
 

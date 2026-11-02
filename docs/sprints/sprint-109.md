@@ -352,13 +352,13 @@ publish its contents.
 | Owner feedback | Sprint coverage | Verified status |
 | --- | --- | --- |
 | Oversized sign-in and unnecessary eyebrow/footer copy | F6 | Open |
-| Mark done unavailable or slow; instant Undo | C1 | Partial: handoff, native-document and Authority approval (call, first-contact) Undo tested; mandate, payee, account-request and publication answers, generic set-aside and full prefetch remain |
+| Mark done unavailable or slow; instant Undo | C1 | Partial: handoff, native-document and every Inbox Authority answer (call, first contact, email mandate, payee, account notice and request, publication) Undo tested; generic set-aside, Telegram Undo and full prefetch remain |
 | Double doc header/footer and raw-to-styled jump | E1, E2, C2 | Open |
 | Review card must show the actual work and open the real item | A4, B2 | Open |
 | List-item dragging, alignment, block hover and reachable handle | E3 | Open |
 | Inbox filter instead of Skipped drawer | B4 | Checked against local and installed evidence; production Reno walkthrough remains |
 | Repeated structured/bold agent replies | D1, D2 | Prompt comparison checked; full plain-reply acceptance remains open |
-| Brand and other owner approvals belong in Inbox | B2 | Open |
+| Brand and other owner approvals belong in Inbox | B2 | Partial: brand proposals and skill candidates are Inbox items; upstream-changed app tools remain page-only |
 | Discuss duplicates linked Exec chat; duplicate middle composer | B1 | Open |
 | Cropped popover and inconsistent model connection status | B5, A1 | Open |
 | Composer hint shifting and general alignment / chat spacing | C3, C7, F1, F3, F4 | Open |
@@ -745,3 +745,30 @@ the recovery barrier now waits for headroom. The rebuilt role/coediting journey,
 captures and motion comparison pass. Two conversations still stalled the deliberately small 768 MiB
 stress Runtime; wider actor-start/concurrency control remains open. Release qualification and
 deployment remain open. This is not A0 completion or a new production release.
+
+### C1: every Inbox approval waits out Authority's Undo window, 2 November
+
+- Email mandate, payee, account notice (Fine/Freeze), account request (Approve as asked/Deny) and
+  publication (Authorise/Decline) answers from the Inbox now use the same pending row as call and
+  first-contact approvals: a DB-clock five-second deadline, nothing downstream before it, Undo only
+  by the person who decided, and the gateway worker applying once with final rechecks. Each kind
+  keeps its own decision path and decider rule (Authority owner for mandates and publications,
+  company owner for payees, the account owner for accounts). The worker rechecks access and that
+  the request is still the version shown; a replay after a crash recognises its own answer.
+- Direct routes stay immediate on purpose: `/approvals/grant|decline` (CLI, owner MCP tool),
+  Telegram's call answers, and Settings › Limits' "approve a contact" (already behind a confirm
+  dialog, reversed in place by Revoke, with no waiting request to hold). Approve with limits and
+  the Vault key form in an account request card stay immediate composite forms.
+- The page-owned Inbox timer and pending set were already gone; the immediate mandate/payee
+  frontend helpers are now deleted.
+- B2: skill candidates (know-how an agent added) are Inbox items with an inline Accept/Decline
+  card like the brand proposal. App tools that changed upstream still wait only on Apps (their
+  answer is a per-tool choice, not one approve).
+- Evidence: nine PostgreSQL Undo scenarios pass (`approval_decisions`), including one per new
+  kind for not effective before the deadline, Undo cancels, a crash after the decision replays
+  once, and refusals (wrong company, no named account, expired publication, notes where none
+  apply). The authenticated role journey gains a mandate step: admin and member refused, the
+  admin cannot undo the owner's answer, Undo restores the card, and it applies once after the
+  window (`/tmp/restless-identity-core-evidence-dN1Xok`). Frontend check, 334 unit tests,
+  check:type and check:ui pass. Publication Authorise runs the provider inside the decision
+  worker, so a slow provider delays other due decisions until it returns.

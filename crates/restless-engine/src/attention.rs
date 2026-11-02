@@ -2222,6 +2222,97 @@ fn identity_proposal_item(
     }
 }
 
+/// Know-how (a skill) an agent added, waiting for the owner to accept or decline it. Until then
+/// only the agent that added it may follow it.
+fn skill_candidate_item(
+    company: &str,
+    actors: &HashMap<String, AttentionActorRef>,
+    skill: restless_orgintel::SkillRow,
+) -> AttentionItem {
+    let author = skill
+        .added_by
+        .as_deref()
+        .and_then(|id| actors.get(id))
+        .cloned();
+    let who = author.as_ref().map_or_else(
+        || skill.added_by.clone().unwrap_or_else(|| "An agent".into()),
+        |actor| actor.display.clone(),
+    );
+    let description = skill.description.trim();
+    AttentionItem {
+        id: format!("orgintel:skill_candidate:{}", skill.name),
+        work_id: None,
+        source: AttentionSource {
+            plane: "orgintel",
+            kind: "skill_candidate".into(),
+            reference: skill.name.clone(),
+            party: None,
+            call_key: None,
+        },
+        category: "decision".into(),
+        title: format!("New know-how waits for your OK: {}", skill.name),
+        what_happened: if description.is_empty() {
+            format!("{who} added the know-how {}.", skill.name)
+        } else {
+            format!("{who} added the know-how {}: {description}", skill.name)
+        },
+        why_it_matters: if skill.has_scripts {
+            "Accepted know-how is followed across the company. It ships scripts, which run with an agent's ordinary computer access, never extra authority.".into()
+        } else {
+            "Accepted know-how is followed across the company. It grants no access, spending or sign-in.".into()
+        },
+        recommendation: "Read it on Apps, then accept it if you trust where it came from.".into(),
+        requested_action: "Accept or decline the know-how.".into(),
+        if_no_action: format!("Only {who} can follow it."),
+        uncertainty: None,
+        deadline: None,
+        brief_status: "source-authored",
+        brief_author: author.clone(),
+        briefed_at: Some(skill.created_at),
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: author,
+        runtime_attach: None,
+        review_target: None,
+        review_version: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        account_use: None,
+        account_request: None,
+        request_fields: None,
+        setting_proposal: None,
+        owner_replies: Vec::new(),
+        actions: vec![AttentionAction {
+            id: "open-skill".into(),
+            label: "Read it on Apps".into(),
+            role: "inspect",
+            consequence: "Opens the know-how on Apps, with its instructions and files.".into(),
+            next_state: "Accepting or declining it clears this item.".into(),
+            href: Some(format!(
+                "/{company}/apps/s-{}",
+                urlencoding_segment(&skill.name)
+            )),
+        }],
+        can_continue: true,
+        preparing: false,
+        created_at: skill.created_at,
+    }
+}
+
+/// Skill names are already path-safe; anything else is percent-encoded.
+fn urlencoding_segment(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => {
+                (byte as char).to_string()
+            }
+            other => format!("%{other:02X}"),
+        })
+        .collect()
+}
+
 /// The charter draft Exec left for the owner, as one Inbox item that opens the charter itself.
 async fn charter_item(
     config: &CompanyConfig,
@@ -3443,6 +3534,18 @@ async fn project_queue(
                 }
             }
             Err(error) => tracing::warn!(%error, "brand proposals unavailable"),
+        }
+        // Know-how an agent added waits for the owner's OK too, not only on Apps (S109 B2).
+        match org.list_skills().await {
+            Ok(skills) => {
+                for skill in skills
+                    .into_iter()
+                    .filter(|skill| skill.disposition == "candidate")
+                {
+                    items.push(skill_candidate_item(&config.name, &actors, skill));
+                }
+            }
+            Err(error) => tracing::warn!(%error, "skill candidates unavailable"),
         }
         let contacts = conversation_actors
             .iter()
@@ -6046,6 +6149,58 @@ mod identity_proposal_tests {
         assert_eq!(
             item.actions[0].href.as_deref(),
             Some(format!("/acme/company/identity?proposal={id}").as_str())
+        );
+    }
+}
+
+#[cfg(test)]
+mod skill_candidate_tests {
+    use super::*;
+
+    /// S109 B2: know-how an agent added waits for the owner in the Inbox, not only on Apps.
+    #[test]
+    fn a_skill_candidate_is_an_inbox_item_that_opens_it_on_apps() {
+        let actors = HashMap::from([(
+            "baloo".to_string(),
+            AttentionActorRef {
+                id: "baloo".into(),
+                display: "Baloo".into(),
+                role: "staff".into(),
+            },
+        )]);
+        let now = Utc::now();
+        let item = skill_candidate_item(
+            "acme",
+            &actors,
+            restless_orgintel::SkillRow {
+                name: "release-notes".into(),
+                description: "Write release notes from merged PRs.".into(),
+                source: "candidate".into(),
+                path: "/company/skills/release-notes".into(),
+                digest: "sha256:0".into(),
+                has_scripts: true,
+                disposition: "candidate".into(),
+                added_by: Some("baloo".into()),
+                origin_url: None,
+                origin_ref: None,
+                observed_at: now,
+                created_at: now,
+                updated_at: now,
+            },
+        );
+        assert_eq!(item.id, "orgintel:skill_candidate:release-notes");
+        assert_eq!(item.source.kind, "skill_candidate");
+        assert_eq!(item.source.reference, "release-notes");
+        assert_eq!(item.category, "decision");
+        assert_eq!(
+            item.what_happened,
+            "Baloo added the know-how release-notes: Write release notes from merged PRs."
+        );
+        assert!(item.why_it_matters.contains("scripts"));
+        assert_eq!(item.if_no_action, "Only Baloo can follow it.");
+        assert_eq!(
+            item.actions[0].href.as_deref(),
+            Some("/acme/apps/s-release-notes")
         );
     }
 }

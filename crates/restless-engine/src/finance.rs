@@ -496,6 +496,43 @@ pub async fn decide_payee(
     Ok(())
 }
 
+/// The owner's answer, and whoever asked told either way in a notice (not the owner's words).
+pub async fn answer_payee(
+    store: &crate::authority::AuthorityStore,
+    org: Option<&restless_orgintel::OrgIntel>,
+    company: &str,
+    owner: &str,
+    proposal: i64,
+    approve: bool,
+    note: Option<&str>,
+) -> Result<()> {
+    let pending = pending_payee_proposals(store, company)
+        .await?
+        .into_iter()
+        .find(|(record, _)| record.id == proposal);
+    decide_payee(store, company, owner, proposal, approve, note).await?;
+    let (Some((record, payee)), Some(org)) = (pending, org) else {
+        return Ok(());
+    };
+    let asker = record.actor_id.unwrap_or_else(|| "exec".into());
+    let mut body = format!(
+        "The owner {} {} as a {} payee.",
+        if approve { "approved" } else { "declined" },
+        payee.beneficiary_ref,
+        payee.currency
+    );
+    if let Some(note) = note.map(str::trim).filter(|note| !note.is_empty()) {
+        body.push_str(&format!(" Their note: “{note}”"));
+    }
+    let _ = org
+        .ensure_actor("daemon", "system", "system-sender", "The daemon")
+        .await;
+    if let Err(error) = org.send_message("daemon", Some(&asker), &body).await {
+        tracing::warn!(%error, "could not tell the asker about a payee decision");
+    }
+    Ok(())
+}
+
 pub async fn envelopes(
     store: &crate::authority::AuthorityStore,
     company: &str,
