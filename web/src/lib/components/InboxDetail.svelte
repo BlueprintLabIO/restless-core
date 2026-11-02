@@ -28,16 +28,16 @@
 	import type { AttentionItem } from '$lib/model/view';
 	import {
 		reviewAction,
-		approvalAction,
 		delegateHandoff,
 		passHandoffToOwner,
 		resolveHandoffDecision
 	} from '$lib/model/attention';
+	import { cockpitQuery, refreshAttention } from '$lib/model/queries.svelte';
 	import {
-		cockpitQuery,
-		refreshAttention,
-		removeConfirmedAttention
-	} from '$lib/model/queries.svelte';
+		approvalDecision,
+		queueApprovalDecision,
+		type ApprovalDecision
+	} from '$lib/model/approval-decisions';
 	import {
 		attentionAsker,
 		attentionKindLabel,
@@ -601,24 +601,25 @@
 			markingDone = false;
 		}
 	}
-	const approvalTarget = (always = false) => {
-		const target = item.source.call_key
-			? { call_key: item.source.call_key, ...(always ? { always: true } : {}) }
-			: item.source.party;
-		if (!target) throw new Error('This request has no approval target. Refresh and try again.');
-		return target;
-	};
-	/* A grant acts as soon as Authority records it, so the card leaves on that answer, straight onto
-	 * the next one. Its Undo window needs an Authority-held pending grant (C1, instant-decisions.md). */
-	const approve = (always = false) =>
+	/* An answer is saved with Authority, which holds its few seconds of Undo; the card leaves at
+	 * once, straight onto the next one. Nothing is granted, declined or told to the company until
+	 * the window ends (C1, instant-decisions.md). The receipt's notice carries Undo. */
+	const answerApproval = (decision: ApprovalDecision, sent: string, fallback: string) =>
 		run(
 			async () => {
-				await approvalAction(companyId, 'grant', approvalTarget(always));
-				await removeConfirmedAttention(client, companyId, item.id, true);
+				if (!(await queueApprovalDecision(client, companyId, item, decision)))
+					throw new Error(fallback);
 			},
+			sent,
+			fallback,
+			execHref,
+			true
+		);
+	const approve = (always = false) =>
+		answerApproval(
+			approvalDecision('grant', { always }),
 			always ? 'Approved. It won’t ask again.' : 'Approved',
-			'The approval was not recorded. Try again.',
-			execHref
+			'The approval was not recorded. Try again.'
 		);
 	/* Declined either way: a request for changes tells the company to prepare a changed draft,
 	 * which comes back here; a plain decline tells it not to go ahead. */
@@ -627,21 +628,14 @@
 		if (declinePayee) return answerPayee(false, reason);
 		const changes = approvalNote === 'changes';
 		if (changes && !reason.trim()) return;
-		return run(
-			async () => {
-				await approvalAction(companyId, 'decline', approvalTarget(), {
-					note: reason,
-					changesRequested: changes
-				});
-				await removeConfirmedAttention(client, companyId, item.id, true);
-			},
+		return answerApproval(
+			approvalDecision('decline', { note: reason, changesRequested: changes }),
 			changes
 				? 'Changes sent to Exec'
 				: reason.trim()
 					? 'Declined. Exec has your note.'
 					: 'Declined',
-			'That was not recorded. Try again.',
-			execHref
+			'That was not recorded. Try again.'
 		);
 	};
 	const decideMandate = (decision: 'approve' | 'decline', note = '') =>

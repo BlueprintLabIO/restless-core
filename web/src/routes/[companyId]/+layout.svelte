@@ -26,6 +26,7 @@
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
 	import PendingHandoffDecisions from '$lib/components/PendingHandoffDecisions.svelte';
 	import PendingDocumentDecisions from '$lib/components/PendingDocumentDecisions.svelte';
+	import PendingApprovalDecisions from '$lib/components/PendingApprovalDecisions.svelte';
 	import { referenceOptions } from '$lib/model/composer-options.svelte';
 	import type ExecutiveRailView from '$lib/components/ExecutiveRail.svelte';
 	import { presence } from '$lib/model/presence.svelte';
@@ -1785,6 +1786,7 @@
 <CompanyQueryPersistence {companyId} />
 <PendingHandoffDecisions {companyId} />
 <PendingDocumentDecisions {companyId} />
+<PendingApprovalDecisions {companyId} />
 
 {#snippet executiveRail(wide = false, header?: Snippet<[Snippet, Snippet]>)}
 	{#if ExecutiveRail}

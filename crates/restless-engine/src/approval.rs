@@ -81,6 +81,20 @@ pub async fn grant(
     org: Option<&restless_orgintel::OrgIntel>,
     principal: &str,
 ) -> Result<String> {
+    grant_as(root, company, party, authority, org, principal, None).await
+}
+
+/// `pending` names the Inbox decision whose Undo window this grant closes; the
+/// record carries it so a replay after a crash finds the grant it already made.
+pub(crate) async fn grant_as(
+    root: &Path,
+    company: &str,
+    party: &str,
+    authority: &crate::authority::AuthorityStore,
+    org: Option<&restless_orgintel::OrgIntel>,
+    principal: &str,
+    pending: Option<uuid::Uuid>,
+) -> Result<String> {
     CompanyConfig::load(root, company)?;
     let party = normalize_party(party);
     if party.is_empty() {
@@ -89,13 +103,12 @@ pub async fn grant(
     if is_approved(authority, company, &party).await? {
         return Ok(format!("{party} was already approved for {company}"));
     }
+    let mut body = serde_json::json!({ "party": party, "principal": principal });
+    if let Some(pending) = pending {
+        body["pending_decision_id"] = pending.to_string().into();
+    }
     authority
-        .emit(
-            company,
-            "approval_granted",
-            Some(principal),
-            serde_json::json!({ "party": party, "principal": principal }),
-        )
+        .emit(company, "approval_granted", Some(principal), body)
         .await?;
     announce_decisions(company, authority, org).await;
     Ok(format!("{party} approved for real effects from {company}"))
@@ -191,6 +204,20 @@ pub async fn decline(
     principal: &str,
     note: OwnerNote<'_>,
 ) -> Result<String> {
+    decline_as(root, company, party, authority, org, principal, note, None).await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn decline_as(
+    root: &Path,
+    company: &str,
+    party: &str,
+    authority: &crate::authority::AuthorityStore,
+    org: Option<&restless_orgintel::OrgIntel>,
+    principal: &str,
+    note: OwnerNote<'_>,
+    pending: Option<uuid::Uuid>,
+) -> Result<String> {
     CompanyConfig::load(root, company)?;
     let party = normalize_party(party);
     if party.is_empty() {
@@ -198,6 +225,9 @@ pub async fn decline(
     }
     let mut body = serde_json::json!({ "party": party, "principal": principal });
     note.record_into(&mut body)?;
+    if let Some(pending) = pending {
+        body["pending_decision_id"] = pending.to_string().into();
+    }
     authority
         .emit(company, "approval_declined", Some(principal), body)
         .await?;
@@ -454,7 +484,7 @@ fn owner_note_sentence(note: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
-fn normalize_party(value: &str) -> String {
+pub(crate) fn normalize_party(value: &str) -> String {
     value.trim().to_lowercase()
 }
 
@@ -606,7 +636,7 @@ fn declined_reason(party: &str, decline: &serde_json::Value) -> String {
     }
 }
 
-fn names_party(body: &serde_json::Value, party: &str) -> bool {
+pub(crate) fn names_party(body: &serde_json::Value, party: &str) -> bool {
     body.get("party")
         .and_then(|value| value.as_str())
         .is_some_and(|candidate| normalize_party(candidate) == party)

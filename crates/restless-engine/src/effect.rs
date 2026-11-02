@@ -1376,6 +1376,21 @@ pub async fn decide_tool_call(
     principal: &str,
     note: crate::approval::OwnerNote<'_>,
 ) -> Result<String> {
+    decide_tool_call_as(authority, org, company, key, approve, principal, note, None).await
+}
+
+/// `pending` names the Inbox decision whose Undo window this answer closes.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn decide_tool_call_as(
+    authority: &crate::authority::AuthorityStore,
+    org: Option<&restless_orgintel::OrgIntel>,
+    company: &str,
+    key: &str,
+    approve: bool,
+    principal: &str,
+    note: crate::approval::OwnerNote<'_>,
+    pending: Option<Uuid>,
+) -> Result<String> {
     if approve && note.changes_requested {
         bail!("asking for changes declines this call; it cannot also allow it");
     }
@@ -1412,6 +1427,9 @@ pub async fn decide_tool_call(
         "principal": principal,
     });
     note.record_into(&mut body)?;
+    if let Some(pending) = pending {
+        body["pending_decision_id"] = pending.to_string().into();
+    }
     authority
         .emit(
             company,

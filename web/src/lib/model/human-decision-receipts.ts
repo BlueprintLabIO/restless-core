@@ -23,12 +23,18 @@ const shown = new Map<
 	string,
 	{ state: HumanDecisionReceipt['state']; toast?: number; pendingShown: boolean }
 >();
-const message = (receipt: HumanDecisionReceipt) =>
-	receipt.kind === 'skip'
-		? 'Skipped'
-		: ['complete_human_step', 'complete_document_collaboration'].includes(receipt.kind)
-			? 'Marked done'
-			: 'Accepted';
+const kindMessages: Record<string, string> = {
+	skip: 'Skipped',
+	complete_human_step: 'Marked done',
+	complete_document_collaboration: 'Marked done',
+	approve: 'Approved',
+	approve_always: 'Approved. It won’t ask again.',
+	decline: 'Declined',
+	request_changes: 'Changes sent to Exec'
+};
+export const receiptMessage = (receipt: Pick<HumanDecisionReceipt, 'kind'>) =>
+	kindMessages[receipt.kind] ?? 'Accepted';
+const message = receiptMessage;
 const itemHref = (company: string, item: string) =>
 	'/' + encodeURIComponent(company) + '?item=' + encodeURIComponent(item);
 async function acknowledge<R extends HumanDecisionReceipt>(

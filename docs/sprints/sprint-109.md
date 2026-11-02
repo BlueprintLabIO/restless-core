@@ -352,7 +352,7 @@ publish its contents.
 | Owner feedback | Sprint coverage | Verified status |
 | --- | --- | --- |
 | Oversized sign-in and unnecessary eyebrow/footer copy | F6 | Open |
-| Mark done unavailable or slow; instant Undo | C1 | Partial: handoff and native-document Undo tested; Authority, generic set-aside and full prefetch remain |
+| Mark done unavailable or slow; instant Undo | C1 | Partial: handoff, native-document and Authority approval (call, first-contact) Undo tested; mandate, payee, account-request and publication answers, generic set-aside and full prefetch remain |
 | Double doc header/footer and raw-to-styled jump | E1, E2, C2 | Open |
 | Review card must show the actual work and open the real item | A4, B2 | Open |
 | List-item dragging, alignment, block hover and reachable handle | E3 | Open |

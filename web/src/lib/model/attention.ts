@@ -178,7 +178,11 @@ export async function getAttention(company: string, signal?: AbortSignal): Promi
 	const wire = await response.json();
 	return {
 		company: wire.company,
-		pendingDecisionItems: [...(wire.pending_handoff_decisions ?? []), ...(wire.pending_document_decisions ?? [])],
+		pendingDecisionItems: [
+			...(wire.pending_handoff_decisions ?? []),
+			...(wire.pending_document_decisions ?? []),
+			...(wire.pending_approval_decisions ?? [])
+		],
 		sourceHealth: {
 			orgintel: wire.source_health.orgintel,
 			authority: wire.source_health.authority,

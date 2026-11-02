@@ -14,6 +14,7 @@ pub mod airwallex;
 pub mod airwallex_ingress;
 pub mod app_catalogue;
 pub mod approval;
+pub mod approval_decisions;
 pub mod attention;
 pub mod authority;
 pub mod away;
