@@ -229,7 +229,12 @@
 						>{/if}
 				</Row>
 				<Row label="What changed" stack>
-					<span class="change">{view.current_release.change_account}</span>
+					<!-- A note with no words (a lone "." from a release) reads as a stray mark, not a value. -->
+					<span class="change"
+						>{/[\p{L}\p{N}]/u.test(view.current_release.change_account ?? '')
+							? view.current_release.change_account
+							: 'No note'}</span
+					>
 				</Row>
 			</Section>
 		{/if}

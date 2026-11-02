@@ -185,9 +185,10 @@
 		fill: var(--surface-alt);
 		opacity: 0.6;
 	}
+	/* Under the limit line, at the foot of the empty span before the first reading. */
 	.since {
 		position: absolute;
-		top: 4px;
+		bottom: 4px;
 		left: 8px;
 		overflow: hidden;
 		color: var(--text-tertiary);
