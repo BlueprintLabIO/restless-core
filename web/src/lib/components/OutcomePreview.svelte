@@ -29,7 +29,8 @@
 	const targetStatus = $derived(target?.status),
 		targetKind = $derived(target?.kind);
 	const targetFailure = $derived(target?.unavailableReason),
-		hasTarget = $derived(!!target);
+		hasTarget = $derived(!!target),
+		itemId = $derived(item.id);
 	/* A stopped computer starts from the review itself, so the outcome opens where it is judged. */
 	let starting = $state(false);
 	async function startComputer() {
@@ -51,6 +52,7 @@
 		attempt = $state(0);
 	$effect(() => {
 		const key = requestKey,
+			id = itemId,
 			status = targetStatus,
 			kind = targetKind,
 			exists = hasTarget,
@@ -78,10 +80,10 @@
 				controller.abort();
 			}
 		}, 30000);
-		/* The item as it is now, without re-asking on every Inbox poll that rebuilds it. */
 		void reviewTicket(
 			companyId,
-			untrack(() => item),
+			id,
+			untrack(() => target),
 			controller.signal
 		)
 			.then((next) => {

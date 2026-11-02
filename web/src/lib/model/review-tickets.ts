@@ -6,18 +6,18 @@ import type { AttentionItem } from './view';
  * that takes its place is already asked for. A ticket is handed out once, and a stale or failed
  * one is never reused. */
 const FRESH_MS = 5 * 60_000;
+type Target = AttentionItem['reviewTarget'];
 type Held = { key: string; at: number; ticket: Promise<string | null> };
 const held = new Map<string, Held>();
 
 /** What a ticket opens; a sleeping computer or an inline text outcome has nothing to ask for. */
-function keyOf(companyId: string, item: AttentionItem): string | null {
-	const target = item.reviewTarget;
+function keyOf(companyId: string, itemId: string, target: Target): string | null {
 	if (!target || target.status !== 'available' || target.kind === 'runtime-text') return null;
-	return [companyId, item.id, target.uri, target.generation].join(':');
+	return [companyId, itemId, target.uri, target.generation].join(':');
 }
 
 export function prefetchReviewTicket(companyId: string, item: AttentionItem): void {
-	const key = keyOf(companyId, item);
+	const key = keyOf(companyId, item.id, item.reviewTarget);
 	if (!key) return;
 	const now = Date.now();
 	for (const [id, entry] of held) if (now - entry.at >= FRESH_MS) held.delete(id);
@@ -32,12 +32,13 @@ export function prefetchReviewTicket(companyId: string, item: AttentionItem): vo
 /** This item's ticket: the one already asked for while it is fresh, otherwise a new one. */
 export function reviewTicket(
 	companyId: string,
-	item: AttentionItem,
+	itemId: string,
+	target: Target,
 	signal: AbortSignal
 ): Promise<string | null> {
-	const saved = held.get(item.id);
-	held.delete(item.id);
-	if (saved && saved.key === keyOf(companyId, item) && Date.now() - saved.at < FRESH_MS)
+	const saved = held.get(itemId);
+	held.delete(itemId);
+	if (saved && saved.key === keyOf(companyId, itemId, target) && Date.now() - saved.at < FRESH_MS)
 		return saved.ticket;
-	return issueReviewTicket(companyId, item.id, signal);
+	return issueReviewTicket(companyId, itemId, signal);
 }
