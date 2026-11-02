@@ -111,7 +111,7 @@
 		position: fixed;
 		bottom: 24px;
 		left: 24px;
-		z-index: var(--z-popover, 80);
+		z-index: calc(var(--z-overlay) - 1); /* under the startup scrim */
 		display: grid;
 		gap: 10px;
 		width: min(340px, calc(100vw - 48px));

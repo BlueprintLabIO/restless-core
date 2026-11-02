@@ -508,10 +508,10 @@
 		margin-right: 6px;
 	}
 	.state.available {
-		color: var(--success, #477a60);
+		color: var(--state-success);
 	}
 	.state.warning {
-		color: var(--warning, #97692d);
+		color: var(--intent-authority);
 	}
 	.hint {
 		color: var(--text-tertiary);

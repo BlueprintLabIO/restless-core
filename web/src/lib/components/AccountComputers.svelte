@@ -477,7 +477,7 @@
 	}
 	.platforms button[aria-selected='true'] {
 		border-color: var(--text-secondary);
-		color: var(--text-primary);
+		color: var(--ink);
 	}
 	.command {
 		display: flex;
@@ -529,7 +529,7 @@
 		padding: 0;
 		border: none;
 		background: none;
-		color: var(--text-link, var(--text-primary));
+		color: var(--intent-conversation);
 		text-decoration: underline;
 	}
 	.failure {
@@ -567,7 +567,7 @@
 		color: var(--text-tertiary);
 	}
 	.mark.live {
-		color: var(--text-primary);
+		color: var(--ink);
 	}
 	.copy {
 		display: grid;
@@ -620,7 +620,7 @@
 		color: var(--state-success);
 	}
 	.status.warn {
-		color: var(--state-warning, var(--text-secondary));
+		color: var(--intent-authority);
 	}
 	@media (max-width: 640px) {
 		.row {

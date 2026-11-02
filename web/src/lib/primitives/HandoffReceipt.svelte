@@ -142,9 +142,9 @@
 		margin: 6px 14px;
 		padding: 10px 12px;
 		border: 1px solid var(--border);
-		border-radius: var(--radius-card, 10px);
+		border-radius: var(--radius-lg);
 		background: var(--surface);
-		color: var(--text-primary, var(--ink));
+		color: var(--ink);
 		font-size: var(--t-body);
 	}
 	.handoff-card header {

@@ -277,13 +277,13 @@
 		height: 100%;
 		min-height: 0;
 		overflow: hidden;
-		background: var(--surface-sunken, var(--surface));
+		background: var(--surface-alt);
 		outline: none;
 		cursor: default;
 		touch-action: none;
 	}
 	.browser-feed:focus-visible {
-		box-shadow: inset 0 0 0 2px var(--focus-ring, var(--primary));
+		box-shadow: inset 0 0 0 2px var(--intent-conversation);
 	}
 	/* The frame fills the space it is given, scaled up as well as down (owner, 23 Oct: a 1280-wide
 	 * tab sat small in the middle of a large window, since max-width only ever shrinks). Its

@@ -279,7 +279,7 @@
 		font-size: var(--t-label);
 	}
 	.notice-line span {
-		color: var(--state-warning, var(--text-secondary));
+		color: var(--intent-authority);
 		font-weight: 500;
 	}
 	.notice-line small {

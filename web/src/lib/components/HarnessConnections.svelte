@@ -287,7 +287,7 @@
 	}
 	.status {
 		font-size: var(--t-label);
-		color: var(--company-amber);
+		color: var(--intent-authority);
 	}
 	.connected {
 		color: var(--state-success);

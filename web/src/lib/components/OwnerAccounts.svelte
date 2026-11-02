@@ -534,7 +534,7 @@
 	}
 	.notices {
 		padding: 2px 8px;
-		border: 1px solid var(--state-warning, var(--border));
+		border: 1px solid color-mix(in srgb, var(--intent-authority) 40%, var(--border));
 		border-radius: 999px;
 		background: none;
 		color: var(--text-secondary);

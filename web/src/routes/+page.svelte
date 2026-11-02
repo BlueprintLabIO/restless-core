@@ -337,7 +337,7 @@
 
 	.appliance-notice p {
 		margin: 0;
-		color: var(--ink-muted, #596170);
+		color: var(--text-tertiary);
 	}
 
 	@media (max-width: 640px) {

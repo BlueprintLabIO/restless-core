@@ -58,7 +58,7 @@
 		background: var(--state-success);
 	}
 	.lamp.warn {
-		background: var(--state-warning, var(--text-secondary));
+		background: var(--intent-authority);
 	}
 	.copy {
 		display: grid;
@@ -82,6 +82,6 @@
 		color: var(--state-success);
 	}
 	.status.warn {
-		color: var(--state-warning, var(--state-danger));
+		color: var(--intent-authority);
 	}
 </style>

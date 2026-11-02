@@ -760,7 +760,7 @@
 		color: var(--state-danger);
 	}
 	.failure {
-		color: var(--intent-danger, #a22);
+		color: var(--state-danger);
 		font-size: var(--t-body);
 		overflow-wrap: anywhere;
 	}

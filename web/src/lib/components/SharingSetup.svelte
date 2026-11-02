@@ -519,7 +519,7 @@
 		white-space: pre-wrap;
 	}
 	:focus-visible {
-		outline: 2px solid var(--focus-ring, var(--ink));
+		outline: 2px solid var(--intent-conversation);
 		outline-offset: 3px;
 	}
 	@media (pointer: coarse) {

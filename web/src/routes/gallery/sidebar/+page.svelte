@@ -177,7 +177,7 @@
 		grid-template-columns: repeat(auto-fit, minmax(820px, 1fr));
 		gap: 16px;
 		padding: 16px;
-		background: var(--surface-page, var(--surface-base));
+		background: var(--bg-app);
 		min-height: 100vh;
 	}
 	.frame {

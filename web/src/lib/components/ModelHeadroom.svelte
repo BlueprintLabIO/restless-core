@@ -113,7 +113,7 @@
 		font-variant-numeric: tabular-nums;
 	}
 	.figure.warn {
-		color: var(--state-warning, var(--text-primary));
+		color: var(--intent-authority);
 	}
 	.figure.full {
 		color: var(--state-danger);
@@ -131,7 +131,7 @@
 		background: var(--state-success);
 	}
 	.meter.warn span {
-		background: var(--state-warning, var(--text-secondary));
+		background: var(--intent-authority);
 	}
 	.meter.full span {
 		background: var(--state-danger);
@@ -144,6 +144,6 @@
 		font-size: var(--t-label);
 	}
 	.forecast {
-		color: var(--state-warning, var(--text-secondary));
+		color: var(--intent-authority);
 	}
 </style>
