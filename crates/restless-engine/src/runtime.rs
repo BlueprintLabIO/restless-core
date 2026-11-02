@@ -581,6 +581,11 @@ fn combine_admission(
     shared
 }
 
+/// The admission reading for one pool directory, for observers such as the Resources history.
+pub fn pool_admission(root: &Path) -> Result<WorkloadAdmission> {
+    admission_from_cgroup(root)
+}
+
 fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
     let read = |name: &str| -> Result<u64> {
         std::fs::read_to_string(root.join(name))?

@@ -2,6 +2,8 @@
 	import { Section, Row } from '$lib/ui/page';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import ComputeLimitControl from './ComputeLimitControl.svelte';
+	import ComputeHistory from './ComputeHistory.svelte';
+	import CapacityOffer from './CapacityOffer.svelte';
 	import { companyComputeQuery } from '$lib/model/queries.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import type { RuntimeDoctor, ComputeSample, ComputeLimitsView } from '$lib/model/company';
@@ -126,6 +128,7 @@
 			</div>
 		</div>
 	</div>
+	<ComputeHistory points={reading?.status === 'not_configured' ? null : (reading?.history ?? [])} />
 	<Row
 		label="Company work"
 		info="Agents, local jobs, tool workers and document services for this company. Their combined ceilings share the host pool with the other companies."
@@ -186,6 +189,7 @@
 		info="RAM the host can make available across all companies and the app, including reclaimable cached memory."
 		>{bytes(sample?.host_available_bytes)}</Row
 	>
+	<CapacityOffer />
 	<Row
 		label="Readings"
 		info={reading?.status === 'not_configured'

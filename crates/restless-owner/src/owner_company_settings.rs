@@ -369,7 +369,8 @@ pub(super) async fn read_compute_usage(
     }));
     let mut body = match usage {
         Ok(Some(sample)) => {
-            serde_json::json!({"status":"available", "sample": sample, "actor_capacity":actor_capacity})
+            serde_json::json!({"status":"available", "sample": sample, "actor_capacity":actor_capacity,
+                "history": restless_engine::compute_history::recent()})
         }
         Ok(None) => serde_json::json!({"status":"not_configured"}),
         Err(error) => {

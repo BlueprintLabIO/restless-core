@@ -344,6 +344,7 @@ async fn run() -> Result<()> {
     tokio::spawn(local_documents::maintain_history_task(
         std::sync::Arc::clone(&daemon),
     ));
+    tokio::spawn(restless_engine::compute_history::run());
 
     let model_capabilities = daemon.capabilities.clone();
     let model_spend = daemon.spend.clone();

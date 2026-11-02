@@ -66,6 +66,14 @@ export interface SpendReport {
 	payment_totals: Array<{ currency: string; settled_minor: number; pending_minor: number }>;
 	payments_status: 'available' | 'unavailable';
 	pricing_updated_at: number | null;
+	/** Current catalogue rates (per million tokens) for the models in this report. */
+	prices?: Array<{
+		model: string;
+		currency: string;
+		input_per_million: number;
+		output_per_million: number;
+		cached_input_per_million: number | null;
+	}>;
 	coverage: string[];
 }
 export interface SpendFilters {
