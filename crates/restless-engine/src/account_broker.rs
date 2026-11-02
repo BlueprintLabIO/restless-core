@@ -56,6 +56,8 @@ pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
            abilities JSONB NOT NULL, reason TEXT NOT NULL DEFAULT '', requested_by TEXT NOT NULL, \
            state TEXT NOT NULL DEFAULT 'open', grant_id TEXT, \
            created_at TIMESTAMPTZ NOT NULL DEFAULT now(), decided_at TIMESTAMPTZ)",
+        // An API-key request is answered into the company Vault, by name (S109 B6).
+        "ALTER TABLE restless_authority.owner_account_requests ADD COLUMN IF NOT EXISTS vault_name TEXT",
     ] {
         sqlx::query(statement)
             .execute(pool)
@@ -1109,6 +1111,8 @@ pub struct AccountRequest {
     pub requested_by: String,
     pub state: String,
     pub grant_id: Option<String>,
+    /// The company Vault name an API-key request was answered with (S109 B6); no account.
+    pub vault_name: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -1123,8 +1127,81 @@ fn row_request(row: &sqlx::postgres::PgRow) -> Result<AccountRequest> {
         requested_by: row.try_get("requested_by")?,
         state: row.try_get("state")?,
         grant_id: row.try_get("grant_id")?,
+        vault_name: row.try_get("vault_name")?,
         created_at: row.try_get("created_at")?,
     })
+}
+
+/// One request by id, if it exists.
+pub async fn request(pool: &PgPool, id: &str) -> Result<Option<AccountRequest>> {
+    sqlx::query("SELECT * FROM restless_authority.owner_account_requests WHERE id = $1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+        .as_ref()
+        .map(row_request)
+        .transpose()
+}
+
+/// The site an open request names: its reason reads `<site>: <why>`.
+pub fn requested_site(request: &AccountRequest) -> Option<&str> {
+    request
+        .reason
+        .split_once(": ")
+        .map(|(site, _)| site.trim())
+        .filter(|site| !site.is_empty())
+}
+
+/// Close every open API-key request a Vault key now answers, by the Vault's naming rule: a key
+/// the owner saved in Company › Vault answers the agent that asked for it (S109 B6).
+pub async fn settle_requests_held_in_vault(
+    pool: &PgPool,
+    company: &str,
+    names: &[&str],
+) -> Result<Vec<AccountRequest>> {
+    let mut settled = Vec::new();
+    for open in open_requests(pool, company).await? {
+        if open.account_id.is_some() || open.kind.as_deref() != Some("api") {
+            continue;
+        }
+        let Some(name) = requested_site(&open)
+            .and_then(|site| crate::credential::held_key_for(names.iter().copied(), site))
+        else {
+            continue;
+        };
+        if let Some(request) = settle_request_in_vault(pool, &open.id, name).await? {
+            settled.push(request);
+        }
+    }
+    Ok(settled)
+}
+
+/// Answer an API-key request with a key now in the company Vault under `vault_name` (S109 B6).
+/// A company's own key is not an owner account, so nothing is created in Settings › Accounts.
+pub async fn settle_request_in_vault(
+    pool: &PgPool,
+    id: &str,
+    vault_name: &str,
+) -> Result<Option<AccountRequest>> {
+    let Some(request) = request(pool, id).await? else {
+        return Ok(None);
+    };
+    if request.state != "open" {
+        bail!("That request was already answered.");
+    }
+    if request.account_id.is_some() || request.kind.as_deref() != Some("api") {
+        bail!("Only a request for an API key is answered from the Vault.");
+    }
+    let row = sqlx::query(
+        "UPDATE restless_authority.owner_account_requests \
+         SET state = 'approved', vault_name = $2, decided_at = now() \
+         WHERE id = $1 AND state = 'open' RETURNING *",
+    )
+    .bind(id)
+    .bind(vault_name)
+    .fetch_optional(pool)
+    .await?;
+    row.as_ref().map(row_request).transpose()
 }
 
 pub async fn create_request(
@@ -1789,6 +1866,95 @@ mod tests {
             .await
             .is_err());
         crate::accounts::delete(&pool, &id).await.unwrap();
+    }
+
+    /// S109 B6: an API-key request is answered by a key in the company Vault, by name, and no
+    /// owner account is made for it; other kinds keep their account path.
+    #[tokio::test]
+    async fn api_key_requests_settle_into_the_vault_without_an_account() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            return;
+        };
+        let pool = PgPool::connect(&url).await.unwrap();
+        sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority")
+            .execute(&pool)
+            .await
+            .unwrap();
+        crate::accounts::ensure_schema(&pool).await.unwrap();
+        ensure_schema(&pool).await.unwrap();
+        let company = format!("vaultkey_{}_test", uuid::Uuid::new_v4().simple());
+        let resend = create_request(
+            &pool,
+            &company,
+            None,
+            Some("api"),
+            None,
+            "api.resend.com: send order receipts",
+            "exec",
+        )
+        .await
+        .unwrap();
+        let shippo = create_request(
+            &pool,
+            &company,
+            None,
+            Some("api"),
+            None,
+            "Shippo: buy labels",
+            "exec",
+        )
+        .await
+        .unwrap();
+        let github = create_request(
+            &pool,
+            &company,
+            None,
+            Some("github"),
+            None,
+            "github.com: open PRs",
+            "exec",
+        )
+        .await
+        .unwrap();
+        assert!(settle_request_in_vault(&pool, &github.id, "github")
+            .await
+            .is_err());
+
+        let settled = settle_requests_held_in_vault(
+            &pool,
+            &company,
+            &["model.inference", "resend.production"],
+        )
+        .await
+        .unwrap();
+        assert_eq!(settled.len(), 1);
+        assert_eq!(settled[0].id, resend.id);
+        assert_eq!(settled[0].state, "approved");
+        assert_eq!(settled[0].vault_name.as_deref(), Some("resend.production"));
+        assert!(settled[0].grant_id.is_none());
+
+        let answered = settle_request_in_vault(&pool, &shippo.id, "shippo")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(answered.vault_name.as_deref(), Some("shippo"));
+        assert!(settle_request_in_vault(&pool, &shippo.id, "shippo")
+            .await
+            .is_err());
+
+        let open = open_requests(&pool, &company).await.unwrap();
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].id, github.id);
+        // No account was created or given for a company's own key.
+        assert!(crate::accounts::company_grants(&pool, &company)
+            .await
+            .unwrap()
+            .is_empty());
+        sqlx::query("DELETE FROM restless_authority.owner_account_requests WHERE company = $1")
+            .bind(&company)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 
     #[test]

@@ -233,7 +233,9 @@
 		if (ask.account_id) return 'Approve as asked, or set its access below and give it. Or deny.';
 		if (ask.kind === 'website_login' || ask.kind === 'browser_profile')
 			return 'Sign in below, then choose what the company may do there. Or deny.';
-		if (ask.kind === 'api' || ask.kind === 'github')
+		if (ask.kind === 'api')
+			return 'Add the key below. It goes into Company › Vault under the name shown. Or deny.';
+		if (ask.kind === 'github')
 			return `Add ${kindPhrase(ask.kind)} below, or choose one you hold, then choose what the company may do with it. Or deny.`;
 		return item.requestedAction;
 	});
@@ -566,6 +568,12 @@
 		if (
 			appRequest &&
 			CATALOGUE.find((entry) => entry.key === appRequest.catalogueKey)?.auth === 'token'
+		)
+			return settingHome(companyId, 'vault');
+		if (
+			item.accountRequest &&
+			!item.accountRequest.account_id &&
+			item.accountRequest.kind === 'api'
 		)
 			return settingHome(companyId, 'vault');
 		if (reconnectSurface || item.accountRequest || appRequest)

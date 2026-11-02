@@ -70,6 +70,7 @@ pub mod owner_cell_readiness;
 pub mod owner_config;
 pub mod ownership_handover;
 pub mod plane;
+pub mod platform_capabilities;
 pub mod publication;
 pub mod reconcile;
 pub mod release;
