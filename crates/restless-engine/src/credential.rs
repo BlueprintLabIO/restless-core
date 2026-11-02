@@ -18,6 +18,7 @@ use std::io::Read as _;
 use url::Url;
 use uuid::Uuid;
 
+use crate::openbao;
 use crate::runtime::CompanyConfig;
 
 const DEFAULT_INFISICAL_API_URL: &str = "https://us.infisical.com";
@@ -271,12 +272,9 @@ fn finance_binding(value: &str) -> bool {
 pub async fn resolve_reference(reference: &str) -> Result<String> {
     match parse_reference(reference)? {
         CredentialReference::Env(locator) => read_env(locator),
-        CredentialReference::Infisical(locator) => {
-            let settings = InfisicalSettings::from_env()?;
-            infisical_get(&settings, &locator)
-                .await?
-                .with_context(|| format!("Infisical secret {reference:?} was not found"))
-        }
+        CredentialReference::Infisical(locator) => vault_get(&locator)
+            .await?
+            .with_context(|| format!("Vault secret {reference:?} was not found")),
         CredentialReference::OmpOauth(provider) => bail!(
             "omp-oauth:{provider} is broker-held model access and cannot be resolved as a raw credential"
         ),
@@ -292,11 +290,7 @@ pub async fn store_reference(reference: &str, value: &str) -> Result<()> {
         CredentialReference::Env(locator) => bail!(
             "the env: backend cannot accept writes from Restless; set {locator} in the daemon environment or use an infisical: reference"
         ),
-        CredentialReference::Infisical(locator) => {
-            let settings = InfisicalSettings::from_env()?;
-            infisical_ensure_folder(&settings, locator.path).await?;
-            infisical_upsert(&settings, &locator, &value).await
-        }
+        CredentialReference::Infisical(locator) => vault_upsert(&locator, &value).await,
         CredentialReference::OmpOauth(provider) => bail!(
             "omp-oauth:{provider} is created through the owner OAuth handover, not by storing a raw value"
         ),
@@ -313,6 +307,12 @@ pub async fn create_reference(reference: &str, value: &str) -> Result<bool> {
     let CredentialReference::Infisical(locator) = parse_reference(reference)? else {
         bail!("a new company secret requires an Infisical destination");
     };
+    if openbao::configured() {
+        return Ok(openbao::vault()?
+            .put(&locator.full(), &value, Some(0))
+            .await?
+            .is_some());
+    }
     let settings = InfisicalSettings::from_env()?;
     infisical_ensure_folder(&settings, locator.path).await?;
     let client = infisical_client()?;
@@ -351,6 +351,12 @@ pub async fn create_reference(reference: &str, value: &str) -> Result<bool> {
 /// cannot delete (env:, broker-held sign-ins) or the delete failed; the caller says so.
 pub async fn delete_reference(reference: &str) -> bool {
     match parse_reference(reference) {
+        Ok(CredentialReference::Infisical(locator)) if openbao::configured() => {
+            match openbao::vault() {
+                Ok(vault) => vault.delete(&locator.full()).await.is_ok(),
+                Err(_) => false,
+            }
+        }
         Ok(CredentialReference::Infisical(locator)) => match InfisicalSettings::from_env() {
             Ok(settings) => infisical_delete(&settings, &locator).await.is_ok(),
             Err(_) => false,
@@ -427,6 +433,22 @@ pub async fn publish_native_documents_store(
 
     let reference = format!("/plane-credentials/{plane_id}/cells/{cell_id}/native-documents-store");
     let locator = parse_infisical_locator(&reference)?;
+    if openbao::configured() {
+        let vault = openbao::vault()?;
+        vault
+            .put(&reference, &value, None)
+            .await
+            .context("publish native Documents credential")?;
+        let readback = vault
+            .get(&reference)
+            .await
+            .context("verify native Documents credential custody")?
+            .context("native Documents credential was absent after publication")?;
+        if Sha256::digest(value.as_bytes()) != Sha256::digest(readback.as_bytes()) {
+            bail!("native Documents credential readback did not match its published digest");
+        }
+        return Ok(());
+    }
     let settings = InfisicalSettings::from_env()?;
     infisical_publish_verified(&settings, &locator, &value).await
 }
@@ -439,6 +461,9 @@ pub async fn publish_native_documents_store(
 pub async fn probe_plane_custody(plane_id: Uuid) -> Result<()> {
     if plane_id.is_nil() {
         bail!("credential custody probe needs a non-nil plane identity");
+    }
+    if openbao::configured() {
+        return openbao::vault()?.probe_custody(plane_id).await;
     }
     let reference = format!("/plane-credentials/{plane_id}/readiness-marker");
     let locator = parse_infisical_locator(&reference)?;
@@ -510,6 +535,9 @@ pub async fn promote_env_to_infisical(
         _ => bail!("credential promotion destination must use the durable infisical: backend"),
     };
     let value = read_env(source)?;
+    if openbao::configured() {
+        return vault_upsert(&destination, &value).await;
+    }
     let settings = InfisicalSettings::from_env()?;
     // Infisical requires a folder to exist before a secret can be written at a
     // nested path. Folder creation happens only on this explicit owner
@@ -561,31 +589,20 @@ pub async fn probe_reference(reference: &str) -> Probe {
                 detail: Some(format!("{locator} is not set in the daemon environment")),
             },
         },
-        CredentialReference::Infisical(locator) => {
-            let settings = match InfisicalSettings::from_env() {
-                Ok(settings) => settings,
-                Err(error) => {
-                    return Probe {
-                        status: ProbeStatus::Invalid,
-                        detail: Some(format!("{error:#}")),
-                    };
-                }
-            };
-            match infisical_get(&settings, &locator).await {
-                Ok(Some(_)) => Probe {
-                    status: ProbeStatus::Present,
-                    detail: None,
-                },
-                Ok(None) => Probe {
-                    status: ProbeStatus::Absent,
-                    detail: Some(format!("Infisical secret {reference:?} was not found")),
-                },
-                Err(error) => Probe {
-                    status: ProbeStatus::Invalid,
-                    detail: Some(format!("{error:#}")),
-                },
-            }
-        }
+        CredentialReference::Infisical(locator) => match vault_get(&locator).await {
+            Ok(Some(_)) => Probe {
+                status: ProbeStatus::Present,
+                detail: None,
+            },
+            Ok(None) => Probe {
+                status: ProbeStatus::Absent,
+                detail: Some(format!("Infisical secret {reference:?} was not found")),
+            },
+            Err(error) => Probe {
+                status: ProbeStatus::Invalid,
+                detail: Some(format!("{error:#}")),
+            },
+        },
         CredentialReference::OmpOauth(provider) => {
             match crate::model_gateway::oauth_is_loaded(provider).await {
                 Ok(true) => Probe {
@@ -692,7 +709,7 @@ fn parse_infisical_locator(locator: &str) -> Result<InfisicalLocator<'_>> {
 /// Prefixes of the daemon's own configuration. An `env:` reference names a key someone put in the
 /// daemon's environment for a company to use; it never reads the plane's own bearers, database URL
 /// or vault identity, which an owner could otherwise send to an address of their choosing.
-const DAEMON_ENV_PREFIXES: [&str; 2] = ["RESTLESS_", "INFISICAL_"];
+const DAEMON_ENV_PREFIXES: [&str; 3] = ["RESTLESS_", "INFISICAL_", "OPENBAO_"];
 
 fn read_env(locator: &str) -> Result<String> {
     if DAEMON_ENV_PREFIXES
@@ -712,6 +729,9 @@ fn read_env(locator: &str) -> Result<String> {
 /// Authenticate and check the configured project, never infer connectivity from env vars.
 pub async fn infisical_health() -> Probe {
     let check = async {
+        if openbao::configured() {
+            return openbao::vault()?.check().await;
+        }
         let settings = InfisicalSettings::from_env()?;
         let client = infisical_client()?;
         let token = infisical_login(&client, &settings).await?;
@@ -742,7 +762,94 @@ pub async fn infisical_health() -> Probe {
 }
 
 pub fn infisical_configured() -> bool {
+    if openbao::configured() {
+        return openbao::vault().is_ok();
+    }
     InfisicalSettings::from_env().is_ok()
+}
+
+pub use crate::openbao::{MigrationReport, VaultHealth};
+
+/// Which backend holds this plane's vault: `openbao` on a Cloud plane whose settings name one,
+/// otherwise `infisical`.
+pub fn vault_backend() -> &'static str {
+    if openbao::configured() {
+        "openbao"
+    } else {
+        "infisical"
+    }
+}
+
+/// How the plane's vault answers now. Infisical reports `ok` or `refused` from a login.
+pub async fn vault_health() -> VaultHealth {
+    if openbao::configured() {
+        return match openbao::vault() {
+            Ok(vault) => vault.health().await,
+            Err(_) => VaultHealth {
+                vault: "refused",
+                last_success_at: None,
+            },
+        };
+    }
+    VaultHealth {
+        vault: if infisical_health().await.status == ProbeStatus::Present {
+            "ok"
+        } else {
+            "refused"
+        },
+        last_success_at: None,
+    }
+}
+
+/// ADR 0013 §14 step 5: compare the migration manifest with the copies it names, at the versions
+/// it names. Paths only, never values. A plane on Infisical, or never migrated, is `absent`.
+pub async fn verify_vault_migration(plane_id: Uuid) -> MigrationReport {
+    let absent = MigrationReport {
+        status: "absent",
+        entries: 0,
+        mismatched: Vec::new(),
+    };
+    if plane_id.is_nil() || !openbao::configured() {
+        return absent;
+    }
+    match openbao::vault() {
+        Ok(vault) => vault.verify_migration(plane_id).await,
+        Err(_) => MigrationReport {
+            status: "unknown",
+            ..absent
+        },
+    }
+}
+
+impl InfisicalLocator<'_> {
+    /// The locator as one absolute path, `/path/NAME`.
+    fn full(&self) -> String {
+        if self.path == "/" {
+            format!("/{}", self.name)
+        } else {
+            format!("{}/{}", self.path, self.name)
+        }
+    }
+}
+
+/// Read one secret from whichever backend this plane's vault is.
+async fn vault_get(locator: &InfisicalLocator<'_>) -> Result<Option<String>> {
+    if openbao::configured() {
+        return openbao::vault()?.get(&locator.full()).await;
+    }
+    let settings = InfisicalSettings::from_env()?;
+    infisical_get(&settings, locator).await
+}
+
+/// Write one secret to whichever backend this plane's vault is.
+async fn vault_upsert(locator: &InfisicalLocator<'_>, value: &str) -> Result<()> {
+    if openbao::configured() {
+        openbao::vault()?.put(&locator.full(), value, None).await?;
+        return Ok(());
+    }
+    let settings = InfisicalSettings::from_env()?;
+    infisical_ensure_folder(&settings, locator.path).await?;
+    infisical_upsert(&settings, locator, value).await
 }
 
 impl InfisicalSettings {
@@ -1103,6 +1210,8 @@ mod tests {
             "env:RESTLESS_PLANE_READINESS_TOKEN",
             "env:restless_plane_database_url",
             "env:INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET",
+            "env:OPENBAO_SECRET_ID",
+            "env:openbao_role_id",
         ] {
             let error = format!("{:#}", resolve_reference(reference).await.unwrap_err());
             assert!(
@@ -1421,6 +1530,11 @@ mod tests {
 /// Metadata-only inventory, strictly bounded to this company's vault directory.
 pub async fn company_vault_inventory(company: &str) -> Result<Vec<serde_json::Value>> {
     crate::runtime::validate_company_name(company)?;
+    if openbao::configured() {
+        return openbao::vault()?
+            .inventory(&format!("/companies/{company}"))
+            .await;
+    }
     let settings = InfisicalSettings::from_env()?;
     let client = infisical_client()?;
     let token = infisical_login(&client, &settings).await?;
