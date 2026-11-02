@@ -317,7 +317,7 @@
 		background: var(--text-tertiary);
 	}
 	.dot.healthy {
-		background: var(--state-success, var(--intent-presence));
+		background: var(--state-success);
 	}
 	.dot.degraded,
 	.dot.unavailable {

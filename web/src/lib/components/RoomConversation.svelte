@@ -2149,7 +2149,7 @@
 	}
 	.room-pinned {
 		flex: none;
-		border-bottom: 1px solid var(--border-soft);
+		border-bottom: 1px solid var(--border);
 		font-size: var(--t-label);
 	}
 	/* The pinned strip is a header row: one height, open or folded. */

@@ -434,7 +434,7 @@
 	}
 	.inline-error {
 		margin: 0;
-		color: var(--text-danger, #b42318);
+		color: var(--state-danger);
 	}
 	.tabs {
 		display: flex;

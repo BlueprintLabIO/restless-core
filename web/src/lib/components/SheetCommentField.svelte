@@ -224,7 +224,7 @@
 		border: 1px solid var(--border-strong);
 		border-radius: var(--radius-lg);
 		background: var(--surface-raised);
-		box-shadow: var(--shadow-menu, 0 6px 20px rgb(0 0 0 / 0.12));
+		box-shadow: var(--shadow-lift);
 	}
 	.mention-menu button {
 		width: 100%;

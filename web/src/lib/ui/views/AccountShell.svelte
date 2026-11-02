@@ -415,7 +415,7 @@
 		color: var(--ink);
 	}
 	.account-tab.active {
-		background: var(--wash-active, var(--surface-alt));
+		background: var(--surface-alt);
 		color: var(--ink);
 		font-weight: 500;
 	}

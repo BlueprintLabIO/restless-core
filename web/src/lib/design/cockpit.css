@@ -50,7 +50,7 @@
 .bridge-root .quality-segments button.active {
 	background: var(--surface-raised);
 	color: var(--ink);
-	box-shadow: var(--shadow-1);
+	box-shadow: var(--shadow-soft);
 }
 /* Production Bridge Light. Flat, full-bleed work regions; depth comes from
  * fogged glass, pane seams and one top-left light source—not card inflation. */
@@ -1328,7 +1328,7 @@
 	margin-top: 18px;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-control);
-	background: color-mix(in srgb, var(--surface-muted) 62%, var(--surface));
+	background: color-mix(in srgb, var(--surface-alt) 62%, var(--surface));
 }
 
 .bridge-root .work-technical-details > summary {

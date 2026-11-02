@@ -2550,7 +2550,7 @@
 		margin-right: 8px;
 	}
 	.usage.full {
-		color: var(--state-warning, var(--intent-authority));
+		color: var(--intent-authority);
 	}
 	.spacer {
 		flex: 1;

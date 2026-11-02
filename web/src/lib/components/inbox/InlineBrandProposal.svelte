@@ -118,12 +118,12 @@
 		list-style: none;
 	}
 	.pillar {
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 	}
 	ins {
 		text-decoration: none;
 	}
 	del {
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 	}
 </style>

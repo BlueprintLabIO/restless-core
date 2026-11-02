@@ -2071,7 +2071,7 @@
 	}
 	.pinned {
 		flex: none;
-		border-bottom: 1px solid var(--border-soft);
+		border-bottom: 1px solid var(--border);
 		background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
 		font-size: var(--t-label);
 	}
@@ -2427,8 +2427,8 @@
 		height: 24px;
 		border: 1px solid var(--border);
 		border-radius: 6px;
-		background: var(--surface-subtle, var(--surface));
-		color: var(--ink-secondary, var(--ink));
+		background: var(--surface-alt);
+		color: var(--text-secondary);
 		font-size: var(--t-label);
 		font-weight: 600;
 		letter-spacing: 0.01em;
@@ -2672,7 +2672,7 @@
 		flex: none;
 		margin: 0;
 		padding: 9px 14px;
-		border-bottom: 1px solid var(--border-soft);
+		border-bottom: 1px solid var(--border);
 		color: var(--text-secondary);
 		font-size: var(--t-label);
 		line-height: 1.45;

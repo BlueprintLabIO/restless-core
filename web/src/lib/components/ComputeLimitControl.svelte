@@ -197,7 +197,7 @@
 	}
 	.limit-form {
 		padding: 12px 16px;
-		border-top: 1px solid var(--line);
+		border-top: 1px solid var(--border);
 	}
 	input {
 		max-width: 160px;

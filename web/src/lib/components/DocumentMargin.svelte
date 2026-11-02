@@ -394,7 +394,7 @@
 		border-color: color-mix(in srgb, var(--highlight) 90%, var(--surface-attention));
 	}
 	.margin-card.opened {
-		box-shadow: var(--shadow-popover, 0 4px 16px rgba(0, 0, 0, 0.12));
+		box-shadow: var(--shadow-lift);
 		z-index: 1;
 	}
 	/* Rows never grow: a closed card is one head row and two lines of what was said. */

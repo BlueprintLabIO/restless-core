@@ -2056,7 +2056,7 @@
 		border: 0;
 		background: transparent;
 		color: #526673;
-		font: 600 var(--t-head)/1 var(--font-sans);
+		font: 600 var(--t-head)/1 var(--font-ui);
 		cursor: pointer;
 	}
 
@@ -2067,7 +2067,7 @@
 	}
 
 	.person-detail-heading strong {
-		font: 600 var(--t-head)/1.2 var(--font-sans);
+		font: 600 var(--t-head)/1.2 var(--font-ui);
 	}
 
 	.person-detail-heading span,
@@ -2112,12 +2112,12 @@
 	}
 
 	.person-detail-outcome {
-		font: 600 var(--t-body)/1.35 var(--font-sans);
+		font: 600 var(--t-body)/1.35 var(--font-ui);
 	}
 
 	.person-detail-step {
 		color: #53636a;
-		font: 500 var(--t-body)/1.4 var(--font-sans);
+		font: 500 var(--t-body)/1.4 var(--font-ui);
 	}
 
 	.person-detail-action {
@@ -2129,7 +2129,7 @@
 		border: 1px solid rgba(23, 36, 51, 0.5);
 		background: #173d3b;
 		color: #eff8f4;
-		font: 600 var(--t-body)/1 var(--font-sans);
+		font: 600 var(--t-body)/1 var(--font-ui);
 		cursor: pointer;
 	}
 

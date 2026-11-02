@@ -513,7 +513,7 @@
 	.output-usage {
 		margin-left: auto;
 		color: var(--text-tertiary);
-		font: 500 var(--t-caption) var(--font-ui);
+		font: 500 var(--t-label) var(--font-ui);
 		font-variant-numeric: tabular-nums;
 		flex: none;
 		white-space: nowrap;

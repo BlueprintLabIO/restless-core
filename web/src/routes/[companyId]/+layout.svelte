@@ -1930,7 +1930,9 @@
 	</AppShell>
 	{#if touring && childAllowed}<WelcomeTour {companyId} />{/if}
 	{#if startupBlocking}
-		<div class="startup-error-scrim">
+		<!-- A sibling of AppShell, so outside `.bridge-root`: it carries the token root itself, or
+		     every colour below resolves to nothing (the mark drew as an empty square). -->
+		<div class="startup-error-scrim bridge-tokens">
 			<div
 				class="startup-error cockpit-pane"
 				role="alertdialog"
@@ -2005,7 +2007,9 @@
 	}
 	.startup-error-scrim {
 		position: fixed;
-		z-index: var(--z-overlay);
+		/* Above the toasts (--z-app): with the app inert behind it, failure toasts from its reads
+		 * stacked over the card and covered its action on a phone. */
+		z-index: calc(var(--z-app) + 1);
 		inset: 0;
 		display: grid;
 		place-items: center;
@@ -2033,7 +2037,7 @@
 		height: 40px;
 		display: grid;
 		place-items: center;
-		border: 1px solid rgba(155, 84, 91, 0.25);
+		border: 1px solid color-mix(in srgb, var(--state-danger) 25%, transparent);
 		border-radius: 4px;
 		background: var(--state-danger-soft);
 		color: var(--state-danger);
@@ -2048,7 +2052,10 @@
 		text-wrap: balance;
 	}
 	.startup-error-mark.reconnecting {
+		/* Flex ignores the grid's place-items: centre the dots on both axes. */
 		display: flex;
+		align-items: center;
+		justify-content: center;
 		gap: 5px;
 		border-color: var(--border);
 		background: var(--intent-conversation-soft);
