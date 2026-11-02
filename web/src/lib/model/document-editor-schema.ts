@@ -11,6 +11,8 @@ import {
 	type Extensions,
 	type JSONContent
 } from '@tiptap/core';
+import Code from '@tiptap/extension-code';
+import CodeBlock from '@tiptap/extension-code-block';
 import Collaboration, { isChangeOrigin } from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import { DragHandlePlugin, normalizeNestedOptions } from '@tiptap/extension-drag-handle';
@@ -33,6 +35,7 @@ import type { HocuspocusProvider } from '@hocuspocus/provider';
 import type { Doc } from 'yjs';
 import type { DocumentContent, DocumentMark, DocumentNode } from './documents';
 import { commentRangeBinding, resolveCommentRange, type CommentRange } from './document-margin.ts';
+import { SuggestedDelete, SuggestedInsert, suggestionsExtension } from './document-suggestions.ts';
 import { caretHue } from './page-faces.ts';
 
 export const DOCUMENT_COLLABORATION_FRAGMENT = 'default';
@@ -2066,8 +2069,17 @@ export function createDocumentEditorExtensions(
 			link: false,
 			undoRedo: false,
 			orderedList: false,
+			code: false,
+			codeBlock: false,
 			heading: { levels: [1, 2, 3, 4, 5, 6] }
 		}),
+		/* Code keeps no formatting, but a suggestion is not formatting: it can be proposed in code
+		 * too (the sidecar's schema says the same). */
+		Code.extend({ excludes: 'bold italic underline strike highlight textColor link code' }),
+		CodeBlock.extend({ marks: 'suggestedInsert suggestedDelete' }),
+		SuggestedInsert,
+		SuggestedDelete,
+		suggestionsExtension,
 		DocumentOrderedList,
 		TaskList,
 		TaskItem.configure({ nested: true }),
@@ -2138,14 +2150,38 @@ const MARK_TYPES = [
 	'code',
 	'link',
 	'highlight',
-	'textColor'
+	'textColor',
+	'suggestedInsert',
+	'suggestedDelete'
 ];
+
+const SUGGESTION_ID = /^[A-Za-z0-9_-]{1,64}$/u;
+const SUGGESTION_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/u;
+const THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 function projectMark(value: unknown): DocumentMark {
 	const source = object(value, 'text mark');
 	const type = string(source.type, 'mark type', 32);
 	if (!MARK_TYPES.includes(type)) {
 		invalid(`mark ${type} is outside the company schema.`);
+	}
+	if (type === 'suggestedInsert' || type === 'suggestedDelete') {
+		/* Mirrors validate_suggestion_attrs in Core's documents.rs. */
+		const attrs = object(source.attrs, 'suggestion attributes');
+		const id = string(attrs.id, 'suggestion id', 64);
+		if (!SUGGESTION_ID.test(id)) invalid('suggestion id is invalid.');
+		const author = string(attrs.author, 'suggestion author', 128);
+		if (!author.trim()) invalid('suggestion author is invalid.');
+		const at = string(attrs.at, 'suggestion time', 40);
+		if (!SUGGESTION_TIME.test(at) || Number.isNaN(Date.parse(at)))
+			invalid('suggestion time is invalid.');
+		const projected: Record<string, unknown> = { id, author, at };
+		if (attrs.thread !== null && attrs.thread !== undefined) {
+			if (typeof attrs.thread !== 'string' || !THREAD_ID.test(attrs.thread))
+				invalid('suggestion thread is invalid.');
+			projected.thread = attrs.thread;
+		}
+		return { type, attrs: projected };
 	}
 	if (type === 'highlight' || type === 'textColor') {
 		const attrs = object(source.attrs, `${type} attributes`);

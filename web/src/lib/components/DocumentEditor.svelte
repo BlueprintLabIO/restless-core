@@ -7,7 +7,7 @@
 	import { page } from '$app/state';
 	import DocumentActions from './DocumentActions.svelte';
 	import PageFaces from './PageFaces.svelte';
-	import { documentFaces } from '$lib/model/page-faces';
+	import { caretHue, documentFaces } from '$lib/model/page-faces';
 	import DocumentBlockMenus from './DocumentBlockMenus.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -44,6 +44,17 @@
 	import TextAlignCenter from '@lucide/svelte/icons/text-align-center';
 	import TextAlignEnd from '@lucide/svelte/icons/text-align-end';
 	import TextAlignJustify from '@lucide/svelte/icons/text-align-justify';
+	import Pencil from '@lucide/svelte/icons/pencil';
+	import FileDiff from '@lucide/svelte/icons/file-diff';
+	import {
+		documentSuggestions,
+		setActiveSuggestion,
+		setSuggestingMode,
+		settleSuggestions,
+		suggestionAtSelection,
+		suggestionRanges,
+		suggestionSentence
+	} from '$lib/model/document-suggestions';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import {
 		clearPendingDocumentEdits,
@@ -155,6 +166,9 @@
 		commentThreads?: readonly DocumentCommentThreadView[];
 		/** Comments live in a margin beside the text when the page is wide enough (Sprint 109 E4). */
 		margin?: boolean;
+		/** Whether the comment threads have been read (or failed to be). Suggestions share the
+		 * margin with them, so their cards wait for the threads rather than move when they land. */
+		commentsReady?: boolean;
 		onopenthread?: (threadId: string) => void;
 		/** Copy a link that opens this document at a block. */
 		oncopyblocklink?: (blockId: string) => void;
@@ -183,6 +197,7 @@
 		commentedBlocks = new Map(),
 		commentThreads = [],
 		margin = false,
+		commentsReady = true,
 		onopenthread = () => {},
 		oncopyblocklink,
 		suggestions = [],
@@ -976,13 +991,30 @@
 	let pageWidth = $state(0);
 	const marginShown = $derived(margin && pageWidth >= MARGIN_MIN_WIDTH);
 	let marginAnchors = $state<ReadonlyMap<string, number>>(new Map());
+	let suggestionAnchors = $state<ReadonlyMap<string, number>>(new Map());
+	function sameAnchors(left: ReadonlyMap<string, number>, right: ReadonlyMap<string, number>) {
+		return left.size === right.size && [...left].every(([id, top]) => right.get(id) === top);
+	}
 	function placeMargin(): void {
 		const instance = editorState.editor;
 		const paper = paperElement;
 		if (!marginShown || !instance || instance.isDestroyed || !paper) {
 			if (marginAnchors.size) marginAnchors = new Map();
+			if (suggestionAnchors.size) suggestionAnchors = new Map();
 			return;
 		}
+		/* Each suggestion's card sits level with where its words begin. */
+		const paperTop = paper.getBoundingClientRect().top;
+		const suggested = new Map<string, number>();
+		for (const item of documentSuggestions(instance.state)) {
+			try {
+				const top = instance.view.coordsAtPos(item.from, 1).top;
+				suggested.set(item.id, Math.round(top - paperTop + paper.scrollTop));
+			} catch {
+				/* Not measurable yet: placed on the next frame. */
+			}
+		}
+		if (!sameAnchors(suggested, suggestionAnchors)) suggestionAnchors = suggested;
 		const frame = paper.getBoundingClientRect();
 		const next = new Map<string, number>();
 		for (const [threadId, place] of commentPlaces(instance.state)) {
@@ -1032,6 +1064,101 @@
 		marginDraft = null;
 		activeThread = threadId;
 	}
+
+	/* Suggesting (Sprint 109 E4): in this mode what someone types or deletes waits, marked in
+	 * their colour, for anyone who may edit to accept or reject it. It can answer a comment: the
+	 * changes then carry that thread. Only people who may edit see the switch, and see it from the
+	 * first paint, so the head never shifts as the live session opens. */
+	let suggesting = $state(false);
+	let suggestThread = $state<string | null>(null);
+	let hoveredSuggestion = $state<string | null>(null);
+	const suggestionList = $derived(
+		editorState.editor ? documentSuggestions(editorState.editor.state) : []
+	);
+	$effect(() => {
+		const instance = editor;
+		const mode =
+			suggesting && canWriteLive ? { actorId: principalActorId, thread: suggestThread } : null;
+		if (instance && !instance.isDestroyed) untrack(() => setSuggestingMode(instance, mode));
+	});
+	$effect(() => {
+		const instance = editor;
+		const active = hoveredSuggestion;
+		if (instance && !instance.isDestroyed) untrack(() => setActiveSuggestion(instance, active));
+	});
+	function setSuggesting(next: boolean, thread: string | null = null): void {
+		suggesting = next;
+		suggestThread = next ? thread : null;
+	}
+	function settle(id: string | null, accept: boolean): void {
+		run(
+			(instance) =>
+				settleSuggestions(instance, (attrs) => id === null || attrs.id === id, accept) > 0
+		);
+		if (id === hoveredSuggestion) hoveredSuggestion = null;
+	}
+	/** Put the caret at a suggestion's words and bring them into view. */
+	function goToSuggestion(id: string): void {
+		const instance = editorState.editor;
+		const first = instance ? suggestionRanges(instance.state.doc, id)[0] : undefined;
+		if (!instance || !first) return;
+		instance.chain().focus().setTextSelection(first.from).scrollIntoView().run();
+	}
+	/** Answer a comment with suggested edits: suggesting, for that thread, at its words. */
+	function suggestForThread(threadId: string): void {
+		const instance = editorState.editor;
+		if (!instance || !canWriteLive) return;
+		setSuggesting(true, threadId);
+		activeThread = null;
+		const place = commentPlaces(instance.state).get(threadId);
+		if (place) instance.chain().focus().setTextSelection(place).run();
+		else instance.commands.focus();
+	}
+	/* Suggestion cards share the margin with comment cards and stack with them, so they arrive
+	 * with the comments' cards, never before (a comment card landing later would push them). A
+	 * thread that cannot be placed holds them back for a moment at most. */
+	let commentsWaited = $state(false);
+	$effect(() => {
+		if (!commentsReady) {
+			commentsWaited = false;
+			return;
+		}
+		const timer = window.setTimeout(() => (commentsWaited = true), 1500);
+		return () => window.clearTimeout(timer);
+	});
+	const suggestionsPlaced = $derived(
+		commentsReady &&
+			(commentsWaited ||
+				commentThreads.every((item) => !item.thread.block_id || marginAnchors.has(item.thread.id)))
+	);
+	/* On a page too narrow for the margin, the suggestion at the caret opens a small card there. */
+	let caretSuggestion = $state<{ id: string; left: number; top: number } | null>(null);
+	$effect(() => {
+		const instance = editorState.editor;
+		const wide = marginShown;
+		const found = instance && !wide ? suggestionAtSelection(instance.state) : null;
+		if (!instance || !found || !sectionElement) {
+			if (untrack(() => caretSuggestion)) caretSuggestion = null;
+			return;
+		}
+		const frame = requestAnimationFrame(() => {
+			const box = instance.view.coordsAtPos(instance.state.selection.from);
+			const outer = sectionElement?.getBoundingClientRect();
+			if (!outer) return;
+			const next = {
+				id: found,
+				left: Math.round(Math.max(8, Math.min(box.left - outer.left - 24, outer.width - 288))),
+				top: Math.round(box.bottom - outer.top + 6)
+			};
+			const now = untrack(() => caretSuggestion);
+			if (now?.id !== next.id || now.left !== next.left || now.top !== next.top)
+				caretSuggestion = next;
+		});
+		return () => cancelAnimationFrame(frame);
+	});
+	const caretCard = $derived(
+		caretSuggestion ? suggestionList.find((item) => item.id === caretSuggestion?.id) : undefined
+	);
 	let paperElement = $state<HTMLDivElement>();
 	let threadMarks = $state<{ threadId: string; count: number; top: number }[]>([]);
 	function placeThreadMarks(): void {
@@ -1235,6 +1362,21 @@
 	function formatKeys(event: KeyboardEvent): void {
 		const mod = event.metaKey || event.ctrlKey;
 		const key = event.key.toLowerCase();
+		/* Google Docs' keys: ⌘⌥⇧X suggests, ⌘⌥⇧Z edits. Read by key position, since ⌥ changes
+		 * the letter a Mac reports. */
+		if (
+			mod &&
+			event.altKey &&
+			event.shiftKey &&
+			(event.code === 'KeyX' || event.code === 'KeyZ') &&
+			view.access === 'edit' &&
+			editorState.editor &&
+			sectionElement?.contains(document.activeElement ?? null)
+		) {
+			event.preventDefault();
+			setSuggesting(event.code === 'KeyX');
+			return;
+		}
 		if (
 			mod &&
 			!event.altKey &&
@@ -1707,6 +1849,25 @@
 			>
 		</div>
 		<div class="editor-actions">
+			{#if view.access === 'edit'}
+				<!-- One width for both words, so switching never moves the head. -->
+				<button
+					type="button"
+					class="mode-toggle"
+					class:suggesting
+					aria-pressed={suggesting}
+					disabled={!canWriteLive}
+					title={suggesting
+						? `Suggesting${suggestThread ? ' in answer to a comment' : ''}: your edits wait for someone to accept them. Switch to editing (${keys('⌘⌥⇧Z', 'Ctrl+Alt+Shift+Z')})`
+						: `Editing: your edits apply directly. Switch to suggesting (${keys('⌘⌥⇧X', 'Ctrl+Alt+Shift+X')})`}
+					onclick={() => setSuggesting(!suggesting)}
+					>{#if suggesting}<FileDiff size={15} strokeWidth={1.8} aria-hidden="true" /><span
+							class="mode-label">Suggesting</span
+						>{:else}<Pencil size={15} strokeWidth={1.8} aria-hidden="true" /><span
+							class="mode-label">Editing</span
+						>{/if}</button
+				>
+			{/if}
 			<PageFaces {faces} />
 			{#if outline.length}
 				<button
@@ -1735,7 +1896,17 @@
 							title={keys('⌘⇧Z', 'Ctrl+Shift+Z or Ctrl+Y')}
 							disabled={!editor.can().redo()}
 							onclick={() => run((instance) => instance.chain().focus().redo().run())}>Redo</button
-						>{/if}{#if editor}<button type="button" onclick={() => openFind(canWriteLive)}
+						>{#if suggestionList.length}<button
+								type="button"
+								title="Keep every suggested change in this document"
+								onclick={() => settle(null, true)}
+								>Accept all {suggestionList.length}
+								{suggestionList.length === 1 ? 'suggestion' : 'suggestions'}</button
+							><button
+								type="button"
+								title="Turn down every suggested change in this document"
+								onclick={() => settle(null, false)}>Reject all suggestions</button
+							>{/if}{/if}{#if editor}<button type="button" onclick={() => openFind(canWriteLive)}
 							>{canWriteLive ? 'Find and replace' : 'Find'}</button
 						>{/if}{@render moreActions()}{#if titleEditable && serverView}<label
 							class="menu-kind"
@@ -2144,6 +2315,14 @@
 				onhover={(threadId) => (hoveredThread = threadId)}
 				ondraftdone={marginDraftDone}
 				onopenpanel={(threadId) => onopenthread(threadId)}
+				suggestions={suggestionsPlaced ? suggestionList : []}
+				{suggestionAnchors}
+				canSettle={canWriteLive}
+				canSuggest={canWriteLive}
+				onsettle={(id, accept) => settle(id, accept)}
+				onhoversuggestion={(id) => (hoveredSuggestion = id)}
+				onfocussuggestion={goToSuggestion}
+				onsuggest={suggestForThread}
 			/>
 		{/if}
 		{#each threadMarks as mark (mark.threadId)}
@@ -2238,6 +2417,43 @@
 			oncomment={(blockId) => oncomment(blockId)}
 			onlink={oncopyblocklink}
 		/>
+	{/if}
+	{#if caretSuggestion && caretCard && !bubble}
+		<!-- A narrow page has no margin: the suggestion at the caret opens its card here, over the
+		     text, so nothing below it moves. -->
+		<div
+			class="suggestion-pop"
+			role="group"
+			aria-label={`Suggestion by ${nameOf(caretCard.author)}`}
+			style:left={`${caretSuggestion.left}px`}
+			style:top={`${caretSuggestion.top}px`}
+			style:--suggestion-hue={caretHue(caretCard.author)}
+		>
+			<span class="pop-head"
+				><span class="pop-swatch" aria-hidden="true"></span><span class="pop-name"
+					>{nameOf(caretCard.author)}</span
+				></span
+			>
+			<span class="pop-sentence" title={suggestionSentence(caretCard)}
+				>{suggestionSentence(caretCard)}</span
+			>
+			{#if canWriteLive}
+				<span class="pop-actions">
+					<button
+						type="button"
+						class="btn small"
+						onmousedown={(event) => event.preventDefault()}
+						onclick={() => settle(caretCard.id, false)}>Reject</button
+					>
+					<button
+						type="button"
+						class="btn small primary"
+						onmousedown={(event) => event.preventDefault()}
+						onclick={() => settle(caretCard.id, true)}>Accept</button
+					>
+				</span>
+			{/if}
+		</div>
 	{/if}
 	{#if hoverLink && !bubble && !linkEditing}
 		<div
@@ -2405,6 +2621,105 @@
 		gap: var(--space-3);
 		padding: var(--space-1) var(--space-4);
 		border-bottom: 1px solid var(--border);
+	}
+	/* Editing or suggesting: one fixed width and height for either word, so the head never moves. */
+	.mode-toggle {
+		position: relative;
+		display: inline-flex;
+		flex: none;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		box-sizing: border-box;
+		width: 116px;
+		height: 28px;
+		padding: 0 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--text-secondary);
+		font: 500 var(--t-label) var(--font-ui);
+		white-space: nowrap;
+		cursor: pointer;
+	}
+	.mode-toggle:hover:not(:disabled),
+	.mode-toggle:focus-visible {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	.mode-toggle.suggesting {
+		border-color: color-mix(in srgb, var(--intent-conversation) 55%, var(--border));
+		background: color-mix(in srgb, var(--intent-conversation) 12%, transparent);
+		color: var(--intent-conversation);
+	}
+	.mode-toggle:disabled {
+		cursor: default;
+		opacity: 0.6;
+	}
+	@container document-editor (max-width: 560px) {
+		.mode-toggle {
+			width: 32px;
+			padding: 0;
+		}
+		.mode-label {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			overflow: hidden;
+			clip-path: inset(50%);
+			white-space: nowrap;
+		}
+	}
+	/* The suggestion at the caret, on a page with no margin: over the text, never pushing it. */
+	.suggestion-pop {
+		position: absolute;
+		z-index: 6;
+		display: grid;
+		grid-template-rows: 20px 40px 28px;
+		gap: 6px;
+		box-sizing: border-box;
+		width: 280px;
+		padding: 8px 10px;
+		border: 1px solid var(--border);
+		border-left: 3px solid hsl(var(--suggestion-hue) 65% 45%);
+		border-radius: var(--radius-md, 8px);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-popover, 0 4px 16px rgba(0, 0, 0, 0.12));
+		color: var(--ink);
+		font: 400 var(--t-body) / 1.4 var(--font-ui);
+	}
+	.pop-head {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		font-weight: 600;
+	}
+	.pop-swatch {
+		flex: none;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: hsl(var(--suggestion-hue) 65% 45%);
+	}
+	.pop-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.pop-sentence {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		color: var(--text-secondary);
+		overflow-wrap: anywhere;
+	}
+	.pop-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 6px;
 	}
 	.head-title {
 		min-width: 0;
@@ -3246,6 +3561,42 @@
 	}
 	:global([data-text-color='purple']) {
 		color: var(--doc-text-purple);
+	}
+	/* Suggestions (Sprint 109 E4): words proposed are underlined in their author's colour, words
+	 * proposed for deletion struck through in it. The hue comes with each mark, from its author;
+	 * the lightness suits the theme. A saved copy's HTML draws the same way. */
+	:global(ins[data-suggestion]) {
+		--suggestion-ink: hsl(var(--suggestion-hue, 210) 70% 32%);
+		--suggestion-line: hsl(var(--suggestion-hue, 210) 65% 45%);
+		color: var(--suggestion-ink);
+		text-decoration: underline;
+		text-decoration-color: var(--suggestion-line);
+		text-decoration-thickness: 2px;
+		text-underline-offset: 3px;
+		background: hsl(var(--suggestion-hue, 210) 65% 45% / 0.08);
+	}
+	:global(del[data-suggestion]) {
+		--suggestion-ink: hsl(var(--suggestion-hue, 210) 45% 38%);
+		--suggestion-line: hsl(var(--suggestion-hue, 210) 65% 45%);
+		color: var(--suggestion-ink);
+		text-decoration: line-through;
+		text-decoration-color: var(--suggestion-line);
+		text-decoration-thickness: 2px;
+	}
+	:global(:root[data-theme='dark'] ins[data-suggestion]) {
+		--suggestion-ink: hsl(var(--suggestion-hue, 210) 80% 76%);
+		--suggestion-line: hsl(var(--suggestion-hue, 210) 75% 62%);
+		background: hsl(var(--suggestion-hue, 210) 75% 62% / 0.12);
+	}
+	:global(:root[data-theme='dark'] del[data-suggestion]) {
+		--suggestion-ink: hsl(var(--suggestion-hue, 210) 40% 70%);
+		--suggestion-line: hsl(var(--suggestion-hue, 210) 75% 62%);
+	}
+	/* The change whose card is hovered or open. */
+	:global(.native-document-body .active-suggestion) {
+		border-radius: 2px;
+		background: hsl(var(--suggestion-hue, 210) 65% 45% / 0.22);
+		box-shadow: 0 0 0 1px hsl(var(--suggestion-hue, 210) 65% 45% / 0.5);
 	}
 	:global(mark[data-color]) {
 		color: inherit;

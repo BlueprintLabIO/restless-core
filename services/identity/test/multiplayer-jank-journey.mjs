@@ -556,12 +556,25 @@ async function seed(owner, alice) {
     "Weekly notes",
   ];
   const documents = [];
-  for (const title of titles)
+  /* Suggestions (S109 E4): the plan also carries a suggested replacement, so its margin holds a
+   * suggestion's card beside the comments' and the marks draw in their author's colour. */
+  const suggested = { id: "jank-suggestion", author: "exec", at: "2026-11-03T09:00:00.000Z", thread: null };
+  const suggestion = {
+    type: "paragraph",
+    attrs: { block_id: randomUUID() },
+    content: [
+      { type: "text", text: "We open in " },
+      { type: "text", text: "April", marks: [{ type: "suggestedDelete", attrs: suggested }] },
+      { type: "text", text: "March", marks: [{ type: "suggestedInsert", attrs: suggested }] },
+      { type: "text", text: "." },
+    ],
+  };
+  for (const [index, title] of titles.entries())
     documents.push(
       await coreApi(owner, `${base}/documents`, {
         method: "POST",
         expected: 201,
-        body: { title, kind: "brief", visibility: "company", content_json: { type: "doc", content: [paragraph(`${title}. First draft.`), paragraph("A second paragraph with more words in it.")] }, reason: "Jank gate fixture" },
+        body: { title, kind: "brief", visibility: "company", content_json: { type: "doc", content: [paragraph(`${title}. First draft.`), paragraph("A second paragraph with more words in it."), ...(index === 0 ? [suggestion] : [])] }, reason: "Jank gate fixture" },
       }),
     );
   await coreApi(owner, `${base}/sheets`, { method: "POST", body: { id: randomUUID(), title: "Budget", visibility: "company" } });

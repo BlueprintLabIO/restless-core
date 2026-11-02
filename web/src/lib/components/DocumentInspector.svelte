@@ -34,6 +34,7 @@
 	} from '$lib/model/document-decisions.svelte';
 	import type { Snippet } from 'svelte';
 	import { composing } from '$lib/primitives/composer-keys';
+	import { contentHasSuggestions } from '$lib/model/document-suggestions';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import MessageReactions from '$lib/primitives/MessageReactions.svelte';
 	import ReactionAdd from '$lib/primitives/ReactionAdd.svelte';
@@ -261,7 +262,10 @@
 	let saveCommand = $state<PendingDocumentCommand | null>(null);
 	/* A previewed version reads as the page it was; what it changed is one click away. */
 	let previewMode = $state<'page' | 'changes'>('page');
-	async function downloadVersion(format: 'docx' | 'md'): Promise<void> {
+	async function downloadVersion(
+		format: 'docx' | 'md',
+		suggestions: 'tracked' | 'agreed' = 'tracked'
+	): Promise<void> {
 		const detail = versionDetail.version;
 		if (!detail) return;
 		const title = `${view.document.title || 'Document'} (version ${detail.version.version_number})`;
@@ -273,7 +277,12 @@
 						})
 					: (await import('$lib/model/document-docx')).documentDocx(
 							view.document.title,
-							detail.version.content_json
+							detail.version.content_json,
+							{
+								suggestions,
+								nameOf: (actorId) =>
+									people.find((person) => person.actor_id === actorId)?.display ?? 'Someone'
+							}
 						);
 			const url = URL.createObjectURL(blob);
 			const link = document.createElement('a');
@@ -2129,9 +2138,16 @@
 								>
 							</div>
 							<ActionMenu label="Download this version">
-								<button type="button" onclick={() => void downloadVersion('docx')}
-									>Download as Word</button
+								<button
+									type="button"
+									title="Suggestions come as Word's tracked changes"
+									onclick={() => void downloadVersion('docx')}>Download as Word</button
 								>
+								{#if contentHasSuggestions(versionDetail.version.version.content_json)}
+									<button type="button" onclick={() => void downloadVersion('docx', 'agreed')}
+										>Download as Word, agreed text</button
+									>
+								{/if}
 								<button type="button" onclick={() => void downloadVersion('md')}
 									>Download as Markdown</button
 								>

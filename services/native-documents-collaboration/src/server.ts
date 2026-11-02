@@ -541,8 +541,10 @@ export class NativeDocumentsCollaborationServer {
             result = { status: 'applied', checkpoint_id: checkpoint };
           } else {
             const state = Y.encodeStateAsUpdate(document);
+            // A suggestion is made in the name of the actor Core verified for this request.
             result = { checkpoint_id: checkpoint, ...(value.action === 'read'
-              ? bodyView(state) : prepareBodyEdit(state, { operations: value.operations })) };
+              ? bodyView(state)
+              : prepareBodyEdit(state, { operations: value.operations }, { actorId: claims.actor_id, now: new Date(this.now()) })) };
           }
           // Hocuspocus's disconnect store hook logs/swallow failures. Explicitly
           // await persistence under its mutex before acknowledging a command.

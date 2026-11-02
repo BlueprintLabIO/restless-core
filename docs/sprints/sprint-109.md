@@ -368,7 +368,7 @@ publish its contents.
 | Discuss duplicates linked Exec chat; duplicate middle composer | B1 | Open |
 | Cropped popover and inconsistent model connection status | B5, A1 | Open |
 | Composer hint shifting and general alignment / chat spacing | C3, C7, F1, F3, F4 | Open |
-| Margin comments rather than a separate comments pane | E4 | Open |
+| Margin comments rather than a separate comments pane | E4 | Partial: margin comments and tracked-change suggestions verified locally; production walkthrough remains |
 | Lead fails to delegate | G2 | Open |
 | Resend capabilities, integration and secret names; vault versus account | D3, H2, A2, B6 | Open |
 | Sidebar size, saved width and narrow minimum | F1, F2, F9 | Partial: narrower minimum deployed; account-saved preferences and complete role checks remain |
@@ -421,14 +421,31 @@ walkthrough. This batch adds:
   gate now opens a document with comments. Narrower pages keep the count marks and the
   comments panel. Readers see the cards and cannot reply. The doc's author already hears every
   new thread in For you, since creating a document follows it.
-  - Still open: the author replying with tracked changes to accept in place. The editor has no
-    suggestion marks. Today's revision proposals replace whole blocks and are reviewed in the
-    panel. Design: add `suggestedInsert` and `suggestedDelete` marks carrying author and
-    thread ids to the editor schema and to Core's document validator (`allowed_marks`, Markdown
-    and docx export drop them). Add a "Suggest" mode where typing wraps inserts and turns
-    deletes into marks, and Accept/Reject on a mark's card that unwraps or removes the text in
-    one Yjs transaction. A reply carries the suggestion's thread id. Each export path and
-    agent's document read must learn the marks, so this is its own change.
+  - Tracked changes (Batch of 3 November, local verification). `suggestedInsert` and
+    `suggestedDelete` marks carry id, author, time and an optional comment thread, in the
+    editor schema, the Documents sidecar's codec and Core's validator. Accepting or rejecting
+    is one shared core (sidecar `src/suggestions.ts`, web `document-suggestions-core.ts`, kept
+    identical by a test), applied in one transaction, so it reaches co-editors as one Yjs update.
+    - Editing or Suggesting sits in the document head for anyone who may edit (Ctrl+Alt+Shift+X
+      and Z). Typed words are underlined in the author's colour; deleted words stay, struck
+      through. Backspace walks left over struck words, and a run of typing is one suggestion.
+      A replacement's deletion and insertion share one id.
+    - Each suggestion has a margin card beside its words, stacked with comments, with Accept and
+      Reject. The menu has Accept all and Reject all. On a narrow page the suggestion at the
+      caret opens a card over the text. An opened comment card has "Suggest edits", which
+      answers that thread.
+    - Accepting a deletion that crossed paragraphs joins them. A block a change empties goes.
+    - Agents read open suggestions in `document read` and propose with `suggest`,
+      `suggest_insert` and `suggest_delete`, optionally on a comment `thread`. The sidecar diffs
+      word by word in the agent's verified name; a new suggestion attributed to anyone else is
+      refused. `accept` and `reject` settle one by id.
+    - Exports: Word carries tracked changes (w:ins and w:del by author and time), or the
+      agreed text only. Markdown, plain text and search read the agreed text. Saved HTML draws
+      `<ins>` and `<del>` in the author's colour.
+    - Not tracked: paragraph breaks and formatting apply directly while suggesting. Pictures,
+      mentions and line breaks someone deletes stay. Commenters cannot suggest; it needs edit
+      access, since the sidecar takes writes only from editors. Authorship of a person's own
+      marks is the browser's word, as all of an editor's writes are.
 - **F3/F4.** One chat spacing scale. Header and strip heights are tokens. No tooltip on "About".
 - **F5 (part).** Archived stays whole in the narrow Library strip. The card-footer chip [29] needs
   the owner's screenshot.

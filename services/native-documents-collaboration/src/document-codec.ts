@@ -43,7 +43,8 @@ const nodes: Record<string, NodeSpec> = {
     content: 'text*',
     defining: true,
     group: 'block',
-    marks: '',
+    // Code keeps no formatting, but a tracked change can be proposed in it like anywhere else.
+    marks: 'suggestedInsert suggestedDelete',
   },
   horizontalRule: { attrs: blockId, group: 'block' },
   // Where a printed or PDF copy starts a new page; nothing else.
@@ -91,14 +92,25 @@ const marks: Record<string, MarkSpec> = {
   strike: {},
   highlight: { attrs: { color: {} } },
   textColor: { attrs: { color: {} } },
-  code: { code: true, excludes: '_' },
+  // Inline code takes no other formatting; a tracked change is not formatting.
+  code: { code: true, excludes: 'bold italic underline strike highlight textColor link code' },
   link: {
     attrs: { href: {}, title: { default: null } },
     inclusive: false,
   },
+  // Tracked changes (Sprint 109 E4): words proposed to be added or taken out, by whom and when,
+  // and the comment thread a change answers. One id may span several runs and blocks.
+  suggestedInsert: {
+    attrs: { id: {}, author: {}, at: {}, thread: { default: null } },
+    inclusive: false,
+  },
+  suggestedDelete: {
+    attrs: { id: {}, author: {}, at: {}, thread: { default: null } },
+    inclusive: false,
+  },
 };
 
-const documentSchema = new Schema({ nodes, marks });
+export const documentSchema = new Schema({ nodes, marks });
 
 export class DocumentCodecError extends Error {
   constructor() {
@@ -174,7 +186,29 @@ interface ValidationState {
   readonly blockIds: Set<string>;
 }
 
-const MARK_TYPES = ['bold', 'italic', 'underline', 'strike', 'code', 'link', 'highlight', 'textColor'];
+const MARK_TYPES = [
+  'bold', 'italic', 'underline', 'strike', 'code', 'link', 'highlight', 'textColor',
+  'suggestedInsert', 'suggestedDelete',
+];
+const SUGGESTION_ID = /^[A-Za-z0-9_-]{1,64}$/u;
+const SUGGESTION_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/u;
+const THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+/** A tracked change's attributes; Core's mirror is validate_suggestion_attrs in documents.rs. */
+export function validSuggestionAttrs(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const attrs = value as JsonObject;
+  if (Object.keys(attrs).some((key) => !['id', 'author', 'at', 'thread'].includes(key))) return false;
+  if (typeof attrs.id !== 'string' || !SUGGESTION_ID.test(attrs.id)) return false;
+  if (
+    typeof attrs.author !== 'string' || !attrs.author.trim() || [...attrs.author].length > 128 ||
+    attrs.author.includes('\0')
+  ) return false;
+  if (typeof attrs.at !== 'string' || attrs.at.length > 40 || !SUGGESTION_TIME.test(attrs.at)) return false;
+  if (Number.isNaN(Date.parse(attrs.at))) return false;
+  return attrs.thread === undefined || attrs.thread === null ||
+    (typeof attrs.thread === 'string' && THREAD_ID.test(attrs.thread));
+}
 // Colours and alignments are names from a small palette; web/src/lib/model/document-editor-schema.ts.
 const TEXT_COLORS = ['gray', 'red', 'orange', 'green', 'blue', 'purple'];
 const HIGHLIGHTS = ['yellow', 'green', 'blue', 'pink', 'purple'];
@@ -197,6 +231,10 @@ function validateMarks(value: unknown): void {
       exactKeys(attrs, ['color']);
       const palette = type === 'highlight' ? HIGHLIGHTS : TEXT_COLORS;
       if (typeof attrs.color !== 'string' || !palette.includes(attrs.color)) invalid();
+      continue;
+    }
+    if (type === 'suggestedInsert' || type === 'suggestedDelete') {
+      if (!validSuggestionAttrs(attrs)) invalid();
       continue;
     }
     if (type !== 'link') {

@@ -15,7 +15,11 @@
 	 * The comments panel stays the place for history, reactions and edits. */
 	import ExternalLink from '@lucide/svelte/icons/panel-right-open';
 	import Check from '@lucide/svelte/icons/check';
+	import XIcon from '@lucide/svelte/icons/x';
 	import { untrack } from 'svelte';
+	import RelativeTime from '$lib/ui/RelativeTime.svelte';
+	import { caretHue } from '$lib/model/page-faces';
+	import { suggestionSentence, type SuggestionSummary } from '$lib/model/document-suggestions';
 	import { composing } from '$lib/primitives/composer-keys';
 	import { failureSentence } from '$lib/model/failure';
 	import {
@@ -53,6 +57,21 @@
 		ondraftdone: (threadId: string | null) => void;
 		/** The whole thread in the comments panel: history, reactions, edits. */
 		onopenpanel: (threadId: string) => void;
+		/** Open suggestions (Sprint 109 E4), each carded beside its words like a comment. */
+		suggestions?: readonly SuggestionSummary[];
+		/** How far down the page each suggestion's words are, by suggestion id. */
+		suggestionAnchors?: ReadonlyMap<string, number>;
+		/** Whether this person may accept or reject suggestions (anyone who may edit it). */
+		canSettle?: boolean;
+		/** Whether this person may answer a comment with suggested edits. */
+		canSuggest?: boolean;
+		onsettle?: (suggestionId: string, accept: boolean) => void;
+		/** A suggestion's card is hovered or focused: its words are marked more strongly. */
+		onhoversuggestion?: (suggestionId: string | null) => void;
+		/** Go to a suggestion's words. */
+		onfocussuggestion?: (suggestionId: string) => void;
+		/** Answer a comment with suggested edits: the page turns to suggesting, for this thread. */
+		onsuggest?: (threadId: string) => void;
 	}
 
 	let {
@@ -68,7 +87,15 @@
 		onactivate,
 		onhover,
 		ondraftdone,
-		onopenpanel
+		onopenpanel,
+		suggestions = [],
+		suggestionAnchors = new Map(),
+		canSettle = false,
+		canSuggest = false,
+		onsettle = () => {},
+		onhoversuggestion = () => {},
+		onfocussuggestion = () => {},
+		onsuggest = () => {}
 	}: Props = $props();
 
 	const DRAFT = 'margin-draft';
@@ -87,6 +114,9 @@
 	let openedHeight = $state(MARGIN_CARD_HEIGHT);
 	let draftHeight = $state(MARGIN_CARD_HEIGHT);
 	const shown = $derived(threads.filter((item) => anchors.has(item.thread.id)));
+	/* A suggestion's card shares the column with comments: one height, never opened. */
+	const SUGGESTION = 'suggestion:';
+	const shownSuggestions = $derived(suggestions.filter((item) => suggestionAnchors.has(item.id)));
 	const tops = $derived(
 		stackMarginNotes(
 			[
@@ -94,6 +124,11 @@
 					id: item.thread.id,
 					anchor: anchors.get(item.thread.id) ?? 0,
 					height: item.thread.id === active ? openedHeight : MARGIN_CARD_HEIGHT
+				})),
+				...shownSuggestions.map((item) => ({
+					id: SUGGESTION + item.id,
+					anchor: suggestionAnchors.get(item.id) ?? 0,
+					height: MARGIN_CARD_HEIGHT
 				})),
 				...(draft ? [{ id: DRAFT, anchor: draft.top, height: draftHeight }] : [])
 			],
@@ -244,6 +279,14 @@
 								>{plural(Math.max(comments.comments.length, opening?.comment_count ?? 1))}</span
 							>
 							<span class="card-tools">
+								{#if canSuggest}
+									<button
+										type="button"
+										class="text-tool"
+										title="Answer with suggested edits: what you change shows as suggestions to accept, linked to this comment"
+										onclick={() => onsuggest(id)}>Suggest edits</button
+									>
+								{/if}
 								{#if canComment}
 									<button
 										type="button"
@@ -328,6 +371,59 @@
 						<span class="excerpt">{opening?.excerpt ?? ''}</span>
 					</button>
 				{/if}
+			</div>
+		{/if}
+	{/each}
+	{#each shownSuggestions as item (item.id)}
+		{@const top = tops.get(SUGGESTION + item.id)}
+		{@const sentence = suggestionSentence(item)}
+		{#if top !== undefined}
+			<div
+				class="margin-card suggestion-card"
+				style:top={`${top}px`}
+				style:--suggestion-hue={caretHue(item.author)}
+				data-margin-suggestion={item.id}
+				role="group"
+				aria-label={`Suggestion by ${nameOf(item.author)}`}
+				onmouseenter={() => onhoversuggestion(item.id)}
+				onmouseleave={() => onhoversuggestion(null)}
+				onfocusin={() => onhoversuggestion(item.id)}
+				onfocusout={() => onhoversuggestion(null)}
+			>
+				<span class="card-head">
+					<span class="author"
+						><span class="swatch" aria-hidden="true"></span><span class="name"
+							>{nameOf(item.author)}</span
+						></span
+					>
+					<span class="when"><RelativeTime value={item.at} /></span>
+					<span class="card-tools">
+						{#if canSettle}
+							<button
+								type="button"
+								class="icon accept"
+								aria-label="Accept"
+								title="Accept this suggestion"
+								disabled={!online}
+								onclick={() => onsettle(item.id, true)}><Check size={15} strokeWidth={2} /></button
+							>
+							<button
+								type="button"
+								class="icon"
+								aria-label="Reject"
+								title="Reject this suggestion"
+								disabled={!online}
+								onclick={() => onsettle(item.id, false)}><XIcon size={15} strokeWidth={2} /></button
+							>
+						{/if}
+					</span>
+				</span>
+				<button
+					type="button"
+					class="suggestion-body"
+					title={item.thread ? `In answer to a comment. ${sentence}` : sentence}
+					onclick={() => onfocussuggestion(item.id)}>{sentence}</button
+				>
 			</div>
 		{/if}
 	{/each}
@@ -450,7 +546,85 @@
 	}
 	.card-tools {
 		display: inline-flex;
+		flex: none;
+		align-items: center;
 		gap: 2px;
+	}
+	.text-tool {
+		height: 24px;
+		padding: 0 6px;
+		border: 0;
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--text-secondary);
+		font: 500 var(--t-label) var(--font-ui);
+		white-space: nowrap;
+		cursor: pointer;
+	}
+	.text-tool:hover,
+	.text-tool:focus-visible {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	/* A suggestion's card: the same one height as a closed comment, in its author's colour. Rows
+	 * never grow: a head row and two lines of what changes. */
+	.suggestion-card {
+		display: grid;
+		grid-template-rows: 20px 40px;
+		gap: 4px;
+		height: 84px;
+		padding: 8px 10px;
+		border-left: 3px solid hsl(var(--suggestion-hue) 65% 45%);
+	}
+	.suggestion-card .author {
+		display: inline-flex;
+		flex: 1 1 auto;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+	}
+	.suggestion-card .name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.swatch {
+		flex: none;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: hsl(var(--suggestion-hue) 65% 45%);
+	}
+	.when {
+		flex: none;
+		color: var(--text-tertiary);
+		font: 400 var(--t-label) var(--font-ui);
+		white-space: nowrap;
+	}
+	.suggestion-body {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		height: 40px;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--text-secondary);
+		font: inherit;
+		text-align: left;
+		overflow-wrap: anywhere;
+		cursor: pointer;
+	}
+	.icon.accept:hover,
+	.icon.accept:focus-visible {
+		color: var(--state-success, var(--ink));
+	}
+	.icon:disabled {
+		cursor: default;
+		opacity: 0.5;
 	}
 	.icon {
 		display: inline-grid;

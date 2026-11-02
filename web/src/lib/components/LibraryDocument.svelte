@@ -1,5 +1,6 @@
 <script lang="ts">
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
+	import { contentHasSuggestions } from '$lib/model/document-suggestions';
 	import { namePageContext } from '$lib/model/page-context.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
@@ -314,7 +315,12 @@
 	}
 
 	/* The latest saved version, read fresh: edits save as versions within seconds of a pause. */
-	async function download(format: 'md' | 'docx'): Promise<void> {
+	/* Word carries suggestions as its own tracked changes, or the agreed text only; Markdown has
+	 * no tracked changes, so it is always the agreed text. */
+	async function download(
+		format: 'md' | 'docx',
+		suggestions: 'tracked' | 'agreed' = 'tracked'
+	): Promise<void> {
 		const target = currentTarget();
 		try {
 			const latest = await getDocument(target.companyId, target.documentId);
@@ -327,7 +333,12 @@
 						)
 					: (await import('$lib/model/document-docx')).documentDocx(
 							latest.document.title,
-							latest.current_version.version.content_json
+							latest.current_version.version.content_json,
+							{
+								suggestions,
+								nameOf: (actorId) =>
+									people.find((person) => person.actor_id === actorId)?.display ?? 'Someone'
+							}
 						);
 			const url = URL.createObjectURL(blob);
 			const link = window.document.createElement('a');
@@ -689,6 +700,7 @@
 				oncomment={openBlockComment}
 				{commentedBlocks}
 				commentThreads={marginThreads}
+				commentsReady={threads.status !== 'unknown' || threads.failure !== null}
 				margin
 				onopenthread={openThread}
 				oncopyblocklink={(blockId) => void copyBlockLink(blockId)}
@@ -769,12 +781,19 @@
 						</p>{/if}
 					<button
 						type="button"
-						title="The latest saved version, as a Word file"
+						title="The latest saved version, as a Word file; suggestions come as Word's tracked changes"
 						onclick={() => void download('docx')}>Download as Word</button
 					>
+					{#if documentView && contentHasSuggestions(documentView.current_version.version.content_json)}
+						<button
+							type="button"
+							title="The latest saved version as a Word file, with the agreed text only: no suggestions"
+							onclick={() => void download('docx', 'agreed')}>Download as Word, agreed text</button
+						>
+					{/if}
 					<button
 						type="button"
-						title="The latest saved version, as a Markdown file"
+						title="The latest saved version, as a Markdown file: the agreed text, without suggestions"
 						onclick={() => void download('md')}>Download as Markdown</button
 					>
 					<button type="button" onclick={printDocument}>Print or save as PDF</button>

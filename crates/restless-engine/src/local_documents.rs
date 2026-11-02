@@ -356,7 +356,11 @@ async fn ready(client: &reqwest::Client, port: u16) -> bool {
         return false;
     }
     response.json::<serde_json::Value>().await.ok()
-        == Some(serde_json::json!({"status":"ready", "protocol_version":1, "schema_version":1}))
+        == Some(serde_json::json!({
+            "status": "ready",
+            "protocol_version": crate::documents_service::NATIVE_DOCUMENTS_PROTOCOL_VERSION,
+            "schema_version": crate::documents_service::NATIVE_DOCUMENTS_SCHEMA_VERSION,
+        }))
 }
 
 pub async fn remove(root: &Path, org: &OrgIntel) -> Result<()> {

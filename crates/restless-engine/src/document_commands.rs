@@ -135,6 +135,26 @@ pub enum DocumentOperation {
     },
 }
 
+/// The comment threads an edit's suggestions answer (`suggest`, `suggest_insert` and
+/// `suggest_delete` take an optional `thread`).
+fn suggestion_threads(operations: &Value) -> Result<Vec<Uuid>> {
+    let mut threads = Vec::new();
+    for operation in operations.as_array().map(Vec::as_slice).unwrap_or_default() {
+        match operation.get("thread") {
+            None | Some(Value::Null) => {}
+            Some(Value::String(thread)) => {
+                let thread = Uuid::parse_str(thread)
+                    .map_err(|_| anyhow::anyhow!("thread must be a comment thread id"))?;
+                if !threads.contains(&thread) {
+                    threads.push(thread);
+                }
+            }
+            Some(_) => anyhow::bail!("thread must be a comment thread id"),
+        }
+    }
+    Ok(threads)
+}
+
 fn comment_content(key: Uuid, body: String, mentions: Vec<String>) -> Value {
     let mut content = vec![json!({"type":"text","text":body})];
     for actor in mentions {
@@ -170,6 +190,16 @@ pub async fn execute_with_body(
             let existing = org
                 .document_edit_command(document, actor, key, &request, None)
                 .await?;
+            if existing.is_none() {
+                // A suggestion that answers a comment names a thread on this same document.
+                for thread in suggestion_threads(&request["operations"])? {
+                    org.list_document_comments(document, thread, actor, None, 1)
+                        .await
+                        .map_err(|_| {
+                            anyhow::anyhow!("suggestion thread {thread} is not a comment thread on this document")
+                        })?;
+                }
+            }
             let selected = match existing {
                 Some(edit) => edit,
                 None => {
@@ -523,6 +553,23 @@ pub async fn execute(org: &OrgIntel, actor: &str, operation: DocumentOperation) 
 mod tests {
     use super::*;
     use anyhow::Context;
+
+    #[test]
+    fn suggestions_name_the_comment_threads_they_answer() {
+        let thread = Uuid::new_v4();
+        let operations = json!([
+            {"op":"suggest","block_id":"a","expected_hash":"x","thread":thread,"block":{}},
+            {"op":"suggest_delete","block_id":"b","expected_hash":"y","thread":thread},
+            {"op":"suggest_insert","after":null,"block":{},"thread":null},
+            {"op":"replace","block_id":"c","expected_hash":"z","block":{}}
+        ]);
+        assert_eq!(suggestion_threads(&operations).unwrap(), vec![thread]);
+        assert!(suggestion_threads(&json!([{"op":"suggest","thread":"comment-1"}])).is_err());
+        assert!(suggestion_threads(&json!([{"op":"suggest","thread":7}])).is_err());
+        assert!(suggestion_threads(&json!({"not":"a list"}))
+            .unwrap()
+            .is_empty());
+    }
 
     #[test]
     fn operation_cannot_override_authenticated_actor() {
