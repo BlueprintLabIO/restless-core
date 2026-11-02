@@ -15,6 +15,9 @@ export interface AccountTab {
 	count?: number;
 	/** A status dot before the label, in the portfolio's tones. */
 	tone?: 'presence' | 'waiting' | 'unavailable';
+	/** A company row's mark: the same logo or pixel figure its card shows, seeded from the same id.
+	 * Without it the row falls back to its first letter. */
+	mark?: { id: string; logoUrl?: string | null };
 }
 
 /** A labelled run of rail rows, such as Companies or a settings group, with an optional add action. */

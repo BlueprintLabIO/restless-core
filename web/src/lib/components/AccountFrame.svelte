@@ -65,6 +65,7 @@
 				.map((company) => ({
 					label: company.name,
 					href: `/${company.id}`,
+					mark: { id: company.id, logoUrl: company.logo_url },
 					count: company.card?.decisions_waiting,
 					tone:
 						company.runtime_status === 'unavailable' || company.unstartable_reason
