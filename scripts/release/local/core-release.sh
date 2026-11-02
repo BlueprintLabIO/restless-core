@@ -11,12 +11,12 @@
 #     scripts/release/local/core-release.sh [--skip-qualify]
 #
 # Needs: a clean checkout (the release names this exact commit), the restless-cloud checkout beside
-# it ($RESTLESS_CLOUD_DIR, default ~/code/work/cloud-s106) for the mirror, and from Infisical
+# it ($RESTLESS_CLOUD_DIR, default ~/code/restless-cloud) for the mirror, and from Infisical
 # RELEASE_SIGNING_KEY, RELEASE_SIGNING_PASSWORD, CLOUDFLARE_RELEASE_TOKEN, CLOUDFLARE_ACCOUNT_ID.
 # Prints the bundle reference Cloud's release takes, and writes everything to $out.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
-cloud="${RESTLESS_CLOUD_DIR:-$HOME/code/work/cloud-s106}"
+cloud="${RESTLESS_CLOUD_DIR:-$HOME/code/restless-cloud}"
 dagger="${DAGGER_BIN:-$HOME/.local/bin/dagger}"
 platform=linux/amd64
 qualify=yes
