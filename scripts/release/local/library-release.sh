@@ -14,7 +14,7 @@
 # `node scripts/fetch-core-library.mjs <kind> <reference> <revision>` takes.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
-cloud="${RESTLESS_CLOUD_DIR:-$HOME/code/work/cloud-s106}"
+cloud="${RESTLESS_CLOUD_DIR:-$HOME/code/restless-cloud}"
 dagger="${DAGGER_BIN:-$HOME/.local/bin/dagger}"
 : "${RELEASE_SIGNING_KEY:?run under infisical run}" "${RELEASE_SIGNING_PASSWORD:?run under infisical run}"
 : "${CLOUDFLARE_RELEASE_TOKEN:?run under infisical run}"
