@@ -115,7 +115,6 @@
 		providerLabel = 'Connect intelligence',
 		contextLabel = 'Current screen',
 		contextLabelFor = null,
-		contextKind = '',
 		focusAfterMessageId = 0,
 		focusStartedAt = null,
 		newFocusAvailable = false,
@@ -162,8 +161,6 @@
 		contextLabel?: string;
 		/** What the screen a sent message links to is called, so the message can name it. */
 		contextLabelFor?: ((path: string) => string) | null;
-		/** Which surface it is on: work, library, people, apps, company or inbox. */
-		contextKind?: string;
 		focusAfterMessageId?: number;
 		focusStartedAt?: string | null;
 		newFocusAvailable?: boolean;
@@ -1118,10 +1115,9 @@
 	const capabilityHint = $derived.by(() => {
 		if (participantId !== 'exec')
 			return `Ask ${participantName} about the work they own; the page you are on is linked.`;
-		if (contextKind === 'work') return 'Exec can inspect current Work before answering.';
-		if (contextKind === 'people') return 'Exec can route a question through the accountable lead.';
-		if (contextKind === 'company')
-			return 'Exec can compare a proposal with current company direction.';
+		/* One line for Exec wherever the owner is: a hint per surface swapped as a slow navigation
+		 * landed, re-wrapping and re-centring the empty rail after the click (S109 C7). The context
+		 * chip below already names the screen. */
 		return 'Exec can inspect Work, compare options, or bring in a fresh critic.';
 	});
 

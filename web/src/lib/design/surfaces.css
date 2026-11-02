@@ -147,7 +147,10 @@
 	flex-direction: column;
 	align-items: center;
 	max-width: 248px;
-	margin: auto;
+	/* Hung from a fixed point near the top, not centred: centred, it moved whenever the
+	 * transcript's height changed or its own content landed (the provider choice arrives after
+	 * the reads), which the zero-jank gate measured on a slow navigation (S109 C7). */
+	margin: clamp(32px, 18vh, 160px) auto auto;
 	text-align: center;
 }
 
