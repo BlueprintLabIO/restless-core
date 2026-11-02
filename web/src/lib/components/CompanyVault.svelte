@@ -39,8 +39,14 @@
 	const external = $derived(
 		view?.references.filter((r) => !view?.secrets?.some((s) => s.reference === r.reference)) ?? []
 	);
+	/* The email integration's own binding reads as what it is: whatever name the key was saved
+	 * under, Email sends with it. */
 	function usedBy(reference: string) {
-		return view?.references.filter((r) => r.reference === reference).map((r) => r.name) ?? [];
+		const names =
+			view?.references
+				.filter((r) => r.reference === reference)
+				.map((r) => (r.name === 'resend.production' ? 'Email' : r.name)) ?? [];
+		return [...new Set(names)];
 	}
 	function uses(reference: string) {
 		const names = usedBy(reference);

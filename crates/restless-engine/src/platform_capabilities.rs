@@ -65,6 +65,8 @@ struct Integration {
     built: bool,
     /// Vault names any one of which connects it.
     keys: &'static [&'static str],
+    /// Older names its key may still be stored under (Resend's `RESEND_API_KEY` and the like).
+    also: Option<fn(&str) -> bool>,
     note: &'static str,
 }
 
@@ -73,24 +75,28 @@ const INTEGRATIONS: &[Integration] = &[
         name: "Email (Resend)",
         built: true,
         keys: &[credential::RESEND_SEND_BINDING],
+        also: Some(credential::is_resend_send_name),
         note: "Sends and observes company email; the key is resend.production.",
     },
     Integration {
         name: "Payments (Airwallex)",
         built: true,
         keys: &["finance.airwallex.read"],
+        also: None,
         note: "Balances and bounded payments, set up in Company › Finance.",
     },
     Integration {
         name: "DNS (Cloudflare)",
         built: false,
         keys: &[],
+        also: None,
         note: "Not built in. With a Cloudflare key in the Vault, call its API through restless effect --secret.",
     },
     Integration {
         name: "Domains",
         built: false,
         keys: &[],
+        also: None,
         note: "Not built in. Registering or moving a domain is an owner step at the registrar.",
     },
 ];
@@ -156,7 +162,12 @@ pub fn integrations(names: &[&str]) -> Vec<Value> {
             let key = integration
                 .keys
                 .iter()
-                .find(|key| names.iter().any(|name| name == *key));
+                .find(|key| names.iter().any(|name| name == *key))
+                .copied()
+                .or_else(|| {
+                    let also = integration.also?;
+                    names.iter().copied().find(|name| also(name))
+                });
             json!({
                 "name": integration.name,
                 "built_in": integration.built,
@@ -469,6 +480,16 @@ mod tests {
         assert_eq!(dns["built_in"], false);
         assert_eq!(dns["connected"], false);
         assert!(rows.iter().any(|row| row["name"] == "Domains"));
+        // A key the owner saved under an older Resend name connects Email; the webhook secret does not.
+        let email = |names: &[&str]| {
+            integrations(names)
+                .into_iter()
+                .find(|row| row["name"] == "Email (Resend)")
+                .unwrap()
+        };
+        assert_eq!(email(&["RESEND_API_KEY"])["connected"], true);
+        assert_eq!(email(&["RESEND_API_KEY"])["key"], "RESEND_API_KEY");
+        assert_eq!(email(&["resend.webhook"])["connected"], false);
     }
 
     #[test]
