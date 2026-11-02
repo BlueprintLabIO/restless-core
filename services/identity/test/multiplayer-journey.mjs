@@ -1510,6 +1510,20 @@ try {
     assert(card, "the email is in the owner's Inbox");
     assert.match(card.evidence[0].content, /^From: hello@multiplayer\.test\nTo: jo@example\.net\nSubject: Your quote/, "the card shows the email itself");
     assert(!(await inInbox(bob)) && !(await inInbox(alice)), "only the owner is asked");
+    // The owner reads the email in the card, at desktop and phone width, light and dark.
+    for (const [width, height] of [[1440, 900], [390, 844]])
+      for (const colorScheme of ["light", "dark"]) {
+        await owner.page.setViewportSize({ width, height });
+        await owner.page.emulateMedia({ colorScheme });
+        await owner.page.goto(`${core}/${company}?item=${encodeURIComponent(itemId)}`);
+        await owner.page.locator("article.email").waitFor({ timeout: 15000 });
+        await owner.page.getByText("Hold to send email").first().waitFor({ timeout: 15000 });
+        const sideways = await owner.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        assert(sideways <= 0, `the email card scrolls sideways by ${sideways}px at ${width}`);
+        await shot(owner, `email-card-${width}-${colorScheme}`);
+      }
+    await owner.page.setViewportSize({ width: 1280, height: 900 });
+    await owner.page.emulateMedia({ colorScheme: "light" });
     const answer = (who, expected, decision = { action: "grant" }) =>
       coreApi(who, `${base}/approvals/pending-decision`, {
         method: "POST", expected,
