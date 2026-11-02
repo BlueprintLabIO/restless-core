@@ -11,7 +11,8 @@
 #   scripts/release/local/pr-checks.sh          (scheduled by restless-pr-checks.timer)
 set -uo pipefail
 core="$(cd "$(dirname "$0")/../../.." && pwd)"
-cloud="${RESTLESS_CLOUD_DIR:-$HOME/code/work/cloud-s106}"
+# The main Cloud clone, not a work worktree: worktrees get cleaned up.
+cloud="${RESTLESS_CLOUD_DIR:-$HOME/code/restless-cloud}"
 dagger="${DAGGER_BIN:-$HOME/.local/bin/dagger}"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/restless-release/pr-checks"
 mkdir -p "$state"
