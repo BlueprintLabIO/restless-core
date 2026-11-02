@@ -436,6 +436,23 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 }))
             }
         }
+        "attention-act" => {
+            let Some(action) = request.attention_action.as_ref() else {
+                return Response::err("missing the Inbox action");
+            };
+            match crate::exec_inbox::queue(
+                daemon,
+                company,
+                request.common.as_actor.as_deref(),
+                request.orgintel.source_message_id,
+                action,
+            )
+            .await
+            {
+                Ok(saved) => Response::ok(saved),
+                Err(refusal) => Response::err(refusal),
+            }
+        }
         "direction-operation" => {
             // Exec acts on a person's direction; nobody else names a requester.
             let actor = request.orgintel.actor.as_deref().unwrap_or("");

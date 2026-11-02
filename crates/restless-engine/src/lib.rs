@@ -46,6 +46,7 @@ pub mod email;
 pub mod email_approval;
 pub mod entry;
 pub mod exec;
+pub mod exec_inbox;
 pub mod finance;
 pub mod github_app;
 pub mod health;

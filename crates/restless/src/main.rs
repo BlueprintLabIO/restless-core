@@ -94,6 +94,99 @@ enum AppsCommand {
     },
 }
 
+/// Exec manages the owner's Inbox from their chat: each change cites the owner's message that
+/// asked for it, shows in the Inbox beside the item with Undo, and takes effect after the same
+/// five-second window as the owner's own actions.
+#[derive(Subcommand)]
+enum AttentionCommand {
+    /// Accept or approve an item the owner said yes to.
+    Accept {
+        /// The item's id, as each line of the owner's Inbox shows it.
+        #[arg(long)]
+        item: String,
+        /// The owner's message to you that asked for this.
+        #[arg(long)]
+        source_message: i64,
+        /// Anything the owner added, in their words.
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+    /// Decline an item the owner said no to; their reason goes back to whoever asked. An outcome
+    /// review goes back for changes and needs the reason.
+    Decline {
+        #[arg(long)]
+        item: String,
+        #[arg(long)]
+        source_message: i64,
+        /// The owner's reason, in their words.
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+    /// Record the owner's answer to a question waiting on them.
+    Answer {
+        #[arg(long)]
+        item: String,
+        #[arg(long)]
+        source_message: i64,
+        /// The owner's answer.
+        #[arg(long)]
+        note: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+    /// Take an item off the Inbox until a time the owner chose ("remind me tomorrow").
+    Snooze {
+        #[arg(long)]
+        item: String,
+        #[arg(long)]
+        source_message: i64,
+        /// When it comes back, RFC 3339 with the owner's offset (2026-11-04T09:00:00+11:00).
+        #[arg(long)]
+        until: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+    /// Set an item aside as not needed; the owner can bring it back.
+    Dismiss {
+        #[arg(long)]
+        item: String,
+        #[arg(long)]
+        source_message: i64,
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+    /// Re-prioritise: put an item at the top, the bottom or a place in the owner's list.
+    Move {
+        #[arg(long)]
+        item: String,
+        #[arg(long)]
+        source_message: i64,
+        /// top, bottom, or a place counted from 1.
+        #[arg(long)]
+        to: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+    /// Add an item the conversation showed needs the owner, in their words.
+    Add {
+        #[arg(long)]
+        title: String,
+        /// What the owner needs to do or decide, and why.
+        #[arg(long)]
+        note: String,
+        #[arg(long)]
+        source_message: i64,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+}
+
 #[derive(Subcommand)]
 enum CapabilitiesCommand {
     /// File a fault in Restless itself (not in your own work) to the Restless company.
@@ -357,14 +450,17 @@ enum Command {
         #[command(subcommand)]
         command: IdentityCommand,
     },
-    /// Owner attention, projected from its source planes.
+    /// Owner attention, projected from its source planes. As Exec, change it on the owner's word
+    /// with a subcommand: accept, decline, answer, snooze, dismiss, move or add.
     Attention {
-        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
         company: Option<String>,
         /// Render the compact owner queue and the existing source-owned typed
         /// commands. Omit for the full JSON projection.
         #[arg(long)]
         summary: bool,
+        #[command(subcommand)]
+        command: Option<AttentionCommand>,
     },
     /// Probe persistent browser and desktop health.
     Browser {
@@ -2781,7 +2877,18 @@ fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }
-        Command::Attention { company, summary } => {
+        Command::Attention {
+            company,
+            command: Some(command),
+            ..
+        } => {
+            let request = stamp(attention_action_request(company, command));
+            let response = request_once(&request.to_string())?;
+            print_response(&response)
+        }
+        Command::Attention {
+            company, summary, ..
+        } => {
             let request = stamp(serde_json::json!({ "cmd": "attention", "company": company }));
             let response = request_once(&request.to_string())?;
             if summary {
@@ -3737,9 +3844,16 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 serde_json::json!({"cmd":"culture-review","company":company,"culture_case_record_id":record,"review_verdict":verdict,"conduct_findings":conduct,"dissent_findings":dissent,"uncertainty_findings":uncertainty,"correction_findings":correction,"authority_findings":authority,"customer_or_hiring_findings":customer_or_hiring,"slogan_recitation_detected":slogan_recitation,"actor":acting_actor()})
             }
         },
-        Command::Attention { company: c, .. } => {
-            serde_json::json!({ "cmd": "attention", "company": c })
-        }
+        Command::Attention {
+            company: c,
+            command: None,
+            ..
+        } => serde_json::json!({ "cmd": "attention", "company": c }),
+        Command::Attention {
+            company: c,
+            command: Some(command),
+            ..
+        } => attention_action_request(c, command),
         Command::Browser { command } => match command {
             BrowserCommand::Status { company } => {
                 serde_json::json!({ "cmd": "browser-status", "company": company })
@@ -4564,6 +4678,118 @@ fn print_response(response: &str) -> Result<()> {
 /// `attention` is the one unified *read* surface for owner control. The
 /// lines below deliberately point at the already-typed source commands;
 /// there is no `attention act` endpoint and no universal mutation algebra.
+/// One Exec change to the owner's Inbox, as the daemon's `attention-act` command.
+fn attention_action_request(
+    company: Option<String>,
+    command: AttentionCommand,
+) -> serde_json::Value {
+    let (verb, item, source_message, as_actor, extra) = match command {
+        AttentionCommand::Accept {
+            item,
+            source_message,
+            note,
+            as_actor,
+        } => (
+            "accept",
+            Some(item),
+            source_message,
+            as_actor,
+            serde_json::json!({ "note": note }),
+        ),
+        AttentionCommand::Decline {
+            item,
+            source_message,
+            note,
+            as_actor,
+        } => (
+            "decline",
+            Some(item),
+            source_message,
+            as_actor,
+            serde_json::json!({ "note": note }),
+        ),
+        AttentionCommand::Answer {
+            item,
+            source_message,
+            note,
+            as_actor,
+        } => (
+            "answer",
+            Some(item),
+            source_message,
+            as_actor,
+            serde_json::json!({ "note": note }),
+        ),
+        AttentionCommand::Snooze {
+            item,
+            source_message,
+            until,
+            as_actor,
+        } => (
+            "snooze",
+            Some(item),
+            source_message,
+            as_actor,
+            serde_json::json!({ "until": until }),
+        ),
+        AttentionCommand::Dismiss {
+            item,
+            source_message,
+            note,
+            as_actor,
+        } => (
+            "dismiss",
+            Some(item),
+            source_message,
+            as_actor,
+            serde_json::json!({ "note": note }),
+        ),
+        AttentionCommand::Move {
+            item,
+            source_message,
+            to,
+            as_actor,
+        } => (
+            "move",
+            Some(item),
+            source_message,
+            as_actor,
+            serde_json::json!({ "to": to }),
+        ),
+        AttentionCommand::Add {
+            title,
+            note,
+            source_message,
+            as_actor,
+        } => (
+            "add",
+            None,
+            source_message,
+            as_actor,
+            serde_json::json!({ "title": title, "note": note }),
+        ),
+    };
+    let mut action = serde_json::Map::new();
+    action.insert("verb".into(), verb.into());
+    if let Some(item) = item {
+        action.insert("item".into(), item.into());
+    }
+    if let Some(extra) = extra.as_object() {
+        for (key, value) in extra {
+            if !value.is_null() {
+                action.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    serde_json::json!({
+        "cmd": "attention-act",
+        "company": company,
+        "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok()),
+        "source_message_id": source_message,
+        "attention_action": action,
+    })
+}
+
 fn print_attention_summary(response: &str) -> Result<()> {
     let data = response_data(response)?;
     println!("{}", render_attention_summary(&data));
@@ -4632,6 +4858,9 @@ fn render_attention_summary(data: &serde_json::Value) -> String {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("unknown");
         lines.push(format!("   Source: {plane} / {kind} / {reference}"));
+        if let Some(id) = item["id"].as_str() {
+            lines.push(format!("   Item: {id}"));
+        }
         if let Some(recommendation) = compact_attention_text(item["recommendation"].as_str()) {
             lines.push(format!("   Recommendation: {recommendation}"));
         }

@@ -283,6 +283,7 @@ pub(super) async fn run(state: OwnerState) -> std::io::Result<()> {
                 Err(error) => tracing::warn!(%error, "pending decision deadline could not be read"),
             }
             super::document_decisions_api::apply_due(&state, &org).await;
+            super::exec_inbox_api::apply_due(&state, &company, &org).await;
             let due = match org.due_handoff_decisions().await {
                 Ok(due) => due,
                 Err(error) => {

@@ -99,6 +99,9 @@ pub struct ContextSnapshot {
     /// of "if a card is there" (S109 B2). `None` when it could not be read this wake. Empty and
     /// unrendered on a turn for a member or a focused mention.
     pub owner_inbox: Option<Vec<String>>,
+    /// What Exec itself changed in the owner's Inbox from their chat lately, one line each, with
+    /// how it ended (done, undone by the owner, refused). Rendered beside the owner's Inbox.
+    pub exec_inbox_actions: Vec<String>,
     /// At most one focused collaboration mention. The Runtime processes recipient
     /// Attention serially and the durable unresolved row wakes the next turn.
     pub pending_mention: Option<crate::mentions::MentionContext>,
@@ -440,6 +443,15 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             }
             for line in lines {
                 block.push_str(&format!("- {line}\n"));
+            }
+            if !snapshot.exec_inbox_actions.is_empty() {
+                block.push_str(
+                    "Your changes to it from the owner's chat [fact — each cites their message; \
+                     the owner sees them in the Inbox with Undo]:\n",
+                );
+                for line in &snapshot.exec_inbox_actions {
+                    block.push_str(&format!("- {line}\n"));
+                }
             }
             block.push('\n');
             block
@@ -989,6 +1001,7 @@ mod tests {
             company_display: "Hopeful Piano".into(),
             owner_actor_id: "owner".into(),
             human_is_membership_owner: true,
+            exec_inbox_actions: vec![],
             operating_rules: "1. Claims are not observations.".into(),
             mission: "make the thing".into(),
             legal_identity: None,

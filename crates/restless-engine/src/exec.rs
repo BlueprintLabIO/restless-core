@@ -1689,6 +1689,8 @@ fn owner_inbox_line(item: &crate::attention::AttentionItem) -> String {
         line.push_str(&format!(" · asked by {}", actor.display));
     }
     line.push_str(&format!(" · since {}", ago(item.created_at)));
+    // The id `restless attention <verb> --item` takes when the owner decides it in chat.
+    line.push_str(&format!(" · item {}", item.id));
     if item.source.kind == "owner_handoff" {
         line.push_str(&format!(" · handoff {}", item.source.reference));
     }
@@ -1847,6 +1849,13 @@ async fn gather_snapshot(
             Err(_) => None,
         }
     };
+    // Exec's own recent changes to the owner's Inbox and how each ended, so an undone one is not
+    // silently redone and a refused one is reported honestly.
+    let exec_inbox_actions = if pending_mention.is_some() || !human_is_membership_owner {
+        Vec::new()
+    } else {
+        crate::exec_inbox::recent_lines(org).await
+    };
     // What people changed in settings in the last three days: a raised limit, a new name, another
     // model. Exec otherwise carries on as if what it last saw still held (14 October report).
     let people_changes = {
@@ -1928,6 +1937,7 @@ async fn gather_snapshot(
         human_is_membership_owner,
         owner_set_aside,
         owner_inbox,
+        exec_inbox_actions,
         operating_rules: crate::context::COMPANY_OPERATING_RULES.to_string(),
         mission: config.mission.clone(),
         legal_identity,

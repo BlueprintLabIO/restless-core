@@ -4257,6 +4257,15 @@ async fn project_queue(
     {
         items.retain(|item| item.source.kind != "overdue_dispatch_blocked");
     }
+    // What Exec added to the owner's Inbox from their chat (3 November owner decision).
+    if assignee.is_none() {
+        if let Some(org) = org {
+            match org.open_exec_inbox_items().await {
+                Ok(added) => items.extend(added.iter().map(crate::exec_inbox::added_item)),
+                Err(error) => tracing::warn!(%error, "items Exec added are unavailable"),
+            }
+        }
+    }
     // Set aside by the owner as not needed, until it is raised again.
     let mut set_aside = Vec::new();
     if let Some(org) = org {
