@@ -3054,13 +3054,30 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                         }
                     };
                     return match daemon.orgintel.get(company).await {
-                        Ok(org) => match org
+                        Ok(org) => {
+                            // A go-ahead in conversation accepts only an outcome that still opens.
+                            if answer == restless_orgintel::OwnerChatAnswer::Yes {
+                                let refusal = match runtime::CompanyConfig::load(&daemon.root, company) {
+                                    Ok(config) => crate::attention::unavailable_review_outcome(
+                                        &config, &daemon.authority, &org, id, "owner",
+                                    )
+                                    .await
+                                    .map_err(|error| format!("{error:#}"))
+                                    .and_then(|refusal| refusal.map_or(Ok(()), |(_, reason)| Err(reason))),
+                                    Err(error) => Err(format!("{error:#}")),
+                                };
+                                if let Err(reason) = refusal {
+                                    return Response::err(reason);
+                                }
+                            }
+                            match org
                             .answer_handoff_from_owner_message(id, message_id, answer, resolution)
                             .await
                         {
                             Ok(()) => Response::ok("recorded as the owner's answer"),
                             Err(error) => Response::err(format!("{error:#}")),
-                        },
+                        }
+                        }
                         Err(error) => Response::err(format!("{error:#}")),
                     };
                 }

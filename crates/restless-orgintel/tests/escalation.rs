@@ -1885,3 +1885,95 @@ async fn expired_human_step_can_be_prepared_again_without_resolving_or_duplicati
     );
     org.drop_schema().await.unwrap();
 }
+
+/// Owner reviews that reached the Inbox before reviews were refused without a preview (S109
+/// A4) go back to their author when the company is opened; a review with its preview stays.
+#[tokio::test]
+async fn opening_a_company_returns_owner_reviews_without_a_preview_to_their_author() {
+    use restless_orgintel::{NewArtifactRef, WorkAttemptState, WorkStatus};
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping empty review repair scenario");
+        return;
+    };
+    let company = format!("empty_review_{}_test", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    org.ensure_actor("review-producer", "staff", "producer", "Producer")
+        .await
+        .unwrap();
+    let mut reviews = Vec::new();
+    for title in ["Lost its preview", "Still has its preview"] {
+        let work = work_for(&org, "review-producer", title).await;
+        let attempt = org.claim_ready_work(title).await.unwrap().unwrap();
+        assert_eq!(attempt.work.id, work);
+        let handoff = org
+            .request_owner_handoff(NewOwnerHandoff {
+                work_id: work,
+                attempt_id: Some(attempt.attempt_id),
+                requested_by: "review-producer",
+                category: OwnerHandoffCategory::OwnerJudgement,
+                requested_action: "Review the candidate",
+                prepared_state: "The candidate is prepared",
+                resume_condition: "An explicit owner review",
+            })
+            .await
+            .unwrap();
+        org.prepare_owner_brief(
+            handoff,
+            "exec",
+            owner_brief(OwnerBriefKind::OutcomeReview, title),
+        )
+        .await
+        .unwrap();
+        let artifact = org
+            .link_work_artifact(NewArtifactRef {
+                kind: "review_target",
+                uri: "/company/outputs/candidate.md",
+                note: title,
+                created_by: "review-producer",
+                work_id: Some(work),
+                attempt_id: Some(attempt.attempt_id),
+                digest: None,
+                source_commit: None,
+                runtime_generation: None,
+                label: title,
+            })
+            .await
+            .unwrap();
+        org.escalate_handoff(handoff, "exec", "The owner reviews the candidate")
+            .await
+            .unwrap();
+        org.finish_work_attempt(
+            attempt.attempt_id,
+            WorkAttemptState::Blocked,
+            "Waiting for the owner's review",
+        )
+        .await
+        .unwrap();
+        reviews.push((work, handoff, artifact));
+    }
+    assert_eq!(owner_queue(&org).await.len(), 2);
+    let (lost_work, lost_handoff, lost_artifact) = reviews[0];
+    org.retire_work_artifact(lost_artifact, "exec", "the candidate file was removed")
+        .await
+        .unwrap();
+
+    let reopened = OrgIntel::ensure(&url, &company).await.unwrap();
+    assert_eq!(owner_queue(&reopened).await, vec![reviews[1].1]);
+    let graph = reopened.work_graph_snapshot().await.unwrap();
+    let returned = graph.handoffs.iter().find(|row| row.id == lost_handoff);
+    assert!(returned.is_none_or(|row| row.state == OwnerHandoffState::Resolved));
+    let work = reopened.get_work(lost_work).await.unwrap().unwrap();
+    assert_eq!(work.status, WorkStatus::Active);
+    assert!(work
+        .resolution
+        .contains("Prepare and link the actual outcome before requesting review again"));
+    // Idempotent: a second open finds nothing more to return.
+    assert_eq!(reopened.return_unprepared_owner_reviews().await.unwrap(), 0);
+    reopened.drop_schema().await.unwrap();
+}

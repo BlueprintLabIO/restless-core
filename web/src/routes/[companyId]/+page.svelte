@@ -25,11 +25,7 @@
 	import { celebrate } from '$lib/ui/celebrate';
 	import DirectionRequestDetail from '$lib/components/DirectionRequestDetail.svelte';
 	import CharterPurpose from '$lib/components/CharterPurpose.svelte';
-	import {
-		attentionTitle,
-		coordinationFailure,
-		isOutcomeReview
-	} from '$lib/model/attention-presentation';
+	import { attentionTitle, coordinationFailure } from '$lib/model/attention-presentation';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
@@ -981,9 +977,7 @@
 			{companyId}
 			{item}
 			{artifacts}
-			content={isOutcomeReview(item) || (item.category === 'review' && !!item.reviewTarget)
-				? outcomeContent
-				: undefined}
+			content={item.category === 'review' && item.reviewTarget ? outcomeContent : undefined}
 			preview={previewTarget ? previewContent : undefined}
 			workOwnerId={graph?.work.find((work) => work.id === item.workId)?.owner_id}
 			canSetAside={owner}

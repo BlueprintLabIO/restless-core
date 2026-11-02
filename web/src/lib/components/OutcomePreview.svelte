@@ -28,7 +28,6 @@
 	const targetStatus = $derived(target?.status),
 		targetKind = $derived(target?.kind);
 	const targetFailure = $derived(target?.unavailableReason),
-		hasTarget = $derived(!!target),
 		itemId = $derived(item.id);
 	/* A stopped computer starts from the review itself, so the outcome opens where it is judged. */
 	let starting = $state(false);
@@ -54,7 +53,6 @@
 			id = itemId,
 			status = targetStatus,
 			kind = targetKind,
-			exists = hasTarget,
 			unavailable = targetFailure;
 		void attempt;
 		let current = true;
@@ -62,10 +60,6 @@
 		url = '';
 		failure = '';
 		loading = false;
-		if (!exists) {
-			failure = 'No prepared preview was linked. The recorded evidence is available below.';
-			return;
-		}
 		if (status !== 'available' && status !== 'asleep') {
 			failure = unavailable || 'The prepared outcome is unavailable. The decision remains pending.';
 			return;

@@ -48,6 +48,36 @@ pub(super) async fn return_unprepared_review_in_tx(
     Ok(())
 }
 
+impl OrgIntel {
+    /// Idempotent repair when a company is opened: an outcome review already owed to a person
+    /// with no linked prepared preview (from before reviews were refused at admission) goes back
+    /// to its author with the same feedback a refused escalation gets, instead of waiting in an
+    /// Inbox as an empty card. Reviews whose Work is still running, or that wait on a named
+    /// document review or an Undo window, are left alone.
+    pub async fn return_unprepared_owner_reviews(&self) -> Result<usize> {
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
+            "SELECT h.id, h.work_id, COALESCE(h.escalated_from, 'exec') AS sender, w.owner_id              FROM owner_handoffs h JOIN work w ON w.id=h.work_id              WHERE h.state='pending' AND h.owner_brief->>'kind'='outcome_review'                AND w.status IN ('active','blocked')                AND (h.assigned_to IS NULL OR EXISTS (SELECT 1 FROM actors a                     WHERE a.id=h.assigned_to AND a.actor_class='human'))                AND NOT EXISTS (SELECT 1 FROM artifact_refs r WHERE r.work_id=h.work_id                     AND r.state='available' AND r.kind='review_target'                     AND (h.attempt_id IS NULL OR r.attempt_id=h.attempt_id))                AND NOT EXISTS (SELECT 1 FROM work_attempts a                     WHERE a.work_id=h.work_id AND a.state='running')                AND NOT EXISTS (SELECT 1 FROM native_document_work_review_dependencies d                     WHERE d.work_id=h.work_id AND d.status='pending')                AND NOT EXISTS (SELECT 1 FROM owner_handoff_decisions d                     WHERE d.handoff_id=h.id AND d.state='pending')              ORDER BY h.created_at, h.id FOR UPDATE OF h, w",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for row in &rows {
+            let author: String = row.get("owner_id");
+            let sender: String = row.get("sender");
+            return_unprepared_review_in_tx(
+                &mut tx,
+                row.get("id"),
+                row.get("work_id"),
+                &sender,
+                &author,
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(rows.len())
+    }
+}
+
 fn validate_handoff_context(
     requested_action: &str,
     prepared_state: &str,

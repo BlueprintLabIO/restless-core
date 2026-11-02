@@ -168,6 +168,19 @@ pub(crate) async fn review_outcome(
             )
         }
     };
+    if decision == restless_orgintel::OwnerReviewDecision::Accepted {
+        if let Err(reason) = outcome_still_opens(
+            &state,
+            &company,
+            &org,
+            handoff,
+            handoff_resolver(&principal),
+        )
+        .await
+        {
+            return api_error(StatusCode::CONFLICT, "review_target", reason);
+        }
+    }
     match org
         // The owner reviews what is theirs; the person who owns the Work's team reviews what
         // Exec prepared for them. OrgIntel checks whose review it is.
@@ -193,6 +206,47 @@ pub(crate) async fn review_outcome(
         ),
         Err(error) => api_error(StatusCode::BAD_REQUEST, "review", error.plain_message()),
     }
+}
+
+/// Accepting approves the outcome that was shown, so it must still open when the acceptance is
+/// recorded: at the click, and again when an Undo window ends. A computer that went to sleep is
+/// woken to check; a stopped one, or a file that has gone, refuses the acceptance in a sentence.
+pub(crate) async fn outcome_still_opens(
+    state: &OwnerState,
+    company: &str,
+    org: &restless_orgintel::OrgIntel,
+    handoff: Uuid,
+    reviewer: &str,
+) -> std::result::Result<(), String> {
+    let config = runtime::CompanyConfig::load(&state.daemon.root, company)
+        .map_err(|_| "The company is temporarily unavailable. Try again.".to_string())?;
+    for woken in [false, true] {
+        match attention::unavailable_review_outcome(
+            &config,
+            &state.daemon.authority,
+            org,
+            handoff,
+            reviewer,
+        )
+        .await
+        {
+            Ok(None) => return Ok(()),
+            Ok(Some(("asleep", _))) if !woken => {
+                if !restless_engine::runtime_sleep::wake_for(
+                    &state.daemon,
+                    company,
+                    "the owner accepted a review",
+                )
+                .await
+                {
+                    return Err("The company computer could not wake to check the outcome, so it was not accepted. Start it from Company → Computer.".into());
+                }
+            }
+            Ok(Some((_, reason))) => return Err(reason),
+            Err(_) => return Err("The outcome could not be checked. Try again.".into()),
+        }
+    }
+    Err("The outcome could not be checked. Try again.".into())
 }
 
 /// The owner opening a file is real demand: a computer that went to sleep while idle wakes for

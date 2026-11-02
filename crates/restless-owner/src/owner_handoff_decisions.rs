@@ -93,17 +93,30 @@ pub(super) fn owner_access_current(state: &OwnerState, principal: &HumanDecision
     }
 }
 
+/// What must still hold when a decision is queued, and again when its Undo window ends.
+async fn check_boundary(
+    state: &OwnerState,
+    company: &str,
+    org: &restless_orgintel::OrgIntel,
+    handoff: Uuid,
+    decision: &HandoffDecision,
+    reviewer: &str,
+) -> Result<(), String> {
+    match decision {
+        HandoffDecision::AcceptReview { .. } => {
+            super::review_api::outcome_still_opens(state, company, org, handoff, reviewer).await
+        }
+        _ => check_payment_boundary(state, company, handoff).await,
+    }
+}
+
 /// Held payments keep their provider-observed boundary; a delayed click must
 /// not become another way to finish or skip them.
 async fn check_payment_boundary(
     state: &OwnerState,
     company: &str,
     handoff: Uuid,
-    decision: &HandoffDecision,
 ) -> Result<(), String> {
-    if matches!(decision, HandoffDecision::AcceptReview { .. }) {
-        return Ok(());
-    }
     let payments = finance::payments(&state.daemon.authority, company)
         .await
         .map_err(|_| "Payment status is temporarily unavailable. Try again.".to_string())?;
@@ -137,9 +150,6 @@ async fn queue(
             "Your access changed. Open the company again.",
         );
     }
-    if let Err(problem) = check_payment_boundary(&state, &company, handoff, &input.decision).await {
-        return api_error(StatusCode::BAD_REQUEST, "handoff_decision", problem);
-    }
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
         Err(_) => {
@@ -150,6 +160,18 @@ async fn queue(
             )
         }
     };
+    if let Err(problem) = check_boundary(
+        &state,
+        &company,
+        &org,
+        handoff,
+        &input.decision,
+        identity.resolver(),
+    )
+    .await
+    {
+        return api_error(StatusCode::BAD_REQUEST, "handoff_decision", problem);
+    }
     match org
         .queue_handoff_decision(input.id, identity, &input.expected_version, &input.decision)
         .await
@@ -274,9 +296,15 @@ pub(super) async fn run(state: OwnerState) -> std::io::Result<()> {
                         "Your account access changed before this decision was recorded."
                             .to_string(),
                     )
-                } else if let Err(problem) =
-                    check_payment_boundary(&state, &company, saved.handoff_id, &saved.decision)
-                        .await
+                } else if let Err(problem) = check_boundary(
+                    &state,
+                    &company,
+                    &org,
+                    saved.handoff_id,
+                    &saved.decision,
+                    saved.principal.resolver(),
+                )
+                .await
                 {
                     Some(problem)
                 } else {
