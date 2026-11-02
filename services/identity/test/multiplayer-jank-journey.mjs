@@ -66,6 +66,8 @@ const WIDTHS = { desktop: { width: 1440, height: 900 }, phone: { width: 390, hei
 const SLOW_MS = 1200;
 const SETTLE_MS = 2500; // observed after the reveal; the slow state waits for its held reads too
 const SLOW_SETTLE_MS = 6500;
+// The Email card (S109 H2) needs a Resend key the daemon can resolve; nothing is ever sent.
+process.env.RESTLESS_JANK_RESEND_KEY ??= "re_jank_never_sent";
 const ONLY = (process.env.RESTLESS_JANK_ONLY ?? "").split(",").filter(Boolean);
 const wanted = (id) => !ONLY.length || ONLY.some((part) => id.includes(part));
 
@@ -684,8 +686,24 @@ async function seed(owner, alice) {
       expected: 201,
       body: { block_id: block.attrs.block_id, quote, content_json: { type: "doc", content: [paragraph(text)] } },
     });
+  /* An email Exec asks the owner to send (S109 H2), with a long subject and body. */
+  await daemonCommand({ cmd: "company-set", company, state: "credentials.RESEND_API_KEY", body: "env:RESTLESS_JANK_RESEND_KEY" });
+  const asked = await daemonCommand({
+    cmd: "email-send",
+    company,
+    actor: "exec",
+    email_request: {
+      from: "hello@harbour-street-cafe-renovations.example.com",
+      from_name: "Harbour Street Café",
+      to: "the.supplier.with.a.long.address@spring-joinery-and-fitouts.example.net",
+      subject: "Harbour Street café renovation: confirming the joinery quote, the delivery window and the site access for the first week of spring",
+      text: Array.from({ length: 12 }, (_, line) => `Line ${line + 1}: the counters, the shelving and the bench seat, delivered to the lane behind the café before nine.`).join("\n"),
+      effect_key: `jank-email-${randomUUID()}`,
+    },
+  });
+  assert.equal(asked.status, "waiting_for_owner");
   await until(async () => (await coreApi(owner, `${base}/attention`)).items.length >= 2, "seeded Inbox items", 30);
-  pass("seeded documents, a sheet, goals, a team, a room with a mention, direction requests, a charter draft, a review and margin comments");
+  pass("seeded documents, a sheet, goals, a team, a room with a mention, direction requests, a charter draft, a review, margin comments and an email to approve");
   return { path: `/${company}/library/documents?document=${plan}`, name: "document" };
 }
 

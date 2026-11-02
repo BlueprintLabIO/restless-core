@@ -16,6 +16,9 @@ import { lookup } from "node:dns/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// A Resend key the daemon can resolve and never uses: the journey asks the owner, it sends nothing.
+process.env.RESTLESS_JOURNEY_RESEND_KEY ??= "re_journey_never_sent";
 import pg from "pg";
 import { setup } from "../scripts/setup.mjs";
 
@@ -1488,6 +1491,48 @@ try {
     assert(!(await inInbox()), "answered: the card stays gone");
     await answer(owner, 400, { action: "decline" });
     pass("mandate answer: owner only, Undo by the decider only, applies once after the window");
+  }
+
+  // 9i-3. An email without a mandate waits for the owner (S109 H2). The Resend key is stored
+  //       under an older name (RESEND_API_KEY) and still counts. Exec's send puts the exact email
+  //       in the owner's Inbox; the admin and the member neither see nor answer it; Undo puts it
+  //       back; after the window Exec is told it may send. Nothing reaches Resend here.
+  {
+    await daemonCommand({ cmd: "company-set", company, state: "credentials.RESEND_API_KEY", body: "env:RESTLESS_JOURNEY_RESEND_KEY" });
+    const email = { from: "hello@multiplayer.test", to: "jo@example.net", subject: "Your quote for the open day", text: "Hi Jo,\n\nThanks for coming by. Your quote is attached in spirit.\n\nSam", effect_key: `journey-quote-${randomUUID()}` };
+    const send = () => daemonCommand({ cmd: "email-send", company, email_request: email, actor: "exec" });
+    const asked = await send();
+    assert.equal(asked.status, "waiting_for_owner", "nothing is sent without the owner");
+    assert.equal((await send()).request_id, asked.request_id, "asking again is the same card");
+    const itemId = `authority:email_send:${asked.request_id}`;
+    const inInbox = async (who = owner) => (await coreApi(who, `${base}/attention`)).items.some((item) => item.id === itemId);
+    const card = (await coreApi(owner, `${base}/attention`)).items.find((item) => item.id === itemId);
+    assert(card, "the email is in the owner's Inbox");
+    assert.match(card.evidence[0].content, /^From: hello@multiplayer\.test\nTo: jo@example\.net\nSubject: Your quote/, "the card shows the email itself");
+    assert(!(await inInbox(bob)) && !(await inInbox(alice)), "only the owner is asked");
+    const answer = (who, expected, decision = { action: "grant" }) =>
+      coreApi(who, `${base}/approvals/pending-decision`, {
+        method: "POST", expected,
+        body: { id: randomUUID(), item_id: itemId, target: { kind: "email_send", request: asked.request_id }, decision },
+      });
+    await answer(bob, 403);
+    await answer(alice, 403);
+    const undone = await answer(owner, 200);
+    assert.equal(undone.kind, "send");
+    assert(!(await inInbox()), "the card leaves at once");
+    assert.equal((await coreApi(owner, `${base}/approval-decisions/${undone.id}`, { method: "DELETE" })).state, "canceled");
+    assert(await inInbox(), "Undo puts the card back");
+    assert.equal((await send()).status, "waiting_for_owner", "an undone approval sends nothing");
+    const saved = await answer(owner, 200);
+    const deadline = Date.now() + 20000;
+    let state = saved.state;
+    while (state === "pending" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      state = (await coreApi(owner, `${base}/approval-decisions`)).items.find((item) => item.id === saved.id)?.state ?? "gone";
+    }
+    assert.equal(state, "applied", "the approval takes effect after the window");
+    assert(!(await inInbox()), "answered: the card stays gone");
+    pass("email send: a key under an old name counts; the exact email waits in the owner's Inbox only; Undo, then approval after the window");
   }
 
 
