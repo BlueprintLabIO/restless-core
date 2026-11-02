@@ -99,7 +99,7 @@ pub(super) async fn prepare_setup(
         Err(error) => api_error(
             StatusCode::BAD_REQUEST,
             "sharing_setup",
-            format!("{error:#}"),
+            refusal_or_logged(error, "Sharing could not be set up. Try again."),
         ),
     }
 }
@@ -134,7 +134,7 @@ pub(super) async fn tailscale_addresses(
     }
     let cli = match super::appliance_api::cli_beside_plane() {
         Ok(cli) => cli,
-        Err(error) => return api_error(StatusCode::CONFLICT, "tailscale", format!("{error:#}")),
+        Err(error) => return api_error(StatusCode::CONFLICT, "tailscale", logged(error, "The restless command was not found beside this plane. Reinstall Restless and try again.")),
     };
     let output = tokio::time::timeout(
         Duration::from_secs(20),
@@ -272,7 +272,7 @@ pub(super) async fn prepare_here(
     }
     let cli = match super::appliance_api::cli_beside_plane() {
         Ok(cli) => cli,
-        Err(error) => return api_error(StatusCode::CONFLICT, "sharing", format!("{error:#}")),
+        Err(error) => return api_error(StatusCode::CONFLICT, "sharing", logged(error, "The restless command was not found beside this plane. Reinstall Restless and try again.")),
     };
     let folder = root
         .join(SHARING)
@@ -312,7 +312,7 @@ pub(super) async fn prepare_here(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "sharing",
-                format!("{error:#}"),
+                logged(error, "Sharing could not be prepared. Try again."),
             )
         }
     };
@@ -321,7 +321,7 @@ pub(super) async fn prepare_here(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "sharing",
-            format!("{error:#}"),
+            logged(error, "Sharing could not be started. Try again."),
         ),
     }
 }
@@ -417,7 +417,7 @@ pub(super) async fn activate(
         .unwrap_or(false);
     let cli = match super::appliance_api::cli_beside_plane() {
         Ok(cli) => cli,
-        Err(error) => return api_error(StatusCode::CONFLICT, "sharing", format!("{error:#}")),
+        Err(error) => return api_error(StatusCode::CONFLICT, "sharing", logged(error, "The restless command was not found beside this plane. Reinstall Restless and try again.")),
     };
     let mut args = vec![
         "appliance".to_string(),
@@ -433,7 +433,7 @@ pub(super) async fn activate(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "sharing",
-            format!("{error:#}"),
+            logged(error, "Sharing could not be turned on. Try again."),
         ),
     }
 }

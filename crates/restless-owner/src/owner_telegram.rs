@@ -62,7 +62,7 @@ async fn gate(
         return Err(api_error(
             StatusCode::NOT_FOUND,
             "company",
-            format!("{error:#}"),
+            logged(error, "This company could not be found."),
         ));
     }
     require_authority_owner(state, company, principal).await
@@ -81,7 +81,7 @@ pub(super) async fn status(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "telegram",
-            format!("{error:#}"),
+            logged(error, "The Telegram link could not be read. Try again."),
         ),
     }
 }
@@ -129,7 +129,16 @@ pub(super) async fn start(
     .await;
     let username = match probed {
         Ok(username) => username,
-        Err(error) => return api_error(StatusCode::BAD_REQUEST, "telegram", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "telegram",
+                logged(
+                    error,
+                    "Telegram did not accept this bot token. Check it and try again.",
+                ),
+            )
+        }
     };
     // A pasted token goes to the company Vault only after Telegram accepted it, so a typo
     // never overwrites a working token.
@@ -138,7 +147,7 @@ pub(super) async fn start(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "telegram",
-                format!("The Vault could not keep the bot token: {error:#}"),
+                logged(error, "The Vault could not keep the bot token."),
             );
         }
     }
@@ -163,7 +172,11 @@ pub(super) async fn start(
     .await
     {
         Ok(link) => Json(view(Some(link))).into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "telegram", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "telegram",
+            logged(error, "Telegram could not be paired. Try again."),
+        ),
     }
 }
 
@@ -199,7 +212,7 @@ pub(super) async fn preferences(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "telegram",
-            format!("{error:#}"),
+            logged(error, "The Telegram setting was not saved. Try again."),
         ),
     }
 }
@@ -217,7 +230,7 @@ pub(super) async fn unpair(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "telegram",
-            format!("{error:#}"),
+            logged(error, "Telegram could not be unpaired. Try again."),
         ),
     }
 }

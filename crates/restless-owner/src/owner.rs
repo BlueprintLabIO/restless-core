@@ -4560,7 +4560,11 @@ async fn create_company(
     let mission = input.mission.trim();
     let model = input.model.as_deref().unwrap_or_default().trim();
     if let Err(error) = runtime::validate_new_company_name(name) {
-        return api_error(StatusCode::BAD_REQUEST, "company", error.to_string());
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "company",
+            logged(error, "That company name cannot be used. Choose another."),
+        );
     }
     if mission.len() > 4000
         || model.len() > 200
@@ -4579,7 +4583,13 @@ async fn create_company(
         "name": name, "mission": mission, "model": model, "display_name": input.display_name,
     })) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::BAD_REQUEST, "company", error.to_string()),
+        Err(error) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "company",
+                logged(error, "The company details could not be read."),
+            )
+        }
     };
     if let Err(error) = config.model_candidates().and_then(|models| {
         for model in models {
@@ -4587,7 +4597,11 @@ async fn create_company(
         }
         Ok(())
     }) {
-        return api_error(StatusCode::BAD_REQUEST, "company", error.to_string());
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "company",
+            logged(error, "That model cannot be used. Choose another."),
+        );
     }
     if let Err(error) = crate::create_local_company(&state.daemon, config.clone()).await {
         let status = if error
@@ -4598,7 +4612,18 @@ async fn create_company(
         } else {
             StatusCode::SERVICE_UNAVAILABLE
         };
-        return api_error(status, "company", format!("{error:#}"));
+        return api_error(
+            status,
+            "company",
+            logged(
+                error,
+                if status == StatusCode::CONFLICT {
+                    "A company with that name already exists."
+                } else {
+                    "The company could not be created. Try again."
+                },
+            ),
+        );
     }
     (
         StatusCode::CREATED,
@@ -4747,14 +4772,17 @@ async fn update_model_failover(
         return api_error(
             StatusCode::BAD_REQUEST,
             "model_failover",
-            format!("{error:#}"),
+            logged(
+                error,
+                "Choose fallback models that differ from each other and from the main model.",
+            ),
         );
     }
     if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
         return api_error(
             StatusCode::BAD_REQUEST,
             "model_failover",
-            format!("{error:#}"),
+            logged(error, "The fallback models could not be saved. Try again."),
         );
     }
     Json(provider_view(&config).await).into_response()
@@ -6534,7 +6562,11 @@ async fn native_harness_update(
     .await;
     match result {
         Ok(value) => Json(value).into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "harness", error.to_string()),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "harness",
+            refusal_or_logged(error, "That sign-in change did not work. Try again."),
+        ),
     }
 }
 
@@ -6568,7 +6600,11 @@ async fn company_setup(
 ) -> Response<Body> {
     match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => Json(company_setup_view(&config)).into_response(),
-        Err(error) => api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(error, "This company could not be found."),
+        ),
     }
 }
 
@@ -6600,13 +6636,13 @@ async fn archived_agents(
             Err(error) => api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "Archived agents could not be read. Try again."),
             ),
         },
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            format!("{error:#}"),
+            logged(error, "The company is temporarily unavailable. Try again."),
         ),
     }
 }
@@ -6680,7 +6716,7 @@ async fn setup_opening(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -6693,7 +6729,7 @@ async fn setup_opening(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The conversation could not be read. Try again."),
             )
         }
     };
@@ -6709,7 +6745,7 @@ async fn setup_opening(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company could not be set up. Try again."),
             );
         }
     }
@@ -6737,7 +6773,7 @@ async fn staffing_change(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -6791,7 +6827,7 @@ async fn staffing_change(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "staffing",
-            format!("{error:#}"),
+            logged(error, "That staffing change could not be made. Try again."),
         ),
     }
 }
@@ -6883,7 +6919,13 @@ async fn update_company_setup(
     let _write = state.charter_writes.lock().await;
     let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     let named_before = config
         .display_name
@@ -6935,13 +6977,17 @@ async fn update_company_setup(
             Err(error) => api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "company_setup",
-                format!("Settings could not be saved: {error:#}"),
+                logged(error, "Settings could not be saved. Try again."),
             ),
         };
     }
     if input.mission != config.mission {
         if let Err(error) = authority::validate_mandate(&input.mission) {
-            return api_error(StatusCode::BAD_REQUEST, "company_setup", error.to_string());
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "company_setup",
+                logged(error, "Write a purpose that is not empty and not too long."),
+            );
         }
     }
     config.display_name = Some(input.display_name.trim().to_string());
@@ -6952,7 +6998,11 @@ async fn update_company_setup(
         }
         config.validate_harness_models()
     }) {
-        return api_error(StatusCode::BAD_REQUEST, "company_setup", error.to_string());
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "company_setup",
+            logged(error, "That model cannot be used. Choose another."),
+        );
     }
     let selected_model = config.model.clone();
     // Revising the mandate takes the config; agents follow the default it saves.
@@ -6973,7 +7023,7 @@ async fn update_company_setup(
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "company_setup",
-            format!("Settings could not be saved: {error:#}"),
+            logged(error, "Settings could not be saved. Try again."),
         );
     }
     let actor_update = async {
@@ -6999,7 +7049,10 @@ async fn update_company_setup(
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "company_setup",
-            format!("Settings saved, but the executive model could not be updated: {error:#}"),
+            logged(
+                error,
+                "Settings were saved, but the executive's model could not be changed. Try again.",
+            ),
         );
     }
     follow_company_default(&state, &saved_config, &default_before).await;
@@ -7028,7 +7081,7 @@ async fn update_company_setup(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "company_setup",
-            format!("Settings saved but could not be reread: {error:#}"),
+            logged(error, "Settings were saved. Refresh to see them."),
         ),
     }
 }
@@ -7043,7 +7096,7 @@ async fn company_catalog(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "company",
-                format!("{error:#}"),
+                logged(error, "Your companies could not be listed. Try again."),
             )
         }
     }
@@ -7056,7 +7109,7 @@ async fn company_catalog(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "company",
-                format!("{error:#}"),
+                logged(error, "Your companies could not be listed. Try again."),
             )
         }
     }
@@ -7067,14 +7120,26 @@ async fn company_catalog(
     for company in companies {
         let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
             Ok(config) => config,
-            Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+            Err(error) => {
+                return api_error(
+                    StatusCode::NOT_FOUND,
+                    "company",
+                    logged(error, "This company could not be found."),
+                )
+            }
         };
         configs.push((config, "active"));
     }
     for company in archived {
         let config = match runtime::CompanyConfig::load_archived(&state.daemon.root, &company) {
             Ok(config) => config,
-            Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+            Err(error) => {
+                return api_error(
+                    StatusCode::NOT_FOUND,
+                    "company",
+                    logged(error, "This company could not be found."),
+                )
+            }
         };
         configs.push((config, "archived"));
     }
@@ -7203,7 +7268,11 @@ async fn archive_company(
         .into_response();
     }
     if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
-        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(error, "This company could not be found."),
+        );
     }
     let message = match runtime::archive(&state.daemon.root, &company).await {
         Ok(message) => message,
@@ -7211,7 +7280,7 @@ async fn archive_company(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "lifecycle",
-                format!("{error:#}"),
+                logged(error, "The company could not be archived. Try again."),
             )
         }
     };
@@ -7229,7 +7298,10 @@ async fn archive_company(
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "authority",
-            format!("company archived but its lifecycle receipt could not be recorded: {error:#}"),
+            logged(
+                error,
+                "The company was archived, but the record of it could not be saved.",
+            ),
         );
     }
     Json(serde_json::json!({
@@ -7254,13 +7326,17 @@ async fn restore_company(
         .into_response();
     }
     if let Err(error) = runtime::CompanyConfig::load_archived(&state.daemon.root, &company) {
-        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(error, "This company could not be found."),
+        );
     }
     if let Err(error) = runtime::restore(&state.daemon.root, &company) {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "lifecycle",
-            format!("{error:#}"),
+            logged(error, "The company could not be restored. Try again."),
         );
     }
     if let Err(error) = state
@@ -7280,7 +7356,10 @@ async fn restore_company(
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "authority",
-            format!("company restored but its lifecycle receipt could not be recorded: {error:#}"),
+            logged(
+                error,
+                "The company was restored, but the record of it could not be saved.",
+            ),
         );
     }
     Json(serde_json::json!({
@@ -7309,7 +7388,13 @@ async fn attention_view(
 ) -> impl IntoResponse {
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     let org = state.daemon.orgintel.get(&company).await.ok();
     // Everyone else's Inbox is the same projection, of what is assigned to them alone.
@@ -7461,7 +7546,7 @@ async fn attention_view(
                     return api_error(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "approval_decision",
-                        format!("{error:#}"),
+                        logged(error, "The Inbox could not be read. Try again."),
                     )
                 }
             }
@@ -7477,7 +7562,7 @@ async fn attention_view(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "projection",
-            format!("{error:#}"),
+            logged(error, "The Inbox could not be read. Try again."),
         ),
     }
 }
@@ -7498,7 +7583,13 @@ async fn dismiss_attention(
 ) -> impl IntoResponse {
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
@@ -7506,7 +7597,7 @@ async fn dismiss_attention(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -7525,7 +7616,7 @@ async fn dismiss_attention(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "projection",
-                format!("{error:#}"),
+                logged(error, "The Inbox could not be read. Try again."),
             )
         }
     };
@@ -7563,7 +7654,7 @@ async fn dismiss_attention(
                     return api_error(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "orgintel",
-                        format!("{error:#}"),
+                        logged(error, "The company is temporarily unavailable. Try again."),
                     )
                 }
             },
@@ -7588,7 +7679,7 @@ async fn dismiss_attention(
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            format!("{error:#}"),
+            logged(error, "That item could not be set aside. Try again."),
         );
     }
     Json(serde_json::json!({ "dismissed": input.item_id })).into_response()
@@ -7648,7 +7739,7 @@ async fn dismissed_attention(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -7658,7 +7749,7 @@ async fn dismissed_attention(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "Set-aside items could not be read. Try again."),
             )
         }
     };
@@ -7695,7 +7786,7 @@ async fn restore_attention(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -7705,7 +7796,7 @@ async fn restore_attention(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "That item could not be brought back. Try again."),
             )
         }
     };
@@ -7732,7 +7823,13 @@ async fn attention_history(
 ) -> impl IntoResponse {
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     let org = state.daemon.orgintel.get(&company).await.ok();
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
@@ -7749,7 +7846,7 @@ async fn attention_history(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "projection",
-            format!("{error:#}"),
+            logged(error, "Past decisions could not be read. Try again."),
         ),
     }
 }
@@ -7806,7 +7903,10 @@ async fn propose_email_mandate(
         Err(error) => api_error(
             StatusCode::BAD_REQUEST,
             "email_mandate",
-            format!("invalid mandate proposal: {error:#}"),
+            refusal_or_logged(
+                error,
+                "That email permission could not be proposed. Check it and try again.",
+            ),
         ),
     }
 }
@@ -7835,7 +7935,10 @@ async fn decide_email_mandate(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority_owner",
-                format!("could not resolve Authority owner: {error:#}"),
+                logged(
+                    error,
+                    "The company's owner could not be confirmed. Try again.",
+                ),
             )
         }
     };
@@ -7873,7 +7976,10 @@ async fn decide_email_mandate(
         Err(error) => api_error(
             StatusCode::CONFLICT,
             "email_mandate",
-            format!("mandate decision failed: {error:#}"),
+            refusal_or_logged(
+                error,
+                "That email permission decision was not recorded. Refresh and try again.",
+            ),
         ),
     }
 }
@@ -7885,7 +7991,13 @@ async fn company_view(
 ) -> impl IntoResponse {
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     Json(company_projection::project(&state.daemon, &config, query.probe_credentials).await)
         .into_response()
@@ -7900,7 +8012,11 @@ async fn company_spend(
 ) -> impl IntoResponse {
     match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => Json(company_projection::spend_view(&state.daemon, &config)).into_response(),
-        Err(error) => api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(error, "This company could not be found."),
+        ),
     }
 }
 
@@ -7924,7 +8040,7 @@ async fn company_spend_report(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "spend",
-            format!("Spend could not be read: {error:#}"),
+            logged(error, "Spend could not be read. Try again."),
         ),
     }
 }
@@ -7946,7 +8062,7 @@ async fn open_company_resource(
         Err(error) => api_error(
             StatusCode::CONFLICT,
             "artifact_launch",
-            format!("{error:#}"),
+            logged(error, "This could not be opened. Try again."),
         ),
     }
 }
@@ -7977,7 +8093,11 @@ async fn exchange_native_launch(
 ) -> impl IntoResponse {
     match state.daemon.launch.exchange_native(&handle) {
         Ok(exchange) => Json(exchange).into_response(),
-        Err(error) => api_error(StatusCode::GONE, "artifact_launch", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::GONE,
+            "artifact_launch",
+            logged(error, "This link has expired. Open it again from Restless."),
+        ),
     }
 }
 
@@ -8027,7 +8147,10 @@ async fn put_browser_locale(
         Err(error) => api_error(
             StatusCode::BAD_REQUEST,
             "browser_locale",
-            format!("{error:#}"),
+            logged(
+                error,
+                "The timezone and language could not be saved. Try again.",
+            ),
         ),
     }
 }
@@ -8042,7 +8165,7 @@ async fn appliance_status(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "appliance",
-                format!("machine profile is invalid: {error:#}"),
+                logged(error, "This computer's setup could not be read."),
             )
         }
     };
@@ -8244,7 +8367,10 @@ async fn company_identity_view(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "identity",
-                format!("company identity is unavailable: {error:#}"),
+                logged(
+                    error,
+                    "The company identity is temporarily unavailable. Try again.",
+                ),
             )
         }
     };
@@ -8253,7 +8379,7 @@ async fn company_identity_view(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "identity",
-            format!("company identity could not be read: {error:#}"),
+            logged(error, "The company identity could not be read. Try again."),
         ),
     }
 }
@@ -8288,7 +8414,10 @@ async fn promote_company_identity(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
-                format!("identity decision could not be recorded: {error:#}"),
+                logged(
+                    error,
+                    "That identity decision could not be recorded. Try again.",
+                ),
             )
         }
     };
@@ -8298,7 +8427,7 @@ async fn promote_company_identity(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "identity",
-                format!("owner decision was recorded but its company projection failed: {error:#}"),
+                logged(error, "The decision was recorded, but the company could not be updated. Refresh to see it."),
             )
         }
     };
@@ -8319,7 +8448,11 @@ async fn promote_company_identity(
             "authority_record_id": authority_id,
         }))
         .into_response(),
-        Err(error) => api_error(StatusCode::CONFLICT, "identity", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::CONFLICT,
+            "identity",
+            logged(&error, error.plain_message()),
+        ),
     }
 }
 
@@ -8353,7 +8486,10 @@ async fn reject_company_identity(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
-                format!("identity decision could not be recorded: {error:#}"),
+                logged(
+                    error,
+                    "That identity decision could not be recorded. Try again.",
+                ),
             )
         }
     };
@@ -8363,7 +8499,7 @@ async fn reject_company_identity(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "identity",
-                format!("owner decision was recorded but its company projection failed: {error:#}"),
+                logged(error, "The decision was recorded, but the company could not be updated. Refresh to see it."),
             )
         }
     };
@@ -8383,7 +8519,11 @@ async fn reject_company_identity(
             "authority_record_id": authority_id,
         }))
         .into_response(),
-        Err(error) => api_error(StatusCode::CONFLICT, "identity", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::CONFLICT,
+            "identity",
+            logged(&error, error.plain_message()),
+        ),
     }
 }
 
@@ -8420,7 +8560,7 @@ async fn decide_company_identity_migration(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
-                format!("migration decision could not be recorded: {error:#}"),
+                logged(error, "That decision could not be recorded. Try again."),
             )
         }
     };
@@ -8430,7 +8570,7 @@ async fn decide_company_identity_migration(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "identity",
-                format!("owner decision was recorded but its company projection failed: {error:#}"),
+                logged(error, "The decision was recorded, but the company could not be updated. Refresh to see it."),
             )
         }
     };
@@ -8450,7 +8590,11 @@ async fn decide_company_identity_migration(
             "authority_record_id": authority_id,
         }))
         .into_response(),
-        Err(error) => api_error(StatusCode::CONFLICT, "identity", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::CONFLICT,
+            "identity",
+            logged(&error, error.plain_message()),
+        ),
     }
 }
 
@@ -8555,7 +8699,10 @@ async fn discard_charter_proposal(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "charter",
-            format!("{error:#}"),
+            logged(
+                error,
+                "The charter proposal could not be discarded. Try again.",
+            ),
         ),
     }
 }
@@ -8578,7 +8725,11 @@ async fn revise_company_charter(
     Json(input): Json<CharterRevisionInput>,
 ) -> impl IntoResponse {
     if let Err(error) = authority::validate_mandate(&input.markdown) {
-        return api_error(StatusCode::BAD_REQUEST, "charter", format!("{error:#}"));
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "charter",
+            logged(error, "Write a charter that is not empty and not too long."),
+        );
     }
 
     // One local owner may still have several tabs. Serialising this bounded
@@ -8587,7 +8738,13 @@ async fn revise_company_charter(
     let _write = state.charter_writes.lock().await;
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     let current_revision = authority::mandate_revision(&config.mission);
     if input.base_revision != current_revision {
@@ -8625,7 +8782,7 @@ async fn revise_company_charter(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "charter",
-                format!("{error:#}"),
+                logged(error, "The charter could not be saved. Try again."),
             )
         }
     };
@@ -8635,7 +8792,7 @@ async fn revise_company_charter(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "charter",
-                format!("charter changed but its canonical config could not be reread: {error:#}"),
+                logged(error, "The charter was saved. Refresh to see it."),
             )
         }
     };
@@ -8687,7 +8844,13 @@ async fn set_company_harnesses(
     let _write = state.charter_writes.lock().await;
     let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     if config.coordination_harness != coordination_harness
         || config.worker_harness != worker_harness
@@ -8699,7 +8862,10 @@ async fn set_company_harnesses(
             return api_error(
                 StatusCode::BAD_REQUEST,
                 "harness_policy",
-                format!("the selected harnesses are incompatible with company policy: {error:#}"),
+                logged(
+                    error,
+                    "Those harness choices could not be saved. Try again.",
+                ),
             );
         }
         if let Err(error) = state
@@ -8725,11 +8891,13 @@ async fn set_company_harnesses(
         {
             let rollback = runtime::CompanyConfig::save(&state.daemon.root, &previous);
             let detail = match rollback {
-                Ok(()) => format!(
-                    "the audit record failed and the setting was rolled back: {error:#}"
+                Ok(()) => logged(
+                    error,
+                    "The change could not be recorded, so it was undone. Try again.",
                 ),
-                Err(rollback) => format!(
-                    "the audit record failed and rollback also failed: {error:#}; rollback: {rollback:#}"
+                Err(rollback) => logged(
+                    format!("{error:#}; rollback: {rollback:#}"),
+                    "The change could not be recorded or undone. Check the harness settings.",
                 ),
             };
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", detail);
@@ -8746,7 +8914,13 @@ async fn recover_company_computer(
 ) -> impl IntoResponse {
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     let action = match company_projection::RecoveryAction::parse(&input.action) {
         Some(action) => action,
@@ -8763,7 +8937,7 @@ async fn recover_company_computer(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "recovery",
-            format!("{error:#}"),
+            logged(error, "The computer could not be recovered. Try again."),
         ),
     }
 }
@@ -8778,7 +8952,8 @@ async fn sleep_company_computer(
         Err(error) => api_error(
             StatusCode::CONFLICT,
             "runtime",
-            format!("{error:#}").replace(", or use `restless down` to stop it now", ""),
+            refusal_or_logged(error, "The computer could not be put to sleep. Try again.")
+                .replace(", or use `restless down` to stop it now", ""),
         ),
     }
 }
@@ -8839,7 +9014,7 @@ async fn company_authority_owner(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "authority_owner",
-            format!("{error:#}"),
+            logged(error, "The company's owner could not be read. Try again."),
         ),
     }
 }
@@ -8874,7 +9049,10 @@ async fn transfer_company_authority_owner(
         api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "authority_owner",
-            format!("{error:#}"),
+            logged(
+                error,
+                "The company's owner could not be changed. Try again.",
+            ),
         )
     };
     let org = match state.daemon.orgintel.get(&company).await {
@@ -8944,7 +9122,13 @@ async fn cockpit_view(
 ) -> impl IntoResponse {
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     let observed_at = Utc::now();
 
@@ -8955,7 +9139,7 @@ async fn cockpit_view(
             Some(org)
         }
         Err(error) => {
-            source_health.insert("orgintel".into(), format!("unavailable: {error}"));
+            source_health.insert("orgintel".into(), logged(error, "unavailable").into());
             None
         }
     };
@@ -8969,7 +9153,7 @@ async fn cockpit_view(
         ) {
             Ok((actors, teams, goals, work)) => (actors, teams, goals, work),
             Err(error) => {
-                source_health.insert("orgintel".into(), format!("unavailable: {error}"));
+                source_health.insert("orgintel".into(), logged(error, "unavailable").into());
                 (Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         }
@@ -9128,7 +9312,7 @@ async fn cockpit_view(
             parties
         }
         Err(error) => {
-            source_health.insert("authority".into(), format!("unavailable: {error}"));
+            source_health.insert("authority".into(), logged(error, "unavailable").into());
             Vec::new()
         }
     };
@@ -9166,7 +9350,7 @@ async fn cockpit_view(
             })
             .collect::<Vec<_>>(),
         Err(error) => {
-            source_health.insert("authority".into(), format!("unavailable: {error}"));
+            source_health.insert("authority".into(), logged(error, "unavailable").into());
             Vec::new()
         }
     };
@@ -9201,7 +9385,7 @@ async fn cockpit_view(
         Err(error) => CockpitLegal {
             status: "unavailable".into(),
             profile: None,
-            detail: Some(format!("{error:#}")),
+            detail: Some(logged(error, "Legal details could not be read.").into()),
         },
     };
     let provider = match airwallex::connection(&state.daemon.authority, &company).await {
@@ -9213,7 +9397,7 @@ async fn cockpit_view(
         Err(error) => CockpitProvider {
             status: "unavailable".into(),
             connection: None,
-            detail: Some(format!("{error:#}")),
+            detail: Some(logged(error, "The payment provider could not be reached.").into()),
         },
     };
     let finance_state = match tokio::try_join!(
@@ -9239,7 +9423,7 @@ async fn cockpit_view(
             envelopes: Vec::new(),
             payments: Vec::new(),
             last_balance_observation: None,
-            detail: Some(format!("{error:#}")),
+            detail: Some(logged(error, "Finances could not be read.").into()),
         },
     };
 
@@ -10678,7 +10862,7 @@ async fn actor_conversation(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -10688,7 +10872,7 @@ async fn actor_conversation(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The conversation could not be read. Try again."),
             )
         }
     };
@@ -10719,7 +10903,7 @@ async fn actor_conversation(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The conversation could not be read. Try again."),
             )
         }
     };
@@ -10733,7 +10917,7 @@ async fn actor_conversation(
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "orgintel",
-                    format!("{error:#}"),
+                    logged(error, "The conversation could not be read. Try again."),
                 )
             }
         }
@@ -10903,7 +11087,7 @@ async fn agent_activity_live(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -10920,7 +11104,7 @@ async fn agent_activity_live(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The activity could not be read. Try again."),
             )
         }
     }
@@ -11025,7 +11209,7 @@ async fn resolve_handoff_decision(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -11074,7 +11258,7 @@ async fn complete_human_step(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -11096,7 +11280,7 @@ async fn complete_human_step(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "human_step",
-                format!("{error:#}"),
+                logged(error, "That step could not be finished. Try again."),
             );
         }
     }
@@ -11183,7 +11367,7 @@ async fn send_actor_message(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -11206,13 +11390,20 @@ async fn send_actor_message(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(
+                    error,
+                    "Your place in this company could not be checked. Try again.",
+                ),
             );
         }
     }
     if !input.skills.is_empty() {
         if let Err(error) = org.check_skill_selection(&sender, &input.skills).await {
-            return api_error(StatusCode::BAD_REQUEST, "skills", format!("{error}"));
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "skills",
+                logged(&error, error.plain_message()),
+            );
         }
     }
     let client_payload_sha256 = owner_message_command_digest(
@@ -11258,7 +11449,7 @@ async fn send_actor_message(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The message could not be sent. Try again."),
             );
         }
     }
@@ -11278,7 +11469,7 @@ async fn send_actor_message(
                     return api_error(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "company",
-                        format!("{error:#}"),
+                        logged(error, "The company could not be read. Try again."),
                     )
                 }
             };
@@ -11289,7 +11480,7 @@ async fn send_actor_message(
                         return api_error(
                             StatusCode::SERVICE_UNAVAILABLE,
                             "attention_context",
-                            format!("{error:#}"),
+                            logged(error, "The Inbox item could not be read. Try again."),
                         )
                     }
                 };
@@ -11326,7 +11517,7 @@ async fn send_actor_message(
                     return api_error(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "company",
-                        format!("{error:#}"),
+                        logged(error, "The company could not be read. Try again."),
                     )
                 }
             };
@@ -11337,7 +11528,7 @@ async fn send_actor_message(
                         return api_error(
                             StatusCode::SERVICE_UNAVAILABLE,
                             "attention_context",
-                            format!("{error:#}"),
+                            logged(error, "The Inbox item could not be read. Try again."),
                         )
                     }
                 };
@@ -11399,7 +11590,7 @@ async fn send_actor_message(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "attachment_staging",
-                format!("{error:#}"),
+                logged(error, "The attachments could not be prepared. Try again."),
             );
         }
         let registrations = prepared
@@ -11571,8 +11762,9 @@ async fn send_actor_message(
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "orgintel",
-                    format!(
-                        "message commit outcome is ambiguous; retry the same client command id: {error:#}"
+                    logged(
+                        error,
+                        "message commit outcome is ambiguous; retry the same client command id",
                     ),
                 );
             }
@@ -11681,7 +11873,7 @@ async fn send_actor_message(
             api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The message could not be sent. Try again."),
             )
         }
     }
@@ -11701,7 +11893,7 @@ async fn interrupt_actor_conversation(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -11711,7 +11903,7 @@ async fn interrupt_actor_conversation(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The conversation could not be read. Try again."),
             )
         }
     };
@@ -11742,7 +11934,7 @@ async fn interrupt_actor_conversation(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The reply could not be stopped. Try again."),
             )
         }
     };
@@ -11790,7 +11982,7 @@ async fn retry_actor_conversation(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -11802,7 +11994,7 @@ async fn retry_actor_conversation(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The conversation could not be read. Try again."),
             )
         }
     };
@@ -11842,38 +12034,33 @@ async fn parse_owner_message(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|error| format!("read message form: {error}"))?
+        .map_err(|error| logged(error, "The message could not be read. Try again.").to_string())?
     {
         match field.name() {
             Some("client_command_id") => {
-                input.client_command_id = field
-                    .text()
-                    .await
-                    .map_err(|error| format!("read client command id: {error}"))?;
+                input.client_command_id = field.text().await.map_err(|error| {
+                    logged(error, "The message could not be read. Try again.").to_string()
+                })?;
             }
             Some("body") => {
-                input.body = field
-                    .text()
-                    .await
-                    .map_err(|error| format!("read message body: {error}"))?;
+                input.body = field.text().await.map_err(|error| {
+                    logged(error, "The message could not be read. Try again.").to_string()
+                })?;
             }
             Some("work_id") => {
-                let value = field
-                    .text()
-                    .await
-                    .map_err(|error| format!("read Work reference: {error}"))?;
+                let value = field.text().await.map_err(|error| {
+                    logged(error, "The message could not be read. Try again.").to_string()
+                })?;
                 if !value.trim().is_empty() {
-                    input.work_id = Some(
-                        Uuid::parse_str(value.trim())
-                            .map_err(|error| format!("invalid Work reference: {error}"))?,
-                    );
+                    input.work_id = Some(Uuid::parse_str(value.trim()).map_err(|error| {
+                        logged(error, "That Work link is not valid.").to_string()
+                    })?);
                 }
             }
             Some("attention_id") => {
-                let value = field
-                    .text()
-                    .await
-                    .map_err(|error| format!("read Attention reference: {error}"))?;
+                let value = field.text().await.map_err(|error| {
+                    logged(error, "The message could not be read. Try again.").to_string()
+                })?;
                 let value = value.trim();
                 if !value.is_empty() {
                     if value.chars().count() > 160 {
@@ -11883,10 +12070,9 @@ async fn parse_owner_message(
                 }
             }
             Some("skills") => {
-                let value = field
-                    .text()
-                    .await
-                    .map_err(|error| format!("read selected skill: {error}"))?;
+                let value = field.text().await.map_err(|error| {
+                    logged(error, "The message could not be read. Try again.").to_string()
+                })?;
                 let value = value.trim();
                 if !restless_orgintel::valid_skill_name(value) {
                     return Err(
@@ -11901,10 +12087,9 @@ async fn parse_owner_message(
                 }
             }
             Some("new_focus") => {
-                let value = field
-                    .text()
-                    .await
-                    .map_err(|error| format!("read conversation focus: {error}"))?;
+                let value = field.text().await.map_err(|error| {
+                    logged(error, "The message could not be read. Try again.").to_string()
+                })?;
                 input.new_focus = match value.trim() {
                     "true" => true,
                     "false" | "" => false,
@@ -11912,10 +12097,9 @@ async fn parse_owner_message(
                 };
             }
             Some("interrupt") => {
-                let value = field
-                    .text()
-                    .await
-                    .map_err(|error| format!("read interruption request: {error}"))?;
+                let value = field.text().await.map_err(|error| {
+                    logged(error, "The message could not be read. Try again.").to_string()
+                })?;
                 input.interrupt = match value.trim() {
                     "true" => true,
                     "false" | "" => false,
@@ -11923,10 +12107,9 @@ async fn parse_owner_message(
                 };
             }
             Some("context_path") => {
-                let value = field
-                    .text()
-                    .await
-                    .map_err(|error| format!("read cockpit context: {error}"))?;
+                let value = field.text().await.map_err(|error| {
+                    logged(error, "The message could not be read. Try again.").to_string()
+                })?;
                 let value = value.trim();
                 if !value.is_empty() {
                     input.context_requested = true;
@@ -11944,10 +12127,12 @@ async fn parse_owner_message(
                     .content_type()
                     .unwrap_or("application/octet-stream")
                     .to_string();
-                let bytes = field
-                    .bytes()
-                    .await
-                    .map_err(|error| format!("read {name}: {error}"))?;
+                let bytes = field.bytes().await.map_err(|error| {
+                    logged(
+                        error,
+                        format!("{name} could not be read. Try attaching it again."),
+                    )
+                })?;
                 if bytes.len() > MAX_ATTACHMENT_BYTES {
                     return Err(format!("{name} exceeds the 5 MB attachment limit"));
                 }
@@ -12409,7 +12594,7 @@ async fn download_attachment(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The file could not be opened. Try again."),
             );
         }
     };
@@ -12448,7 +12633,14 @@ async fn download_attachment(
                     )
                     .await;
             }
-            return api_error(StatusCode::NOT_FOUND, "attachment", message);
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "attachment",
+                logged(
+                    message,
+                    "This file could not be opened from the company computer.",
+                ),
+            );
         }
     };
     let inline = query.inline.as_deref() == Some("1");
@@ -12457,7 +12649,7 @@ async fn download_attachment(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "attachment",
-            format!("{error:#}"),
+            logged(error, "The file could not be opened. Try again."),
         ),
     }
 }
@@ -12691,7 +12883,10 @@ async fn require_authority_owner(
             return Err(api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority_owner",
-                format!("{error:#}"),
+                logged(
+                    error,
+                    "The company's owner could not be confirmed. Try again.",
+                ),
             ))
         }
     };
@@ -12741,7 +12936,11 @@ async fn email_mandates(
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
     if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
-        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(error, "This company could not be found."),
+        );
     }
     let mandates = match state.daemon.authority.list_email_mandates(&company).await {
         Ok(mandates) => mandates,
@@ -12749,7 +12948,7 @@ async fn email_mandates(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "mandate",
-                format!("{error:#}"),
+                logged(error, "Email permissions could not be read. Try again."),
             )
         }
     };
@@ -12764,7 +12963,7 @@ async fn email_mandates(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "mandate",
-                format!("{error:#}"),
+                logged(error, "Email permissions could not be read. Try again."),
             )
         }
     };
@@ -12779,7 +12978,7 @@ async fn email_mandates(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "mandate",
-                format!("{error:#}"),
+                logged(error, "Email permissions could not be read. Try again."),
             )
         }
     };
@@ -12816,7 +13015,7 @@ async fn email_mandates(
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "mandate",
-                    format!("{error:#}"),
+                    logged(error, "Email permissions could not be read. Try again."),
                 )
             }
         };
@@ -12858,7 +13057,7 @@ async fn email_mandates(
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "mandate",
-                    format!("{error:#}"),
+                    logged(error, "Email permissions could not be read. Try again."),
                 )
             }
         };
@@ -12890,7 +13089,11 @@ async fn revoke_email_mandate(
         return refusal;
     }
     if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
-        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(error, "This company could not be found."),
+        );
     }
     match state
         .daemon
@@ -12901,7 +13104,14 @@ async fn revoke_email_mandate(
         Ok(()) => {
             Json(serde_json::json!({"revoked": true, "mandate_id": mandate_id})).into_response()
         }
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "mandate", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "mandate",
+            refusal_or_logged(
+                error,
+                "That email permission could not be revoked. Refresh and try again.",
+            ),
+        ),
     }
 }
 
@@ -12938,7 +13148,14 @@ async fn grant(
         {
             Ok(message) => message,
             Err(error) => {
-                return api_error(StatusCode::BAD_REQUEST, "approval", format!("{error:#}"))
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "approval",
+                    refusal_or_logged(
+                        error,
+                        "That answer was not recorded. Refresh and try again.",
+                    ),
+                )
             }
         };
         if !input.always {
@@ -12993,13 +13210,13 @@ async fn grant(
                 Err(error) => api_error(
                     StatusCode::BAD_REQUEST,
                     "approval",
-                    format!("{message}, and {tool} acts without asking from now on, but its other waiting calls still wait: {error:#}"),
+                    logged(error, format!("{message}, and {tool} acts without asking from now on, but its other waiting calls still wait.")),
                 ),
             },
             Err(error) => api_error(
                 StatusCode::BAD_REQUEST,
                 "approval",
-                format!("{message}, but {tool} still asks first: {error:#}"),
+                logged(error, format!("{message}, but {tool} still asks first.")),
             ),
         };
     }
@@ -13014,7 +13231,14 @@ async fn grant(
     .await
     {
         Ok(message) => Json(serde_json::json!({ "message": message })).into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "approval", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "approval",
+            refusal_or_logged(
+                error,
+                "That permission was not given. Refresh and try again.",
+            ),
+        ),
     }
 }
 
@@ -13043,7 +13267,14 @@ async fn decline(
         .await
         {
             Ok(message) => Json(serde_json::json!({ "message": message })).into_response(),
-            Err(error) => api_error(StatusCode::BAD_REQUEST, "approval", format!("{error:#}")),
+            Err(error) => api_error(
+                StatusCode::BAD_REQUEST,
+                "approval",
+                refusal_or_logged(
+                    error,
+                    "That answer was not recorded. Refresh and try again.",
+                ),
+            ),
         };
     }
     match approval::decline(
@@ -13058,7 +13289,14 @@ async fn decline(
     .await
     {
         Ok(message) => Json(serde_json::json!({ "message": message })).into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "approval", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "approval",
+            refusal_or_logged(
+                error,
+                "That decline was not recorded. Refresh and try again.",
+            ),
+        ),
     }
 }
 
@@ -13083,7 +13321,14 @@ async fn revoke(
     .await
     {
         Ok(message) => Json(serde_json::json!({ "message": message })).into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "approval", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "approval",
+            refusal_or_logged(
+                error,
+                "That permission was not taken back. Refresh and try again.",
+            ),
+        ),
     }
 }
 
@@ -13106,7 +13351,7 @@ async fn message_reference(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -13123,7 +13368,7 @@ async fn message_reference(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The file could not be found. Try again."),
             )
         }
     }
@@ -13133,7 +13378,7 @@ async fn message_reference(
             return api_error(
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 "reference",
-                format!("{error:#}"),
+                logged(error, "This file cannot be opened for review."),
             )
         }
     };
@@ -13154,7 +13399,7 @@ async fn message_reference(
         return api_error(
             StatusCode::NOT_FOUND,
             "reference",
-            format!("the file is unavailable: {error:#}"),
+            logged(error, "This file is no longer on the company computer."),
         );
     }
     let text = match runtime::runtime_text_format(&path) {
@@ -13172,7 +13417,7 @@ async fn message_reference(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "review",
-                format!("review origin is invalid: {error:#}"),
+                logged(error, "The file could not be opened for review. Try again."),
             )
         }
     };
@@ -13218,7 +13463,7 @@ async fn set_message_reaction(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -13239,7 +13484,7 @@ async fn set_message_reaction(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The reaction could not be saved. Try again."),
             )
         }
     }
@@ -13252,7 +13497,7 @@ async fn set_message_reaction(
             Err(error) => api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The reaction could not be saved. Try again."),
             ),
         },
         Err(restless_orgintel::OrgIntelError::InvalidRoom(message)) => {
@@ -13261,7 +13506,7 @@ async fn set_message_reaction(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            format!("{error:#}"),
+            logged(error, "The reaction could not be saved. Try again."),
         ),
     }
 }
@@ -13284,7 +13529,7 @@ async fn list_message_reactions(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -13298,7 +13543,7 @@ async fn list_message_reactions(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "Reactions could not be read. Try again."),
             )
         }
     };
@@ -13307,7 +13552,7 @@ async fn list_message_reactions(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
-            format!("{error:#}"),
+            logged(error, "Reactions could not be read. Try again."),
         ),
     }
 }
@@ -13412,7 +13657,18 @@ async fn open_browser_link(
         } else {
             StatusCode::SERVICE_UNAVAILABLE
         };
-        return api_error(status, "browser", detail);
+        return api_error(
+            status,
+            "browser",
+            logged(
+                detail,
+                if status == StatusCode::BAD_REQUEST {
+                    "That link cannot be opened in the company browser. Use an http or https address."
+                } else {
+                    "The company browser could not open the link. Try again."
+                },
+            ),
+        );
     }
 
     let ticket = Uuid::new_v4().simple().to_string();
@@ -13583,7 +13839,7 @@ async fn browser_status(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "runtime",
-            format!("{error:#}"),
+            logged(error, "The company browser could not be read. Try again."),
         ),
     }
 }
@@ -13648,7 +13904,10 @@ async fn take_control(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "runtime",
-            format!("{error:#}"),
+            logged(
+                error,
+                "Control of the company browser could not be taken. Try again.",
+            ),
         ),
     }
 }
@@ -13684,7 +13943,10 @@ async fn record_activity(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "runtime",
-            format!("{error:#}"),
+            logged(
+                error,
+                "Control of the company browser could not be kept. Try again.",
+            ),
         ),
     }
 }
@@ -13736,7 +13998,7 @@ async fn return_control(
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "orgintel",
-                    format!("could not load the exact browser handoff: {error:#}"),
+                    logged(error, "The browser handoff could not be read. Try again."),
                 )
             }
         };
@@ -13746,7 +14008,7 @@ async fn return_control(
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "orgintel",
-                    format!("could not inspect the exact browser Attempt: {error:#}"),
+                    logged(error, "The browser handoff could not be read. Try again."),
                 )
             }
         };
@@ -13770,7 +14032,7 @@ async fn return_control(
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "orgintel",
-                    format!("could not prepare the owner return checkpoint: {error:#}"),
+                    logged(error, "Control could not be handed back. Try again."),
                 );
             }
             match org
@@ -13800,7 +14062,7 @@ async fn return_control(
                     return api_error(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "orgintel",
-                        format!("could not durably hand the exact Attempt its browser-return checkpoint: {error:#}"),
+                        logged(error, "Control could not be handed back. Try again."),
                     )
                 }
             }
@@ -13811,7 +14073,7 @@ async fn return_control(
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "runtime",
-            format!("{error:#}"),
+            logged(error, "Control could not be handed back. Try again."),
         );
     }
     drop(control_guard);
@@ -13936,6 +14198,31 @@ fn api_error(
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(body))
         .expect("error response")
+}
+
+/// What the owner reads when a request cannot be served: a plain sentence. The raw reason (a
+/// path, a shell's "realpath: … No such file or directory", a store, sqlx or bridge error) goes
+/// to the log, never to the cockpit. Use it wherever a handler would otherwise pass `{error:#}`
+/// or `error.to_string()` into a response.
+pub(crate) fn logged<S: std::fmt::Display>(error: impl std::fmt::Display, sentence: S) -> S {
+    tracing::warn!(error = %format!("{error:#}"), "{sentence}");
+    sentence
+}
+
+/// A refusal the handler's own code wrote for people (`bail!("Sign in to this harness first")`,
+/// a bare `.context(...)` on a missing value) reads as written. Anything with a cause underneath
+/// it (a store, file, shell or bridge error, wrapped or not) says the sentence instead, and the
+/// raw reason goes to the log.
+pub(crate) fn refusal_or_logged(error: impl Into<anyhow::Error>, sentence: &str) -> String {
+    let error: anyhow::Error = error.into();
+    let written = error.chain().count() == 1
+        && (error.downcast_ref::<&'static str>().is_some()
+            || error.downcast_ref::<String>().is_some());
+    if written {
+        error.to_string()
+    } else {
+        logged(error, sentence).to_string()
+    }
 }
 
 async fn api_not_found() -> Response<Body> {
@@ -14261,7 +14548,11 @@ async fn update_agent_intelligence(
             Json(serde_json::json!({"saved":true,"revision":company_setup_view(&config)["revision"]}))
                 .into_response()
         }
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "intelligence", error.to_string()),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "intelligence",
+            refusal_or_logged(error, "The model could not be changed. Try again."),
+        ),
     }
 }
 
@@ -14304,7 +14595,11 @@ async fn update_reasoning_effort(
     }
     config.reasoning_effort = input.effort.clone();
     if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
-        return api_error(StatusCode::BAD_REQUEST, "intelligence", error.to_string());
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "intelligence",
+            logged(error, "The effort setting could not be saved. Try again."),
+        );
     }
     record_setting_change(
         &state,

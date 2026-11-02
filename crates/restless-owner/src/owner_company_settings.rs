@@ -56,7 +56,7 @@ pub(super) async fn save_identity(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "identity",
-                format!("{e:#}"),
+                logged(e, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -95,7 +95,7 @@ pub(super) async fn save_identity(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "identity",
-                format!("The identity could not be saved: {e:#}"),
+                logged(e, "The identity could not be saved."),
             )
         }
     };
@@ -164,7 +164,13 @@ pub(super) async fn save_spend_limit(
     let _write = state.charter_writes.lock().await;
     let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+        Err(e) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(e, "This company could not be found."),
+            )
+        }
     };
     if config.spend_ceiling_usd != input.expected_ceiling {
         return api_error(
@@ -209,7 +215,7 @@ pub(super) async fn save_spend_limit(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
-                format!("The change could not be recorded: {e:#}"),
+                logged(e, "The change could not be recorded."),
             );
         }
         let was_stopped = matches!(
@@ -231,7 +237,7 @@ pub(super) async fn save_spend_limit(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "spend_limit",
-                format!("The spend limit was not saved: {e:#}"),
+                logged(e, "The spend limit was not saved."),
             );
         }
         if let Err(e) = state
@@ -245,7 +251,7 @@ pub(super) async fn save_spend_limit(
             )
             .await
         {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", format!("The limit was saved but confirmation could not be recorded. Refresh to check it: {e:#}"));
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", logged(e, "The limit was saved but confirmation could not be recorded. Refresh to check it."));
         }
         // Raising the limit above spend is the observable resume condition: tell Exec, so the
         // owner never has to report that model work may continue.
@@ -281,7 +287,13 @@ pub(super) async fn resume_exact_spend(
     }
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+        Err(e) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(e, "This company could not be found."),
+            )
+        }
     };
     let unpriced = state.daemon.spend.unknown_requests(&company).len();
     if let Err(e) = state
@@ -298,14 +310,14 @@ pub(super) async fn resume_exact_spend(
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "authority",
-            format!("The change could not be recorded: {e:#}"),
+            logged(e, "The change could not be recorded."),
         );
     }
     if let Err(e) = state.daemon.spend.clear_poison(&company) {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "spend",
-            format!("Exact accounting did not resume: {e:#}"),
+            logged(e, "Exact accounting did not resume."),
         );
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
@@ -462,7 +474,7 @@ pub(super) async fn save_compute_limits(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
-                format!("The change could not be recorded: {error:#}"),
+                logged(error, "The change could not be recorded."),
             );
         }
         target.set(&mut config, input.limits);
@@ -470,7 +482,7 @@ pub(super) async fn save_compute_limits(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "compute_limits",
-                format!("Limits were not saved: {error:#}"),
+                logged(error, "Limits were not saved."),
             );
         }
         if let Err(error) = state
@@ -487,7 +499,7 @@ pub(super) async fn save_compute_limits(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
-                format!("Limits were saved; refresh to check confirmation: {error:#}"),
+                logged(error, "Limits were saved; refresh to check confirmation."),
             );
         }
     }
@@ -528,7 +540,13 @@ pub(super) async fn save_runtime_policy(
     let _write = state.charter_writes.lock().await;
     let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     if config.auto_sleep_after_minutes != input.expected_auto_sleep_after_minutes
         || config.monthly_runtime_cap_hours != input.expected_monthly_runtime_cap_hours
@@ -559,7 +577,7 @@ pub(super) async fn save_runtime_policy(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
-                format!("The change could not be recorded: {error:#}"),
+                logged(error, "The change could not be recorded."),
             );
         }
         config.auto_sleep_after_minutes = input.auto_sleep_after_minutes;
@@ -568,7 +586,7 @@ pub(super) async fn save_runtime_policy(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "runtime_policy",
-                format!("Runtime limits were not saved: {error:#}"),
+                logged(error, "Runtime limits were not saved."),
             );
         }
         if let Err(error) = state
@@ -585,7 +603,7 @@ pub(super) async fn save_runtime_policy(
             )
             .await
         {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", format!("Runtime limits were saved but confirmation could not be recorded. Refresh to check them: {error:#}"));
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", logged(error, "Runtime limits were saved but confirmation could not be recorded. Refresh to check them."));
         }
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
@@ -624,7 +642,13 @@ pub(super) async fn save_native_limit(
     let _write = state.charter_writes.lock().await;
     let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     if config.native_monthly_turn_limit != input.expected_monthly_turn_limit
         || config.native_monthly_token_limit != input.expected_monthly_token_limit
@@ -656,7 +680,7 @@ pub(super) async fn save_native_limit(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
-                format!("The change could not be recorded: {error:#}"),
+                logged(error, "The change could not be recorded."),
             );
         }
         config.native_monthly_turn_limit = input.monthly_turn_limit;
@@ -665,7 +689,7 @@ pub(super) async fn save_native_limit(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "native_limit",
-                format!("Native usage limits were not saved: {error:#}"),
+                logged(error, "Native usage limits were not saved."),
             );
         }
         if let Err(error) = state
@@ -679,7 +703,7 @@ pub(super) async fn save_native_limit(
             )
             .await
         {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", format!("Native usage limits were saved but confirmation could not be recorded. Refresh to check them: {error:#}"));
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", logged(error, "Native usage limits were saved but confirmation could not be recorded. Refresh to check them."));
         }
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
@@ -722,7 +746,13 @@ pub(super) async fn logo(
         .or_else(|_| runtime::CompanyConfig::load_archived(&state.daemon.root, &company))
     {
         Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        }
     };
     let Some(logo) = runtime::company_logo(&state.daemon.root, &config) else {
         return api_error(StatusCode::NOT_FOUND, "logo", "This company has no logo.");
@@ -736,7 +766,7 @@ pub(super) async fn logo(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "logo",
-                format!("The logo could not be read: {error}"),
+                logged(error, "The logo could not be read."),
             )
         }
     };
@@ -794,7 +824,13 @@ pub(super) async fn save_logo(
         let _write = state.charter_writes.lock().await;
         let mut config = match runtime::CompanyConfig::load(root, &company) {
             Ok(config) => config,
-            Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+            Err(error) => {
+                return api_error(
+                    StatusCode::NOT_FOUND,
+                    "company",
+                    logged(error, "This company could not be found."),
+                )
+            }
         };
         let name = match runtime::store_company_logo(root, &company, &body) {
             Ok(name) => name,
@@ -802,7 +838,7 @@ pub(super) async fn save_logo(
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "logo",
-                    format!("The logo was not saved: {error:#}"),
+                    logged(error, "The logo was not saved."),
                 )
             }
         };
@@ -814,7 +850,7 @@ pub(super) async fn save_logo(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "logo",
-                format!("The logo was not saved: {error:#}"),
+                logged(error, "The logo was not saved."),
             );
         }
         if let Err(error) = runtime::remove_company_logos(root, &company, Some(&name)) {
@@ -843,14 +879,20 @@ pub(super) async fn remove_logo(
         let _write = state.charter_writes.lock().await;
         let mut config = match runtime::CompanyConfig::load(root, &company) {
             Ok(config) => config,
-            Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+            Err(error) => {
+                return api_error(
+                    StatusCode::NOT_FOUND,
+                    "company",
+                    logged(error, "This company could not be found."),
+                )
+            }
         };
         if config.logo.take().is_some() {
             if let Err(error) = runtime::CompanyConfig::save(root, &config) {
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "logo",
-                    format!("The logo was not removed: {error:#}"),
+                    logged(error, "The logo was not removed."),
                 );
             }
         }
@@ -968,7 +1010,7 @@ pub(super) async fn legal_profile(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "legal_profile",
-            format!("Could not read the legal profile: {error:#}"),
+            logged(error, "Could not read the legal profile."),
         ),
     }
 }
@@ -990,7 +1032,13 @@ pub(super) async fn save_legal_profile(
     }
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+        Err(e) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(e, "This company could not be found."),
+            )
+        }
     };
     if let Err(error) = legal::set_profile(
         &state.daemon.authority,
@@ -1003,7 +1051,7 @@ pub(super) async fn save_legal_profile(
         return api_error(
             StatusCode::BAD_REQUEST,
             "legal_profile",
-            format!("{error:#}"),
+            refusal_or_logged(error, "The legal profile was not saved. Try again."),
         );
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
@@ -1032,7 +1080,13 @@ pub(super) async fn save_outside_actions(
     }
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+        Err(e) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(e, "This company could not be found."),
+            )
+        }
     };
     let authority = &state.daemon.authority;
     let result = if input.paused {
@@ -1046,13 +1100,13 @@ pub(super) async fn save_outside_actions(
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "outside_actions",
-            format!(
-                "{} did not finish: {e:#}",
+            logged(
+                e,
                 if input.paused {
-                    "The pause"
+                    "The pause did not finish. Try again."
                 } else {
-                    "Resuming"
-                }
+                    "Resuming did not finish. Try again."
+                },
             ),
         );
     }
@@ -1091,7 +1145,13 @@ pub(super) async fn save_payment_allowance(
     }
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+        Err(e) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(e, "This company could not be found."),
+            )
+        }
     };
     let authority = &state.daemon.authority;
     let current = match restless_engine::finance::envelopes(authority, &company).await {
@@ -1105,7 +1165,7 @@ pub(super) async fn save_payment_allowance(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
-                format!("{e:#}"),
+                logged(e, "The payment allowances could not be read. Try again."),
             )
         }
     };
@@ -1139,7 +1199,7 @@ pub(super) async fn save_payment_allowance(
             return api_error(
                 StatusCode::BAD_REQUEST,
                 "payment_allowance",
-                format!("The allowance was not created: {e:#}"),
+                logged(e, "The allowance was not created."),
             );
         }
         return Json(company_projection::project(&state.daemon, &config, false).await)
@@ -1162,7 +1222,7 @@ pub(super) async fn save_payment_allowance(
             return api_error(
                 StatusCode::BAD_REQUEST,
                 "payment_allowance",
-                format!("The payees were not saved: {e:#}"),
+                logged(e, "The payees were not saved."),
             );
         }
     }
@@ -1203,7 +1263,7 @@ pub(super) async fn save_payment_allowance(
         return api_error(
             StatusCode::BAD_REQUEST,
             "payment_allowance",
-            format!("The allowance was not saved: {e:#}"),
+            logged(e, "The allowance was not saved."),
         );
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
@@ -1239,7 +1299,11 @@ pub(super) async fn governance_activity(
     if let Err(e) = runtime::CompanyConfig::load(&state.daemon.root, &company)
         .or_else(|_| runtime::CompanyConfig::load_archived(&state.daemon.root, &company))
     {
-        return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}"));
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(e, "This company could not be found."),
+        );
     }
     match company_projection::governance_activity(
         &state.daemon,
@@ -1254,7 +1318,7 @@ pub(super) async fn governance_activity(
         Err(e) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "authority",
-            format!("Activity could not be read: {e:#}"),
+            logged(e, "Activity could not be read."),
         ),
     }
 }
@@ -1277,14 +1341,18 @@ pub(super) async fn payment_activity(
     if let Err(e) = runtime::CompanyConfig::load(&state.daemon.root, &company)
         .or_else(|_| runtime::CompanyConfig::load_archived(&state.daemon.root, &company))
     {
-        return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}"));
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(e, "This company could not be found."),
+        );
     }
     match company_projection::payment_activity(&state.daemon, &company, role == "owner").await {
         Ok(view) => Json(view).into_response(),
         Err(e) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "authority",
-            format!("Payments could not be read: {e:#}"),
+            logged(e, "Payments could not be read."),
         ),
     }
 }
@@ -1309,7 +1377,7 @@ pub(super) async fn export_company(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "export",
-                format!("The export could not be made: {e:#}"),
+                logged(e, "The export could not be made."),
             )
         }
     };
@@ -1319,7 +1387,7 @@ pub(super) async fn export_company(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "export",
-                format!("The export could not be read: {e}"),
+                logged(e, "The export could not be read."),
             )
         }
     };
@@ -1401,7 +1469,11 @@ pub(super) async fn delete_company(
             Json(serde_json::json!({ "company": company, "deleted": true, "message": message }))
                 .into_response()
         }
-        Err(e) => api_error(StatusCode::CONFLICT, "delete", format!("{e:#}")),
+        Err(e) => api_error(
+            StatusCode::CONFLICT,
+            "delete",
+            refusal_or_logged(e, "The company could not be deleted. Try again."),
+        ),
     }
 }
 
@@ -1479,11 +1551,22 @@ async fn payment_rail_result(
     state: &OwnerState,
     config: &runtime::CompanyConfig,
 ) -> Response<Body> {
-    let (probe, probe_error) =
-        match restless_engine::airwallex::probe_connection(config, &state.daemon.authority).await {
-            Ok(probe) => (Some(probe), None),
-            Err(e) => (None, Some(format!("{e:#}"))),
-        };
+    let (probe, probe_error) = match restless_engine::airwallex::probe_connection(
+        config,
+        &state.daemon.authority,
+    )
+    .await
+    {
+        Ok(probe) => (Some(probe), None),
+        Err(e) => (
+            None,
+            Some(logged(
+                e,
+                "The connection could not be checked with Airwallex. Check the keys and try again."
+                    .to_string(),
+            )),
+        ),
+    };
     let company =
         serde_json::to_value(company_projection::project(&state.daemon, config, false).await)
             .unwrap_or_default();
@@ -1513,7 +1596,13 @@ pub(super) async fn save_payment_rail(
     let _write = state.charter_writes.lock().await;
     let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+        Err(e) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(e, "This company could not be found."),
+            )
+        }
     };
     let mut bound = false;
     for (binding, suffix, key) in [
@@ -1558,7 +1647,10 @@ pub(super) async fn save_payment_rail(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "payment_rail",
-                format!("The keys were stored, but the company could not be updated: {e:#}"),
+                logged(
+                    e,
+                    "The keys were stored, but the company could not be updated.",
+                ),
             );
         }
     }
@@ -1584,7 +1676,7 @@ pub(super) async fn save_payment_rail(
         return api_error(
             StatusCode::BAD_REQUEST,
             "payment_rail",
-            format!("The connection was not saved: {e:#}"),
+            logged(e, "The connection was not saved."),
         );
     }
     drop(_write);
@@ -1606,7 +1698,13 @@ pub(super) async fn probe_payment_rail(
     }
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
-        Err(e) => return api_error(StatusCode::NOT_FOUND, "company", format!("{e:#}")),
+        Err(e) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(e, "This company could not be found."),
+            )
+        }
     };
     payment_rail_result(&state, &config).await
 }
@@ -1645,7 +1743,11 @@ pub(super) async fn decide_payee(
     )
     .await
     {
-        return api_error(StatusCode::CONFLICT, "payee", format!("{e:#}"));
+        return api_error(
+            StatusCode::CONFLICT,
+            "payee",
+            refusal_or_logged(e, "That answer was not recorded. Refresh and try again."),
+        );
     }
     Json(serde_json::json!({"decided": true})).into_response()
 }
@@ -1692,7 +1794,11 @@ pub(super) async fn decide_setting(
     )
     .await
     {
-        return api_error(StatusCode::CONFLICT, "setting", format!("{e:#}"));
+        return api_error(
+            StatusCode::CONFLICT,
+            "setting",
+            refusal_or_logged(e, "That decision was not recorded. Refresh and try again."),
+        );
     }
     if let (Some((record, waiting)), Ok(org)) = (pending, state.daemon.orgintel.get(&company).await)
     {
@@ -1749,7 +1855,11 @@ pub(super) async fn away_mode(
     }
     match restless_engine::away::current(&state.daemon.authority, &company).await {
         Ok(away) => Json(AwayView { away }).into_response(),
-        Err(e) => api_error(StatusCode::SERVICE_UNAVAILABLE, "away", format!("{e:#}")),
+        Err(e) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "away",
+            logged(e, "Away mode could not be read. Try again."),
+        ),
     }
 }
 
@@ -1779,7 +1889,7 @@ pub(super) async fn start_away(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{e:#}"),
+                logged(e, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -1795,7 +1905,11 @@ pub(super) async fn start_away(
     .await
     {
         Ok(away) => Json(AwayView { away: Some(away) }).into_response(),
-        Err(e) => api_error(StatusCode::BAD_REQUEST, "away", format!("{e:#}")),
+        Err(e) => api_error(
+            StatusCode::BAD_REQUEST,
+            "away",
+            refusal_or_logged(e, "Away mode could not be started. Try again."),
+        ),
     }
 }
 
@@ -1818,7 +1932,7 @@ pub(super) async fn end_away(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{e:#}"),
+                logged(e, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -1831,6 +1945,10 @@ pub(super) async fn end_away(
     .await
     {
         Ok(()) => Json(AwayView { away: None }).into_response(),
-        Err(e) => api_error(StatusCode::SERVICE_UNAVAILABLE, "away", format!("{e:#}")),
+        Err(e) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "away",
+            logged(e, "Away mode did not end. Try again."),
+        ),
     }
 }

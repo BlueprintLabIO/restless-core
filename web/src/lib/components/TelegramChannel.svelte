@@ -87,9 +87,8 @@
 		() =>
 			!!error &&
 			(!!actionError || !!view) && {
-				text: 'Telegram did not respond',
+				text: error,
 				tone: 'failure',
-				details: error,
 				dedupeKey: `telegram:${companyId}`
 			}
 	);

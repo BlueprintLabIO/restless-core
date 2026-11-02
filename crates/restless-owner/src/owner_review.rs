@@ -211,14 +211,6 @@ pub(crate) async fn review_outcome(
 /// Accepting approves the outcome that was shown, so it must still open when the acceptance is
 /// recorded: at the click, and again when an Undo window ends. A computer that went to sleep is
 /// woken to check; a stopped one, or a file that has gone, refuses the acceptance in a sentence.
-/// What the owner reads when a review cannot be served: a plain sentence. The raw reason (a
-/// path, a shell's "realpath: … No such file or directory", a bridge error) goes to the log,
-/// never to the card.
-fn logged(error: impl std::fmt::Display, sentence: &'static str) -> &'static str {
-    tracing::warn!(error = %format!("{error:#}"), "{sentence}");
-    sentence
-}
-
 pub(crate) async fn outcome_still_opens(
     state: &OwnerState,
     company: &str,

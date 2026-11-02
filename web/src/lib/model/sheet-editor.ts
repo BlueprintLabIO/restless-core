@@ -35,7 +35,8 @@ export interface EditorStatus {
 	denied?: boolean;
 	/** The sheet as the server holds it, from the session's bootstrap. */
 	sheet?: SheetRow;
-	/** A change was refused and the sheet reopened at its saved state; say so once. */
+	/** A change was refused and the sheet reopened at its saved state; say so once. `details` is
+	 * a plain sentence too (what was kept or lost), never raw server text. */
 	notice?: { title: string; text: string; details?: string };
 }
 type UpstreamMessage = Record<string, any>;
@@ -536,6 +537,7 @@ export function mountSheet(
 	}
 	function fail(message: string, denied = false) {
 		if (disposed) return;
+		console.warn('The sheet stopped syncing:', message);
 		blocked = true;
 		socket?.close();
 		app?.destroy();
@@ -682,12 +684,13 @@ export function mountSheet(
 					if (message.includes('unavailable')) fail(message, true);
 					// Before the sheet has opened there is no change to drop; reopening would only repeat it.
 					else if (!model) fail(message);
-					else
+					else {
+						console.warn('The sheet refused a change:', message);
 						reload({
 							title: 'Your last change was not saved',
-							text: 'The sheet reopened at its last saved state.',
-							details: message
+							text: 'The sheet reopened at its last saved state.'
 						});
+					}
 					return;
 				}
 				// Other people's and agents' cursors: shown, never sequenced or stored.

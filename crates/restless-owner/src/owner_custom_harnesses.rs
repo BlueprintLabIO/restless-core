@@ -99,7 +99,11 @@ pub(super) async fn save(
     .await;
     match result {
         Ok(value) => Json(value).into_response(),
-        Err(e) => api_error(StatusCode::BAD_REQUEST, "harness", e.to_string()),
+        Err(e) => api_error(
+            StatusCode::BAD_REQUEST,
+            "harness",
+            refusal_or_logged(e, "The harness could not be saved. Try again."),
+        ),
     }
 }
 
@@ -167,7 +171,11 @@ pub(super) async fn action(
     .await;
     match result {
         Ok(value) => Json(value).into_response(),
-        Err(e) => api_error(StatusCode::BAD_REQUEST, "harness", e.to_string()),
+        Err(e) => api_error(
+            StatusCode::BAD_REQUEST,
+            "harness",
+            refusal_or_logged(e, "That harness action did not finish. Try again."),
+        ),
     }
 }
 
@@ -228,6 +236,10 @@ pub(super) async fn remove(
     .await;
     match result {
         Ok(value) => Json(value).into_response(),
-        Err(e) => api_error(StatusCode::BAD_REQUEST, "harness", e.to_string()),
+        Err(e) => api_error(
+            StatusCode::BAD_REQUEST,
+            "harness",
+            refusal_or_logged(e, "The harness could not be removed. Try again."),
+        ),
     }
 }

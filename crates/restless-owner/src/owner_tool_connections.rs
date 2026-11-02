@@ -12,7 +12,11 @@ use restless_engine::connections::{self, NewConnection, ToolDecision};
 pub(super) const OAUTH_CALLBACK_PATH: &str = "/connections/tools/oauth/callback";
 
 fn connection_error(error: anyhow::Error) -> Response<Body> {
-    api_error(StatusCode::BAD_REQUEST, "connection", format!("{error:#}"))
+    api_error(
+        StatusCode::BAD_REQUEST,
+        "connection",
+        refusal_or_logged(error, "The connection could not be saved. Try again."),
+    )
 }
 
 async fn owner_gate(
@@ -24,7 +28,7 @@ async fn owner_gate(
         return Err(api_error(
             StatusCode::NOT_FOUND,
             "company",
-            format!("{error:#}"),
+            logged(error, "This company could not be found."),
         ));
     }
     require_authority_owner(state, company, principal).await
@@ -42,7 +46,13 @@ async fn record_reader_gate(
     }
     runtime::CompanyConfig::load(&state.daemon.root, company)
         .map(|_| ())
-        .map_err(|error| api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")))
+        .map_err(|error| {
+            api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                logged(error, "This company could not be found."),
+            )
+        })
 }
 
 /// Connected tools reach agents through the tool gateway on this plane's
@@ -140,7 +150,7 @@ pub(super) async fn list(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "connection",
-            format!("{error:#}"),
+            logged(error, "Connections could not be read. Try again."),
         ),
     }
 }
@@ -385,7 +395,10 @@ pub(super) async fn oauth_callback(
         }
         Err(error) => callback_page(
             StatusCode::BAD_REQUEST,
-            &format!("{error:#}"),
+            &refusal_or_logged(
+                error,
+                "The sign-in could not be finished. Start it again from Apps.",
+            ),
             sign_in.as_ref(),
         ),
     }
@@ -554,7 +567,7 @@ pub(super) async fn app_requests(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "apps",
-            format!("{error:#}"),
+            logged(error, "App requests could not be read. Try again."),
         ),
     }
 }
@@ -731,7 +744,7 @@ pub(super) async fn receipts(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "connection",
-            format!("{error:#}"),
+            logged(error, "The connection could not be read. Try again."),
         ),
     }
 }

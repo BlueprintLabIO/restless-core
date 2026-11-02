@@ -27,7 +27,7 @@ pub(super) async fn list(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "agent_exchanges",
-                format!("{e:#}"),
+                logged(e, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -37,7 +37,7 @@ pub(super) async fn list(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "agent_exchanges",
-                format!("{e:#}"),
+                logged(e, "Agent conversations could not be read. Try again."),
             )
         }
     };
@@ -54,7 +54,7 @@ pub(super) async fn list(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "agent_exchanges",
-                format!("{e:#}"),
+                logged(e, "Agent conversations could not be read. Try again."),
             )
         }
     };

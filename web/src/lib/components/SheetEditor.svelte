@@ -139,21 +139,20 @@
 			? {
 					text: 'The sheet stopped syncing',
 					tone: 'failure',
-					details: editorState.message || null,
 					action: { label: 'Reload sheet', run: () => retry++ }
 				}
 			: editorState.state === 'offline'
 				? {
 						text: 'Reconnecting',
 						tone: 'failure',
-						details: editorState.message || null,
 						dedupeKey: 'sheet-reconnecting'
 					}
 				: notice
 					? {
-							text: notice.text ? `${notice.title}. ${notice.text}` : notice.title,
-							tone: 'failure',
-							details: notice.details ?? null
+							text: [notice.title + '.', notice.text, notice.details?.replace(/\n/g, ' ')]
+								.filter(Boolean)
+								.join(' '),
+							tone: 'failure'
 						}
 					: null
 	);

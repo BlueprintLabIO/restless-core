@@ -7,9 +7,9 @@ export type Toast = {
 	id: number;
 	/** Independent durable results may share wording without replacing each other. */
 	dedupeKey?: string;
+	/** One plain sentence. Raw system text (an error body, a path, a stack) never goes here;
+	 * the server logs it, and client-side causes go to the console. */
 	text: string;
-	/** Raw system text (an error body, what was skipped) folded behind "Details". */
-	details?: string;
 	tone: ToastTone;
 	undo?: () => unknown;
 	/** One other thing to do about it ("Sign in", "Reload"); runs once, then the toast goes. */
@@ -73,10 +73,7 @@ function schedule(id: number) {
 /** Say what happened. Pass undo when the action can be reversed; it runs once, then the toast goes. */
 export function toast(
 	text: string,
-	options: Pick<
-		Toast,
-		'undo' | 'action' | 'persist' | 'expiresAt' | 'onDismiss' | 'dedupeKey' | 'details'
-	> & {
+	options: Pick<Toast, 'undo' | 'action' | 'persist' | 'expiresAt' | 'onDismiss' | 'dedupeKey'> & {
 		tone?: ToastTone;
 	} = {}
 ) {
@@ -109,7 +106,6 @@ export function toast(
 
 export type ToastMessage = Pick<Toast, 'text' | 'action' | 'persist' | 'dedupeKey'> & {
 	tone?: ToastTone;
-	details?: string | null;
 };
 
 /** A component's outcome said as a toast instead of a banner that pushes the page about. Call it
@@ -123,11 +119,11 @@ export function toastWhile(read: () => ToastMessage | null | undefined | false |
 	let shown = '';
 	const message = $derived(read() || null);
 	const keyOf = (item: ToastMessage) =>
-		JSON.stringify([item.text, item.tone ?? 'done', item.details ?? '', item.action?.label ?? '']);
+		JSON.stringify([item.text, item.tone ?? 'done', item.action?.label ?? '']);
 	function say(item: ToastMessage) {
 		if (id !== undefined) dismissToast(id);
-		const { text, details, ...options } = item;
-		id = toast(text, { ...options, ...(details ? { details } : {}) });
+		const { text, ...options } = item;
+		id = toast(text, options);
 		shown = keyOf(item);
 	}
 	function clear() {

@@ -484,7 +484,7 @@
 		return () => window.removeEventListener('beforeunload', warn);
 	});
 	/* Outcomes are toasts, never banners that push the brand down. */
-	toastWhile(() => !!error && { text: 'That was not saved', tone: 'failure', details: error });
+	toastWhile(() => !!error && { text: error, tone: 'failure' });
 	toastWhile(() => !!notice && { text: notice });
 </script>
 

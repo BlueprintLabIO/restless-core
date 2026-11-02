@@ -379,7 +379,11 @@ pub(super) async fn set_apps(
     }
     match machines::set_apps(state.daemon.authority.pool(), &id, input.apps).await {
         Ok(()) => Json(json!({ "apps": machines::apps_for(&id) })).into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "machines", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "machines",
+            refusal_or_logged(error, "The apps could not be saved. Try again."),
+        ),
     }
 }
 

@@ -578,7 +578,10 @@ pub(super) async fn answer_code(
         Err(error) => {
             let message = format!("{error:#}");
             identity::return_code_request(request).await;
-            api_error(StatusCode::CONFLICT, "accounts", format!("The code was not typed: {message} Try again once the page shows the code field."))
+            api_error(StatusCode::CONFLICT, "accounts", logged(
+                message,
+                "The code was not typed. Try again once the page shows the code field.",
+            ))
         }
     }
 }

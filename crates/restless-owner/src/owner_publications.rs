@@ -21,7 +21,11 @@ pub(super) async fn show(
     {
         Ok(records) => records,
         Err(error) => {
-            return api_error(StatusCode::BAD_REQUEST, "publication", format!("{error:#}"))
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "publication",
+                logged(error, "The publication could not be read. Try again."),
+            )
         }
     };
     let bodies = |kind: &str| -> Vec<serde_json::Value> {
@@ -80,7 +84,7 @@ pub(super) async fn authorize(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -92,7 +96,11 @@ pub(super) async fn authorize(
     {
         Ok(_) => Json(serde_json::json!({ "publication_id": publication, "authorized": true }))
             .into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "publication", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "publication",
+            logged(error, "The publication could not be authorized. Try again."),
+        ),
     }
 }
 
@@ -128,7 +136,7 @@ pub(super) async fn invite(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -153,7 +161,11 @@ pub(super) async fn invite(
             "token": value["token"],
         }))
         .into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "publication", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "publication",
+            logged(error, "The invitation could not be created. Try again."),
+        ),
     }
 }
 
@@ -174,7 +186,11 @@ pub(super) async fn revoke(
     {
         Ok(_) => Json(serde_json::json!({ "invitation_id": invitation, "revoked": true }))
             .into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "publication", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "publication",
+            logged(error, "The invitation could not be revoked. Try again."),
+        ),
     }
 }
 
@@ -202,7 +218,7 @@ pub(super) async fn stop(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             )
         }
     };
@@ -217,6 +233,10 @@ pub(super) async fn stop(
         .await
     {
         Ok(value) => Json(value).into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "publication", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "publication",
+            logged(error, "The publication could not be stopped. Try again."),
+        ),
     }
 }

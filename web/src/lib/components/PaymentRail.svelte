@@ -152,20 +152,16 @@
 	}
 	/* Outcomes are toasts, never banners that push the allowances down. While the connect form
 	 * is open its own error line speaks instead. */
-	toastWhile(
-		() => !!error && !connecting && { text: 'Nothing changed', tone: 'failure', details: error }
-	);
+	toastWhile(() => !!error && !connecting && { text: error, tone: 'failure' });
 	toastWhile(() =>
 		checked?.probe
 			? {
-					text: 'The provider answered',
-					details: `Both keys signed in and read ${checked.probe.account_ref} at ${formatMoment(checked.probe.observed_at)}. No money moved.`
+					text: `The provider answered: both keys signed in and read ${checked.probe.account_ref} at ${formatMoment(checked.probe.observed_at)}. No money moved.`
 				}
 			: checked?.probe_error
 				? {
-						text: 'Saved, but the live check failed',
-						tone: 'failure',
-						details: checked.probe_error
+						text: `Saved. ${checked.probe_error}`,
+						tone: 'failure'
 					}
 				: null
 	);

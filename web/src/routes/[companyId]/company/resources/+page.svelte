@@ -72,9 +72,8 @@
 	toastWhile(
 		() =>
 			!!launchError && {
-				text: 'The resource could not be opened',
-				tone: 'failure',
-				details: launchError
+				text: launchError,
+				tone: 'failure'
 			}
 	);
 	toastWhile(() => !!nativeNotice && { text: nativeNotice });
@@ -85,7 +84,6 @@
 				text: 'Showing the last values read',
 				tone: 'failure',
 				dedupeKey: `resources-stale:${companyId}`,
-				...(source.failure ? { details: failureSentence(source.failure, '') || null } : {}),
 				action: { label: 'Retry', run: () => source.refresh() }
 			}
 	);

@@ -157,7 +157,11 @@ async fn queue(
         return access_changed();
     }
     if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
-        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(error, "This company could not be found."),
+        );
     }
     if let Ok(org) = state.daemon.orgintel.get(&company).await {
         if org.check_decision_principal(identity).await.is_err() {
@@ -179,7 +183,10 @@ async fn queue(
             state.decision_wake.notify_one();
             response(summary(&saved))
         }
-        Err(error) => refused(format!("{error:#}")),
+        Err(error) => refused(refusal_or_logged(
+            error,
+            "That decision could not be saved. Try again.",
+        )),
     }
 }
 
@@ -203,7 +210,7 @@ async fn list(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "approval_decision",
-            format!("{error:#}"),
+            logged(error, "Decisions could not be read. Try again."),
         ),
     }
 }
@@ -228,7 +235,10 @@ async fn cancel(
     .await
     {
         Ok(saved) => response(summary(&saved)),
-        Err(error) => refused(format!("{error:#}")),
+        Err(error) => refused(refusal_or_logged(
+            error,
+            "That decision could not be undone. Try again.",
+        )),
     }
 }
 
@@ -252,7 +262,10 @@ async fn acknowledge(
     .await
     {
         Ok(()) => response(serde_json::json!({"seen": true})),
-        Err(error) => refused(format!("{error:#}")),
+        Err(error) => refused(refusal_or_logged(
+            error,
+            "That result could not be marked as seen. Try again.",
+        )),
     }
 }
 

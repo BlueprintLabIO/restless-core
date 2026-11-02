@@ -163,7 +163,13 @@ pub(crate) async fn issue_ticket(
     if input.item_id != "runtime-rescue" {
         let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
             Ok(config) => config,
-            Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+            Err(error) => {
+                return api_error(
+                    StatusCode::NOT_FOUND,
+                    "company",
+                    logged(error, "This company could not be found."),
+                )
+            }
         };
         let org = state.daemon.orgintel.get(&company).await.ok();
         let view = match attention::project(&config, &state.daemon.authority, org.as_ref()).await {
@@ -172,7 +178,7 @@ pub(crate) async fn issue_ticket(
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "projection",
-                    format!("{error:#}"),
+                    logged(error, "The Inbox could not be read. Try again."),
                 )
             }
         };
@@ -442,7 +448,10 @@ pub(crate) async fn desktop_asset(
         Err(error) => api_error(
             StatusCode::BAD_GATEWAY,
             "desktop",
-            format!("desktop asset bridge: {error:#}"),
+            logged(
+                error,
+                "The company computer screen could not be loaded. Try again.",
+            ),
         ),
     }
 }
@@ -676,7 +685,10 @@ pub(crate) async fn desktop_windows(
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "desktop",
-            format!("{error:#}"),
+            logged(
+                error,
+                "The computer's windows could not be listed. Try again.",
+            ),
         ),
     }
 }
@@ -722,7 +734,14 @@ pub(crate) async fn focus_desktop_window(
         .await
     {
         Ok(()) => Json(serde_json::json!({ "focused": true })).into_response(),
-        Err(error) => api_error(StatusCode::CONFLICT, "desktop", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::CONFLICT,
+            "desktop",
+            logged(
+                error,
+                "That window could not be brought forward. Try again.",
+            ),
+        ),
     }
 }
 
@@ -960,7 +979,11 @@ pub(crate) async fn list_computer_files(
             "folder": listing,
         }))
         .into_response(),
-        Err(error) => api_error(StatusCode::NOT_FOUND, "files", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::NOT_FOUND,
+            "files",
+            logged(error, "This folder could not be opened."),
+        ),
     }
 }
 
@@ -985,7 +1008,16 @@ pub(crate) async fn download_computer_file(
     }
     let canonical = match restless_engine::runtime_files::resolve_file(&company, &path).await {
         Ok(canonical) => canonical,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "files", format!("{error:#}")),
+        Err(error) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "files",
+                logged(
+                    error,
+                    "This file could not be found on the company computer.",
+                ),
+            )
+        }
     };
     let file =
         match runtime::stream_runtime_review_file(&company, std::path::Path::new(&canonical), None)
@@ -999,7 +1031,13 @@ pub(crate) async fn download_computer_file(
                     "This file is larger than the 16 GiB the cockpit can download.",
                 )
             }
-            Err(error) => return api_error(StatusCode::NOT_FOUND, "files", format!("{error:#}")),
+            Err(error) => {
+                return api_error(
+                    StatusCode::NOT_FOUND,
+                    "files",
+                    logged(error, "This file could not be opened for download."),
+                )
+            }
         };
     let name = canonical
         .rsplit('/')
@@ -1050,6 +1088,13 @@ pub(crate) async fn drop_computer_file(
     }
     match restless_engine::runtime_files::drop_in_downloads(&company, &name, &body).await {
         Ok(path) => Json(serde_json::json!({ "path": path })).into_response(),
-        Err(error) => api_error(StatusCode::CONFLICT, "files", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::CONFLICT,
+            "files",
+            logged(
+                error,
+                "The file was not added to the company computer. Try again.",
+            ),
+        ),
     }
 }

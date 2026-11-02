@@ -89,10 +89,9 @@
 	 * or one older than the Library's most recent, opens like any other. */
 	let row = $state<SheetRow | null>(null);
 	let missing = $state(false);
-	/* What failed, in a line; why, as a sentence when the owner can act on it, else under Details. */
-	let error = $state<{ title: string; text?: string; details?: string; retry?: boolean } | null>(
-		null
-	);
+	/* What failed, in a line; why, as a sentence when the owner can act on it. A raw cause goes
+	 * to the console, never the toast. */
+	let error = $state<{ title: string; text?: string; retry?: boolean } | null>(null);
 	let revision = $state(''),
 		saveState = $state('connecting'),
 		access = $state('read'),
@@ -238,11 +237,10 @@
 			}
 			return true;
 		} catch (cause) {
-			if (mine === epoch)
-				error = {
-					title: headline,
-					details: cause instanceof Error ? cause.message : String(cause)
-				};
+			if (mine === epoch) {
+				console.warn(`${headline}:`, cause);
+				error = { title: headline };
+			}
 			return false;
 		}
 	}
@@ -730,9 +728,8 @@
 	toastWhile(
 		() =>
 			!!error && {
-				text: error.title,
+				text: error.text ? `${error.title}. ${error.text}` : error.title,
 				tone: 'failure',
-				details: [error.text, error.details].filter(Boolean).join('\n\n') || null,
 				...(error.retry && lastImport
 					? {
 							action: {

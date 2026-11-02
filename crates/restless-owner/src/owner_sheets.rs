@@ -110,7 +110,16 @@ fn failure(error: anyhow::Error) -> Response<Body> {
                 .map(|first| first.to_uppercase().chain(letters).collect())
                 .unwrap_or_default()
         }
-        _ => message,
+        _ if status == StatusCode::CONFLICT => logged(
+            message,
+            "This sheet changed meanwhile. Reload it and try again.",
+        )
+        .to_string(),
+        _ if status == StatusCode::NOT_FOUND => {
+            logged(message, "This sheet is not available.").to_string()
+        }
+        // A store error is logged; the owner reads a sentence.
+        _ => logged(message, "The sheet could not be saved. Try again.").to_string(),
     };
     no_store(api_error(status, "sheet", message))
 }
@@ -1048,7 +1057,7 @@ async fn session(
                 }
                 let result=sheet_commands::accept_browser(&org,id,&actor,&client,&text).await;
                 if let Err(e)=result {
-                    socket.send(AxumMessage::Text(json!({"type":"ERROR","message":e.to_string()}).to_string().into())).await?;
+                    socket.send(AxumMessage::Text(json!({"type":"ERROR","message":logged(e, "That change was not saved. Reload the sheet and try again.")}).to_string().into())).await?;
                     break;
                 }
             }

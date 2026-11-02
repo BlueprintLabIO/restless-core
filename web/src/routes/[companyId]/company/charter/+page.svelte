@@ -3,7 +3,6 @@
 	import { Page, Section, Row, Item, Empty } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
-	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import CompanyNameField from '$lib/components/CompanyNameField.svelte';
 	import CompanyLogoField from '$lib/components/CompanyLogoField.svelte';
@@ -38,7 +37,6 @@
 				text: 'Showing the last saved charter',
 				tone: 'failure',
 				dedupeKey: `charter-stale:${companyId}`,
-				details: source.failure ? failureSentence(source.failure, '') || null : null,
 				action: { label: 'Retry', run: () => source.refresh() }
 			}
 	);

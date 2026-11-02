@@ -180,9 +180,8 @@
 			!saveError &&
 			!!source.failure &&
 			!!view && {
-				text: 'The vault could not be refreshed',
+				text: error,
 				tone: 'failure',
-				details: error,
 				dedupeKey: `vault-refresh:${companyId}`,
 				action: { label: 'Retry', run: refresh }
 			}

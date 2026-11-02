@@ -48,7 +48,7 @@ pub(super) async fn heartbeat(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "The company is temporarily unavailable. Try again."),
             );
         }
     };
@@ -58,7 +58,7 @@ pub(super) async fn heartbeat(
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
-                format!("{error:#}"),
+                logged(error, "Who is online could not be read. Try again."),
             );
         }
     };
