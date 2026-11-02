@@ -1493,17 +1493,35 @@ try {
     pass("mandate answer: owner only, Undo by the decider only, applies once after the window");
   }
 
-  // 9i-3. An email without a mandate waits for the owner (S109 H2). The Resend key is stored
-  //       under an older name (RESEND_API_KEY) and still counts. Exec's send puts the exact email
-  //       in the owner's Inbox; the admin and the member neither see nor answer it; Undo puts it
+  // 9i-3. An email without a mandate waits for the owner (S109 H2). A Resend key stored under an
+  //       older name (RESEND_API_KEY) becomes the sending key. The exact email Exec wrote is in
+  //       the owner's Inbox; the admin and the member neither see nor answer it; Undo puts it
   //       back; after the window Exec is told it may send. Nothing reaches Resend here.
+  //       Exec's own `restless email send` needs its Runtime capability, which this journey has
+  //       no Runtime to hold, so the request is the record that send writes (engine tests cover
+  //       the send itself).
   {
     await daemonCommand({ cmd: "company-set", company, state: "credentials.RESEND_API_KEY", body: "env:RESTLESS_JOURNEY_RESEND_KEY" });
-    const email = { from: "hello@multiplayer.test", to: "jo@example.net", subject: "Your quote for the open day", text: "Hi Jo,\n\nThanks for coming by. Your quote is attached in spirit.\n\nSam", effect_key: `journey-quote-${randomUUID()}` };
-    const send = () => daemonCommand({ cmd: "email-send", company, email_request: email, actor: "exec" });
-    const asked = await send();
-    assert.equal(asked.status, "waiting_for_owner", "nothing is sent without the owner");
-    assert.equal((await send()).request_id, asked.request_id, "asking again is the same card");
+    const references = (await coreApi(owner, `${base}/vault`)).references;
+    assert(
+      references.some((ref) => ref.name === "resend.production" && ref.reference === "env:RESTLESS_JOURNEY_RESEND_KEY"),
+      "a key saved as RESEND_API_KEY is the sending key without being entered again",
+    );
+    const requestId = randomUUID();
+    const plane = new pg.Client({ connectionString: (await readFile(join(root, "orgintel.toml"), "utf8")).match(/database_url = "(.*)"/)[1] });
+    await plane.connect();
+    await plane.query("INSERT INTO restless_authority.records (company, kind, actor_id, body) VALUES ($1, 'email_send_request', 'exec', $2)", [
+      company,
+      {
+        id: requestId, effect_key: `journey-quote-${requestId}`, payload_sha256: "a".repeat(64),
+        sender: "hello@multiplayer.test", sender_name: null, recipient: "jo@example.net",
+        subject: "Your quote for the open day", body: "Hi Jo,\n\nThanks for coming by. Your quote is attached in spirit.\n\nSam",
+        body_truncated: false, attachments: [], in_reply_to: null, work_id: null,
+      },
+    ]);
+    const asked = { request_id: requestId };
+    const approvals = async () =>
+      (await plane.query("SELECT count(*)::int AS n FROM restless_authority.records WHERE company = $1 AND kind = 'email_send_approved' AND body->>'request_id' = $2", [company, requestId])).rows[0].n;
     const itemId = `authority:email_send:${asked.request_id}`;
     const inInbox = async (who = owner) => (await coreApi(who, `${base}/attention`)).items.some((item) => item.id === itemId);
     const card = (await coreApi(owner, `${base}/attention`)).items.find((item) => item.id === itemId);
@@ -1536,7 +1554,7 @@ try {
     assert(!(await inInbox()), "the card leaves at once");
     assert.equal((await coreApi(owner, `${base}/approval-decisions/${undone.id}`, { method: "DELETE" })).state, "canceled");
     assert(await inInbox(), "Undo puts the card back");
-    assert.equal((await send()).status, "waiting_for_owner", "an undone approval sends nothing");
+    assert.equal(await approvals(), 0, "an undone approval records nothing");
     const saved = await answer(owner, 200);
     const deadline = Date.now() + 20000;
     let state = saved.state;
@@ -1546,6 +1564,8 @@ try {
     }
     assert.equal(state, "applied", "the approval takes effect after the window");
     assert(!(await inInbox()), "answered: the card stays gone");
+    assert.equal(await approvals(), 1, "approved exactly once");
+    await plane.end();
     pass("email send: a key under an old name counts; the exact email waits in the owner's Inbox only; Undo, then approval after the window");
   }
 
