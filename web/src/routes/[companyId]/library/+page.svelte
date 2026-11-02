@@ -820,7 +820,6 @@
 	let outputStale = $state(false);
 	let outputReadFailed = $state(false);
 	let outputStaleToast: number | null = null;
-	let outputFailureToast: number | null = null;
 	let outputRevision: string | null = null;
 	let outputEpoch = 0;
 	let outputSkippedReported = false;
@@ -846,18 +845,12 @@
 	let outputLoadFailure = $state('');
 	let outputPagesLoaded = false;
 
+	/* Said by the Library's one read-failure notice (libraryWarnings), not a toast of its own. */
 	function clearOutputFailure() {
 		outputReadFailed = false;
-		if (outputFailureToast !== null) dismissToast(outputFailureToast);
-		outputFailureToast = null;
 	}
 	function reportOutputFailure() {
 		outputReadFailed = true;
-		if (outputFailureToast !== null) dismissToast(outputFailureToast);
-		outputFailureToast = toast('Files could not be read. Try again.', {
-			tone: 'failure',
-			action: { label: 'Try again', run: () => refreshOutputs() }
-		});
 	}
 
 	function markOutputsStale() {
@@ -1177,25 +1170,24 @@
 	});
 	/* A part of the Library that could not be read is said as a toast with Retry, never a banner
 	 * that pushes the list down; the "!" beside the count brings back whatever is still wrong. */
+	/* Documents, sheets and files fail together in an outage, each as its read reports. One notice
+	 * with the same words whichever parts failed: a toast per part stacked upward as each landed,
+	 * moving the ones already shown (S109 C5/C7). Retry retries whatever is failing when pressed. */
+	function retryLibraryReads() {
+		const retries: unknown[] = [];
+		if (documents.failure) retries.push(documents.refresh());
+		if (sheetsFailure) retries.push(refreshSheets());
+		if (outputReadFailed) retries.push(refreshOutputs());
+		return Promise.all(retries);
+	}
 	const libraryWarnings = [
 		toastWhile(
 			() =>
-				!!documents.failure && {
-					text: 'Documents could not be read',
+				(!!documents.failure || !!sheetsFailure || outputReadFailed) && {
+					text: 'Part of the Library could not be read',
 					tone: 'failure',
-					details: documents.failure.message,
-					dedupeKey: `library-documents:${companyId}`,
-					action: { label: 'Retry', run: () => documents.refresh() }
-				}
-		),
-		toastWhile(
-			() =>
-				!!sheetsFailure && {
-					text: 'Sheets could not be read',
-					tone: 'failure',
-					details: sheetsFailure,
-					dedupeKey: `library-sheets:${companyId}`,
-					action: { label: 'Retry', run: refreshSheets }
+					dedupeKey: `library-reads:${companyId}`,
+					action: { label: 'Retry', run: retryLibraryReads }
 				}
 		),
 		toastWhile(

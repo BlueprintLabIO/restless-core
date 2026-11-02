@@ -1829,7 +1829,6 @@
 			providerLabel={routeActionLabel(railRouteState) ?? 'Check model connection'}
 			contextLabel={currentContext.label}
 			{contextLabelFor}
-			contextKind={currentContext.kind}
 			focusAfterMessageId={railConversation.focusAfterMessageId}
 			focusStartedAt={railConversation.focusStartedAt}
 			newFocusAvailable={railActorId === 'exec' &&
