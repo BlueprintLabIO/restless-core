@@ -1,0 +1,46 @@
+[
+  {
+    "name": "after-unavailable-1440-light",
+    "checkButton": true,
+    "cantReply": true,
+    "modelUnavailable": true,
+    "waitingOnModel": false,
+    "docks": [],
+    "lateShift": 0,
+    "late": [],
+    "errors": []
+  },
+  {
+    "name": "after-unavailable-390-light",
+    "checkButton": true,
+    "cantReply": true,
+    "modelUnavailable": true,
+    "waitingOnModel": false,
+    "docks": [],
+    "lateShift": 0,
+    "late": [],
+    "errors": []
+  },
+  {
+    "name": "after-unavailable-1440-dark",
+    "checkButton": true,
+    "cantReply": true,
+    "modelUnavailable": true,
+    "waitingOnModel": false,
+    "docks": [],
+    "lateShift": 0,
+    "late": [],
+    "errors": []
+  },
+  {
+    "name": "after-unavailable-390-dark",
+    "checkButton": true,
+    "cantReply": true,
+    "modelUnavailable": true,
+    "waitingOnModel": false,
+    "docks": [],
+    "lateShift": 0,
+    "late": [],
+    "errors": []
+  }
+]

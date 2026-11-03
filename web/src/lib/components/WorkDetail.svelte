@@ -19,6 +19,7 @@
 		cockpitQuery,
 		collaborationBootstrapQuery,
 		companyPrincipalQuery,
+		turnProgressing,
 		workActivityStream
 	} from '$lib/model/queries.svelte';
 	import type { ArtifactRefRow, WorkGateRow, WorkRow } from '$lib/model/generated/orgintel';
@@ -370,8 +371,15 @@
 					edges: graph?.edges ?? [],
 					work: graph?.work ?? [],
 					attempts: graph?.attempts ?? [],
+					/* The run streaming below is proof its actor's model answers: no "Waiting on a
+					 * model" over a run in motion (3 Nov 2026). */
 					route: intelligence.view
-						? (actor) => agentRouteState(intelligence.view, actor)
+						? (actor) =>
+								agentRouteState(
+									intelligence.view,
+									actor,
+									actor === latestAttempt?.actor_id && turnProgressing(workTurn)
+								)
 						: undefined
 				},
 				{ reason: false }
@@ -399,7 +407,7 @@
 	);
 	const activity = $derived(
 		ownerAccess && work && latestAttempt?.state === 'running'
-			? workActivityStream(companyId, work.owner_id, workId)
+			? workActivityStream(companyId, latestAttempt.actor_id, workId)
 			: null
 	);
 	$effect(() => activity?.attach());
@@ -865,10 +873,13 @@
 			{/if}
 
 			{#if workTurn}
+				<!-- The run's actor is who the line names: their chat shows the same run in full,
+				     where their next reply will appear. Ebenezer's run read "Eames is thinking". -->
 				<section class="work-live-activity" aria-label="Live Work activity">
 					<ConversationTurnDock
-						participantName={accountableLead?.display ?? ownerName(work.owner_id)}
+						participantName={ownerName(latestAttempt?.actor_id ?? work.owner_id)}
 						turn={workTurn}
+						preview={false}
 					/>
 				</section>
 			{/if}

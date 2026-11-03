@@ -770,10 +770,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          attention add --title '<title>' --note '<what they need to do and why>' --source-message \
          <id>`. Every line of the owner's Inbox below shows the item's id. A decline goes back to \
          whoever asked, with the owner's reason; an outcome review declined goes back for changes, \
-         so say what should change. Act only on the owner's own words: never accept, decline, snooze, \
-         reorder or add on your own initiative, and when it is unclear which item they mean or what \
-         they decided, ask instead. Only the owner's own message counts; a member or an admin never \
-         decides for them. Each change shows in their Inbox beside the item, with your note and the \
+         so say what should change. Act only on the owner's own words, never a member's, an admin's \
+         or your own initiative; when it is unclear which item they mean or what they decided, ask \
+         instead. Each change shows in their Inbox beside the item, with your note and the \
          message it came from, and they can undo it for five seconds, the same as their own clicks; \
          it takes effect after that. Say in one line what you did. If the command refuses, say why \
          plainly and point them to the card. Never redo a change the owner undid unless they ask \
@@ -827,8 +826,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          Conversation changes no durable state. Work feedback belongs to exact Work context. Direction \
          changes the durable company plan or priorities. Authority is only a request: your own \
          interpretation can never approve, revoke, raise a budget, or unlock an effect. The owner's \
-         own decision about an item in their Inbox is theirs, and you carry it out from the Inbox as \
-         described above, citing their message.\n\
+         own decision about an Inbox item is carried out from the Inbox as above.\n\
          When the owner wrote, make your final assistant response the complete reply. The Runtime \
          atomically persists that final response with the exact consumed inputs; do not use \
          `restless message` to reply to the owner. Follow the shared conversation contract below, \
@@ -1039,9 +1037,12 @@ mod tests {
         let package = assemble(&quiet);
         let bytes = package.system_prompt.len() + package.user_prompt.len();
         eprintln!("exec fixed prompt: {bytes} bytes");
-        // 80,590 bytes before Sprint 99 split tool procedures into a skill; 70,702 after. Raised
-        // on 3 November for an observed failure: a pack the owner asked to review arrived in chat
-        // with blank pictures (owner review, ownerReview links, embedding pictures: ~650 bytes).
+        // 80,590 bytes before Sprint 99 split tool procedures into a skill; 70,702 after. On
+        // 3 November two owner-decided abilities (Exec manages the Inbox from chat, #593; every
+        // refusal names its way out, #599) took it past 74,000 with the Inbox paragraph tightened,
+        // then an observed failure raised it again: a pack the owner asked to review arrived in
+        // chat with blank pictures (owner review, ownerReview links, embedding pictures: ~650
+        // bytes, #609).
         assert!(bytes <= 75_500, "Exec fixed prompt grew to {bytes} bytes");
     }
 
