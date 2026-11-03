@@ -92,6 +92,7 @@
 		margin: 0.4em 0 0.7em;
 	}
 	.md-figure-frame {
+		position: relative;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -107,7 +108,11 @@
 	a.md-figure-frame:hover {
 		border-color: var(--border-strong);
 	}
-	.md-figure-frame img {
+	/* Laid out by the frame, never by its own size: a square picture fits inside, uncropped. Two
+	 * classes deep so Markdown's own `img { height: auto }` cannot win on stylesheet order. */
+	.md-figure .md-figure-frame img {
+		position: absolute;
+		inset: 0;
 		display: block;
 		width: 100%;
 		height: 100%;

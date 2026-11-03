@@ -112,6 +112,7 @@ test('a picture the owner cannot open says why instead of leaving a blank box', 
 		'/tmp/shot.png',
 		'../../../etc/passwd',
 		'file:///home/agent/shot.png',
+		'magnet/print.svg',
 		'javascript:alert(1)',
 		'',
 		undefined

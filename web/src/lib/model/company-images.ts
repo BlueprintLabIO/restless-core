@@ -64,6 +64,13 @@ function fromCompany(path: string, company: string): CompanyImage {
 			reason: 'This picture opens inside its company.',
 			path: resolved
 		};
+	/* The route serves raster pictures only (an SVG can carry script); the Library opens it apart. */
+	if (/\.svgz?$/i.test(resolved))
+		return {
+			kind: 'unavailable',
+			reason: 'This drawing opens in the Library, not in place.',
+			path: resolved
+		};
 	return { kind: 'company', src: companyImageSrc(company, resolved), path: resolved };
 }
 

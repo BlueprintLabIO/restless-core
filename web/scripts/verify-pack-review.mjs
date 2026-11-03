@@ -18,6 +18,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { createRequire } from 'node:module';
 import { basename, join } from 'node:path';
+import { crc32, deflateSync } from 'node:zlib';
 import { chromium } from 'playwright';
 
 const origin = process.env.RESTLESS_SMOKE_ORIGIN,
@@ -37,20 +38,38 @@ const title = 'Final send pack for the four prospects';
 
 /* ---------- the pack, as Staff make it ---------- */
 const browser = await chromium.launch();
-async function picture(width, height, label, hue) {
-	const page = await browser.newPage({ viewport: { width, height } });
-	await page.setContent(
-		`<body style="margin:0;display:grid;place-items:center;height:100vh;background:hsl(${hue} 45% 82%);font:600 ${Math.round(height / 10)}px system-ui">${label}</body>`
-	);
-	const png = await page.screenshot({ type: 'png' });
-	await page.close();
-	return png.toString('base64');
+/* A real PNG of the given size and shape: a colour field with a darker band across the middle. */
+function picture(width, height, [r, g, b]) {
+	const chunk = (type, data) => {
+		const head = Buffer.alloc(8);
+		head.writeUInt32BE(data.length, 0);
+		head.write(type, 4, 'ascii');
+		const crc = Buffer.alloc(4);
+		crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0);
+		return Buffer.concat([head, data, crc]);
+	};
+	const header = Buffer.alloc(13);
+	header.writeUInt32BE(width, 0);
+	header.writeUInt32BE(height, 4);
+	header.set([8, 2, 0, 0, 0], 8);
+	const rows = Buffer.alloc((width * 3 + 1) * height);
+	for (let y = 0; y < height; y++) {
+		const band = Math.abs(y - height / 2) < height / 10 ? 0.6 : 1;
+		for (let x = 0; x < width; x++)
+			rows.set([r * band, g * band, b * band].map(Math.round), y * (width * 3 + 1) + 1 + x * 3);
+	}
+	return Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		chunk('IHDR', header),
+		chunk('IDAT', deflateSync(rows)),
+		chunk('IEND', Buffer.alloc(0))
+	]).toString('base64');
 }
 const files = {
-	'final-send-pack-evidence/aleon-phone.png': await picture(390, 844, 'Phone', 200),
-	'final-send-pack-evidence/aleon-desktop.png': await picture(1440, 900, 'Desktop', 140),
-	'magnet/preview.png': await picture(1063, 647, 'Magnet', 30),
-	'magnet/mockup.png': await picture(900, 900, 'Mock-up', 280)
+	'final-send-pack-evidence/aleon-phone.png': picture(390, 844, [150, 190, 220]),
+	'final-send-pack-evidence/aleon-desktop.png': picture(1440, 900, [160, 210, 170]),
+	'magnet/preview.png': picture(1063, 647, [235, 200, 150]),
+	'magnet/mockup.png': picture(900, 900, [200, 170, 225])
 };
 /* Every reference style agents write, and the ones that cannot be shown. */
 const shown = [
@@ -125,7 +144,7 @@ try {
 	const existing = await db.query('SELECT id FROM work WHERE title=$1', [title]);
 	if (!existing.rowCount) {
 		await db.query(
-			"INSERT INTO actors (id,kind,display) VALUES ('eames','staff','Eames') ON CONFLICT (id) DO NOTHING"
+			"INSERT INTO actors (id,kind,actor_class,role,display) VALUES ('eames','staff','agent','Designer','Eames') ON CONFLICT (id) DO NOTHING"
 		);
 		const work = randomUUID(),
 			handoff = randomUUID();
@@ -218,6 +237,11 @@ async function frames(page, scope) {
 				state: figure.dataset.imageState,
 				alt: img?.alt ?? figure.querySelector('.md-figure-name')?.textContent ?? '',
 				loaded: !!img && img.complete && img.naturalWidth > 0,
+				// The picture fits inside its frame rather than being cropped by it.
+				fits:
+					!img ||
+					(img.getBoundingClientRect().height <= frame.height + 0.5 &&
+						img.getBoundingClientRect().width <= frame.width + 0.5),
 				why: figure.querySelector('.md-figure-why')?.textContent ?? '',
 				// Unaffected by scrolling, so a shift is a real one.
 				top: figure.offsetTop,
@@ -271,6 +295,10 @@ async function pictures(page, scope, expectShown, expectMissing, name) {
 		name + ': a missing picture says why'
 	);
 	assert(
+		settled.every((row) => row.fits),
+		name + ': every picture fits inside its frame'
+	);
+	assert(
 		settled.every((row) => Math.abs(row.width * 0.625 - row.height) <= 1),
 		name + ': every picture keeps its fixed frame'
 	);
@@ -282,49 +310,80 @@ async function pictures(page, scope, expectShown, expectMissing, name) {
 }
 const shownAlts = shown.map(([alt]) => alt),
 	missingAlts = missing.map(([alt]) => alt);
+const surfaces = [
+	// The staff-made pack: one review item, read in place.
+	[
+		'review',
+		`/${company}?item=${encodeURIComponent(review.id)}`,
+		'.outcome-text',
+		shownAlts,
+		missingAlts
+	],
+	// Exec's chat item: the message in full, its pictures in place.
+	[
+		'chat-item',
+		`/${company}?item=${encodeURIComponent(chatReview.id)}`,
+		'.result',
+		['Magnet design', 'Magnet mockup'],
+		[]
+	],
+	// The same pack opened in the Library.
+	[
+		'library',
+		`/${company}/library?path=${encodeURIComponent(pack)}`,
+		'.text-paper',
+		shownAlts,
+		missingAlts
+	]
+];
 for (const width of [1440, 390])
-	for (const scheme of ['light', 'dark']) {
-		const name = `${width}-${scheme}`;
-		const context = await browser.newContext({
-			viewport: { width, height: width > 500 ? 900 : 844 },
-			colorScheme: scheme,
-			reducedMotion: 'reduce'
-		});
-		const page = await context.newPage(),
-			errors = [];
-		page.on('pageerror', (error) => errors.push(error.message));
-		try {
-			// The staff-made pack: one review item, read in place.
-			await page.goto(`${origin}/${company}?item=${encodeURIComponent(review.id)}`);
-			const outcome = page.locator('.outcome-text');
-			await outcome.waitFor({ timeout: 30_000 });
-			await pictures(page, outcome, shownAlts, missingAlts, name + ' review');
-			await page.screenshot({ path: `${out}/${name}-review.png`, fullPage: false });
-			await outcome.locator('.md-figure').first().scrollIntoViewIfNeeded();
-			await page.screenshot({ path: `${out}/${name}-review-pictures.png` });
-			// Exec's chat item: the message in full, its pictures in place.
-			await page.goto(`${origin}/${company}?item=${encodeURIComponent(chatReview.id)}`);
-			const result = page.locator('.result');
-			await result.waitFor({ timeout: 30_000 });
-			await pictures(page, result, ['Magnet design', 'Magnet mockup'], [], name + ' chat item');
-			await page.screenshot({ path: `${out}/${name}-chat-item.png` });
-			// The same pack opened in the Library.
-			await page.goto(`${origin}/${company}/library?path=${encodeURIComponent(pack)}`);
-			const paper = page.locator('.text-paper');
-			await paper.waitFor({ timeout: 30_000 });
-			await pictures(page, paper, shownAlts, missingAlts, name + ' library');
-			await page.screenshot({ path: `${out}/${name}-library.png` });
-			assert.deepEqual(errors, [], 'no page errors');
-			results.push({ name, ok: true });
-			console.log(name + ' passed');
-		} catch (error) {
-			results.push({ name, ok: false, error: String(error) });
-			await page.screenshot({ path: `${out}/${name}-failed.png` }).catch(() => {});
-			console.log(name + ' FAILED: ' + error);
-		} finally {
-			await context.close();
+	for (const scheme of ['light', 'dark'])
+		for (const [surface, path, selector, expectShown, expectMissing] of surfaces) {
+			const name = `${width}-${scheme}-${surface}`;
+			// A fresh load each time: the owner's first look is what must arrive whole.
+			const context = await browser.newContext({
+				viewport: { width, height: width > 500 ? 900 : 844 },
+				colorScheme: scheme,
+				reducedMotion: 'reduce'
+			});
+			await context.addInitScript(() => {
+				window.__shifts = [];
+				new PerformanceObserver((list) => {
+					for (const entry of list.getEntries())
+						for (const source of entry.sources)
+							if (
+								source.node?.closest?.('.md-figure') ||
+								source.node?.querySelector?.('.md-figure')
+							)
+								window.__shifts.push(entry.value);
+				}).observe({ type: 'layout-shift', buffered: true });
+			});
+			const page = await context.newPage(),
+				errors = [];
+			page.on('pageerror', (error) => errors.push(error.message));
+			try {
+				await page.goto(origin + path);
+				const scope = page.locator(selector);
+				await scope.waitFor({ timeout: 30_000 });
+				await pictures(page, scope, expectShown, expectMissing, name);
+				assert.deepEqual(
+					await page.evaluate(() => window.__shifts),
+					[],
+					name + ': no layout shift touches a picture'
+				);
+				await scope.locator('.md-figure').first().scrollIntoViewIfNeeded();
+				await page.screenshot({ path: `${out}/${name}.png` });
+				assert.deepEqual(errors, [], 'no page errors');
+				results.push({ name, ok: true });
+				console.log(name + ' passed');
+			} catch (error) {
+				results.push({ name, ok: false, error: String(error) });
+				await page.screenshot({ path: `${out}/${name}-failed.png` }).catch(() => {});
+				console.log(name + ' FAILED: ' + error);
+			} finally {
+				await context.close();
+			}
 		}
-	}
 await browser.close();
 console.log(JSON.stringify(results));
 process.exitCode = results.every((row) => row.ok) ? 0 : 1;
