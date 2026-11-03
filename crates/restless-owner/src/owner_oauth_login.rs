@@ -259,7 +259,7 @@ pub(super) async fn start_codex_login(
         };
         match key {
             Some(key) => Some(key),
-            None => return api_error(StatusCode::CONFLICT, "connections", "The existing Codex account identity cannot be verified. Restore that connection before reconnecting."),
+            None => return api_error(StatusCode::CONFLICT, "connections", "The existing Codex connection can't be verified as the same account, so it can't be replaced in place. Remove it with Remove… in your account's Connections, then connect Codex again."),
         }
     } else {
         None
@@ -484,7 +484,7 @@ pub(super) async fn start_claude_login(
         };
         match key {
             Some(key) => Some(key),
-            None => return api_error(StatusCode::CONFLICT, "connections", "The existing Claude account identity cannot be verified. Restore that connection before reconnecting."),
+            None => return api_error(StatusCode::CONFLICT, "connections", "The existing Claude connection can't be verified as the same account, so it can't be replaced in place. Remove it with Remove… in your account's Connections, then connect Claude again."),
         }
     } else {
         None

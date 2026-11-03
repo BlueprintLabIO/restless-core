@@ -534,6 +534,12 @@ fn trim(text: &str) -> String {
 
 /// When a usage limit resets, from `resets_in_seconds=N`, `"resets_in_seconds": N`, or "try again
 /// in 2 days 3 hours 41 minutes".
+/// A quota block that is only a rate limit (429): it clears in seconds or minutes by itself and
+/// is nothing the owner has to act on.
+pub fn is_rate_limit(reason: &str) -> bool {
+    reason.contains("provider rate-limited the company")
+}
+
 pub fn usage_limit_reset_seconds(lower: &str) -> Option<i64> {
     let number_after = |key: &str| -> Option<i64> {
         let rest = &lower[lower.find(key)? + key.len()..];

@@ -618,6 +618,15 @@ pub async fn record_cooldown(
                 .map(|seconds| chrono::Duration::seconds(seconds.clamp(60, 8 * 86_400) + 60))
                 .unwrap_or_else(|| chrono::Duration::hours(1))
         }
+        // A rate limit (429) is short: honour the provider's own wait when it gives one, else
+        // look again in two minutes. It used to become an hour labelled "out of credit".
+        crate::health::BlockKind::Quota if crate::health::is_rate_limit(reason) => {
+            chrono::Duration::seconds(
+                crate::health::usage_limit_reset_seconds(&reason.to_lowercase())
+                    .unwrap_or(120)
+                    .clamp(30, 15 * 60),
+            )
+        }
         crate::health::BlockKind::Quota => chrono::Duration::hours(1),
         crate::health::BlockKind::NoOp => chrono::Duration::minutes(15),
         crate::health::BlockKind::Transport => chrono::Duration::minutes(2),

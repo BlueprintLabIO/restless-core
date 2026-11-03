@@ -746,6 +746,25 @@ impl AuthorityStore {
         .rows_affected())
     }
 
+    /// Forget every refusal a provider's previous connection earned once the company switches to
+    /// another one: a rejected credential, and used-up credit, usage or rate limits, which belong
+    /// to the old account. A quota block used to survive the switch and keep the company waiting
+    /// on an account it no longer uses (S109 blockers audit, finding 15).
+    pub async fn clear_provider_refusal_cooldowns(
+        &self,
+        company: &str,
+        provider: &str,
+    ) -> Result<u64> {
+        Ok(sqlx::query(
+            "DELETE FROM restless_authority.model_cooldowns              WHERE company=$1 AND kind IN ('credential','quota') AND model LIKE $2",
+        )
+        .bind(company)
+        .bind(format!("{provider}/%"))
+        .execute(&self.pool)
+        .await?
+        .rows_affected())
+    }
+
     pub async fn clear_model_cooldown(&self, company: &str, model: &str) -> Result<()> {
         sqlx::query("DELETE FROM restless_authority.model_cooldowns WHERE company=$1 AND model=$2")
             .bind(company)
@@ -2062,5 +2081,47 @@ mod credential_cooldown_tests {
             .collect();
         left.sort();
         assert_eq!(left, ["anthropic/claude-haiku-4-5", "openai/gpt-6"]);
+    }
+
+    /// S109 finding 15: switching a provider to another connection lifts the old account's quota
+    /// and credential refusals for that provider, and nothing else.
+    #[tokio::test]
+    async fn switching_connections_clears_that_providers_quota_and_credential_refusals() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping connection switch scenario");
+            return;
+        };
+        let store = AuthorityStore::connect(&url)
+            .await
+            .expect("connect Authority store");
+        let company = format!("switch{}", Uuid::new_v4().simple());
+        let later = chrono::Utc::now() + chrono::Duration::hours(1);
+        for (model, kind) in [
+            ("openai-codex/gpt-6", "quota"),
+            ("openai-codex/gpt-6-mini", "credential"),
+            ("openai-codex/gpt-6-nano", "model"),
+            ("anthropic/claude-opus-5-5", "quota"),
+        ] {
+            store
+                .set_model_cooldown(&company, model, kind, "refused", later)
+                .await
+                .expect("set cooldown");
+        }
+        assert_eq!(
+            store
+                .clear_provider_refusal_cooldowns(&company, "openai-codex")
+                .await
+                .unwrap(),
+            2
+        );
+        let mut left: Vec<String> = store
+            .active_model_cooldowns(&company)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|cooldown| cooldown.model)
+            .collect();
+        left.sort();
+        assert_eq!(left, ["anthropic/claude-opus-5-5", "openai-codex/gpt-6-nano"]);
     }
 }
