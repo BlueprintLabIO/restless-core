@@ -1,0 +1,9 @@
+[Unit]
+Description=Gate each new main commit in the background every ten minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitInactiveSec=10min
+
+[Install]
+WantedBy=timers.target

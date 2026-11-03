@@ -820,20 +820,23 @@
 
 {#snippet clearDone()}
 	<button
-		class="btn small"
 		type="button"
 		disabled={clearingDone}
 		title="Clear completed work from the current view. You can also archive goals whose tasks are all complete."
-		onclick={(event) => void clearCompleted(event.currentTarget)}
+		onclick={(event) =>
+			void clearCompleted(
+				event.currentTarget.closest('details')?.querySelector('summary') ?? event.currentTarget
+			)}
+		><span
+			>{clearingDone
+				? 'Clearing…'
+				: done.length
+					? 'Clear done'
+					: archiveCandidates.length === 1
+						? 'Archive goal'
+						: 'Archive finished goals'}</span
+		></button
 	>
-		{clearingDone
-			? 'Clearing…'
-			: done.length
-				? 'Clear done'
-				: archiveCandidates.length === 1
-					? 'Archive goal'
-					: 'Archive finished goals'}
-	</button>
 {/snippet}
 
 {#snippet goalRow(goal: Goal, indent = false)}
@@ -1152,20 +1155,20 @@
 					</div>
 				</div>
 				<div class="secondary-actions">
-					{#if done.length || archiveCandidates.length}
-						<div class="completed-actions" aria-label="Completed work actions">
-							{#if view === 'board' && done.length > RECENT_DONE}
-								<button
-									class="btn small"
-									type="button"
-									onclick={() => (showAllDone = !showAllDone)}
-								>
-									{showAllDone ? 'Show recent only' : 'Show all ' + done.length}
-								</button>
-							{/if}
-							{#if !archivedOpen}{@render clearDone()}{/if}
-						</div>
-					{/if}
+					<!-- Completed work's actions sit in one fixed menu: the toolbar is the same width
+					     whether or not anything is done, so Work finishing never wraps or moves it. -->
+					<ActionMenu label="Completed work actions">
+						{#if view === 'board' && done.length > RECENT_DONE}
+							<button type="button" onclick={() => (showAllDone = !showAllDone)}
+								><span>{showAllDone ? 'Show recent only' : 'Show all ' + done.length}</span></button
+							>
+						{/if}
+						{#if !archivedOpen && (done.length || archiveCandidates.length)}
+							{@render clearDone()}
+						{:else if !(view === 'board' && done.length > RECENT_DONE)}
+							<button type="button" disabled><span>Nothing done to clear</span></button>
+						{/if}
+					</ActionMenu>
 					<div class="view-switch">
 						<Segmented
 							label="View"
@@ -1378,10 +1381,11 @@
 		width: 100%;
 		min-height: 0;
 	}
-	/* On a narrow pane the controls wrap under the title rather than off the edge. */
+	/* One line, ending where the sidebar's and the Exec rail's headers end: the title gives way
+	 * (a long goal title is cut) and the controls keep their size. Only a narrow pane (below)
+	 * wraps the controls under the title rather than off the edge. */
 	.head {
 		display: flex;
-		flex-wrap: wrap;
 		align-items: center;
 		gap: 8px;
 		min-height: var(--pane-head-h);
@@ -1439,24 +1443,30 @@
 		display: flex;
 		flex: none;
 		margin-left: auto;
-		flex-wrap: wrap;
 		justify-content: flex-end;
 		align-items: center;
 		gap: 8px;
 	}
-	.completed-actions {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-		gap: 8px;
-	}
 	.filters {
 		display: flex;
-		flex-wrap: wrap;
 		gap: 6px;
 		margin-left: auto;
 	}
+	/* A picker keeps its size: one line, its value (a person's name) never wider than a short
+	 * name. Squeezed, "Goal actions" broke over two lines and grew the header by a pixel. */
+	.head .goal-picker {
+		flex: none;
+	}
+	.head .goal-picker :global(summary > span) {
+		max-width: 14ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	@container page (max-width: 560px) {
+		.head {
+			flex-wrap: wrap;
+		}
 		.head .title {
 			flex: 1 1 0;
 		}
@@ -1532,11 +1542,6 @@
 		border-radius: 50%;
 		background: conic-gradient(var(--state-success) var(--done), var(--border-strong) 0);
 		mask: radial-gradient(circle, transparent 3.5px, #000 4px);
-	}
-	.completed-actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
 	}
 	.goal-description summary {
 		color: var(--text-secondary);

@@ -258,3 +258,12 @@ dagger core container from --address ubuntu:24.04 \
 
 This repair is runner configuration, not a security-check exemption. Publication
 must still pass the image scan, signature and exact-source contract checks.
+
+## Release speed (3 November 2026)
+
+A release qualifies its exact source (`dagger call qualify`, about 8 minutes) and then publishes.
+The slow gates (connections smoke, zero-jank, constrained-host resources) no longer block it:
+`scripts/release/local/post-merge-gates.sh`, on `restless-post-merge-gates.timer`, runs them on
+each new main commit in the background at low priority and posts the `post-merge-gates` status.
+A failure there is a fix to make, not a held release. `core-release.sh --with-gates` still runs
+them before publishing when a release needs them.

@@ -2,6 +2,7 @@
  * surface. Each call is one owner-API route; OrgIntel decides who may. */
 import { ownerJson } from './failure.ts';
 import { failureLine } from './turn-failure.ts';
+import { ownerLine } from './owner-copy.ts';
 import { bootFetch } from './boot-fetch.ts';
 
 const base = (company: string) => `/api/companies/${encodeURIComponent(company)}`;
@@ -163,9 +164,17 @@ export function steerResolution(resolution: string): string {
 		);
 }
 
-export function blockerSentence(resolution: string, summary = ''): string {
+/* The engine's own "awaiting accountable-lead outcome review <handoff id>" blocker. */
+const REVIEW_WAIT = /^awaiting accountable-lead outcome review\b/i;
+
+/** Why blocked Work waits, in one owner-readable sentence. A recorded reason that carries ids,
+ * hashes, message numbers or agent handles is never quoted: `fallback` (the platform's own line,
+ * or nothing) is said instead, and the reason stays in the run history. */
+export function blockerSentence(resolution: string, summary = '', fallback = ''): string {
 	/* A run that failed is said as a sentence, never the runtime's "[transport] …" (S85-06). */
 	const said = failureLine(resolution.trim() ? steerResolution(resolution) : summary.trim());
 	const first = said.split('\n')[0];
-	return first.length > 180 ? `${first.slice(0, 177).trimEnd()}…` : first;
+	if (!first.trim()) return '';
+	if (REVIEW_WAIT.test(first)) return 'Waiting for its lead to review the result.';
+	return ownerLine(first.length > 180 ? `${first.slice(0, 177).trimEnd()}…` : first, fallback);
 }
