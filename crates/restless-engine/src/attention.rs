@@ -849,7 +849,12 @@ fn mandate_proposal_copy(
     if proposal.one_email_per_recipient {
         lines.push("- **Each person:** one first email, then a reply to each message they send".into());
     }
-    (title, what_happened, lines.join("\n"))
+    // A plain sentence first: the Inbox row reads "Waiting on you: approve these limits…".
+    (
+        title,
+        what_happened,
+        format!("Approve these limits, or decline.\n\n{}", lines.join("\n")),
+    )
 }
 
 /// How long after raising a decision the same agent's question is taken to be about it. The

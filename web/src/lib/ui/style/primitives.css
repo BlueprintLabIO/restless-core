@@ -112,13 +112,17 @@
 	box-shadow: var(--control-depth);
 }
 
-:is(.bridge-root, .bridge-tokens) .hold-approve.done {
+/* Still approved under the pointer that just held it: the hover wash must not cover the fill. */
+:is(.bridge-root, .bridge-tokens) .hold-approve.done,
+:is(.bridge-root, .bridge-tokens) .hold-approve.done:hover:not(:disabled) {
 	border-color: var(--intent-authority);
 	background: var(--intent-authority);
 	color: var(--text-inverse);
 	/* An approval lands with a little celebration: a settle and an accent glow that rings out.
 	 * Transform and box-shadow only, so nothing around the button moves. */
 	animation: bridge-approve-pop 520ms var(--ease-spring) both;
+	/* The approved fill is there at once; only the pop moves. */
+	transition: none;
 }
 
 @keyframes bridge-approve-pop {
@@ -129,7 +133,9 @@
 			0 0 0 0 color-mix(in srgb, var(--intent-authority) 45%, transparent);
 	}
 	35% {
-		transform: scale(1.045);
+		/* A settle, never larger than its box: growing past it would add scrollable
+		 * overflow and flash a scrollbar on a phone (measured: the row narrowed 6px). */
+		transform: scale(0.97);
 		box-shadow:
 			var(--control-depth),
 			0 0 0 5px color-mix(in srgb, var(--intent-authority) 28%, transparent),
@@ -145,7 +151,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	:is(.bridge-root, .bridge-tokens) .hold-approve.done {
+	:is(.bridge-root, .bridge-tokens) .hold-approve.done,
+	:is(.bridge-root, .bridge-tokens) .hold-approve.done:hover:not(:disabled) {
 		animation: bridge-approve-fade 90ms linear both;
 	}
 }
