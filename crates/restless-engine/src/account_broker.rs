@@ -1904,13 +1904,9 @@ mod tests {
         let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
             return;
         };
-        let pool = PgPool::connect(&url).await.unwrap();
-        sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority")
-            .execute(&pool)
+        let pool = crate::authority::AuthorityStore::test_pool(&url)
             .await
             .unwrap();
-        crate::accounts::ensure_schema(&pool).await.unwrap();
-        ensure_schema(&pool).await.unwrap();
         let id = uuid::Uuid::new_v4().simple().to_string();
         sqlx::query("INSERT INTO restless_authority.owner_accounts (id, kind, label) VALUES ($1, 'github', 'GitHub')")
             .bind(&id)
@@ -2066,13 +2062,9 @@ mod tests {
         let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
             return;
         };
-        let pool = PgPool::connect(&url).await.unwrap();
-        sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority")
-            .execute(&pool)
+        let pool = crate::authority::AuthorityStore::test_pool(&url)
             .await
             .unwrap();
-        crate::accounts::ensure_schema(&pool).await.unwrap();
-        ensure_schema(&pool).await.unwrap();
         let company = format!("vaultkey_{}_test", uuid::Uuid::new_v4().simple());
         let resend = create_request(
             &pool,

@@ -1468,7 +1468,10 @@ impl OrgIntel {
             .await?;
         let status: WorkStatus = row.get("status");
         let revision: i64 = row.get("revision");
+        // Each refusal rolls back at once: a dropped transaction only queues its ROLLBACK, so the
+        // Work row stayed locked for a moment and the next claim (SKIP LOCKED) passed it over.
         if status != WorkStatus::Blocked {
+            tx.rollback().await?;
             return Ok(false);
         }
         let (pending_handoff, resumed): (bool, i64) = {
@@ -1484,6 +1487,7 @@ impl OrgIntel {
             (row.get("pending"), row.get("resumed"))
         };
         if pending_handoff || resumed >= INTERRUPTION_RESUMES_PER_REVISION {
+            tx.rollback().await?;
             return Ok(false);
         }
         sqlx::query(
