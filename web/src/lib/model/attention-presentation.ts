@@ -1,3 +1,4 @@
+import { withExecPlaces } from './exec-places.ts';
 import type { AttentionItem } from './view';
 import type { OwnerFailure } from './failure.ts';
 
@@ -42,6 +43,7 @@ export function attentionKindLabel(item: AttentionItem): string {
 		return 'Brand';
 	if (item.source.kind === 'skill_candidate') return 'Know-how';
 	if (item.source.kind === 'email_send_request') return 'Email';
+	if (item.source.kind === 'exec_item') return 'From your chat';
 	if (item.source.kind === 'effect_outcome' || item.source.kind === 'payment_outcome')
 		return 'Outside action';
 	if (item.category === 'approval') return 'Approval';
@@ -78,12 +80,14 @@ export function inboxOrder(items: AttentionItem[]): AttentionItem[] {
 	const blocking = (item: AttentionItem) => (item.category === 'blocker' ? 0 : 1);
 	const due = (item: AttentionItem) => deadlineAt(item) ?? Infinity;
 	const holding = (item: AttentionItem) => (item.canContinue ? 1 : 0);
-	return [...items].sort(
-		(a, b) =>
-			blocking(a) - blocking(b) ||
-			(due(a) === due(b) ? 0 : due(a) < due(b) ? -1 : 1) ||
-			holding(a) - holding(b) ||
-			+new Date(a.createdAt) - +new Date(b.createdAt)
+	return withExecPlaces(
+		[...items].sort(
+			(a, b) =>
+				blocking(a) - blocking(b) ||
+				(due(a) === due(b) ? 0 : due(a) < due(b) ? -1 : 1) ||
+				holding(a) - holding(b) ||
+				+new Date(a.createdAt) - +new Date(b.createdAt)
+		)
 	);
 }
 

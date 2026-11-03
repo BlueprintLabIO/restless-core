@@ -1,3 +1,4 @@
+import type { ExecInboxNote } from './exec-inbox';
 import { openLiveEvents } from './live-events.ts';
 import type { AttentionItem, DecisionContinuation, OwnerReviewVersion } from './view';
 import { ownerAttention } from './attention-presentation';
@@ -73,6 +74,8 @@ type WireItem = {
 	account_request?: AttentionItem['accountRequest'];
 	setting_proposal?: AttentionItem['settingProposal'];
 	owner_replies?: string[];
+	exec_action?: ExecInboxNote;
+	exec_position?: number | null;
 	if_no_action: string;
 	uncertainty?: string;
 	deadline?: string;
@@ -210,6 +213,8 @@ export async function getAttention(company: string, signal?: AbortSignal): Promi
 				accountRequest: item.account_request,
 				settingProposal: item.setting_proposal,
 				ownerReplies: item.owner_replies,
+				execAction: item.exec_action,
+				execPosition: item.exec_position,
 				preparing: item.preparing,
 				ifNoAction: item.if_no_action,
 				uncertainty: item.uncertainty,

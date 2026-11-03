@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ExecNote from '$lib/components/inbox/ExecNote.svelte';
 	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { askExec } from '$lib/model/ask-exec';
 	import { failureSentence } from '$lib/model/failure';
@@ -168,7 +169,11 @@
 	});
 	const handoverStatus = $derived(handoverNotice(handover, principal?.actor_id));
 	const queueClear = $derived(
-		inboxFilter === 'open' && attentionClear && !forYou?.items.length && forYou?.filter === 'all' && !handoverStatus
+		inboxFilter === 'open' &&
+			attentionClear &&
+			!forYou?.items.length &&
+			forYou?.filter === 'all' &&
+			!handoverStatus
 	);
 	/* Preload office assets on desktop; a clear phone Inbox can still open the floor. */
 	let compactScreen = $state(false);
@@ -205,10 +210,12 @@
 	/* The queue starts collapsed until its source answers, so an idle
 	 * company's office is never squeezed and released; when items do arrive,
 	 * the queue opens with the same motion as any later change. */
-	const currentVisibleItems = $derived((visibleItems ?? items).flatMap((row) => {
-		const current = items.find((candidate) => candidate.id === row.id);
-		return current ? [current] : [];
-	}));
+	const currentVisibleItems = $derived(
+		(visibleItems ?? items).flatMap((row) => {
+			const current = items.find((candidate) => candidate.id === row.id);
+			return current ? [current] : [];
+		})
+	);
 	const selectedItem = $derived.by(() => {
 		if (selectedUpdateId) return null;
 		if (selectedItemId) {
@@ -277,16 +284,15 @@
 		) {
 			missingItemRedirect = selectedItemId;
 			missingNotice =
-				(resolvedHere === selectedItemId || view?.pendingDecisionItems?.includes(selectedItemId))
+				resolvedHere === selectedItemId || view?.pendingDecisionItems?.includes(selectedItemId)
 					? ''
 					: 'That item has been resolved or is no longer in the Inbox.';
 			missingDecisionHref = '';
 			/* An old link to an item someone already answered says who decided and what. */
-			if (resolvedHere !== selectedItemId && !view?.pendingDecisionItems?.includes(selectedItemId)) void explainMissing(companyId, selectedItemId);
+			if (resolvedHere !== selectedItemId && !view?.pendingDecisionItems?.includes(selectedItemId))
+				void explainMissing(companyId, selectedItemId);
 			const previousIndex = Math.max(0, previousItemOrder.indexOf(selectedItemId));
-			const next = currentVisibleItems[
-				Math.min(previousIndex, currentVisibleItems.length - 1)
-			];
+			const next = currentVisibleItems[Math.min(previousIndex, currentVisibleItems.length - 1)];
 			void goto(next ? itemHref(next.id) : baseHref, {
 				replaceState: true,
 				noScroll: true
@@ -481,7 +487,10 @@
 		if (!item || finishingStep) return;
 		const rows = visibleItems ?? items;
 		const others = rows.filter((row) => row.id !== item.id);
-		const index = Math.max(0, rows.findIndex((row) => row.id === item.id));
+		const index = Math.max(
+			0,
+			rows.findIndex((row) => row.id === item.id)
+		);
 		const next = others[Math.min(index, others.length - 1)] ?? null;
 		finishingStep = true;
 		try {
@@ -837,7 +846,9 @@
 				type="button"
 				aria-hidden={!(showClear && paneEmpty)}
 				tabindex={showClear && paneEmpty ? 0 : -1}
-				title={showClear && paneEmpty ? 'No decision is waiting on you. Check again now.' : undefined}
+				title={showClear && paneEmpty
+					? 'No decision is waiting on you. Check again now.'
+					: undefined}
 				onclick={() => void refresh()}
 			>
 				<span class="attention-clear-glyph" aria-hidden="true">
@@ -846,7 +857,9 @@
 				<span>No decisions</span>
 			</button>
 			{#if queueClear && paneEmpty}<div class="attention-set-aside">
-					{#if owner}<a href={`/${companyId}?filter=all`} class="attention-archived">All Inbox items</a>{/if}
+					{#if owner}<a href={`/${companyId}?filter=all`} class="attention-archived"
+							>All Inbox items</a
+						>{/if}
 					{#if forYou}<button
 							type="button"
 							class="attention-archived"
@@ -953,6 +966,7 @@
 					>Company › Charter</a
 				>
 			</header>
+			<ExecNote {companyId} {item} {owner} />
 			{#if charterCompany.view}
 				<CharterPurpose
 					{companyId}
@@ -971,6 +985,8 @@
 		<DirectionRequestDetail
 			{companyId}
 			request={item.directionRequest}
+			attention={item}
+			{owner}
 			preview={previewTarget ? previewContent : undefined}
 			onresolved={(result) => {
 				resolvedHere = item.id;
@@ -979,12 +995,14 @@
 			}}
 		/>
 	{:else}
-		{#snippet outcomeContent(reviewedItem: AttentionItem)}{#key JSON.stringify(reviewedItem.reviewVersion)}<OutcomePreview
-				{companyId}
-				item={reviewedItem}
-				{artifacts}
-				onrefresh={source.refresh}
-			/>{/key}{/snippet}
+		{#snippet outcomeContent(
+			reviewedItem: AttentionItem
+		)}{#key JSON.stringify(reviewedItem.reviewVersion)}<OutcomePreview
+					{companyId}
+					item={reviewedItem}
+					{artifacts}
+					onrefresh={source.refresh}
+				/>{/key}{/snippet}
 		<InboxDetail
 			{companyId}
 			{item}
@@ -1012,7 +1030,10 @@
 				if (result.error) throw result.error;
 			}}
 			onresolved={(result) => {
-				if (result.pending) { sent = null; return; }
+				if (result.pending) {
+					sent = null;
+					return;
+				}
 				/* From the answer just given, before the detail closes around it. */
 				celebrate(document.activeElement);
 				resolvedHere = item.id;

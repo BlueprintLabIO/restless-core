@@ -37,6 +37,8 @@ mod document_decisions_api;
 mod documents_api;
 #[path = "owner_event_transport.rs"]
 mod event_transport;
+#[path = "owner_exec_inbox.rs"]
+mod exec_inbox_api;
 #[path = "owner_for_you.rs"]
 mod for_you_api;
 #[path = "owner_handoff_decisions.rs"]
@@ -1997,6 +1999,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .merge(handoff_decisions_api::routes())
         .merge(document_decisions_api::routes())
         .merge(approval_decisions_api::routes())
+        .merge(exec_inbox_api::routes())
         .route(
             "/companies/{company}/handoffs/{handoff}/review",
             post(review_outcome),
@@ -7547,6 +7550,12 @@ async fn attention_view(
                 view.work_graph = None;
             }
             let mut output = serde_json::json!(view);
+            // What Exec changed from the owner's chat, beside the items it changed.
+            if principal.membership_role() == "owner" {
+                if let Some(org) = org.as_ref() {
+                    exec_inbox_api::decorate(org, &mut output).await;
+                }
+            }
             output["pending_handoff_decisions"] = serde_json::json!(pending_ids);
             output["pending_document_decisions"] = serde_json::json!(pending_document_ids);
             output["pending_approval_decisions"] = serde_json::json!(pending_approval_ids);

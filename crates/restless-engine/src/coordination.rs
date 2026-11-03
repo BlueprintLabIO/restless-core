@@ -436,6 +436,23 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 }))
             }
         }
+        "attention-act" => {
+            let Some(action) = request.attention_action.as_ref() else {
+                return Response::err("missing the Inbox action");
+            };
+            match crate::exec_inbox::queue(
+                daemon,
+                company,
+                request.common.as_actor.as_deref(),
+                request.orgintel.source_message_id,
+                action,
+            )
+            .await
+            {
+                Ok(saved) => Response::ok(saved),
+                Err(refusal) => Response::err(refusal),
+            }
+        }
         "direction-operation" => {
             // Exec acts on a person's direction; nobody else names a requester.
             let actor = request.orgintel.actor.as_deref().unwrap_or("");
@@ -3004,50 +3021,13 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 let Ok(id) = uuid::Uuid::parse_str(id) else {
                     return Response::err("bad handoff id");
                 };
-                // The owner answered in conversation: Exec records it citing that message.
-                if let Some(message_id) = request.orgintel.source_message_id {
-                    if resolved_by != "exec" {
-                        return Response::err(
-                            "only Exec records an owner's conversation answer with --source-message",
-                        );
-                    }
-                    let answer = match state {
-                        "resolved" => restless_orgintel::OwnerChatAnswer::Yes,
-                        "declined" => restless_orgintel::OwnerChatAnswer::No,
-                        "request_changes" => restless_orgintel::OwnerChatAnswer::Changes,
-                        other => {
-                            return Response::err(format!(
-                                "with --source-message, state must be resolved|declined|request_changes, got {other:?}"
-                            ))
-                        }
-                    };
-                    return match daemon.orgintel.get(company).await {
-                        Ok(org) => {
-                            // A go-ahead in conversation accepts only an outcome that still opens.
-                            if answer == restless_orgintel::OwnerChatAnswer::Yes {
-                                let refusal = match runtime::CompanyConfig::load(&daemon.root, company) {
-                                    Ok(config) => crate::attention::unavailable_review_outcome(
-                                        &config, &daemon.authority, &org, id, "owner",
-                                    )
-                                    .await
-                                    .map_err(|error| format!("{error:#}"))
-                                    .and_then(|refusal| refusal.map_or(Ok(()), |(_, reason)| Err(reason))),
-                                    Err(error) => Err(format!("{error:#}")),
-                                };
-                                if let Err(reason) = refusal {
-                                    return Response::err(reason);
-                                }
-                            }
-                            match org
-                            .answer_handoff_from_owner_message(id, message_id, answer, resolution)
-                            .await
-                        {
-                            Ok(()) => Response::ok("recorded as the owner's answer"),
-                            Err(error) => Response::err(format!("{error:#}")),
-                        }
-                        }
-                        Err(error) => Response::err(format!("{error:#}")),
-                    };
+                // The owner answered in conversation: that goes through their Inbox, where it
+                // shows with Undo (3 November owner decision), never straight to the handoff.
+                if request.orgintel.source_message_id.is_some() {
+                    return Response::err(
+                        "record the owner's answer from their Inbox, so they see it and can undo it: \
+                         `restless attention accept|decline|answer --item <id> --source-message <their message id>`",
+                    );
                 }
                 let state = match state {
                     "resolved" => restless_orgintel::OwnerHandoffState::Resolved,

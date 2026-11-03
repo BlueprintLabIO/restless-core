@@ -633,6 +633,9 @@ pub struct Request {
     /// Exec's direction and permission operation (S80).
     #[serde(default)]
     pub direction_operation: Option<crate::direction::DirectionOperation>,
+    /// Exec's change to the owner's Inbox, on the owner's word (`restless attention <verb>`).
+    #[serde(default)]
+    pub attention_action: Option<crate::exec_inbox::AttentionAction>,
     /// A typed decision a company actor asks for (`restless decide`): `state` and `questions`.
     #[serde(default)]
     pub decision: Option<serde_json::Value>,
@@ -787,6 +790,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "document-operation" => &["actor", "document_operation"],
         "sheet-operation" => &["actor", "sheet_operation"],
         "direction-operation" => &["actor", "direction_operation"],
+        "attention-act" => &["as_actor", "source_message_id", "attention_action"],
         "apps-search" => &["body"],
         "account-ask" => &["actor", "tool", "body"],
         "capabilities" => &["actor"],
@@ -1314,6 +1318,8 @@ pub const OWNER_ONLY: &[&str] = &[
 /// Actor-owned Opportunity mutations. The owner has a separate, future
 /// administrative path and cannot impersonate Exec through these commands.
 const COMPANY_EXEC_ONLY: &[&str] = &[
+    // The owner changes their own Inbox in the cockpit; this is Exec acting on their chat.
+    "attention-act",
     "mandate-permit",
     "finance-payee-propose",
     "setting-propose",
@@ -1736,6 +1742,7 @@ mod tests {
             "watch",
             "document-review-request",
             "direction-operation",
+            "attention-act",
             "apps-search",
             "account-ask",
             "capabilities",

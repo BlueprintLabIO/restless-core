@@ -33,6 +33,8 @@
 	import { presence } from '$lib/model/presence.svelte';
 	import { desktopNotify, notifyPortfolio } from '$lib/model/desktop-notify.svelte';
 	import { ASK_EXEC_EVENT, SHOW_CONVERSATION_EVENT, type ExecReply } from '$lib/model/ask-exec';
+	import { SHOW_MESSAGE_EVENT } from '$lib/model/exec-inbox';
+	import ExecInboxNotices from '$lib/components/inbox/ExecInboxNotices.svelte';
 	import { cockpitContextPath, stopNotice } from '$lib/model/attention';
 	import type { StopOutcome } from '$lib/primitives/Composer.svelte';
 	import { isOutcomeReview } from '$lib/model/attention-presentation';
@@ -1235,11 +1237,15 @@
 		const show = () => {
 			execRailOpen = true;
 		};
+		/* "From your chat" on an Inbox item: the Exec conversation, at the owner's message. */
+		const showMessage = () => askPerson('exec');
 		window.addEventListener(SHOW_CONVERSATION_EVENT, show);
 		window.addEventListener(ASK_EXEC_EVENT, ask);
+		window.addEventListener(SHOW_MESSAGE_EVENT, showMessage);
 		return () => {
 			window.removeEventListener(ASK_EXEC_EVENT, ask);
 			window.removeEventListener(SHOW_CONVERSATION_EVENT, show);
+			window.removeEventListener(SHOW_MESSAGE_EVENT, showMessage);
 		};
 	});
 	/* Blank until the people list names the viewer: a placeholder letter that later changes is
@@ -1816,6 +1822,7 @@
 <PendingHandoffDecisions {companyId} />
 <PendingDocumentDecisions {companyId} />
 <PendingApprovalDecisions {companyId} />
+{#if ownerAccess}<ExecInboxNotices {companyId} />{/if}
 
 {#snippet executiveRail(wide = false, header?: Snippet<[Snippet, Snippet]>)}
 	{#if ExecutiveRail}

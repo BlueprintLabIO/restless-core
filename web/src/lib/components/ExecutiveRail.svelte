@@ -12,6 +12,7 @@
 </script>
 
 <script lang="ts">
+	import { SHOW_MESSAGE_EVENT } from '$lib/model/exec-inbox';
 	import { page } from '$app/state';
 	import ConnectModel from './ConnectModel.svelte';
 	import {
@@ -462,6 +463,19 @@
 			...(open ? [openQuestion, ...openReplies, ...openFields] : [])
 		].join('\n');
 	}
+
+	/* An Inbox note's "your chat" opens this conversation at the owner's message it came from. */
+	$effect(() => {
+		const jump = (event: Event) => {
+			const id = (event as CustomEvent<{ messageId?: number }>).detail?.messageId;
+			if (!id) return;
+			void tick()
+				.then(() => new Promise((done) => requestAnimationFrame(done)))
+				.then(() => jumpToMessage(String(id)));
+		};
+		window.addEventListener(SHOW_MESSAGE_EVENT, jump);
+		return () => window.removeEventListener(SHOW_MESSAGE_EVENT, jump);
+	});
 
 	async function jumpToMessage(messageId: string) {
 		/* A search hit older than what is loaded: page back to it (a bounded number of pages). */
