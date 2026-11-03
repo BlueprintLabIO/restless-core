@@ -1,6 +1,7 @@
 import type { AttentionItem } from '$lib/model/view';
 import { attentionAsker } from '../model/attention-presentation.ts';
 import { routeActionLabel, type AgentRouteState } from '../model/intelligence-route.ts';
+import { ownerText } from '../model/owner-copy.ts';
 import { blockerSentence } from '../model/work-actions.ts';
 import { newestAttempt } from './status.ts';
 
@@ -12,8 +13,9 @@ import { newestAttempt } from './status.ts';
 /** An authored action as the tail of the line: "Approve transfer." reads "approve transfer". A
  * first word that is not an ordinary capitalised verb (a name, an acronym) keeps its case. */
 export function actionPhrase(text: string): string {
-	const said = text
-		.trim()
+	/* A lead's raw ask can carry ids and handles; they never reach the line (owner-copy.ts), and
+	 * an ask that is only internals gives way to the caller's fallback. */
+	const said = ownerText(text, '')
 		.replace(/^needs you:\s*/i, '')
 		.replace(/[.!?…]+$/, '')
 		.trim();
