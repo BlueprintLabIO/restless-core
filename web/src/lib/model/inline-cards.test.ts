@@ -8,6 +8,7 @@ import test from 'node:test';
  * until its card can do the task itself. */
 const ANSWERED_INLINE: Record<string, string> = {
 	'continue-conversation': 'InlineReply for conversation_owner_need',
+	'open-work': 'InlineConversation answers the stalled Work’s lead; the Work link stays for Resume and Stop for good',
 	'open-company-computer': 'InlineMachine for machine_offline',
 	'open-activity': 'InlineReply to whoever ran it; the Activity link stays as the receipt',
 	'open-app': 'InlineReconnect for connection_sign_in',

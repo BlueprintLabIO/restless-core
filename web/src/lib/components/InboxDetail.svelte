@@ -879,7 +879,7 @@
 									itemId="runtime-rescue"
 									attached={false}
 								/>{/key}{/if}
-						{#if (item.source.kind === 'conversation_owner_need' || item.source.kind === 'teammate_message') && item.responsibleActor}<InlineConversation
+						{#if (item.source.kind === 'conversation_owner_need' || item.source.kind === 'teammate_message' || item.source.kind === 'work_stalled') && item.responsibleActor}<InlineConversation
 								{companyId}
 								actorId={item.responsibleActor.id}
 								actorName={asker}

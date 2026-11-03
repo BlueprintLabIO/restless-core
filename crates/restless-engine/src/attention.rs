@@ -2294,7 +2294,7 @@ fn stalled_work_item(
         .unwrap_or_else(|| work.lead.clone());
     let since = work.since.format("%-d %b");
     let way_through = work.way_through();
-    let (title, what_happened, requested_action) = match &work.cause {
+    let (title, what_happened, requested_action, replies) = match &work.cause {
         restless_orgintel::StallCause::Blocked { reason } => {
             let reason = reason.trim();
             (
@@ -2309,6 +2309,7 @@ fn stalled_work_item(
                     }
                 ),
                 "Resume it once the cause is fixed, or stop it for good.".to_string(),
+                vec!["Resume it".to_string(), "Stop it for good".to_string()],
             )
         }
         restless_orgintel::StallCause::AbandonedRequirement { upstream_title, .. } => (
@@ -2318,6 +2319,10 @@ fn stalled_work_item(
                  start as it is. It waits on {lead_name}, who leads it, to drop that requirement."
             ),
             "Have its lead drop the requirement, or stop it for good.".to_string(),
+            vec![
+                "Drop the requirement".to_string(),
+                "Stop it for good".to_string(),
+            ],
         ),
     };
     AttentionItem {
@@ -2357,7 +2362,9 @@ fn stalled_work_item(
         account_request: None,
         request_fields: None,
         setting_proposal: None,
-        owner_replies: Vec::new(),
+        // Answered in the card: the owner's answer goes to the lead, who resumes, drops the
+        // requirement or stops it (S101: every card is completed inside the card).
+        owner_replies: replies,
         actions: vec![AttentionAction {
             id: "open-work".into(),
             label: "Open the Work".into(),
