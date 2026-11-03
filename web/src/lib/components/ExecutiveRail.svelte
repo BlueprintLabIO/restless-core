@@ -60,6 +60,7 @@
 	import ConversationHistoryTools from '$lib/primitives/ConversationHistoryTools.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
+	import StreamedReply, { streamedReplyText } from '$lib/primitives/StreamedReply.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import {
@@ -976,7 +977,14 @@
 	}
 	const receipt = $derived.by(() => {
 		const last = visibleMessages.at(-1);
-		if (!last || last.from !== 'you' || working || last.id.startsWith('optimistic:')) return '';
+		if (
+			!last ||
+			last.from !== 'you' ||
+			working ||
+			streamedReplyText(shownTurn) ||
+			last.id.startsWith('optimistic:')
+		)
+			return '';
 		return last.readAt ? `Seen by ${participantName}` : 'Sent';
 	});
 	const openReplies = $derived.by(() =>
@@ -1200,6 +1208,18 @@
 			new Date(current.createdAt).getTime() - new Date(previous.createdAt).getTime() < 5 * 60_000
 		);
 	}
+
+	/* A streamed reply shares the header of the reply before it exactly when its saved message will
+	 * (continuesRun), so landing never adds or drops a name row. */
+	const streamContinues = $derived.by(() => {
+		const last = visibleMessages.at(-1);
+		if (!shownTurn || !last || last.from !== 'agent') return false;
+		const started = shownTurn.live?.startedAt ?? shownTurn.since;
+		return (
+			dayOf(last.createdAt) === dayOf(started) &&
+			new Date(started).getTime() - new Date(last.createdAt).getTime() < 5 * 60_000
+		);
+	});
 
 	function focusDividerBefore(index: number): boolean {
 		if (!focusActive) return false;
@@ -1876,6 +1896,12 @@
 					{/if}
 					<HandoffGroup exchanges={handoffsSinceLast} name={exchanges.name} host={participantId} />
 					{@render commandLines(commandsSinceLast)}
+					<!-- The reply as it streams, where the saved reply will land (S110). -->
+					{#if !setupPending && shownTurn}<StreamedReply
+							{participantName}
+							turn={shownTurn}
+							continued={streamContinues}
+						/>{/if}
 					{#if receipt}<p class="receipt" role="status">
 							{#if retractable}<button
 									type="button"
