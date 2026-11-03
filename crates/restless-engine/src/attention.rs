@@ -143,9 +143,157 @@ pub struct DecisionContinuation {
     /// The Inbox item this answered, so an old link to it can say what happened.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub item_id: Option<String>,
-    /// Who decided, when the record names them.
+    /// Who decided, by display name, when the record names someone other than
+    /// the owner. Never an actor id: an unknown decider is left unnamed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decided_by: Option<String>,
+    /// How it ended, so owner-facing copy is written by the platform per state
+    /// rather than quoting `details`.
+    pub outcome: DecisionOutcome,
+    /// The owner made this decision themselves.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub by_owner: bool,
+    /// The owner answered in their chat and Exec recorded it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub via_chat: bool,
+    /// The Inbox item that replaced this one, when it is still waiting there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replacement_item_id: Option<String>,
+    /// The source record's own words (an agent's reason, the owner's note).
+    /// Shown only in Activity's details, never as a notice or status line.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub details: String,
+}
+
+/// How an owner decision ended. Owner-facing copy is chosen from this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecisionOutcome {
+    Approved,
+    Declined,
+    ChangesRequested,
+    /// A human step (sign-in, attestation, payment confirmation) was done.
+    Completed,
+    Revoked,
+    Withdrawn,
+    Replaced,
+    Expired,
+}
+
+/// The parts of a settled owner handoff that owner-facing copy is built from.
+/// The resolution itself is free text (often an agent's) and is only ever
+/// shown as Activity details.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HandoffOutcome {
+    outcome: DecisionOutcome,
+    by_owner: bool,
+    via_chat: bool,
+    decided_by: Option<String>,
+}
+
+fn handoff_outcome(
+    state: restless_orgintel::OwnerHandoffState,
+    category: restless_orgintel::OwnerHandoffCategory,
+    resolution: &str,
+    replaced: bool,
+) -> HandoffOutcome {
+    use restless_orgintel::{OwnerHandoffCategory as Category, OwnerHandoffState as State};
+    let text = resolution.trim();
+    let lower = text.to_lowercase();
+    // Exec records an answer the owner gave in conversation, quoting it.
+    let via_chat = lower.contains("the owner, in conversation");
+    // An outcome review names its reviewer first: "<who> accepted …" or
+    // "<who> requested changes: …"; "Owner" is the owner.
+    let reviewer = ["accepted the prepared outcome", "requested changes"]
+        .iter()
+        .find_map(|verb| {
+            text.find(&format!(" {verb}"))
+                .map(|at| text[..at].trim().to_string())
+        })
+        .filter(|who| !who.is_empty() && !who.contains(':') && who.split_whitespace().count() <= 4);
+    let by_owner = via_chat || reviewer.as_deref().is_some_and(|who| who == "Owner");
+    let decided_by = if via_chat {
+        Some("Exec".to_string())
+    } else {
+        reviewer.filter(|who| who != "Owner" && !looks_like_actor_id(who))
+    };
+    let outcome = match state {
+        State::Withdrawn if replaced => DecisionOutcome::Replaced,
+        State::Withdrawn | State::Pending | State::Preparing => DecisionOutcome::Withdrawn,
+        State::Declined if lower.contains("requested changes") => DecisionOutcome::ChangesRequested,
+        State::Declined => DecisionOutcome::Declined,
+        State::Resolved if category == Category::OwnerJudgement => DecisionOutcome::Approved,
+        State::Resolved => DecisionOutcome::Completed,
+    };
+    let settled_by_someone = matches!(
+        outcome,
+        DecisionOutcome::Withdrawn | DecisionOutcome::Replaced
+    );
+    HandoffOutcome {
+        outcome,
+        by_owner: by_owner && !settled_by_someone,
+        via_chat: via_chat && !settled_by_someone,
+        decided_by: decided_by.filter(|_| !settled_by_someone),
+    }
+}
+
+/// A withdrawal that names a newer version: the reason mentions replacing or
+/// superseding, whatever else it says.
+fn reason_names_replacement(resolution: &str) -> bool {
+    let lower = resolution.to_lowercase();
+    [
+        "supersed",
+        "replaced",
+        "replacing",
+        "replacement",
+        "rewrite",
+        "rewritten",
+        "new version",
+    ]
+    .iter()
+    .any(|word| lower.contains(word))
+}
+
+/// A handoff category as the owner says it, never its Rust name.
+fn handoff_category_words(category: restless_orgintel::OwnerHandoffCategory) -> &'static str {
+    use restless_orgintel::OwnerHandoffCategory as Category;
+    match category {
+        Category::Identity => "identity check",
+        Category::Captcha => "human verification",
+        Category::Mfa => "sign-in code",
+        Category::LegalAttestation => "legal confirmation",
+        Category::PaymentConfirmation => "payment confirmation",
+        Category::OwnerJudgement => "decision",
+    }
+}
+
+/// An id-shaped name (`reno-supervisor`, `human-bodhi`, `exec`) rather than a
+/// person's display name.
+fn looks_like_actor_id(name: &str) -> bool {
+    !name.contains(' ')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+}
+
+/// The platform's own line for a settled handoff: what Activity shows as the
+/// outcome, and the only text a notice may build on.
+fn handoff_outcome_line(outcome: &HandoffOutcome) -> &'static str {
+    match outcome.outcome {
+        DecisionOutcome::Approved if outcome.via_chat => "Approved in your chat with Exec.",
+        DecisionOutcome::Approved => "Approved.",
+        DecisionOutcome::Declined if outcome.via_chat => "Declined in your chat with Exec.",
+        DecisionOutcome::Declined => "Declined.",
+        DecisionOutcome::ChangesRequested if outcome.via_chat => {
+            "Changes asked for in your chat with Exec."
+        }
+        DecisionOutcome::ChangesRequested => "Changes asked for.",
+        DecisionOutcome::Completed => "Done.",
+        DecisionOutcome::Revoked => "Approval taken back.",
+        DecisionOutcome::Withdrawn => "Withdrawn: no longer needed.",
+        DecisionOutcome::Replaced => "Replaced by an updated version.",
+        DecisionOutcome::Expired => "Expired before it was decided.",
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3379,7 +3527,7 @@ async fn project_queue(
                 "The company is preparing the current instructions for your next step. There is nothing for you to do until they are ready.".into()
             } else {
                 payment_situation.unwrap_or_else(|| brief.map_or_else(
-                    || format!("The company prepared the final {:?} step and cannot perform it on your behalf.", handoff.category),
+                    || format!("The company prepared the final {} step and cannot perform it on your behalf.", handoff_category_words(handoff.category)),
                     |brief| brief.situation.clone(),
                 ))
             },
@@ -4423,6 +4571,41 @@ fn handoff_decisions(
         .filter_map(|handoff| {
             let item = *work.get(&handoff.work_id)?;
             let payment = payments.get(&handoff.id);
+            // A newer owner ask on the same Work, or on Work that revises it,
+            // is the replacement of a withdrawn one.
+            let replacement = (handoff.state == restless_orgintel::OwnerHandoffState::Withdrawn)
+                .then(|| {
+                    graph
+                        .handoffs
+                        .iter()
+                        .filter(|newer| {
+                            newer.assigned_to.is_none()
+                                && newer.created_at > handoff.created_at
+                                && matches!(
+                                    newer.state,
+                                    restless_orgintel::OwnerHandoffState::Pending
+                                        | restless_orgintel::OwnerHandoffState::Preparing
+                                )
+                                && (newer.work_id == handoff.work_id
+                                    || graph.edges.iter().any(|edge| {
+                                        edge.kind == restless_orgintel::WorkEdgeKind::Revises
+                                            && edge.from_work_id == newer.work_id
+                                            && edge.to_work_id == handoff.work_id
+                                    }))
+                        })
+                        .max_by_key(|newer| newer.created_at)
+                })
+                .flatten();
+            let ended = handoff_outcome(
+                handoff.state,
+                handoff.category,
+                &handoff.resolution,
+                replacement.is_some() || reason_names_replacement(&handoff.resolution),
+            );
+            let settled_without_answer = matches!(
+                ended.outcome,
+                DecisionOutcome::Withdrawn | DecisionOutcome::Replaced
+            );
             let successor = graph
                 .edges
                 .iter()
@@ -4475,7 +4658,10 @@ fn handoff_decisions(
                         .unwrap_or_default()
                 )
             });
-            let what_it_unlocked = if let Some(successor) = released_successor {
+            let what_it_unlocked = if settled_without_answer {
+                // Nobody answered it, so it unlocked nothing.
+                String::new()
+            } else if let Some(successor) = released_successor {
                 format!(
                     "Started the next work: “{}”. It is {}.",
                     successor.title,
@@ -4510,14 +4696,10 @@ fn handoff_decisions(
                 id: format!("orgintel:handoff:{}", handoff.id),
                 work_id: Some(handoff.work_id),
                 title,
-                recorded_decision: if handoff.resolution.trim().is_empty() {
-                    format!("Handoff recorded as {:?}.", handoff.state)
-                } else {
-                    handoff.resolution.clone()
-                },
+                recorded_decision: handoff_outcome_line(&ended).into(),
                 what_it_unlocked,
                 current_state: provider_state
-                    .unwrap_or_else(|| format!("{work_state}; {attempt_state}")),
+                    .unwrap_or_else(|| format!("{work_state} {attempt_state}")),
                 observed_outcome: payment.map_or_else(
                     || work_state,
                     |payment| {
@@ -4530,7 +4712,13 @@ fn handoff_decisions(
                 responsible_actor,
                 observed_at: handoff.resolved_at.expect("filtered above"),
                 item_id: Some(format!("orgintel:handoff:{}", handoff.id)),
-                decided_by: None,
+                decided_by: ended.decided_by,
+                outcome: ended.outcome,
+                by_owner: ended.by_owner,
+                via_chat: ended.via_chat,
+                replacement_item_id: replacement
+                    .map(|newer| format!("orgintel:handoff:{}", newer.id)),
+                details: handoff.resolution.trim().to_string(),
             })
         })
         .collect()
@@ -4557,19 +4745,18 @@ async fn authority_decisions(
             .and_then(|actor| actors.get(actor))
             .cloned()
     };
+    // The owner, or someone else by display name. An actor the roster no
+    // longer knows stays unnamed rather than shown by id.
+    let by_owner =
+        |record: &crate::authority::AuthorityRecord| record.actor_id.as_deref() == Some("owner");
     let decider = |record: &crate::authority::AuthorityRecord| {
-        record.actor_id.as_deref().map(|actor| {
-            actors
-                .get(actor)
-                .map(|known| known.display.clone())
-                .unwrap_or_else(|| {
-                    if actor == "owner" {
-                        "The owner".into()
-                    } else {
-                        actor.to_string()
-                    }
-                })
-        })
+        record
+            .actor_id
+            .as_deref()
+            .filter(|actor| *actor != "owner")
+            .and_then(|actor| actors.get(actor))
+            .map(|known| known.display.clone())
+            .filter(|display| !looks_like_actor_id(display))
     };
     let mut rows = Vec::new();
     for kind in approval::DECISION_KINDS {
@@ -4588,6 +4775,12 @@ async fn authority_decisions(
                         .and_then(Value::as_str)
                         .is_some_and(|candidate| normalize_party(candidate) == party)
             });
+            let outcome = match kind {
+                "approval_granted" => DecisionOutcome::Approved,
+                "approval_declined" if changes => DecisionOutcome::ChangesRequested,
+                "approval_declined" => DecisionOutcome::Declined,
+                _ => DecisionOutcome::Revoked,
+            };
             let (decision, unlocked) = match kind {
                 "approval_granted" => (
                     "Allowed first contact.",
@@ -4632,6 +4825,11 @@ async fn authority_decisions(
                     )
                 }),
                 decided_by: decider(&record),
+                outcome,
+                by_owner: by_owner(&record),
+                via_chat: false,
+                replacement_item_id: None,
+                details: String::new(),
             });
         }
     }
@@ -4709,6 +4907,17 @@ async fn authority_decisions(
                 observed_at: record.created_at,
                 item_id: Some(format!("authority:tool-call:{key}")),
                 decided_by: decider(&record),
+                outcome: if allowed {
+                    DecisionOutcome::Approved
+                } else if changes {
+                    DecisionOutcome::ChangesRequested
+                } else {
+                    DecisionOutcome::Declined
+                },
+                by_owner: by_owner(&record),
+                via_chat: false,
+                replacement_item_id: None,
+                details: String::new(),
             });
         }
     }
@@ -4745,6 +4954,15 @@ async fn authority_decisions(
                 .and_then(Value::as_str)
                 .map(|id| format!("authority:email_mandate_proposal:{id}")),
             decided_by: decider(&record),
+            outcome: if approve {
+                DecisionOutcome::Approved
+            } else {
+                DecisionOutcome::Declined
+            },
+            by_owner: by_owner(&record),
+            via_chat: false,
+            replacement_item_id: None,
+            details: String::new(),
         });
     }
     Ok(rows)
@@ -5496,6 +5714,75 @@ mod tests {
             .any(|item| item.source.kind == "conversation_owner_need"
                 && item.requested_action == "Order 250 magnets?"));
         org.drop_schema().await.unwrap();
+    }
+
+    #[test]
+    fn a_settled_handoff_is_told_by_state_never_by_its_reason() {
+        use restless_orgintel::{OwnerHandoffCategory as Category, OwnerHandoffState as State};
+        let abandoned = "Withdrawn because Work was abandoned by reno-supervisor: Owner msg 1513 \
+                         supersedes the v3 digests this delivery was bound to; replaced by \
+                         rewrite 44b3016c, check 4 a81cc8b2 and a new delivery node.";
+        assert!(reason_names_replacement(abandoned));
+        let replaced = handoff_outcome(State::Withdrawn, Category::OwnerJudgement, abandoned, true);
+        assert_eq!(replaced.outcome, DecisionOutcome::Replaced);
+        assert_eq!(replaced.decided_by, None);
+        assert!(!replaced.by_owner);
+        assert_eq!(
+            handoff_outcome_line(&replaced),
+            "Replaced by an updated version."
+        );
+
+        let withdrawn = handoff_outcome(
+            State::Withdrawn,
+            Category::OwnerJudgement,
+            "Withdrawn because Work was abandoned by reno-supervisor: dupe of 9f3e21aa",
+            false,
+        );
+        assert_eq!(withdrawn.outcome, DecisionOutcome::Withdrawn);
+        assert_eq!(
+            handoff_outcome_line(&withdrawn),
+            "Withdrawn: no longer needed."
+        );
+
+        let chat = handoff_outcome(
+            State::Resolved,
+            Category::OwnerJudgement,
+            "Owner accepted the prepared outcome: The owner, in conversation (message 1513): go",
+            false,
+        );
+        assert_eq!(chat.outcome, DecisionOutcome::Approved);
+        assert!(chat.by_owner && chat.via_chat);
+        assert_eq!(chat.decided_by.as_deref(), Some("Exec"));
+
+        let lead = handoff_outcome(
+            State::Declined,
+            Category::OwnerJudgement,
+            "Avery Holt requested changes: tighten the opener",
+            false,
+        );
+        assert_eq!(lead.outcome, DecisionOutcome::ChangesRequested);
+        assert_eq!(lead.decided_by.as_deref(), Some("Avery Holt"));
+        assert!(!lead.by_owner);
+
+        let slug = handoff_outcome(
+            State::Resolved,
+            Category::OwnerJudgement,
+            "reno-supervisor accepted the prepared outcome",
+            false,
+        );
+        assert_eq!(
+            slug.decided_by, None,
+            "an actor id is never shown as a name"
+        );
+
+        let step = handoff_outcome(
+            State::Resolved,
+            Category::Identity,
+            "The person completed their prepared step.",
+            false,
+        );
+        assert_eq!(step.outcome, DecisionOutcome::Completed);
+        assert_eq!(handoff_outcome_line(&step), "Done.");
     }
 
     #[test]

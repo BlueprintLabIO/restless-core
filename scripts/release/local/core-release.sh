@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cut a Core release on this computer, with no GitHub (ADR 0010 in restless-cloud):
-#   1. qualify the exact source;
+#   1. qualify the exact source (builds, type checks, unit and contract tests, about 8 minutes);
 #   2. publish the images into the local staging registry;
 #   3. seal with the release key (from Infisical): sign, attest and verify the images, sign the
 #      release documents, push the bundle;
@@ -8,7 +8,11 @@
 #   5. verify the bundle and its handoff from the public registry, as a consumer would.
 #
 #   infisical run --projectId <id> --env prod --domain https://eu.infisical.com/api -- \
-#     scripts/release/local/core-release.sh [--skip-qualify]
+#     scripts/release/local/core-release.sh [--skip-qualify] [--with-gates]
+#
+# The slow gates (connections smoke, zero-jank, constrained-host resources) don't block a release:
+# post-merge-gates.sh runs them on every new main commit in the background and posts the
+# `post-merge-gates` status on it. --with-gates runs them here too, before publishing.
 #
 # Needs: a clean checkout (the release names this exact commit), the restless-cloud checkout beside
 # it ($RESTLESS_CLOUD_DIR, default ~/code/restless-cloud) for the mirror, and from Infisical
@@ -19,8 +23,14 @@ root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cloud="${RESTLESS_CLOUD_DIR:-$HOME/code/restless-cloud}"
 dagger="${DAGGER_BIN:-$HOME/.local/bin/dagger}"
 platform=linux/amd64
-qualify=yes
-[ "${1:-}" = --skip-qualify ] && qualify=no
+qualify=yes gates=no
+for arg in "$@"; do
+  case "$arg" in
+    --skip-qualify) qualify=no ;;
+    --with-gates) gates=yes ;;
+    *) echo "core-release: unknown argument $arg" >&2; exit 2 ;;
+  esac
+done
 : "${RELEASE_SIGNING_KEY:?run under infisical run}" "${RELEASE_SIGNING_PASSWORD:?run under infisical run}"
 : "${CLOUDFLARE_RELEASE_TOKEN:?run under infisical run}"
 
@@ -39,6 +49,8 @@ export LOCAL_REGISTRY_PASSWORD=unused   # staging needs no login; the pipeline s
 if [ "$qualify" = yes ]; then
   log "qualify $revision"
   "$dagger" --silent call qualify --source=. | tail -5
+fi
+if [ "$gates" = yes ]; then
   log "connections smoke"
   # Without the release secrets, like every test.
   env -i HOME="$HOME" USER="${USER:-}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" TERM="${TERM:-dumb}" \
