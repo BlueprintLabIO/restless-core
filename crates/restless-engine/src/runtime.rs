@@ -1263,6 +1263,40 @@ pub fn account_intelligence_route(connection: &str) -> Option<(&str, &str, Agent
     Some((provider, id, harness))
 }
 
+/// `everyday_model = "off"`: the owner chose "Same as primary"; every turn runs on the primary.
+pub const EVERYDAY_OFF: &str = "off";
+
+/// The stored `everyday_model` for a value: a provider/model, `off` (or `primary`), or empty for
+/// the default.
+pub fn everyday_model_setting(value: &str) -> Result<Option<String>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.eq_ignore_ascii_case(EVERYDAY_OFF) || value.eq_ignore_ascii_case("primary") {
+        return Ok(Some(EVERYDAY_OFF.to_string()));
+    }
+    validate_company_model_selection(value)?;
+    Ok(Some(value.to_string()))
+}
+
+/// The stored `decision_model` for a value: `included`, an OpenRouter provider/model, or empty
+/// for the default (the relay in shadow).
+pub fn decision_model_setting(value: &str) -> Result<Option<String>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.eq_ignore_ascii_case(crate::decisions::INCLUDED_DECISIONS) {
+        return Ok(Some(crate::decisions::INCLUDED_DECISIONS.to_string()));
+    }
+    provider_for_model(value)?;
+    if value.len() > 200 || value.chars().any(char::is_whitespace) {
+        bail!("a decision model is `included` or an OpenRouter provider/model id");
+    }
+    Ok(Some(value.to_string()))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompanyConfig {
     /// Owner ceilings for the Runtime and browser, within operator-provided capacity.
@@ -1712,18 +1746,37 @@ impl CompanyConfig {
     /// Every model a turn may run on: the candidates, then the everyday model (S102).
     pub fn routed_models(&self) -> Result<Vec<&str>> {
         let mut models = self.model_candidates()?;
-        if let Some(everyday) = self
-            .everyday_model
-            .as_deref()
-            .map(str::trim)
-            .filter(|model| !model.is_empty())
-        {
+        if let Some(everyday) = self.everyday() {
             provider_for_model(everyday)?;
             if !models.contains(&everyday) {
                 models.push(everyday);
             }
         }
         Ok(models)
+    }
+
+    /// The everyday model in effect: `None` when unset or set to [`EVERYDAY_OFF`], so every turn
+    /// runs on the primary.
+    pub fn everyday(&self) -> Option<&str> {
+        self.everyday_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty() && !model.eq_ignore_ascii_case(EVERYDAY_OFF))
+    }
+
+    /// Set the everyday model exactly as `company set everyday_model` and an applied setting
+    /// proposal do: a provider/model, `off` (every turn on the primary) or empty (the default).
+    pub fn set_everyday_model(&mut self, value: &str) -> Result<()> {
+        self.everyday_model = everyday_model_setting(value)?;
+        Ok(())
+    }
+
+    /// Set the decision model exactly as `company set decision_model` and an applied setting
+    /// proposal do: `included` (the relay, gate active), an OpenRouter provider/model (the
+    /// company's own OpenRouter key, gate active), or empty (the relay in shadow).
+    pub fn set_decision_model(&mut self, value: &str) -> Result<()> {
+        self.decision_model = decision_model_setting(value)?;
+        Ok(())
     }
 
     pub fn validate_harness_models(&self) -> Result<()> {

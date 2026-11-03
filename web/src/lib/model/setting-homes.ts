@@ -69,6 +69,8 @@ export const PROPOSAL_HOMES: Record<string, HomeKey> = {
 	spend_limit: 'limits',
 	reasoning_effort: 'intelligence',
 	model: 'intelligence',
+	everyday_model: 'intelligence',
+	decision_model: 'intelligence',
 	legal_profile: 'charter',
 	schedule: 'schedules',
 	notifications: 'notifications'

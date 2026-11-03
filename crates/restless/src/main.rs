@@ -2397,7 +2397,8 @@ enum LegalCommand {
 
 #[derive(Subcommand)]
 enum SettingCommand {
-    /// Propose one change: --spend-limit, --effort, --model, --schedule (--pause|--resume),
+    /// Propose one change: --spend-limit, --effort, --model, --everyday-model, --decision-model,
+    /// --schedule (--pause|--resume),
     /// --email/--digest, or --legal (with the legal details you know;
     /// leave out what only the owner knows, such as the ABN, and they type it in the card).
     Propose {
@@ -2410,6 +2411,15 @@ enum SettingCommand {
         /// The model the company runs on by default, as provider/model.
         #[arg(long, conflicts_with_all = ["effort", "legal", "spend_limit"])]
         model: Option<String>,
+        /// The cheaper model for Staff chat and routine first tasks, as provider/model (e.g.
+        /// anthropic/claude-sonnet-5-5 when the company runs on Opus), or `off` to run every turn
+        /// on the main model. The Exec, team leads, repairs and reviews stay on the main model.
+        #[arg(long, conflicts_with_all = ["effort", "legal", "spend_limit", "model"])]
+        everyday_model: Option<String>,
+        /// The decision model that lets a routine result skip an Exec wake: `included` (the plan's
+        /// own, no key needed) or an OpenRouter provider/model.
+        #[arg(long, conflicts_with_all = ["effort", "legal", "spend_limit", "model", "everyday_model"])]
+        decision_model: Option<String>,
         /// Pause (--pause) or resume (--resume) the schedule with this id.
         #[arg(long, conflicts_with_all = ["effort", "legal", "spend_limit", "model"])]
         schedule: Option<String>,
@@ -3436,6 +3446,8 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 spend_limit,
                 effort,
                 model,
+                everyday_model,
+                decision_model,
                 schedule,
                 pause,
                 resume,
@@ -3460,6 +3472,10 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     serde_json::json!({"setting": "reasoning_effort", "effort": effort})
                 } else if let Some(model) = model {
                     serde_json::json!({"setting": "model", "model": model})
+                } else if let Some(model) = everyday_model {
+                    serde_json::json!({"setting": "everyday_model", "model": model})
+                } else if let Some(model) = decision_model {
+                    serde_json::json!({"setting": "decision_model", "model": model})
                 } else if let Some(schedule) = schedule {
                     if pause == resume {
                         anyhow::bail!("say --pause or --resume for the schedule");
@@ -3486,7 +3502,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                         "invoice_email": invoice_email,
                     })
                 } else {
-                    anyhow::bail!("propose one change: --spend-limit, --effort, --model, --schedule, --email/--digest or --legal");
+                    anyhow::bail!("propose one change: --spend-limit, --effort, --model, --everyday-model, --decision-model, --schedule, --email/--digest or --legal");
                 };
                 let mut body = change;
                 body["reason"] = serde_json::Value::String(reason);

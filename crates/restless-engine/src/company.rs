@@ -1737,7 +1737,7 @@ pub async fn governance_activity(
 /// A model id as the cockpit names it: the part after the provider, words capitalised, a family
 /// acronym upper-cased and a version pair joined ("anthropic/claude-sonnet-5-5" is "Claude Sonnet
 /// 5.5"), as the web's `modelLabel` does.
-fn model_words(model: &str) -> String {
+pub(crate) fn model_words(model: &str) -> String {
     let bare = model.rsplit('/').next().unwrap_or(model);
     let parts: Vec<&str> = bare.split('-').filter(|part| !part.is_empty()).collect();
     let digits = |part: &str| part.chars().all(|c| c.is_ascii_digit());
