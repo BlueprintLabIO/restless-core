@@ -596,7 +596,11 @@ async fn conversation_requests(
         let message_id = message.id;
         let created_at = message.created_at;
         if let Some((body, review)) = crate::transcript::conversation_owner_review(&message) {
-            // A finished result is an Inbox item the owner opens, not only a chat message.
+            // A finished result is an Inbox item the owner opens, not only a chat message. It
+            // carries what the message links (the pack, its pictures, the live sites), and it
+            // stands beside any question the same message asks: on 3 November a pack sent with
+            // a question about ordering magnets reached the Inbox only as that question.
+            let evidence = message_evidence(&body);
             let href = format!("/{company}/people?person={}&focus={message_id}", actor.id);
             requests.push(ConversationRequest {
                 handoff_id: None,
@@ -629,9 +633,9 @@ async fn conversation_requests(
                     brief_status: "source-authored",
                     brief_author: Some(actor.clone()),
                     briefed_at: Some(created_at),
-                    evidence: Vec::new(),
+                    evidence,
                     review_sources: Vec::new(),
-                    responsible_actor: Some(actor),
+                    responsible_actor: Some(actor.clone()),
                     runtime_attach: None,
                     review_target: None,
                     review_version: None,
@@ -656,7 +660,6 @@ async fn conversation_requests(
                     created_at,
                 },
             });
-            continue;
         }
         let Some(crate::transcript::OwnerNeed {
             body,
@@ -5262,6 +5265,72 @@ fn is_url(value: &str) -> bool {
     value.starts_with("https://") || value.starts_with("http://")
 }
 
+/// The files, pictures and pages a finished result's message links, as the item's evidence: a
+/// company path opens in the Library viewer, a public page in a new tab. Markdown link syntax is
+/// a fixed grammar, so it is parsed, not judged. Addresses only the company computer can open
+/// and folders are left out; the message itself still shows them.
+fn message_evidence(body: &str) -> Vec<AttentionEvidence> {
+    const MOST: usize = 40;
+    let mut evidence = Vec::new();
+    let mut seen = HashSet::new();
+    let mut rest = body;
+    while let Some(at) = rest.find("](") {
+        let (before, after) = rest.split_at(at);
+        rest = &after[2..];
+        let Some(open) = before.rfind('[') else {
+            continue;
+        };
+        let label = before[open + 1..].trim();
+        if label.contains(']') {
+            continue;
+        }
+        let Some(close) = rest.find(')') else {
+            break;
+        };
+        let target = rest[..close]
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim_matches(|c| c == '<' || c == '>');
+        rest = &rest[close + 1..];
+        let target = target.strip_prefix("file://").unwrap_or(target);
+        let (uri, content, kind) = if target.starts_with("/company/") {
+            let path = target.split(['?', '#']).next().unwrap_or_default();
+            if path.ends_with('/') {
+                continue;
+            }
+            (None, Some(path.to_string()), "artifact")
+        } else if is_url(target) && !is_runtime_local_url(target) {
+            (Some(target.to_string()), None, "url")
+        } else {
+            continue;
+        };
+        let key = uri.clone().or_else(|| content.clone()).unwrap_or_default();
+        if !seen.insert(key) {
+            continue;
+        }
+        let label = if label.is_empty() {
+            content
+                .as_deref()
+                .and_then(|path| path.rsplit('/').next())
+                .unwrap_or("Open link")
+                .to_string()
+        } else {
+            label.to_string()
+        };
+        evidence.push(AttentionEvidence {
+            label,
+            uri,
+            content,
+            kind,
+        });
+        if evidence.len() == MOST {
+            break;
+        }
+    }
+    evidence
+}
+
 fn is_runtime_local_url(value: &str) -> bool {
     value.starts_with("http://127.0.0.1:")
         || value.starts_with("https://127.0.0.1:")
@@ -5615,6 +5684,35 @@ mod tests {
             read().await.unwrap().is_empty(),
             "the owner's reply clears the review"
         );
+        // 3 November, Reno: a send pack delivered with a question about ordering magnets reached
+        // the Inbox only as the question. The pack is its own item, carrying what it links.
+        let pack = "The send pack is ready.\n\n- [Final send pack](/company/outputs/final-send-pack.md)\n- ![Magnet](file:///company/outputs/magnet/preview.png)\n- [Screenshots](/company/outputs/final-send-pack-evidence/)\n- [Aleon live site](https://concepts.example.au/aleon/)\n- [Preview](http://localhost:4173/)\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Pack ready\",\"ownerNeed\":\"Order 250 magnets?\",\"ownerReview\":\"Final send pack\"}-->";
+        org.send_message(&contact.id, None, pack).await.unwrap();
+        let both = read().await.unwrap();
+        assert_eq!(both.len(), 2, "the result and the question are both in the Inbox");
+        let review = both
+            .iter()
+            .find(|item| item.source.kind == "conversation_owner_review")
+            .expect("the pack is an Inbox item");
+        assert_eq!(review.title, "Ready for you: Final send pack");
+        let evidence: Vec<_> = review
+            .evidence
+            .iter()
+            .map(|row| (row.kind, row.uri.as_deref().or(row.content.as_deref()).unwrap()))
+            .collect();
+        assert_eq!(
+            evidence,
+            [
+                ("artifact", "/company/outputs/final-send-pack.md"),
+                ("artifact", "/company/outputs/magnet/preview.png"),
+                ("url", "https://concepts.example.au/aleon/"),
+            ],
+            "files and public pages are evidence; a folder and a local preview are not"
+        );
+        assert!(both
+            .iter()
+            .any(|item| item.source.kind == "conversation_owner_need"
+                && item.requested_action == "Order 250 magnets?"));
         org.drop_schema().await.unwrap();
     }
 

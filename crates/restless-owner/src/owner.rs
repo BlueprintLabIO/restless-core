@@ -2127,6 +2127,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(review_api::library_file_content),
         )
         .route(
+            "/companies/{company}/library/image",
+            get(review_api::library_image),
+        )
+        .route(
             "/companies/{company}/messages/{message}/reference",
             get(message_reference),
         )
@@ -3081,6 +3085,7 @@ fn is_company_library_read(method: &Method, path: &str) -> bool {
         (method.clone(), tail.as_slice()),
         (Method::POST, ["library", "open"])
             | (Method::GET | Method::HEAD, ["library", "content"])
+            | (Method::GET | Method::HEAD, ["library", "image"])
             // The Library screen asks every viewer; a member gets an empty map from the handler.
             | (Method::GET, ["library", "modified"])
     )
