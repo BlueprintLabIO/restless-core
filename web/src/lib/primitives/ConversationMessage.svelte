@@ -2,11 +2,14 @@
 	import { replyIsError, failureLine } from '$lib/model/turn-failure';
 	import { copyText } from '$lib/model/copy-text';
 	import { formatClock, formatMoment } from '$lib/ui/time';
-	import { onDestroy, untrack } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import Copy from '@lucide/svelte/icons/copy';
+	import Volume2 from '@lucide/svelte/icons/volume-2';
+	import Square from '@lucide/svelte/icons/square';
+	import { canSpeak, speakingMessage, toggleSpeaking, voice } from '$lib/model/voice.svelte';
 	import AttachmentList from './AttachmentList.svelte';
 	import Markdown from './Markdown.svelte';
 	import ReferencePreview from './ReferencePreview.svelte';
@@ -122,6 +125,22 @@
 		copyTimer = window.setTimeout(() => (copyState = 'idle'), 1_800);
 	}
 
+	/* Read aloud (S107 D2): on the Exec's and teammates' messages, once the person has turned it on
+	 * in Settings › Voice. One message speaks at a time; pressing it again stops. */
+	const speechId = `message-${Math.random().toString(36).slice(2)}`;
+	let speechReady = $state(false);
+	onMount(() => (speechReady = canSpeak()));
+	const readAloud = $derived(
+		speechReady &&
+			(sender === 'agent' || sender === 'human') &&
+			!pending &&
+			voice.textToSpeech === 'browser'
+	);
+	const speaking = $derived(speakingMessage() === speechId);
+	function speak() {
+		toggleSpeaking(speechId, takeaway ? `${takeaway}\n\n${readableText}` : readableText);
+	}
+
 	onDestroy(() => {
 		if (typeof window !== 'undefined') window.clearTimeout(copyTimer);
 	});
@@ -134,6 +153,7 @@
 	class:continued
 	class:pending
 	class:embedded
+	class:speaking
 	tabindex="-1"
 	data-message-sender={sender}
 >
@@ -216,6 +236,22 @@
 		<footer class="message-footer">
 			<div class="message-actions" role="toolbar" aria-label="Message actions">
 				{#if onreact}<ReactionAdd {reactions} {onreact} />{/if}
+				{#if readAloud}
+					<button
+						type="button"
+						class="read-aloud"
+						aria-pressed={speaking}
+						aria-label={speaking ? 'Stop reading aloud' : 'Read aloud'}
+						title={speaking ? 'Stop reading aloud' : 'Read aloud'}
+						onclick={speak}
+					>
+						{#if speaking}
+							<Square size={11} strokeWidth={2} aria-hidden="true" />
+						{:else}
+							<Volume2 size={11} strokeWidth={2} aria-hidden="true" />
+						{/if}
+					</button>
+				{/if}
 				{#if copyable}
 					<button
 						type="button"
@@ -305,7 +341,7 @@
 	/* Touch has no hover: a message's actions appear when it is tapped
 	 * (focused), instead of a Reply row under every message. */
 	@media (hover: none) {
-		.conversation-message:not(:focus-within) .message-footer {
+		.conversation-message:not(:focus-within):not(.speaking) .message-footer {
 			display: none;
 		}
 	}
@@ -528,6 +564,9 @@
 		outline: 2px solid color-mix(in srgb, var(--intent-conversation) 40%, transparent);
 		outline-offset: 0;
 	}
+	.message-actions .read-aloud[aria-pressed='true'] {
+		color: var(--intent-conversation);
+	}
 	.message-actions :global(button.confirmed) {
 		color: var(--intent-feedback);
 		animation: bridge-acknowledge var(--motion-punctuation) var(--ease-out) both;
@@ -546,7 +585,8 @@
 		}
 
 		.conversation-message:hover .message-actions,
-		.conversation-message:focus-within .message-actions {
+		.conversation-message:focus-within .message-actions,
+		.conversation-message.speaking .message-actions {
 			opacity: 1;
 			transform: none;
 			pointer-events: auto;

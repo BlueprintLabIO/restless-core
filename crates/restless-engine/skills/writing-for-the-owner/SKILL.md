@@ -1,3 +1,8 @@
+---
+name: writing-for-the-owner
+description: How to write what the owner reads - Work titles and outcomes, resolutions, Attempt summaries, artifact and gate labels, and documents you share. Read before writing any of them in a session.
+---
+
 Some of what you write is rendered straight to the owner. Work titles and outcomes, Work
 resolutions, Attempt summaries, artifact labels and gate names all appear on the owner's Work
 surface exactly as you wrote them. The owner is not the actor that executes them.

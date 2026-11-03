@@ -53,11 +53,16 @@ company. A company that needs voice for its own work uses an account as a tool, 
   connected provider (an OpenAI or Deepgram key added in Accounts). With a provider, the Dictate
   button records, the plane sends the audio to the provider with the account's credential through
   the broker, and returns text. Audio is never stored.
-- [ ] D2 **Text to speech**: off by default. When on, a play button on Exec and teammate messages
+  _Partly done (3 Nov): Settings › Voice ships with "Your browser" (default, working); OpenAI
+  and Deepgram are listed as not available yet. The plane has no transcription route, so the
+  provider path (record, broker, return text) is still to build._
+- [x] D2 **Text to speech**: off by default. When on, a play button on Exec and teammate messages
   reads them aloud with the chosen provider and voice (or the browser's own voice). Optional
   "read new replies aloud while this tab is open".
-- [ ] D3 Members use their browser's speech by default; account voice providers apply to the
+  _Browser voice only (3 Nov); no provider voice yet, and the optional auto-read is not built._
+- [x] D3 Members use their browser's speech by default; account voice providers apply to the
   owner's own sessions only unless the owner shares one.
+  _Voice choices are per-person preferences, so a member starts on the browser (3 Nov)._
 
 ## E. Found while moving the Restless company (25 Oct)
 

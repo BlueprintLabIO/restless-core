@@ -2,13 +2,23 @@
  * reply quoting the question ("> Exec: <question>"), whether it was tapped, filled in or typed after
  * "Something else…". Only such a reply answers it; a newer question supersedes it. An ordinary
  * message in between leaves it open: observed on Cloud, 7 October, where a chat message saying
- * "not an answer" folded Exec's price-and-booking card to "You answered". */
+ * "not an answer" folded Exec's price-and-booking card to "You answered".
+ *
+ * A decision the owner made after the question also closes it: once they approved the sending
+ * permission, "Approve the test-send permission card" stayed as a suggested reply (3 November).
+ * Approving in the Inbox is the answer, and the Inbox's own card for the question has already
+ * gone, since a newer message in the conversation answers it there. */
 
 export type ThreadMessage = {
 	from: string;
 	text: string;
-	intent?: { ownerNeed?: string | null } | null;
+	intent?: { ownerNeed?: string | null; kind?: string | null } | null;
 };
+
+/** An owner decision line (approve, decline) in the conversation. */
+export function isDecisionLine(message: ThreadMessage): boolean {
+	return message.from === 'system' && message.intent?.kind === 'authority';
+}
 
 /** The one-line form of a message used in quotes. */
 export function excerptOf(text: string): string {
@@ -34,7 +44,9 @@ export function openQuestionIndex(messages: ThreadMessage[], author: string): nu
 		const message = messages[index];
 		const need = message.from !== 'you' ? message.intent?.ownerNeed?.trim() : '';
 		if (!need) continue;
-		return messages.slice(index + 1).some((later) => quotesQuestion(later, author, need))
+		return messages
+			.slice(index + 1)
+			.some((later) => quotesQuestion(later, author, need) || isDecisionLine(later))
 			? -1
 			: index;
 	}
