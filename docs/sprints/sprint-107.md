@@ -26,9 +26,10 @@ choice of model, and nothing reads replies aloud.
 
 ## B. Account defaults that new companies inherit
 
-- [ ] B1 Settings › Accounts gains "For new companies": a default model and a default decision
+- [x] B1 Settings › Accounts gains "For new companies": a default model and a default decision
   model, each with the same picker the company uses. New companies inherit them; changing a
   default never changes an existing company.
+  (Companies started on this computer; hosted creation goes through Fleet, not yet wired.)
 
 ## C. Company › Intelligence: default model and decisions
 

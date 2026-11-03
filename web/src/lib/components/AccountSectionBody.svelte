@@ -11,6 +11,7 @@
 	import AccountAppliance from '$lib/components/AccountAppliance.svelte';
 	import AccountVoice from '$lib/components/AccountVoice.svelte';
 	import AccountComputers from '$lib/components/AccountComputers.svelte';
+	import NewCompanyDefaults from '$lib/components/NewCompanyDefaults.svelte';
 	import { ownerAccounts } from '$lib/model/owner-accounts-client';
 	import { activityView } from '$lib/model/account-activity-view.svelte';
 	import { companiesQuery } from '$lib/model/queries.svelte';
@@ -28,9 +29,8 @@
 </script>
 
 <div class="account-section-body" use:tooltips use:selectMenu>
-	{#if id === 'accounts'}{#if !activityView.id}<AccountConnections /><AccountUsage
-				companies={grantable}
-			/>{/if}<OwnerAccounts
+	{#if id === 'accounts'}{#if !activityView.id}<AccountConnections /><NewCompanyDefaults
+			/><AccountUsage companies={grantable} />{/if}<OwnerAccounts
 			client={ownerAccounts}
 			companies={grantable}
 		/>{:else if id === 'computers'}<AccountComputers

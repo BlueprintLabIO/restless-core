@@ -3284,6 +3284,8 @@ fn non_owner_members_may_collaborate_but_not_call_owner_mutations() {
         (Method::POST, "/api/companies/aris/company/spend-exact"),
         (Method::PUT, "/api/companies/aris/provider/failover"),
         (Method::PUT, "/api/companies/aris/model-jobs"),
+        (Method::GET, "/api/account/new-company-defaults"),
+        (Method::PUT, "/api/account/new-company-defaults"),
     ] {
         assert!(
             membership_boundary_violation(&method, path, &admin).is_some(),
