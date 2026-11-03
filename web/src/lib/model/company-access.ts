@@ -31,7 +31,8 @@ const SHARED_COMPANY_SECTIONS = [
 	'/identity',
 	'/members',
 	'/schedules',
-	'/accounts'
+	'/accounts',
+	'/integrations'
 ];
 /** What an admin also reads, to run the company with the owner: what it sent and decided,
  * what it spends, and the apps it uses. Changing them stays the owner's. */

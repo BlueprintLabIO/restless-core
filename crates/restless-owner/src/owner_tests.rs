@@ -2789,6 +2789,21 @@ fn an_admin_reads_activity_spend_and_apps_but_changes_none_of_them() {
             "member reached {path}"
         );
     }
+    // Everyone reads whether the company can send email (S109 H2); only the owner sends a test.
+    for who in [&admin, &member] {
+        assert!(membership_boundary_violation(
+            &Method::GET,
+            "/api/companies/aris/integrations",
+            who
+        )
+        .is_none());
+        assert!(membership_boundary_violation(
+            &Method::POST,
+            "/api/companies/aris/integrations/email/test",
+            who
+        )
+        .is_some());
+    }
     for (method, path) in [
         (Method::GET, "/api/companies/aris/company"),
         (
