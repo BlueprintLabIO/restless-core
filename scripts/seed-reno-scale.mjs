@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Seed a `_test` company on a running restless-dev stack so it looks like a company in real use:
 // Reno, a studio that renovates small-business websites. Long names, a lead with two staff, a goal
-// with 30 finished pieces of Work, Work under way and blocked, 80 Library files, long Exec threads
-// with code blocks and an error, and direction requests.
+// with 30 finished pieces of Work, Work under way and blocked, a Library of several hundred files on
+// the company computer (client site folders, screenshots, agents' notes, reviews and reports, a
+// scratch folder, Exec's journal, downloads, documents, an open and a closed goal), long Exec
+// threads with code blocks and an error, and direction requests.
 //
 // Checks run against an empty company miss what real use shows: lists that pile up, names that
 // overflow, threads that open at the top. Run this before a sweep or a UI change and look there.
@@ -14,7 +16,7 @@
 // company whose name does not end in `_test`, and running it again adds nothing twice.
 import { createConnection } from 'node:net';
 import { createRequire } from 'node:module';
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -239,6 +241,156 @@ if (stopped[0].n === 0) {
 			[randomUUID(), output.endsWith('.png') ? 'image' : 'site', uri, ago(12), id,
 				output === 'index.html' ? "Reno's first landing page.html" : output, createHash('sha256').update(uri).digest('hex')]
 		);
+	}
+}
+
+// ---------------------------------------------------------------- the Library at Reno scale
+// Production Reno's Library holds hundreds of files: client sites in folders, version after
+// version, with screenshots, agents' notes, reviews and reports beside them, loose images, a
+// scratch folder, Exec's journal, downloads, files nothing recorded and a handful of documents.
+// The records go to the company's tables and the files themselves onto the company computer
+// (/company/outputs, /company/org, /company/downloads), so folders list and files open.
+console.log('library at Reno scale');
+const namespace = process.env.RESTLESS_RESOURCE_NAMESPACE ?? home.split('/').filter(Boolean).at(-1);
+const computer = `restless-${namespace}-co-${company}`;
+const PNG = Buffer.from(
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+	'base64'
+);
+const PDF = Buffer.from(
+	'%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n'
+);
+function put(uri, body, at) {
+	const path = join(files, uri);
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, body);
+	utimesSync(path, at, at);
+}
+async function addWork(title, owner, status, at, goalId) {
+	const id = randomUUID();
+	await db.query(
+		`INSERT INTO work (id, owner_id, title, outcome, status, resolution, created_at, updated_at, priority, commissioned_by, goal_id)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$7,1,'exec',$8)`,
+		[id, owner, title, `${title}.`, status, status === 'completed' ? 'accepted' : '', at, goalId ?? null]
+	);
+	return id;
+}
+async function addFile(workId, owner, uri, label, kind, at, body) {
+	await db.query(
+		`INSERT INTO artifact_refs (id, kind, uri, created_by, created_at, work_id, label, digest)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		[randomUUID(), kind, uri, owner, at, workId, label, createHash('sha256').update(uri).digest('hex')]
+	);
+	if (body !== undefined && uri.startsWith('/company/')) put(uri, body, at);
+}
+const page = (title, body = '') =>
+	`<!doctype html><meta charset="utf-8"><title>${title}</title><link rel="stylesheet" href="styles.css"><h1>${title}</h1>${body}`;
+async function goalNamed(title, body) {
+	const list = await daemon({ cmd: 'goals' });
+	const found = (Array.isArray(list) ? list : list.goals ?? []).find((row) => row.title === title);
+	if (found) return found;
+	await daemon({ cmd: 'goal-add', title, body, actor: 'exec', team_name: 'Reno Studio' });
+	const again = await daemon({ cmd: 'goals' });
+	return (Array.isArray(again) ? again : again.goals).find((row) => row.title === title);
+}
+const { rows: libraryDone } = await db.query(
+	"SELECT count(*)::int AS n FROM artifact_refs WHERE uri LIKE '/company/outputs/sites/%'"
+);
+if (libraryDone[0].n === 0) {
+	const outreach = await goalNamed('Outreach test send', 'Ten hand-picked local businesses get a first email with their concept site.');
+	const spring = await goalNamed('Spring promo', 'A spring flyer and social images for the studio.');
+	const slug = (text) => text.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+	const clients = [
+		'Aleon Electrical', 'Taylor & Ward Landscapes', 'Ordway & Daughters Joinery', 'Bowral Creative Constructions',
+		'Ustyle Homes', 'SI Constructions', 'Kidron Homes', 'Harbourside Physiotherapy & Pilates',
+		'Mount Victoria Veterinary Clinic', 'The Corner Bakehouse on Bong Bong Street', 'Southern Highlands Electrical Contracting',
+	];
+	for (const [index, client] of clients.entries()) {
+		const folder = `/company/outputs/sites/${slug(client)}`;
+		const versions = index === 0 ? 4 : 1 + (index % 3);
+		for (let version = 1; version <= versions; version++) {
+			// Aleon and Taylor & Ward are the busiest: their newest versions changed today.
+			const at = index < 2 && version === versions ? ago(0.1 + index * 0.2) : ago(4 + index * 2 + (versions - version) * 3);
+			const owner = version % 2 ? 'studio-design' : 'studio-direction';
+			const latest = version === versions;
+			const work = await addWork(`${client} concept website, version ${version}`, owner, latest && index < 2 ? 'active' : 'completed', at, goal?.id);
+			const dir = `${folder}/v${version}`;
+			await addFile(work, owner, `${dir}/index.html`, `${client} concept, version ${version}.html`, 'site', at, page(`${client}, version ${version}`));
+			await addFile(work, owner, `${dir}/desktop-1440.png`, 'desktop-1440.png', 'image', at, PNG);
+			await addFile(work, owner, `${dir}/mobile-390.png`, 'mobile-390.png', 'image', at, PNG);
+			await addFile(work, owner, `${dir}/notes.md`, 'notes.md', 'document', at, `# Notes on ${client}, version ${version}\n\nWhat changed and why.\n`);
+			// What the site needs that nothing records: its styles, script and photos.
+			put(`${dir}/styles.css`, 'body{font-family:serif}', at);
+			put(`${dir}/app.js`, '// enquiry form', at);
+			put(`${dir}/assets/hero.png`, PNG, at);
+			put(`${dir}/assets/team.png`, PNG, at);
+			const review = await addWork(`Independent check of ${client}, version ${version}`, 'site-critic', 'completed', at, goal?.id);
+			await addFile(review, 'site-critic', `${dir}/review.md`, 'review.md', 'document', at, `# Review of ${client}, version ${version}\n\nThe hero holds at 390.\n`);
+		}
+		const reporter = await addWork(`${client} upgrade report`, 'site-critic', 'completed', ago(6 + index), goal?.id);
+		await addFile(reporter, 'site-critic', `/company/outputs/${slug(client)}-upgrade-report.md`, `${slug(client)}-upgrade-report.md`, 'document', ago(6 + index), `# ${client}: what to upgrade\n`);
+	}
+	// Outreach: an email preview, its recipients and the send log; a live landing page.
+	const send = await addWork('Outreach test send: the first ten emails', 'studio-direction', 'active', ago(0.05), outreach?.id);
+	await addFile(send, 'studio-direction', '/company/outputs/outreach/test-send/email-preview.html', 'Outreach email preview.html', 'site', ago(0.05), page('Outreach email preview'));
+	await addFile(send, 'studio-direction', '/company/outputs/outreach/test-send/recipients.csv', 'recipients.csv', 'document', ago(0.05), 'name,email\nAleon Electrical,hello@aleon.example\n');
+	await addFile(send, 'studio-direction', '/company/outputs/outreach/test-send/send-log.md', 'send-log.md', 'document', ago(0.05), '# Send log\n');
+	await addFile(send, 'studio-direction', 'http://127.0.0.1:8650/', 'Outreach landing page', 'site', ago(0.3));
+	// A goal that closed: its files leave Live now and stay reachable from Archive.
+	const promo = await addWork('Spring promo flyer and social images', 'studio-design', 'completed', ago(25), spring?.id);
+	await addFile(promo, 'studio-design', '/company/outputs/spring-promo/spring-flyer.pdf', 'Spring flyer.pdf', 'document', ago(25), PDF);
+	for (let n = 1; n <= 6; n++)
+		await addFile(promo, 'studio-design', `/company/outputs/spring-promo/social-${n}.png`, `social-${n}.png`, 'image', ago(25), PNG);
+	// Loose images, scratch drafts, Exec's journal and a stray note at the top of outputs.
+	const shots = await addWork('Photograph references for the concept sites', 'studio-design', 'completed', ago(18), goal?.id);
+	for (let n = 1; n <= 60; n++)
+		await addFile(shots, 'studio-design', `/company/outputs/images/reference-${String(n).padStart(2, '0')}.png`, `reference-${String(n).padStart(2, '0')}.png`, 'image', ago(18 + n / 10), PNG);
+	const scratch = await addWork('Try three hero layouts', 'studio-design', 'completed', ago(9), goal?.id);
+	for (let n = 1; n <= 12; n++)
+		await addFile(scratch, 'studio-design', `/company/outputs/scratch/hero-try-${n}.html`, `hero-try-${n}.html`, 'site', ago(9), page(`Hero try ${n}`));
+	const journal = await addWork('Keep the company journal', 'exec', 'active', ago(1), null);
+	for (let n = 1; n <= 24; n++)
+		await addFile(journal, 'exec', `/company/org/exec/journal/${String(n).padStart(4, '0')}.md`, `${String(n).padStart(4, '0')}.md`, 'document', ago(25 - n), `# Journal ${n}\n`);
+	await addFile(journal, 'exec', '/company/outputs/lazarus-cc-notes.md', 'lazarus-cc-notes.md', 'document', ago(3), '# Lazarus notes\n');
+	// Files on the computer that nothing recorded: a card site and two downloads.
+	put('/company/outputs/calcifer-card/index.html', page("Calcifer's card"), ago(2));
+	put('/company/outputs/calcifer-card/card.png', PNG, ago(2));
+	put('/company/downloads/supplier-pricelist.pdf', PDF, ago(11));
+	put('/company/downloads/council-brief.pdf', PDF, ago(14));
+	// Documents: a few the studio wrote, two waiting on the owner's review.
+	for (const [title, kind] of [
+		['Reno pricing: what a renovation costs', 'decision_note'], ['Studio brief: who we renovate for', 'brief'],
+		['Launch week plan', 'plan'], ['Outreach email: first touch', 'freeform'], ['Aleon Electrical proposal', 'report'],
+		['How we review a concept site', 'handbook'], ['Spring promo copy', 'freeform'],
+	])
+		await tryDaemon({
+			cmd: 'document-operation',
+			document_operation: { operation: 'create', title, kind, visibility: 'company', content: { format: 'markdown', body: `# ${title}\n\nDraft.\n` }, reason: 'Reno-scale seed', key: randomUUID() },
+		});
+	await db
+		.query("UPDATE native_documents SET status = 'in_review' WHERE title IN ('Aleon Electrical proposal', 'Outreach email: first touch')")
+		.catch((error) => console.log(`  skipped review status: ${error.message}`));
+	if (spring?.id && !spring.closed_at) await tryDaemon({ cmd: 'goal-close', goal: spring.id, actor: 'exec' });
+}
+// Every run puts the files onto the company computer, which a fresh computer starts without, each
+// dated when its record says it was made, so "Updated" reads as it would in real use.
+{
+	const { execFileSync } = await import('node:child_process');
+	const { existsSync } = await import('node:fs');
+	const { rows: dated } = await db.query("SELECT uri, created_at FROM artifact_refs WHERE uri LIKE '/company/%'");
+	for (const row of dated) {
+		const path = join(files, row.uri);
+		if (existsSync(path)) utimesSync(path, row.created_at, row.created_at);
+	}
+	try {
+		execFileSync(
+			'bash',
+			['-c', `cd "$0/company" && tar -cf - $(ls) | docker exec -i -u company "$1" tar -xf - -C /company --no-same-owner --no-overwrite-dir`, files, computer],
+			{ stdio: ['ignore', 'inherit', 'inherit'] }
+		);
+		console.log(`  files copied to ${computer}`);
+	} catch (error) {
+		console.log(`  files not copied to ${computer}: ${error.message}`);
 	}
 }
 

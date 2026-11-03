@@ -124,16 +124,27 @@ export function libraryKind(
 /* Finished work for the owner goes to the outputs folder; the rest of the company home is the
  * agents' own: Exec's plan and journal under /company/org, notes beside a repository, and any
  * scratch folder. */
-const SCRATCH_FOLDER = /^(scratch|scratchpad|tmp|temp|wip|working)$/i;
+const SCRATCH_FOLDER = /^(scratch|scratchpad|tmp|temp|wip|working|node_modules|__pycache__|\..+)$/i;
+/* What agents call the notes, reviews and reports they keep while they work, even when they leave
+ * them beside a delivered file: `lazarus-cc-notes.md`, `review.md`,
+ * `concept-a1000-upgrade-report.md`. Only notes in Markdown or plain text: a report written as a
+ * PDF, a page or a document is made for the owner. */
+const NOTE_NAME =
+	/(^|[-_. ])(notes?|review|critique|report|journal|scratch|todo|handoff|log)\.(md|markdown|txt)$/i;
 /** Whether a file is an agent's working note rather than something made for the owner: anything
- * under /company/org, a note outside the outputs and downloads folders, or a file in a scratch
- * folder. These leave the default views for their own (S109-G5). */
+ * under /company/org, a note outside the outputs and downloads folders, an agent's notes, review
+ * or report anywhere, a log, or a file in a scratch folder. These leave the default views and are
+ * shown on request (S109-G5; Library redesign, 3 November). Nothing about the file changes. */
 export function isWorkingNote(file: Pick<LibraryFile, 'kind' | 'uri'>): boolean {
 	const path = file.uri.split(/[?#]/)[0];
 	if (!path.startsWith('/company/')) return false;
 	if (path.startsWith('/company/org/')) return true;
 	const delivered = path.startsWith('/company/outputs/') || path.startsWith('/company/downloads/');
 	if (!delivered && file.kind === 'text') return true;
+	if (path.startsWith('/company/outputs/') && file.kind === 'text') {
+		const name = pathName(path);
+		if (NOTE_NAME.test(name) || /\.log$/i.test(name)) return true;
+	}
 	return path
 		.split('/')
 		.slice(2, -1)
