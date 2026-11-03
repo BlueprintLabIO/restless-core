@@ -4,8 +4,14 @@
 	 * are points yet, so nothing below it moves when the first reading arrives. */
 	import type { ComputePoint } from '$lib/model/company';
 	import { Segmented } from '$lib/ui/page';
+	import { formatClock, formatDay } from '$lib/ui/time';
 
-	let { points, height = 96 }: { points: ComputePoint[] | null; height?: number } = $props();
+	/* `undefined` while the first reading is on its way: the plot holds its box and says nothing yet,
+	 * so its caption appears once rather than changing from a guess to the answer. */
+	let {
+		points,
+		height = 96
+	}: { points: ComputePoint[] | null | undefined; height?: number } = $props();
 	let span = $state<'day' | 'week'>('day');
 	let W = $state(600);
 
@@ -37,6 +43,18 @@
 			null
 		)
 	);
+	/* History only exists from the first reading this host recorded (it began with the release that
+	 * added it), so a young plot says when collecting began rather than looking empty or broken. It
+	 * is drawn inside the plot's fixed box: nothing moves when more readings arrive. */
+	const first = $derived(
+		(points ?? []).reduce<number | null>((earliest, point) => {
+			const at = Date.parse(point.at);
+			return Number.isNaN(at) || (earliest != null && earliest <= at) ? earliest : at;
+		}, null)
+	);
+	const since = $derived(first == null ? '' : `${formatClock(first)}, ${formatDay(first)}`);
+	/* The span before the first reading, when it is a visible part of the plot. */
+	const before = $derived(first != null && first > from ? ((first - from) / (Date.now() - from)) * W : 0);
 	const waited = $derived(shown.filter((point) => point.waiting).length);
 	const throttled = $derived(shown.reduce((sum, point) => sum + point.throttled, 0));
 	const killed = $derived(shown.reduce((sum, point) => sum + point.oom_kills, 0));
@@ -68,6 +86,13 @@
 			role="img"
 			aria-label="Account memory over time, against its limit"
 		>
+			{#if shown.length > 1 && before > 24}<rect
+					class="uncollected"
+					x="0"
+					y="0"
+					width={before}
+					{height}
+				/>{/if}
 			<line class="limit" x1="0" x2={W} y1={y(1)} y2={y(1)} />
 			{#each shown as point (point.at)}{#if point.waiting}<rect
 						class="wait"
@@ -78,10 +103,14 @@
 					/>{/if}{/each}
 			{#if shown.length > 1}<path class="line" d={line} />{/if}
 		</svg>
-		{#if shown.length < 2}<span class="none"
-				>{points == null
+		{#if points === undefined}{:else if shown.length < 2}<span class="none"
+				>{points === null
 					? 'No history on this host'
-					: 'Readings every five minutes appear here'}</span
+					: since
+						? `Collecting since ${since}`
+						: 'Collecting a reading every five minutes'}</span
+			>{:else if before > 24}<span class="since" style:max-width={`${Math.max(0, before - 8)}px`}
+				>Collecting since {since}</span
 			>{/if}
 	</div>
 	<dl class="facts">
@@ -151,6 +180,22 @@
 		stroke: var(--accent);
 		stroke-width: 1.75;
 		stroke-linejoin: round;
+	}
+	.uncollected {
+		fill: var(--surface-alt);
+		opacity: 0.6;
+	}
+	/* Under the limit line, at the foot of the empty span before the first reading. */
+	.since {
+		position: absolute;
+		bottom: 4px;
+		left: 8px;
+		overflow: hidden;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		white-space: nowrap;
+		text-overflow: ellipsis;
+		pointer-events: none;
 	}
 	.none {
 		position: absolute;

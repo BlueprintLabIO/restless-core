@@ -108,6 +108,7 @@
 	} from '$lib/model/attachments';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { keepCompanyTabTitle } from '$lib/model/company-tab-title';
+	import { keepCompanyFavicon } from '$lib/model/company-favicon';
 	import { forYouSentence, getInboxMarks, newlyUnread, unreadMarks } from '$lib/model/for-you';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { directionDigestQuery } from '$lib/model/direction';
@@ -1125,6 +1126,11 @@
 
 	/* Nested pages may set their own title; the tab always identifies the company. */
 	$effect(() => keepCompanyTabTitle(companyName || rememberedName(companyId) || 'Restless'));
+	/* ...and its icon is the company's mark, the same one the top bar and the account rail show. */
+	const companyLogo = $derived(
+		companies.find((company) => company.id === companyId)?.logo_url ?? null
+	);
+	$effect(() => keepCompanyFavicon(companyId, companyLogo));
 
 	/* The Apps dot: a sign-in to renew, a tool to review, or an app Exec asked
 	 * for. Checked on arrival, on every move and once a minute. Know-how

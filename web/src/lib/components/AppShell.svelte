@@ -199,7 +199,8 @@
 	const switchable = $derived.by(() => {
 		return keep(switcherEntries, switcherQuery, (company) => company.name);
 	});
-	/* The bar names the company; an uploaded logo sits beside the name, a generated mark does not. */
+	/* The bar names the company beside its mark: the uploaded logo, else the pixel figure the account
+	 * rail and its card show, seeded from the same id (3 Nov walkthrough). */
 	const currentLogo = $derived(
 		companies.find((company) => company.id === companyId)?.logo_url ?? null
 	);
@@ -398,9 +399,9 @@
 			{#if canSwitchCompanies}
 				<details class="company-switcher" use:dismissable>
 					<summary aria-label={`Switch company. Current company: ${companyName}`}>
-						{#if currentLogo}<span class="tb-co-mark" aria-hidden="true"
-								><CompanyMark id={companyId} logoUrl={currentLogo} size={8} /></span
-							>{/if}
+						<span class="tb-co-mark" class:logo={!!currentLogo} aria-hidden="true"
+							><CompanyMark id={companyId} logoUrl={currentLogo} size={8} /></span
+						>
 						<span class="tb-co">{companyName}</span>
 						<ChevronDown class="company-chevron" size={14} strokeWidth={2} aria-hidden="true" />
 					</summary>
@@ -472,9 +473,9 @@
 					class="company-switcher company-switcher-static"
 					aria-label={`Current company: ${companyName}`}
 				>
-					{#if currentLogo}<span class="tb-co-mark" aria-hidden="true"
-							><CompanyMark id={companyId} logoUrl={currentLogo} size={8} /></span
-						>{/if}
+					<span class="tb-co-mark" class:logo={!!currentLogo} aria-hidden="true"
+						><CompanyMark id={companyId} logoUrl={currentLogo} size={8} /></span
+					>
 					<span class="tb-co">{companyName}</span>
 				</span>
 			{/if}

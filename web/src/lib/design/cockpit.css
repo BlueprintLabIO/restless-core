@@ -331,6 +331,8 @@
 	box-shadow: 0 0 0 1.5px var(--surface-menu);
 }
 
+/* The current company's mark: its figure on the account rail's tile colours, or an uploaded logo
+ * on a neutral tile so its own colours read true. One fixed box either way. */
 .bridge-root .tb-co-mark {
 	display: grid;
 	flex: none;
@@ -339,6 +341,11 @@
 	height: 16px;
 	overflow: hidden;
 	border-radius: 4px;
+	background: var(--accent-soft);
+	color: var(--accent-strong);
+}
+
+.bridge-root .tb-co-mark.logo {
 	background: var(--surface);
 }
 

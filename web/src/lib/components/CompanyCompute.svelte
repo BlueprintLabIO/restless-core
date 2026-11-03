@@ -128,7 +128,13 @@
 			</div>
 		</div>
 	</div>
-	<ComputeHistory points={reading?.status === 'not_configured' ? null : (reading?.history ?? [])} />
+	<ComputeHistory
+		points={!reading
+			? undefined
+			: reading.status === 'not_configured'
+				? null
+				: (reading.history ?? [])}
+	/>
 	<Row
 		label="Company work"
 		info="Agents, local jobs, tool workers and document services for this company. Their combined ceilings share the host pool with the other companies."

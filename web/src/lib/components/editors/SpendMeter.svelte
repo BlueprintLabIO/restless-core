@@ -14,12 +14,13 @@
 
 <div class="spend-meter">
 	<div class="copy">
+		<!-- Spend some calls could not price is the hover on the figure, never "At least" before it
+		     (3 Nov walkthrough). -->
 		<strong
-			>{#if spend.status === 'metering_unknown'}<span
-					class="lower-bound"
-					title="Some model calls reported no price, so actual spend may be higher. Charged work continues until known spend reaches the limit."
-					>At least</span
-				>{' '}{/if}{money(spend.accounted_usd)}</strong
+			class:lower-bound={spend.status === 'metering_unknown'}
+			title={spend.status === 'metering_unknown'
+				? 'A few model calls reported no price, so actual spend may be a little higher. Charged work continues until known spend reaches the limit.'
+				: undefined}>{money(spend.accounted_usd)}</strong
 		>
 		<span
 			>of {money(spend.ceiling_usd)}
