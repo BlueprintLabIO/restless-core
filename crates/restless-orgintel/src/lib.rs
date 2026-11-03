@@ -44,6 +44,7 @@ mod notice_digest;
 mod notifications;
 mod owner_ready;
 mod pending_shares;
+mod progress;
 mod responsibility;
 mod review;
 mod rooms;
@@ -52,6 +53,7 @@ mod sheet_comments;
 mod sheet_search;
 mod sheets;
 mod skills;
+mod stalled_work;
 mod substrate;
 mod types;
 mod visual;
@@ -82,6 +84,10 @@ pub use notice_digest::notice_digest_body;
 pub use notifications::*;
 pub use owner_ready::*;
 pub use pending_shares::*;
+pub use progress::{
+    current_percent, goal_progress, progress_line, progress_moves_enough, progress_owed_section,
+    rounded_percent, GoalProgress, ProgressReport, PROGRESS_HISTORY, PROGRESS_POST_STEP,
+};
 pub use responsibility::*;
 pub use schedules::{
     validate_calendar_days, ScheduleChange, MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS,
@@ -90,6 +96,7 @@ pub use sheet_comments::*;
 pub use sheet_search::*;
 pub use sheets::*;
 pub use skills::*;
+pub use stalled_work::*;
 pub use types::*;
 
 /// Resolve the canonical direct Room for one durable Message write, creating

@@ -514,6 +514,7 @@ impl OrgIntel {
         )
         .fetch_all(&mut *tx)
         .await?;
+        let progress = crate::progress::recent_progress_in_tx(&mut tx, None).await?;
         tx.commit().await?;
         Ok(WorkGraphSnapshot {
             work,
@@ -525,6 +526,7 @@ impl OrgIntel {
             gates,
             gate_runs,
             handoffs,
+            progress,
         })
     }
 

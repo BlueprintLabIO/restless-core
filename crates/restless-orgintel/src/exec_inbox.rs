@@ -3,12 +3,24 @@
 //! discussion with my assistant."
 //!
 //! Each row is one thing Exec did on the owner's word. It always names the owner's message to
-//! Exec that asked for it, so nothing here happens on Exec's own initiative. Like the owner's own
-//! Inbox actions it waits out a five-second Undo window owned by the database clock; the owner
-//! gateway then applies it through the item's own decision path, with that path's checks. The
-//! Inbox shows each one beside its item ("Exec accepted this from your chat · Undo").
+//! Exec that asked for it, so nothing here happens on Exec's own initiative. It waits out an Undo
+//! window owned by the database clock; the owner gateway then applies it through the item's own
+//! decision path, with that path's checks. The Inbox shows each one beside its item ("Exec
+//! accepted this from your chat · Undo · 0:30 left").
+//!
+//! The window is the owner's, so it runs only while they can see the change: a change is held,
+//! with no deadline, until the reply that carries it has finished streaming
+//! ([`OrgIntel::show_exec_inbox_actions`]). From then it stays open until the owner's next message
+//! to Exec ([`OrgIntel::owner_moved_on_from_exec_inbox_actions`]), but never less than
+//! [`EXEC_UNDO_FLOOR`] and never more than [`EXEC_UNDO_CEILING`]. The owner's own clicks keep their
+//! five seconds; those are in their hand already.
 use super::*;
 use serde::{Deserialize, Serialize};
+
+/// The least time the owner has to undo a change Exec made, counted from when they can see it.
+pub const EXEC_UNDO_FLOOR: std::time::Duration = std::time::Duration::from_secs(30);
+/// The most: an owner who reads the reply and walks away still gets the change, two minutes on.
+pub const EXEC_UNDO_CEILING: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// What Exec did. `add` raises a new item: the row itself is that Inbox item until it is set
 /// aside. `move` re-ranks an item in the owner's list (`position` 1 is the top, 0 the bottom).
@@ -64,7 +76,10 @@ pub struct ExecInboxAction {
     pub position: Option<i32>,
     pub source_message_id: i64,
     pub owner_words: String,
-    pub undo_until: DateTime<Utc>,
+    /// When the Undo window ends; none while the reply carrying the change is still streaming.
+    pub undo_until: Option<DateTime<Utc>>,
+    /// When the owner could first see it: the reply that carries it had finished.
+    pub shown_at: Option<DateTime<Utc>>,
     pub state: String,
     pub problem: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -74,6 +89,11 @@ pub struct ExecInboxAction {
 impl ExecInboxAction {
     pub fn verb(&self) -> Option<ExecInboxVerb> {
         ExecInboxVerb::parse(&self.verb)
+    }
+
+    /// Still waiting for the reply that carries it to finish: the owner has not seen it yet.
+    pub fn held(&self) -> bool {
+        self.state == "pending" && self.shown_at.is_none()
     }
 }
 
@@ -156,7 +176,8 @@ impl OrgIntel {
         Ok(excerpt)
     }
 
-    /// Save one Exec action. Nothing happens to the item until its Undo window ends. A replay of
+    /// Save one Exec action, held until the reply that carries it is shown (no deadline yet).
+    /// Nothing happens to the item until its Undo window ends. A replay of
     /// the same id returns the saved row; a second action on an item that already has one waiting
     /// is refused, so the owner never has two pending changes on one card.
     pub async fn queue_exec_inbox_action(
@@ -250,7 +271,8 @@ impl OrgIntel {
         }
         let saved = sqlx::query_as::<_, ExecInboxAction>(
             "UPDATE exec_inbox_actions SET state='canceled',completed_at=clock_timestamp() \
-             WHERE id=$1 AND state='pending' AND undo_until>clock_timestamp() RETURNING *",
+             WHERE id=$1 AND state='pending' \
+               AND (undo_until IS NULL OR undo_until>clock_timestamp()) RETURNING *",
         )
         .bind(id)
         .fetch_optional(&mut *tx)
@@ -259,6 +281,50 @@ impl OrgIntel {
         notify_exec_inbox_changed(&mut tx).await?;
         tx.commit().await?;
         Ok(saved)
+    }
+
+    /// Open the Undo window on every held action: the reply that carries them has finished and
+    /// the owner can see them now. Exec makes one turn at a time, so every held action belongs to
+    /// the reply that just ended, or to a turn that stopped before its reply did and is shown now.
+    /// Returns how many windows opened.
+    pub async fn show_exec_inbox_actions(&self) -> Result<u64> {
+        let mut tx = self.pool.begin().await?;
+        let opened = sqlx::query(
+            "UPDATE exec_inbox_actions SET shown_at=clock_timestamp(), \
+               undo_until=clock_timestamp() + make_interval(secs => $1) \
+             WHERE state='pending' AND shown_at IS NULL",
+        )
+        .bind(EXEC_UNDO_CEILING.as_secs_f64())
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if opened > 0 {
+            notify_exec_inbox_changed(&mut tx).await?;
+        }
+        tx.commit().await?;
+        Ok(opened)
+    }
+
+    /// The owner sent Exec their next message: they have moved on from the changes already shown,
+    /// so each window ends now, or once it has been open for [`EXEC_UNDO_FLOOR`], whichever is
+    /// later. A change still held (its reply streaming) is untouched. Returns how many changed.
+    pub async fn owner_moved_on_from_exec_inbox_actions(&self) -> Result<u64> {
+        let mut tx = self.pool.begin().await?;
+        let changed = sqlx::query(
+            "UPDATE exec_inbox_actions SET undo_until=GREATEST( \
+                 shown_at + make_interval(secs => $1), clock_timestamp()) \
+             WHERE state='pending' AND shown_at IS NOT NULL \
+               AND undo_until > GREATEST(shown_at + make_interval(secs => $1), clock_timestamp())",
+        )
+        .bind(EXEC_UNDO_FLOOR.as_secs_f64())
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if changed > 0 {
+            notify_exec_inbox_changed(&mut tx).await?;
+        }
+        tx.commit().await?;
+        Ok(changed)
     }
 
     /// Due actions, oldest deadline first. The worker claims each one before applying it.
@@ -331,7 +397,8 @@ impl OrgIntel {
     pub async fn next_exec_inbox_delay(&self) -> Result<Option<std::time::Duration>> {
         let seconds: Option<f64> = sqlx::query_scalar(
             "SELECT GREATEST(0, EXTRACT(EPOCH FROM (MIN(undo_until) - clock_timestamp())))::double precision \
-             FROM exec_inbox_actions WHERE state='pending' HAVING COUNT(*) > 0",
+             FROM exec_inbox_actions WHERE state='pending' AND undo_until IS NOT NULL \
+             HAVING COUNT(*) > 0",
         )
         .fetch_optional(&self.pool)
         .await?;

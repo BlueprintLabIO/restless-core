@@ -1,0 +1,131 @@
+[
+  {
+    "name": "after-live-1440-light",
+    "checkButton": false,
+    "cantReply": false,
+    "modelUnavailable": false,
+    "waitingOnModel": false,
+    "docks": [
+      {
+        "inChat": true,
+        "inWorkPanel": false,
+        "status": "Aang is replying",
+        "preview": "Let me look at the v4 previews first. I am comparing the her",
+        "phase": "responding"
+      }
+    ],
+    "lateShift": 0.0000013235168038408777,
+    "late": [
+      {
+        "value": 0.0000013235168038408777,
+        "at": 8776,
+        "sources": [
+          "stream-caret svelte-7xz2kn"
+        ]
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "after-live-390-light",
+    "checkButton": false,
+    "cantReply": false,
+    "modelUnavailable": false,
+    "waitingOnModel": false,
+    "docks": [
+      {
+        "inChat": true,
+        "inWorkPanel": false,
+        "status": "Aang is replying",
+        "preview": "Let me look at the v4 previews first. I am comparing the her",
+        "phase": "responding"
+      }
+    ],
+    "lateShift": 0.000016049382716049385,
+    "late": [
+      {
+        "value": 0.000007818930041152263,
+        "at": 7057,
+        "sources": [
+          "stream-caret svelte-7xz2kn"
+        ]
+      },
+      {
+        "value": 0.00000823045267489712,
+        "at": 12025,
+        "sources": [
+          "stream-caret svelte-7xz2kn"
+        ]
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "after-live-1440-dark",
+    "checkButton": false,
+    "cantReply": false,
+    "modelUnavailable": false,
+    "waitingOnModel": false,
+    "docks": [
+      {
+        "inChat": true,
+        "inWorkPanel": false,
+        "status": "Aang is replying",
+        "preview": "Let me look at the v4 previews first. I am comparing the her",
+        "phase": "responding"
+      }
+    ],
+    "lateShift": 0.0000013931755829903977,
+    "late": [
+      {
+        "value": 0.0000013931755829903977,
+        "at": 9710,
+        "sources": [
+          "stream-caret svelte-7xz2kn"
+        ]
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "after-live-390-dark",
+    "checkButton": false,
+    "cantReply": false,
+    "modelUnavailable": false,
+    "waitingOnModel": false,
+    "docks": [
+      {
+        "inChat": true,
+        "inWorkPanel": false,
+        "status": "Aang is replying",
+        "preview": "Let me look at the v4 previews first. I am comparing the her",
+        "phase": "responding"
+      }
+    ],
+    "lateShift": 0.00003506172839506173,
+    "late": [
+      {
+        "value": 0.00000823045267489712,
+        "at": 6129,
+        "sources": [
+          "stream-caret svelte-7xz2kn"
+        ]
+      },
+      {
+        "value": 0.000019012345679012345,
+        "at": 8095,
+        "sources": [
+          "svelte-7xz2kn"
+        ]
+      },
+      {
+        "value": 0.000007818930041152263,
+        "at": 10628,
+        "sources": [
+          "stream-caret svelte-7xz2kn"
+        ]
+      }
+    ],
+    "errors": []
+  }
+]

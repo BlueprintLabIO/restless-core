@@ -95,8 +95,9 @@ enum AppsCommand {
 }
 
 /// Exec manages the owner's Inbox from their chat: each change cites the owner's message that
-/// asked for it, shows in the Inbox beside the item with Undo, and takes effect after the same
-/// five-second window as the owner's own actions.
+/// asked for it, shows in the Inbox beside the item with Undo once Exec's reply has finished, and
+/// takes effect when the owner moves on: at their next message, at least 30 seconds and at most
+/// two minutes after the reply.
 #[derive(Subcommand)]
 enum AttentionCommand {
     /// Accept or approve an item the owner said yes to.
@@ -2192,6 +2193,26 @@ enum WorkCommand {
         work: String,
         #[arg(long)]
         reason: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+    /// Record your overall progress estimate for Work you created, at a checkpoint: one honest
+    /// rough number (rounded to tens; 100 is recorded when the Work completes) and what is left.
+    /// When the Work is blocked, drop the number and say why with --blocked instead.
+    Progress {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// The Work id.
+        work: String,
+        /// Overall percent done, 0-90, rounded to tens.
+        #[arg(long, requires = "next", conflicts_with = "blocked")]
+        percent: Option<i16>,
+        /// What is left, in one line, for example "export print files".
+        #[arg(long, requires = "percent", conflicts_with = "blocked")]
+        next: Option<String>,
+        /// Why it is blocked, in place of a number.
+        #[arg(long, required_unless_present = "percent")]
+        blocked: Option<String>,
         #[arg(long = "as", env = "RESTLESS_ACTOR")]
         as_actor: Option<String>,
     },
@@ -4297,6 +4318,19 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 as_actor,
             } => serde_json::json!({
                 "cmd": "work-abandon", "company": company, "id": work, "reason": reason,
+                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
+                    .unwrap_or_else(|| "owner".to_string()),
+            }),
+            WorkCommand::Progress {
+                company,
+                work,
+                percent,
+                next,
+                blocked,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-progress", "company": company, "id": work,
+                "percent": percent, "next": next, "blocked": blocked,
                 "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
                     .unwrap_or_else(|| "owner".to_string()),
             }),

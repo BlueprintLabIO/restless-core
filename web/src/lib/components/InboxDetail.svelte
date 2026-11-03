@@ -49,6 +49,7 @@
 	import InlineConversation from './inbox/InlineConversation.svelte';
 	import InlineModel from './inbox/InlineModel.svelte';
 	import InlineSpendLimit from './inbox/InlineSpendLimit.svelte';
+	import InlineNativeLimit from './inbox/InlineNativeLimit.svelte';
 	import InlineDesktop from './inbox/InlineDesktop.svelte';
 	import { provideCardActions } from './inbox/card-actions.svelte';
 	import {
@@ -294,6 +295,8 @@
 		MODEL_KINDS.includes(item.source.kind) || !!action('open-intelligence-provider')
 	);
 	const spendSurface = $derived(SPEND_KINDS.includes(item.source.kind));
+	/* The native-harness cap is its own limit: the spend editor can't lift it (S109, finding 16). */
+	const nativeLimitSurface = $derived(item.source.kind === 'native_limit_stopped');
 	const driftSurface = $derived(item.source.kind === 'identity_drift');
 	const proposalSurface = $derived(item.source.kind === 'identity_proposal');
 	const skillSurface = $derived(item.source.kind === 'skill_candidate');
@@ -314,6 +317,7 @@
 	const navigation = $derived(
 		modelSurface ||
 			spendSurface ||
+			nativeLimitSurface ||
 			driftSurface ||
 			proposalSurface ||
 			skillSurface ||
@@ -386,6 +390,10 @@
 	);
 	/* A live outcome to review renders in the card's content beside the decision. */
 	const outcomeInline = $derived(item.category === 'review' && !!item.reviewTarget);
+	/* A finished result named in chat (`ownerReview`) is the message itself, shown in the card. */
+	const resultInline = $derived(
+		item.source.kind === 'conversation_owner_review' && !!item.whatHappened.trim()
+	);
 	const showRecommendation = $derived(
 		!!item.recommendation.trim() &&
 			item.recommendation.trim() !== item.whatHappened.trim() &&
@@ -558,7 +566,7 @@
 	}
 	/* Where what this card settles lives (S101): named under its panel, and in the receipt. */
 	const home = $derived.by((): SettingHome | null => {
-		if (spendSurface) return settingHome(companyId, 'limits');
+		if (spendSurface || nativeLimitSurface) return settingHome(companyId, 'limits');
 		if (item.settingProposal)
 			return settingHome(companyId, PROPOSAL_HOMES[item.settingProposal.setting] ?? 'limits');
 		if (modelSurface) return settingHome(companyId, 'intelligence');
@@ -797,6 +805,9 @@
 							</p>
 						{:else}
 							<div class="ask"><Markdown text={askText} /></div>
+							<!-- A finished result an agent brought here reads in full, its pictures in
+							     place, rather than folded behind "Context". -->
+							{#if resultInline}<div class="result"><Markdown text={item.whatHappened} /></div>{/if}
 						{/if}
 						{#if item.accountUse}<AccountUseNote
 								use={item.accountUse}
@@ -868,7 +879,7 @@
 									itemId="runtime-rescue"
 									attached={false}
 								/>{/key}{/if}
-						{#if (item.source.kind === 'conversation_owner_need' || item.source.kind === 'teammate_message') && item.responsibleActor}<InlineConversation
+						{#if (item.source.kind === 'conversation_owner_need' || item.source.kind === 'teammate_message' || item.source.kind === 'work_stalled') && item.responsibleActor}<InlineConversation
 								{companyId}
 								actorId={item.responsibleActor.id}
 								actorName={asker}
@@ -957,6 +968,11 @@
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
+						{#if nativeLimitSurface}<InlineNativeLimit
+								{companyId}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
 						{#if item.accountRequest && !item.preparing}<InlineAccountRequest
 								ask={item.accountRequest}
 								owner={!canPassToOwner}
@@ -974,10 +990,10 @@
 				</div>
 
 				<div class="folds">
-					{#if item.whatHappened || item.whyItMatters || showRecommendation}
+					{#if (item.whatHappened && !resultInline) || item.whyItMatters || showRecommendation}
 						<Fold label="Context">
 							<div class="prose">
-								{#if item.whatHappened}<Markdown text={item.whatHappened} />{/if}
+								{#if item.whatHappened && !resultInline}<Markdown text={item.whatHappened} />{/if}
 								{#if item.whyItMatters && item.whyItMatters !== item.whatHappened}<Markdown
 										text={item.whyItMatters}
 									/>{/if}
@@ -1636,7 +1652,20 @@
 		line-height: 1.65;
 		overflow-wrap: anywhere;
 	}
+	.result {
+		margin-top: 12px;
+		padding-top: 12px;
+		border-top: 1px solid var(--border);
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+		line-height: 1.6;
+		overflow-wrap: anywhere;
+	}
+	.result :global(:is(strong, h1, h2, h3, h4)) {
+		color: var(--ink);
+	}
 	.ask :global(.md > :first-child),
+	.result :global(.md > :first-child),
 	.prose :global(.md > :first-child) {
 		margin-top: 0;
 	}

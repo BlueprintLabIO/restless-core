@@ -8,6 +8,7 @@ import test from 'node:test';
  * until its card can do the task itself. */
 const ANSWERED_INLINE: Record<string, string> = {
 	'continue-conversation': 'InlineReply for conversation_owner_need',
+	'open-work': 'InlineConversation answers the stalled Work’s lead; the Work link stays for Resume and Stop for good',
 	'open-company-computer': 'InlineMachine for machine_offline',
 	'open-activity': 'InlineReply to whoever ran it; the Activity link stays as the receipt',
 	'open-app': 'InlineReconnect for connection_sign_in',
@@ -19,6 +20,7 @@ const ANSWERED_INLINE: Record<string, string> = {
 	'open-external-human-step': 'InlineDesktop opens the page on the company computer',
 	'top-up-ai-credit': 'InlineModel opens the plan in a small window',
 	'open-spend-limit': 'InlineSpendLimit',
+	'open-native-limit': 'InlineNativeLimit',
 	'open-provider-approval': 'The provider approves on its own page, in the owner’s own browser'
 };
 

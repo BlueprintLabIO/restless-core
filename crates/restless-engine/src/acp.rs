@@ -2455,22 +2455,17 @@ where
         })
         .await;
 
-    let owned_session = read_session_id(container, &session_marker).await;
+    let owned_session = read_session_marker(container, &session_marker).await;
     let _ = child.kill().await;
     let agent_stderr = stderr_task.await.unwrap_or_default();
-    let process_cleanup = if let Some(session_id) = owned_session {
-        let _ = reap_session(container, &session_id).await;
-        verify_session_reaped(container, &session_id).await
-    } else if container_started_after(container, launched_at).await {
-        // The computer restarted under the session (a release rebuilt it): /tmp and every process
-        // in it went with it, so nothing is left to reap. This used to fail the Attempt with a
-        // missing-marker error (Aang's attempt 2, 21 October).
-        Ok(())
-    } else {
-        Err(anyhow::anyhow!(
-            "agent session ownership marker {session_marker} is missing; broad process cleanup was refused"
-        ))
-    };
+    let (process_cleanup, keep_marker) = clean_up_session_processes(
+        container,
+        &session_marker,
+        owned_session,
+        launched_at,
+        actor,
+    )
+    .await;
     let profile_root = if harness == crate::runtime::AgentHarness::CustomAcp {
         format!(
             "{}/{}",
@@ -2487,11 +2482,16 @@ where
         purge_exact_secret_residue(container, &profile_root, &auth.coordination_token).await
     }
     .await;
-    let artifact_cleanup = remove_and_verify_session_artifacts(
-        container,
-        &[&session_marker, &system_prompt_path, &session_runtime],
-    )
-    .await;
+    let artifact_cleanup = if keep_marker {
+        remove_and_verify_session_artifacts(container, &[&system_prompt_path, &session_runtime])
+            .await
+    } else {
+        remove_and_verify_session_artifacts(
+            container,
+            &[&session_marker, &system_prompt_path, &session_runtime],
+        )
+        .await
+    };
     if let Ok(mut slot) = failure.lock() {
         if let Some(error) = slot.take() {
             if let Err(cleanup) = process_cleanup.and(secret_cleanup).and(artifact_cleanup) {
@@ -2563,22 +2563,145 @@ pub fn agent_exec_prefix(workdir: &str) -> Vec<String> {
     args
 }
 
+/// What reading a turn's session-ownership marker found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionMarker {
+    /// The Linux session id the turn's wrapper wrote.
+    Owned(String),
+    /// The marker is gone or holds no usable session id.
+    Absent,
+    /// Docker could not answer (a slow or failed `docker exec` under memory pressure), after retries.
+    Unreadable(String),
+}
+
+const SESSION_MARKER_READS: u32 = 3;
+
+/// Read the turn's ownership marker, retrying when Docker itself fails. A single 8 s `docker exec`
+/// under memory pressure used to read as "missing", which discarded 20 finished Attempts (Sprint 109
+/// blockers audit, item 2). Only an answer from inside the computer counts as absent.
+pub async fn read_session_marker(container: &str, marker: &str) -> SessionMarker {
+    read_session_marker_with(container, marker, std::time::Duration::from_secs(1)).await
+}
+
+async fn read_session_marker_with(
+    container: &str,
+    marker: &str,
+    backoff: std::time::Duration,
+) -> SessionMarker {
+    let mut last_error = String::new();
+    for attempt in 0..SESSION_MARKER_READS {
+        if attempt > 0 {
+            tokio::time::sleep(backoff * attempt).await;
+        }
+        match crate::runtime::docker_bounded(
+            &["exec", container, "cat", marker],
+            std::time::Duration::from_secs(8),
+        )
+        .await
+        {
+            Ok(output) if output.status.success() => {
+                let session_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                return if session_id != "1"
+                    && !session_id.is_empty()
+                    && session_id.bytes().all(|byte| byte.is_ascii_digit())
+                {
+                    SessionMarker::Owned(session_id)
+                } else {
+                    SessionMarker::Absent
+                };
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                if marker_answer_is_absent(&stderr) {
+                    return SessionMarker::Absent;
+                }
+                last_error = if stderr.is_empty() {
+                    format!("docker exec exited with {}", output.status)
+                } else {
+                    stderr
+                };
+            }
+            Err(error) => last_error = format!("{error:#}"),
+        }
+    }
+    SessionMarker::Unreadable(last_error)
+}
+
+/// `cat` ran in the computer and found no file, or the computer itself is gone (and every process
+/// with it). Anything else is Docker failing to answer, which is worth another read.
+fn marker_answer_is_absent(stderr: &str) -> bool {
+    stderr.contains("No such file or directory")
+        || stderr.contains("No such container")
+        || stderr.contains("is not running")
+}
+
 /// Read and validate the Linux session id written by this turn's wrapper.
 pub async fn read_session_id(container: &str, marker: &str) -> Option<String> {
-    let Ok(output) = crate::runtime::docker_bounded(
-        &["exec", container, "cat", marker],
-        std::time::Duration::from_secs(8),
-    )
-    .await
-    else {
-        return None;
-    };
-    let session_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    (output.status.success()
-        && session_id != "1"
-        && !session_id.is_empty()
-        && session_id.bytes().all(|byte| byte.is_ascii_digit()))
-    .then_some(session_id)
+    match read_session_marker(container, marker).await {
+        SessionMarker::Owned(session_id) => Some(session_id),
+        SessionMarker::Absent | SessionMarker::Unreadable(_) => None,
+    }
+}
+
+/// Reap and verify a finished turn's own processes. Returns the cleanup result and whether the
+/// marker must stay on disk for `reap_orphan_sessions` (Docker could not read it now).
+///
+/// A missing or unreadable marker leaves process cleanup unverified, but it is not a failure of
+/// the turn: the turn's productive outcome stands, and the gap is recorded in the log. Before
+/// Sprint 109 this threw away finished, even met, work. Broad cleanup stays refused, because
+/// without the marker nothing proves which processes are this turn's.
+pub(crate) async fn clean_up_session_processes(
+    container: &str,
+    marker: &str,
+    owned: SessionMarker,
+    launched_at: chrono::DateTime<chrono::Utc>,
+    actor: &str,
+) -> (Result<()>, bool) {
+    match owned {
+        SessionMarker::Owned(session_id) => {
+            let _ = reap_session(container, &session_id).await;
+            (verify_session_reaped(container, &session_id).await, false)
+        }
+        unverified => {
+            let restarted = container_started_after(container, launched_at).await;
+            let (cleanup, keep_marker) = unverified_session_cleanup(&unverified, restarted);
+            if let Some(reason) = cleanup {
+                tracing::warn!(
+                    container,
+                    actor,
+                    marker,
+                    reason = %reason,
+                    "agent session process cleanup unverified; the turn's outcome is kept"
+                );
+            }
+            (Ok(()), keep_marker)
+        }
+    }
+}
+
+/// The decision for a marker that did not name a session: a reason to log (none when the computer
+/// restarted under the session, which took every process with it) and whether to keep the marker.
+fn unverified_session_cleanup(marker: &SessionMarker, restarted: bool) -> (Option<String>, bool) {
+    if restarted {
+        // A release rebuilt the computer: /tmp and every process in it went with it (Aang's
+        // attempt 2, 21 October).
+        return (None, false);
+    }
+    match marker {
+        SessionMarker::Owned(_) => (None, false),
+        SessionMarker::Absent => (
+            Some("the ownership marker is missing; broad process cleanup was refused".into()),
+            false,
+        ),
+        // Docker could not answer: the marker is probably still there. Leave it, so the orphan
+        // reaper can reap exactly this session once Docker answers again.
+        SessionMarker::Unreadable(error) => (
+            Some(format!(
+                "Docker could not read the ownership marker ({error}); it is kept for the orphan reaper"
+            )),
+            true,
+        ),
+    }
 }
 
 pub async fn remove_and_verify_session_artifacts(container: &str, paths: &[&str]) -> Result<()> {
@@ -2727,7 +2850,10 @@ pub async fn reap_session(container: &str, session_id: &str) -> usize {
 /// ownership record; a process-name search is incomplete (`omp` replaced
 /// `codex-acp`) and can claim unrelated work.
 /// Whether the container's current run began after `at`: everything it ran before then is gone.
-async fn container_started_after(container: &str, at: chrono::DateTime<chrono::Utc>) -> bool {
+pub(crate) async fn container_started_after(
+    container: &str,
+    at: chrono::DateTime<chrono::Utc>,
+) -> bool {
     let Ok(output) = crate::runtime::docker_bounded(
         &["inspect", "-f", "{{.State.StartedAt}}", container],
         std::time::Duration::from_secs(8),
@@ -2846,6 +2972,156 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(result.is_ok(), should_exit, "{result:?}");
+        }
+    }
+
+    /// Sprint 109 blockers audit, item 2: a finished turn whose ownership marker is missing, or
+    /// that Docker cannot read, keeps its outcome. Process cleanup is recorded as unverified,
+    /// broad cleanup stays refused, and an unreadable marker is left for the orphan reaper.
+    #[tokio::test]
+    #[ignore = "requires an isolated RESTLESS_TEST_SESSION_CONTAINER with Docker init"]
+    async fn a_missing_or_unreadable_marker_keeps_the_turn_outcome() {
+        use super::{clean_up_session_processes, read_session_marker_with, SessionMarker};
+        let container = std::env::var("RESTLESS_TEST_SESSION_CONTAINER").unwrap();
+        assert!(container.ends_with("_test"));
+        let docker = |args: Vec<String>| async move {
+            let args = args.iter().map(String::as_str).collect::<Vec<_>>();
+            crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(10))
+                .await
+                .unwrap()
+        };
+        let launched_at = chrono::Utc::now();
+
+        // A live turn session whose marker was removed under it (as an agent clearing /tmp does).
+        let marker = format!("/tmp/restless-agent-{}.sid", uuid::Uuid::new_v4());
+        let started = docker(
+            [
+                "exec",
+                "-d",
+                &container,
+                "setsid",
+                "sh",
+                "-c",
+                "echo $$ > \"$1\"; exec sleep 30",
+                "marker-test",
+                &marker,
+            ]
+            .map(str::to_string)
+            .to_vec(),
+        )
+        .await;
+        assert!(started.status.success());
+        let mut session = None;
+        for _ in 0..50 {
+            if let SessionMarker::Owned(id) =
+                read_session_marker_with(&container, &marker, std::time::Duration::from_millis(10))
+                    .await
+            {
+                session = Some(id);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let session = session.expect("session marker");
+        docker(
+            ["exec", &container, "rm", &marker]
+                .map(str::to_string)
+                .to_vec(),
+        )
+        .await;
+        let read =
+            read_session_marker_with(&container, &marker, std::time::Duration::from_millis(10))
+                .await;
+        assert_eq!(read, SessionMarker::Absent);
+        let (cleanup, keep_marker) =
+            clean_up_session_processes(&container, &marker, read, launched_at, "marker-test").await;
+        assert!(
+            cleanup.is_ok(),
+            "a missing marker must not fail the turn: {cleanup:?}"
+        );
+        assert!(!keep_marker);
+        // Broad cleanup stayed refused: the unowned session is still alive. Reap it by its id.
+        assert!(super::verify_session_reaped(&container, &session)
+            .await
+            .is_err());
+        super::reap_session(&container, &session).await;
+        super::verify_session_reaped(&container, &session)
+            .await
+            .unwrap();
+
+        // A marker Docker answers about with an error that is not absence (here, a directory in its
+        // place) is read three times, reported unreadable, kept for the orphan reaper, and still
+        // keeps the outcome.
+        let unreadable = format!("/tmp/restless-agent-{}.sid", uuid::Uuid::new_v4());
+        docker(
+            ["exec", &container, "mkdir", &unreadable]
+                .map(str::to_string)
+                .to_vec(),
+        )
+        .await;
+        let read = read_session_marker_with(
+            &container,
+            &unreadable,
+            std::time::Duration::from_millis(10),
+        )
+        .await;
+        assert!(
+            matches!(&read, SessionMarker::Unreadable(error) if error.contains("Is a directory")),
+            "{read:?}"
+        );
+        let (cleanup, keep_marker) =
+            clean_up_session_processes(&container, &unreadable, read, launched_at, "marker-test")
+                .await;
+        assert!(cleanup.is_ok(), "{cleanup:?}");
+        assert!(
+            keep_marker,
+            "an unreadable marker is left for the orphan reaper"
+        );
+        docker(
+            ["exec", &container, "rmdir", &unreadable]
+                .map(str::to_string)
+                .to_vec(),
+        )
+        .await;
+
+        // A marker in a computer that no longer exists reads as absent at once, without retries.
+        let gone = format!("{container}-gone");
+        let started_reading = std::time::Instant::now();
+        let read =
+            read_session_marker_with(&gone, &marker, std::time::Duration::from_secs(5)).await;
+        assert_eq!(read, SessionMarker::Absent);
+        assert!(started_reading.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn unverified_process_cleanup_keeps_the_outcome_and_only_an_unreadable_marker() {
+        use super::{marker_answer_is_absent, unverified_session_cleanup, SessionMarker};
+        assert!(marker_answer_is_absent(
+            "cat: /tmp/restless-agent-x.sid: No such file or directory"
+        ));
+        assert!(marker_answer_is_absent(
+            "Error response from daemon: No such container: restless-x"
+        ));
+        assert!(!marker_answer_is_absent(
+            "docker command exceeded 8 seconds"
+        ));
+        assert!(!marker_answer_is_absent(""));
+
+        let (reason, keep) = unverified_session_cleanup(&SessionMarker::Absent, false);
+        assert!(reason.unwrap().contains("missing"));
+        assert!(!keep);
+        let (reason, keep) = unverified_session_cleanup(
+            &SessionMarker::Unreadable("docker command exceeded 8 seconds".into()),
+            false,
+        );
+        assert!(reason.unwrap().contains("orphan reaper"));
+        assert!(keep);
+        // The computer restarted under the turn: nothing is left to reap or report.
+        for marker in [
+            SessionMarker::Absent,
+            SessionMarker::Unreadable("timeout".into()),
+        ] {
+            assert_eq!(unverified_session_cleanup(&marker, true), (None, false));
         }
     }
 

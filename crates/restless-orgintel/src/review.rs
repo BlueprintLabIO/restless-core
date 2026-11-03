@@ -1198,6 +1198,7 @@ impl OrgIntel {
                 .bind(&resolution)
                 .execute(&mut *tx)
                 .await?;
+                crate::progress::record_done_progress_in_tx(&mut tx, work_id).await?;
             }
             OwnerReviewDecision::ChangesRequested => {
                 invalidate_from(&mut tx, work_id, reviewer, feedback).await?;

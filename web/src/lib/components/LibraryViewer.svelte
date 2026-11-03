@@ -317,7 +317,9 @@
 					</details>{/if}
 			</div>
 		{:else if opened?.text !== undefined && opened.format}
-			<div class="text-scroll"><TextPreview text={opened.text} format={opened.format} /></div>
+			<div class="text-scroll">
+				<TextPreview text={opened.text} format={opened.format} source={file.uri} />
+			</div>
 		{:else if office}
 			<OfficePreview
 				format={office}

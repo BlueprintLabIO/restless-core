@@ -71,12 +71,13 @@ owner's decision.
   - Staff call `with_agent`, which turns `CleanupFailed` into `Err`. That throws away the
     productive outcome, even a met one, and records unknown recovery.
   - `7338704a` fixed only the case where the computer restarted, and only in `acp.rs`.
-- **Open:**
-  - Keep the outcome when only process-ownership cleanup is unverified.
-  - Retry the marker read.
-  - Copy the restart guard into `codex.rs`.
-  - Estimated at about 50 lines. Not done here: it needs the ACP harness tests, which need a
-    computer.
+- **Fixed** (#608):
+  - A missing or unreadable marker leaves process cleanup unverified but keeps the turn's outcome,
+    in `acp.rs` and `codex.rs` alike. Broad cleanup stays refused, and the gap is logged.
+  - The marker read is retried three times when Docker fails. Only an answer from inside the
+    computer (no such file, no such container) counts as missing.
+  - An unreadable marker is left on disk, so the orphan reaper reaps exactly that session later.
+  - `codex.rs` has the restart guard too.
 
 ### 3. Account-grant refusals say "ask the owner", but no command asks (catch-22)
 
@@ -146,11 +147,14 @@ owner's decision.
     commit differs from where the last Attempt left HEAD, every successor fails.
   - The Attempt is then left running until orphan recovery, which invites a resume that fails the
     same way.
-- **Open:**
-  - Save the old tip under `refs/restless/preserved/<attempt>`.
-  - Reset a clean worktree to the exact commit.
-  - Close a failed setup as `Failed` with the real cause.
-  - Medium risk (git state); needs its own PR.
+- **Fixed** (#621):
+  - When the Work's worktree is at another commit, pickup saves the old HEAD under
+    `refs/restless/preserved/<attempt>`, and every uncommitted or untracked change as a stash
+    commit under `refs/restless/preserved/<attempt>-uncommitted`. Then it resets the worktree to
+    the exact requested commit. Nothing is discarded, and a second save never overwrites the first.
+  - Each recovery records an `attempt_workspace_preserved` event.
+  - If Git can't stash (for example mid-merge), nothing is reset and the Attempt fails with that
+    cause.
 
 ### 9. Proposed Work requiring abandoned Work can never start (fixed, #603)
 
@@ -161,8 +165,8 @@ owner's decision.
   - Abandoning never looks at dependents.
   - `add_work_edge` accepts an abandoned upstream.
 - **Fixed** (#603): abandoning tells each open dependent's lead (`work edge ... --remove` or
-  abandon), and new requirements on abandoned Work are refused. Already-stranded Work needs the
-  sweep in finding 10.
+  abandon), and new requirements on abandoned Work are refused. Already-stranded Work is covered by
+  the stalled-Work check in finding 10 (#620).
 
 ### 10. Blocked Work with no card and nobody asked
 
@@ -170,8 +174,14 @@ owner's decision.
   - Frankensurf "Reconcile the public 0.50.4 release", blocked since 19 Oct. Its "accountable
     recovery" is a single message to the lead.
   - Items 1, 2 and 9 also end in this state.
-- **Open:** a sweep that raises one card per revision for Work blocked over 24 h with no pending
-  handoff, with Resume and Abandon. That is the backstop for this whole class.
+- **Fixed** (#620, #622):
+  - The owner's Inbox carries one `work_stalled` card per Work item stopped for over a day with
+    nobody asked: blocked with no pending handoff (and not paused on purpose), or requiring
+    abandoned Work. It names the lead it waits on and quotes the block.
+  - The card is answered inside it: the owner's answer ("Resume it", "Stop it for good", "Drop the
+    requirement") goes to the lead. Open the Work stays as the link to Resume and Stop for good.
+  - A check every two minutes tells each such Work's lead once per stall, from the daemon (never in
+    Exec's name), with the exact command to resume, or to drop the abandoned requirement.
 
 ### 11. Unknown generic-effect outcome blocks the key forever
 
@@ -223,7 +233,16 @@ owner's decision.
     credit or quota".
   - The quota card says "Work resumes within minutes of a top-up". That isn't true for
     already-claimed Work (item 1).
-- **Open.**
+- **Fixed** (fix/model-avail-live-row, 3 Nov; lifted from the unmerged fix/s109-blocker-cards):
+  - Granting a provider another connection clears that provider's quota and credential
+    cooldowns, not only credential ones.
+  - A rate limit (429) cools down for the provider's own wait, or two minutes, never an hour, and
+    raises no "out of credit" card: it clears by itself.
+  - The first output of any turn on a model lifts that model's cooldown at once, rather than
+    when the turn ends.
+- **Fixed** (#620, #623): Work blocked by a `[quota]` or `[credential]` refusal goes on by itself
+  within about two minutes of no such refusal being active (bounded like any interruption resume),
+  and the quota card now says so.
 
 ### 16. Native-turn cap raises a "spend limit" card that can't lift it
 
@@ -232,7 +251,11 @@ owner's decision.
   - `attention.rs:3653` maps any `[budget]` refusal to the spend-stopped card, whose editor sets
     only the spend limit.
   - Raising the native limit doesn't wake Exec.
-- **Open.**
+- **Fixed** (#623):
+  - A native-harness cap raises its own `native_limit_stopped` card, which says the spend limit
+    doesn't affect it. The native limit is raised inside the card.
+  - Raising or clearing the native limit above this month's use tells Exec to resume, as raising
+    the spend limit does.
 
 ### 17. Setting changed directly in Settings blocks all future proposals for it
 
@@ -242,13 +265,21 @@ owner's decision.
   - `setting_proposals::pending` still counts it.
   - Every later proposal for that setting (keyed per variant, so every schedule) is refused:
     "already waiting for the owner's answer". The owner sees no card.
-- **Open.**
+- **Fixed** (#623):
+  - A new proposal closes any waiting one that Settings already satisfies as superseded, and its
+    reply lists what it superseded.
+  - Proposing what Settings already holds is refused with that reason.
+  - Each schedule is its own setting, so a waiting proposal for one no longer blocks another.
 
 ### 18. A judgement handoff with a stale brief vanishes
 
 - **Code:** `attention.rs:2888` drops it with a `warn` once the Work revision changes. The handoff
   stays pending, the Work stays blocked, and nobody is asked to re-brief.
-- **Open.**
+- **Fixed** (#620, #623):
+  - The card stays in the Inbox, marked as briefed for an earlier version of the Work. A stale
+    outcome review offers chat with the lead instead of Accept, which would be refused.
+  - Whoever briefed it is asked once per Work revision to brief it again with
+    `restless work prepare-owner-brief`.
 
 ### 19. Cloud: setup on a sold-out location retries forever, reason lost
 
@@ -274,11 +305,17 @@ owner's decision.
   - `coordination.rs:1501/1520/1539` hard-code actor `exec` for `finance-reserve`,
     `finance-payee-propose` and `setting-propose`.
   - The answer goes to Exec, not the staff member.
+  - **Fixed** (#623): all three record the calling agent.
 - **Home-site helper offline:**
   - `home_egress.rs:163` replies "Turn it on, or ask the owner" with no card.
   - The same text is used when no helper is assigned at all.
+  - **Fixed** (#623): the refusal raises a `home_helper_offline` card for a day while no helper is
+    online, worded for "offline" or "none set up", and the agent is told the owner has it.
 - **Codex/Claude reconnect loop:** `owner_oauth_login.rs:262/487`, "Restore that connection
   before reconnecting", with no restore action.
+  - **Fixed in part** (#623): the refusal names the real way through (Remove… in the account's
+    Connections, then connect again). The identity check itself stays: it guards against swapping
+    accounts in place.
 - **Dead links in Inbox items (fixed, #599):**
   - `attention.rs:1574` links `/{company}/vault`; the page is `/company/vault`.
   - `attention.rs:912` links `/company/limits#spend`; there's no such page.

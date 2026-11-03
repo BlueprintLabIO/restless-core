@@ -115,6 +115,75 @@ test('a default on a connection that is no longer listed reads as unavailable, n
 	assert.equal(routeProvider('harness:codex'), null);
 });
 
+const OTHER = 'fedcba9876543210fedcba9876543210';
+
+test('an agent whose account was replaced thinks on the company’s current one, as the daemon routes it (3 Nov)', () => {
+	// Reno, 3 Nov: Ebenezer was assigned to the first ChatGPT account; granting a second one for
+	// the same provider took the company's binding. The daemon keeps him thinking on the second
+	// (provider_fallback), and the cockpit called him "Model unavailable" while his turns ran.
+	const view: IntelligenceView = {
+		...connected,
+		company_issue: null,
+		connections: [
+			{ id: `account:openai-codex@${OTHER}`, provider: 'openai-codex', kind: 'direct', loaded: true },
+			{
+				id: `account-harness:codex:openai-codex@${OTHER}`,
+				provider: 'codex',
+				account_provider: 'openai-codex',
+				kind: 'harness',
+				loaded: true
+			}
+		],
+		agents: [
+			{
+				id: 'ebenezer',
+				name: 'Ebenezer',
+				role: 'designer',
+				assignment: { connection: `account:openai-codex@${ACCOUNT}`, model: 'gpt-6-sol' },
+				effective_model: 'openai-codex/gpt-6-sol',
+				harness: 'restless-managed'
+			},
+			{
+				id: 'cratchit',
+				name: 'Cratchit',
+				role: 'writer',
+				assignment: {
+					connection: `account-harness:codex:openai-codex@${ACCOUNT}`,
+					model: 'gpt-6-sol'
+				},
+				effective_model: 'openai-codex/gpt-6-sol',
+				harness: 'codex'
+			}
+		]
+	};
+	assert.equal(agentRouteState(view, 'ebenezer'), 'ready');
+	assert.equal(agentRouteState(view, 'cratchit'), 'ready');
+	assert.equal(connectionUnavailable(view, `account:openai-codex@${ACCOUNT}`), false);
+	// The picker edits the connection that actually serves him.
+	assert.deepEqual(agentPickerSelection(view, view.agents[0]), {
+		connection: `account:openai-codex@${OTHER}`,
+		model: 'gpt-6-sol'
+	});
+	// The company's current binding is a plain key, not an account: the daemon refuses, so does this.
+	const keyed: IntelligenceView = {
+		...view,
+		connections: [{ id: 'direct:openai-codex', provider: 'openai-codex', kind: 'direct', loaded: true }]
+	};
+	assert.equal(agentRouteState(keyed, 'ebenezer'), 'unavailable');
+	// No account for that provider at all: genuinely unavailable, and the button still shows.
+	const gone: IntelligenceView = { ...view, connections: connected.connections };
+	assert.equal(agentRouteState(gone, 'ebenezer'), 'unavailable');
+	assert.equal(routeActionLabel(agentRouteState(gone, 'ebenezer')), 'Check model connection');
+});
+
+test('a turn in progress is proof the model replies: never "unavailable" while it runs (3 Nov)', () => {
+	const gone: IntelligenceView = { ...connected, company_issue: null, connections: [] };
+	assert.equal(agentRouteState(gone, 'eames'), 'unavailable');
+	assert.equal(agentRouteState(gone, 'eames', true), 'ready');
+	assert.equal(agentRouteState(connected, 'exec', true), 'ready');
+	assert.equal(routeActionLabel(agentRouteState(gone, 'eames', true)), null);
+});
+
 test('a new company default shows at once for agents on the default, not for agents with their own', () => {
 	const view: IntelligenceView = {
 		...connected,

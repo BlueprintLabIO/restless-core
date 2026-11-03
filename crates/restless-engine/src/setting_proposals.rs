@@ -176,34 +176,100 @@ pub struct SettingProposalInput {
     pub work_id: Option<uuid::Uuid>,
 }
 
+/// Whether two changes are to the same setting. Each schedule is its own setting: a waiting
+/// proposal to pause one schedule used to refuse every proposal for any other.
+fn same_setting(a: &SettingChange, b: &SettingChange) -> bool {
+    match (a, b) {
+        (
+            SettingChange::Schedule { schedule_id: a, .. },
+            SettingChange::Schedule { schedule_id: b, .. },
+        ) => a == b,
+        _ => std::mem::discriminant(a) == std::mem::discriminant(b),
+    }
+}
+
+/// Whether Settings already holds what this change asks for: someone changed it there directly,
+/// so there is nothing left to ask the owner.
+pub fn settled(change: &SettingChange, config: &crate::runtime::CompanyConfig) -> bool {
+    match change {
+        SettingChange::SpendLimit { ceiling_usd } => {
+            (config.spend_ceiling_usd.as_usd() - ceiling_usd).abs() < 0.005
+        }
+        SettingChange::ReasoningEffort { effort } => config.reasoning_effort == *effort,
+        SettingChange::Model { model } => config.configured_model() == Some(model.as_str()),
+        SettingChange::LegalProfile { .. }
+        | SettingChange::Schedule { .. }
+        | SettingChange::Notifications { .. } => false,
+    }
+}
+
+/// A new proposal, and the earlier ones for the same setting it replaced because Settings already
+/// held their value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Proposed {
+    pub id: i64,
+    pub superseded: Vec<i64>,
+}
+
 /// An actor proposes a setting change; the owner answers it in the Inbox.
+///
+/// A waiting proposal the owner already settled by changing Settings directly is closed as
+/// superseded rather than blocking this one: it had no card, so every later proposal for the
+/// setting used to be refused as "already waiting" with nothing for the owner to answer (S109
+/// blockers audit, finding 17).
 pub async fn propose(
     store: &crate::authority::AuthorityStore,
-    company: &str,
+    config: &crate::runtime::CompanyConfig,
     actor: &str,
     mut input: SettingProposalInput,
-) -> Result<i64> {
+) -> Result<Proposed> {
+    let company = config.name.as_str();
     input.reason = input.reason.trim().to_string();
     if input.reason.is_empty() || input.reason.len() > 2_000 {
         bail!("say why the company needs this change (at most 2,000 characters)");
     }
     input.change.validate()?;
-    let same = std::mem::discriminant(&input.change);
-    if pending(store, company)
-        .await?
-        .iter()
-        .any(|(_, waiting)| std::mem::discriminant(&waiting.change) == same)
-    {
-        bail!("a change to this setting is already waiting for the owner's answer");
+    if settled(&input.change, config) {
+        bail!(
+            "Settings already holds this value, so there is nothing to ask the owner: {}",
+            input.change.summary()
+        );
     }
-    store
+    let mut superseded = Vec::new();
+    for (record, waiting) in pending(store, company).await? {
+        if !same_setting(&waiting.change, &input.change) {
+            continue;
+        }
+        if !settled(&waiting.change, config) {
+            bail!(
+                "a change to this setting is already waiting for the owner's answer in their Inbox (proposal {}); you get a message when they answer",
+                record.id
+            );
+        }
+        store
+            .emit(
+                company,
+                SETTING_DECIDED_KIND,
+                Some("daemon"),
+                serde_json::json!({
+                    "proposal": record.id,
+                    "applied": true,
+                    "superseded": "the owner set it directly in Settings",
+                    "setting": serde_json::to_value(&waiting.change)?.get("setting").cloned(),
+                }),
+            )
+            .await?;
+        superseded.push(record.id);
+    }
+    let id = store
         .emit(
             company,
             SETTING_PROPOSED_KIND,
             Some(actor),
             serde_json::to_value(&input)?,
         )
-        .await
+        .await?;
+    Ok(Proposed { id, superseded })
 }
 
 /// Proposals the owner has not answered, by record.
@@ -285,6 +351,25 @@ mod tests {
         )
         .unwrap();
         assert!(legal.change.validate().is_ok());
+    }
+
+    #[test]
+    fn each_schedule_is_its_own_setting() {
+        let pause = |id: &str| SettingChange::Schedule {
+            schedule_id: id.into(),
+            paused: true,
+            label: None,
+        };
+        assert!(same_setting(&pause("a"), &pause("a")));
+        assert!(!same_setting(&pause("a"), &pause("b")));
+        assert!(same_setting(
+            &SettingChange::ReasoningEffort { effort: "low".into() },
+            &SettingChange::ReasoningEffort { effort: "high".into() }
+        ));
+        assert!(!same_setting(
+            &pause("a"),
+            &SettingChange::ReasoningEffort { effort: "low".into() }
+        ));
     }
 
     #[test]

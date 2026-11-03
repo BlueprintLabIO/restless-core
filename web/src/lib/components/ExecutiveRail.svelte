@@ -139,6 +139,8 @@
 		onstopturn = null,
 		onretryturn = null,
 		ambientTurn = null,
+		workTurn = null,
+		progressing = false,
 		hasEarlier = false,
 		onloadearlier = null
 	}: {
@@ -218,6 +220,11 @@
 		onretryturn?: (() => Promise<string | null>) | null;
 		/** What the agent is doing when no person's message started it (a schedule, a result). */
 		ambientTurn?: ActiveAgentTurn | null;
+		/** The Work the agent runs now, live: shown here, where its next reply will appear. */
+		workTurn?: ActiveAgentTurn | null;
+		/** Live proof the agent's model answers (one of its turns is running): the composer's
+		 * model chip never says otherwise meanwhile. */
+		progressing?: boolean;
 		/** The server holds messages older than the ones loaded. */
 		hasEarlier?: boolean;
 		/** Pages in earlier messages; resolves to how many arrived. */
@@ -344,8 +351,13 @@
 	);
 	/* A finished turn stays for its dock; only one still in progress can be interrupted. */
 	const working = $derived(turnWorking(turn));
+	/* What the agent does that no message of yours started: a schedule or result, or the Work it
+	 * runs. It shows in the conversation, where the next reply will appear (3 Nov 2026). */
+	const backgroundTurn = $derived(ambientTurn ?? workTurn);
 	const shownTurn = $derived(
-		ambientTurn && (!working || (turn?.live?.phase ?? 'queued') === 'queued') ? ambientTurn : turn
+		backgroundTurn && (!working || (turn?.live?.phase ?? 'queued') === 'queued')
+			? backgroundTurn
+			: turn
 	);
 	/* Saved for a reply that cannot start until a model is connected: nothing to interrupt. */
 	const setupPending = $derived(
@@ -1990,7 +2002,12 @@
 						focusKey={composerFocusKey}
 					>
 						{#snippet controls()}
-							<IntelligenceChip {companyId} actorId={participantId} name={participantName} />
+							<IntelligenceChip
+								{companyId}
+								actorId={participantId}
+								name={participantName}
+								{progressing}
+							/>
 							{#if !review && !workContext}
 								<div class="exec-context-line">
 									<button

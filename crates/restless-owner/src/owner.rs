@@ -2127,6 +2127,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(review_api::library_file_content),
         )
         .route(
+            "/companies/{company}/library/image",
+            get(review_api::library_image),
+        )
+        .route(
             "/companies/{company}/messages/{message}/reference",
             get(message_reference),
         )
@@ -3081,6 +3085,7 @@ fn is_company_library_read(method: &Method, path: &str) -> bool {
         (method.clone(), tail.as_slice()),
         (Method::POST, ["library", "open"])
             | (Method::GET | Method::HEAD, ["library", "content"])
+            | (Method::GET | Method::HEAD, ["library", "image"])
             // The Library screen asks every viewer; a member gets an empty map from the handler.
             | (Method::GET, ["library", "modified"])
     )
@@ -5746,11 +5751,12 @@ async fn grant_owner_connection(
     if should_make_default {
         follow_company_default(&state, &config, &default_before).await;
     }
-    // A new credential for this provider: a cooldown the old one earned no longer applies.
+    // A new connection for this provider: the refusals the old one earned (a rejected key,
+    // used-up credit, usage or rate limits) no longer apply (S109 blockers audit, finding 15).
     if let Err(error) = state
         .daemon
         .authority
-        .clear_provider_credential_cooldowns(&config.name, &connection.provider)
+        .clear_provider_refusal_cooldowns(&config.name, &connection.provider)
         .await
     {
         tracing::warn!(%error, "could not clear the replaced credential's cooldown");
@@ -11819,6 +11825,14 @@ async fn send_actor_message(
                     {
                         tracing::error!(%error, %attention_id, message_id, "Attention context event was not recorded after message delivery");
                     }
+                }
+            }
+            // The owner has moved on from what Exec already showed them: each of Exec's Inbox
+            // changes is applied once it has been open 30 seconds, rather than at its two-minute
+            // ceiling. A change still in a streaming reply keeps waiting to be shown.
+            if created && actor == "exec" && principal.membership_role() == "owner" {
+                if let Err(error) = org.owner_moved_on_from_exec_inbox_actions().await {
+                    tracing::warn!(%error, %company, "Exec's Inbox changes kept their full Undo window");
                 }
             }
             if created {

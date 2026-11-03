@@ -1480,10 +1480,12 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         "finance-reserve" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<finance::PaymentIntentInput>(body) {
                 Ok(mut input) => {
+                    // The caller, never Exec by default: a staff member's request is theirs,
+                    // and the answer goes back to them (S109 blockers audit).
                     input.requesting_actor = if principal == Principal::Owner {
                         "owner".into()
                     } else {
-                        "exec".into()
+                        request.orgintel.actor.as_deref().unwrap_or("exec").to_string()
                     };
                     match daemon.orgintel.get(company).await {
                         Ok(org) => match finance::validate_work_link(&org, &input).await {
@@ -1502,7 +1504,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         },
         "finance-payee-propose" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<finance::PayeeProposalInput>(body) {
-                Ok(input) => match finance::propose_payee(&daemon.authority, company, "exec", input).await {
+                Ok(input) => match finance::propose_payee(&daemon.authority, company, request.orgintel.actor.as_deref().unwrap_or("exec"), input).await {
                     Ok(id) => Response::ok(serde_json::json!({
                         "proposal": id,
                         "status": "waiting for the owner in the Inbox",
@@ -1521,12 +1523,17 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 {
                     Response::err("there is no live schedule with that id; name one from `restless schedule opportunities` or the company's Schedules")
                 }
-                Ok(input) => match crate::setting_proposals::propose(&daemon.authority, company, "exec", input).await {
-                    Ok(id) => Response::ok(serde_json::json!({
-                        "proposal": id,
+                Ok(input) => match runtime::CompanyConfig::load(&daemon.root, company) {
+                    Err(error) => Response::err(format!("{error:#}")),
+                    Ok(config) => match crate::setting_proposals::propose(&daemon.authority, &config, request.orgintel.actor.as_deref().unwrap_or("exec"), input).await {
+                    Ok(proposed) => Response::ok(serde_json::json!({
+                        "proposal": proposed.id,
                         "status": "waiting for the owner in the Inbox",
+                        // Earlier proposals the owner settled by changing Settings directly.
+                        "superseded": proposed.superseded,
                     })),
                     Err(error) => Response::err(format!("{error:#}")),
+                    },
                 },
                 Err(error) => Response::err(format!("invalid setting proposal: {error}")),
             },
@@ -3122,6 +3129,43 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             (Err(error), _, _) => Response::err(format!("bad Work id: {error}")),
             _ => Response::err("work-abandon needs work, reason and --as"),
         },
+        "work-progress" => {
+            let Some(Ok(id)) = request.common.id.as_deref().map(uuid::Uuid::parse_str) else {
+                return Response::err("work-progress needs a Work id");
+            };
+            let Some(actor) = request.common.as_actor.as_deref() else {
+                return Response::err("work-progress needs --as");
+            };
+            let report = match (
+                request.percent,
+                request.next.as_deref(),
+                request.blocked.as_deref(),
+            ) {
+                (Some(percent), Some(next), None) => {
+                    restless_orgintel::ProgressReport::Estimate { percent, next }
+                }
+                (None, None, Some(why)) => restless_orgintel::ProgressReport::Blocked { why },
+                _ => {
+                    return Response::err(
+                        "give --percent with --next \"what is left\", or --blocked \"why\" on its own",
+                    )
+                }
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match org.record_work_progress(id, actor, report).await {
+                    Ok(recorded) => Response::ok(serde_json::json!({
+                        "work_id": id,
+                        "state": recorded.progress.state,
+                        "percent": recorded.progress.percent,
+                        "next": recorded.progress.next,
+                        "estimated_by": recorded.progress.estimated_by,
+                        "told_owner": recorded.posted_message_id.is_some(),
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "work-review" => match (request.common.id.as_deref(), request.common.state.as_deref()) {
             (Some(id), Some(state)) => {
                 let Ok(id) = uuid::Uuid::parse_str(id) else {
@@ -4800,6 +4844,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "work-interrupt"
         | "work-resume"
         | "work-abandon"
+        | "work-progress"
         | "judgement"
         | "schedule-list"
         | "schedule-link-work"

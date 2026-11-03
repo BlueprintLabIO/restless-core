@@ -83,3 +83,10 @@ export function formatRelative(
 							: `${Math.floor(distance / 31536000)}y`;
 	return seconds < 0 ? `in ${label}` : `${label} ago`;
 }
+
+/** "1:52": time left on a short countdown, minutes and seconds, never negative. Always m:ss, so a
+ * ticking value keeps its width. */
+export function formatTimeLeft(ms: number): string {
+	const seconds = Math.max(0, Math.ceil(ms / 1000));
+	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
