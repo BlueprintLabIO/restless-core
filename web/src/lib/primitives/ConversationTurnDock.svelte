@@ -303,7 +303,13 @@
 							</div>
 						</article>
 					{:else if allActivity.length === 0 && phase !== 'failed'}
-						<p class="turn-awaiting">The first live update will appear here.</p>
+						<!-- The reply's text is the message above; finished with no tools, there is
+						     nothing else to show. -->
+						<p class="turn-awaiting">
+							{terminal
+								? 'No tools or steps in this reply.'
+								: 'The first live update will appear here.'}
+						</p>
 					{/if}
 				</div>
 			</div>
