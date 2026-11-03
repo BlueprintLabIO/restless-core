@@ -155,6 +155,7 @@ pub async fn record_staff_outcome(
                     .await?;
             }
         }
+        let mut interrupted = None;
         let terminal_fact_recorded = match outcome {
             Ok((Termination::OutcomeMet, summary)) => {
                 finish_claimed_attempt(
@@ -195,6 +196,9 @@ pub async fn record_staff_outcome(
             Ok((Termination::Blocked, summary)) => {
                 org.finish_work_attempt(attempt_id, WorkAttemptState::Blocked, &summary)
                     .await?;
+                if interrupted_by_platform(&summary) {
+                    interrupted = Some(summary);
+                }
                 true
             }
             Ok((Termination::Abandon, summary)) => {
@@ -247,11 +251,32 @@ pub async fn record_staff_outcome(
             )
             .await?;
             org.flush_terminal_supervisor_notices(16).await?;
+            if let Some(cause) = interrupted {
+                resume_interrupted(org, work_id, &cause).await;
+            }
         }
         anyhow::Ok(())
     };
     if let Err(error) = record.await {
         tracing::error!(staff = name, "failed to record staff outcome: {error:#}");
+    }
+}
+
+/// A turn a platform watchdog cut (silence, a wedged or stopped session), not one the owner
+/// stopped and not a block the agent reported. Its summary promises the next wake continues.
+fn interrupted_by_platform(summary: &str) -> bool {
+    summary.starts_with("[resumable] ") && !summary.contains("the owner interrupted")
+}
+
+/// Keep that promise: blocked Work is never claimed again on its own, so resume it, bounded per
+/// revision (S109 blockers audit; Sprint 107 sat blocked for five days with no card).
+async fn resume_interrupted(org: &restless_orgintel::OrgIntel, work_id: uuid::Uuid, cause: &str) {
+    match org.resume_after_interruption(work_id, cause).await {
+        Ok(true) => tracing::info!(%work_id, "resumed Work after an interrupted turn"),
+        Ok(false) => {}
+        Err(error) => {
+            tracing::warn!(%work_id, "could not resume Work after an interrupted turn: {error:#}")
+        }
     }
 }
 
@@ -349,6 +374,7 @@ pub async fn record_hosted_staff_outcome(
             )
             .await;
         }
+        let mut interrupted = None;
         let terminal = match outcome {
             Ok((Termination::OutcomeMet, summary)) => {
                 if work.repo.is_some() {
@@ -417,6 +443,9 @@ pub async fn record_hosted_staff_outcome(
             Ok((Termination::Blocked, summary)) => {
                 org.finish_work_attempt(attempt_id, WorkAttemptState::Blocked, &summary)
                     .await?;
+                if interrupted_by_platform(&summary) {
+                    interrupted = Some(summary);
+                }
                 true
             }
             Ok((Termination::Abandon, summary)) => {
@@ -496,6 +525,9 @@ pub async fn record_hosted_staff_outcome(
                 }
             }
             org.flush_terminal_supervisor_notices(16).await?;
+            if let Some(cause) = interrupted {
+                resume_interrupted(org, work_id, &cause).await;
+            }
         }
         anyhow::Ok(())
     };
@@ -1336,5 +1368,24 @@ mod tests {
             "a supervisor notice remains attributable coordination, not duplicate producer input"
         );
         org.drop_schema().await.expect("drop scratch schema");
+    }
+}
+
+#[cfg(test)]
+mod interruption_tests {
+    use super::interrupted_by_platform;
+
+    #[test]
+    fn only_a_platform_cut_resumes_on_its_own() {
+        assert!(interrupted_by_platform(
+            "[resumable] the agent produced nothing for 9 minutes and the turn was cut"
+        ));
+        assert!(!interrupted_by_platform(
+            "[resumable] the owner interrupted the turn"
+        ));
+        assert!(!interrupted_by_platform(
+            "Blocked: the Cloudflare token cannot add DNS records"
+        ));
+        assert!(!interrupted_by_platform("[quota] 429 rate_limit_error"));
     }
 }

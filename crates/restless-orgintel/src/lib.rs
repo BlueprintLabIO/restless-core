@@ -60,6 +60,7 @@ mod work_collaboration;
 pub use access::*;
 pub use accounting::*;
 pub use actor_context::*;
+pub use attempts::INTERRUPTION_RESUMES_PER_REVISION;
 pub use attention_dismissals::*;
 pub use comment_search::*;
 pub use completion_repairs::*;
