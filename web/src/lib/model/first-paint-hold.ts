@@ -15,7 +15,7 @@ export const CRITICAL = new Set([
 	'direction-digest',
 	/* Work's goals and its phone view picker come from the Work graph; arriving after the reveal,
 	 * the picker pushed the list down (zero-jank gate, owner/slow/phone/warm/work). */
-	'work-context'
+	'work-graph'
 ]);
 
 /* Reads the shell starts on every page that only one surface shows: they hold the reveal there
@@ -23,7 +23,7 @@ export const CRITICAL = new Set([
  * Inbox's own reads). A route's own reads hold it by being read only where they are shown. */
 const ONLY_ON: Record<string, string> = {
 	'direction-digest': 'inbox',
-	'work-context': 'work'
+	'work-graph': 'work'
 };
 
 type CachedRead = {

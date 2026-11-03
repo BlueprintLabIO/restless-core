@@ -66,7 +66,7 @@ test("a read only the Inbox shows holds the reveal on the Inbox and nowhere else
 	assert.equal(holdsReveal(digest, 'acme', 'company'), false);
 	const shell = read(['attention', 'acme'], undefined, 'pending', 'fetching');
 	assert.equal(holdsReveal(shell, 'acme', 'library'), true, 'the shell still waits for its badge');
-	const graph = read(['work-context', 'acme'], undefined, 'pending', 'fetching');
+	const graph = read(['work-graph', 'acme'], undefined, 'pending', 'fetching');
 	assert.equal(holdsReveal(graph, 'acme', 'work'), true, 'Work waits for its graph');
 	assert.equal(holdsReveal(graph, 'acme', 'library'), false);
 	assert.equal(surfaceOf('/acme', 'acme'), 'inbox');
