@@ -382,6 +382,13 @@ pub async fn wake(
             None,
         )
         .await?;
+        // The first output of this turn lifts the model's cooldown at once (3 Nov 2026).
+        let observer = crate::model_gateway::clearing_cooldown_on_output(
+            observer.clone(),
+            authority,
+            &config.name,
+            model,
+        );
         let outcome = match harness {
             crate::runtime::AgentHarness::RestlessManaged
             | crate::runtime::AgentHarness::ClaudeAgent

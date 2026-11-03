@@ -1298,6 +1298,8 @@ fn model_cooldown_items(
     cooldowns
         .iter()
         .filter(|cooldown| matches!(cooldown.kind.as_str(), "quota" | "credential" | "model"))
+        // A rate limit clears by itself within minutes; there is nothing for the owner to do.
+        .filter(|cooldown| !crate::health::is_rate_limit(&cooldown.reason))
         .map(|cooldown| {
             // "[quota] provider refused … owner action required: 402 AI credit is used up. …": the
             // provider's own words, first line only.

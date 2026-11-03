@@ -5751,11 +5751,12 @@ async fn grant_owner_connection(
     if should_make_default {
         follow_company_default(&state, &config, &default_before).await;
     }
-    // A new credential for this provider: a cooldown the old one earned no longer applies.
+    // A new connection for this provider: the refusals the old one earned (a rejected key,
+    // used-up credit, usage or rate limits) no longer apply (S109 blockers audit, finding 15).
     if let Err(error) = state
         .daemon
         .authority
-        .clear_provider_credential_cooldowns(&config.name, &connection.provider)
+        .clear_provider_refusal_cooldowns(&config.name, &connection.provider)
         .await
     {
         tracing::warn!(%error, "could not clear the replaced credential's cooldown");

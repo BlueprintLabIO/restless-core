@@ -66,7 +66,8 @@
 		companiesQuery,
 		companyChangeStream,
 		companyPrincipalQuery,
-		conversationQuery
+		conversationQuery,
+		turnProgressing
 	} from '$lib/model/queries.svelte';
 	import {
 		agentRouteState,
@@ -616,7 +617,8 @@
 			() => !!principal,
 			railViewerId,
 			true,
-			true
+			true,
+			() => ownerAccess
 		)
 	);
 	const railActorName = $derived(
@@ -626,7 +628,19 @@
 	const providerIssue = $derived(
 		companies.find((company) => company.id === companyId)?.unstartable_reason ?? ''
 	);
-	const railRouteState = $derived(agentRouteState(intelligence.view, railActorId));
+	/* Live proof the rail's agent can think: one of its turns, or the Work it runs, is under way.
+	 * While it is, the chat never says the model can't reply (3 Nov 2026). */
+	const railProgressing = $derived(
+		turnProgressing(railConversation.activeTurn) ||
+			turnProgressing(railConversation.ambientTurn) ||
+			turnProgressing(railConversation.workTurn) ||
+			!!(ownerAccess ? cockpit?.people : collaboration.view?.people)?.some(
+				(person) => person.actor_id === railActorId && person.session_running
+			)
+	);
+	const railRouteState = $derived(
+		agentRouteState(intelligence.view, railActorId, railProgressing)
+	);
 	const railConnectionStatus = $derived.by(() => {
 		/* A member has no owner cockpit projection; whether Exec can think is the model route. */
 		if (!ownerAccess) {
@@ -1836,6 +1850,8 @@
 			participantRole={railActorRole}
 			turn={railConversation.activeTurn}
 			ambientTurn={railConversation.ambientTurn}
+			workTurn={railConversation.workTurn}
+			progressing={railProgressing}
 			hasEarlier={railConversation.hasEarlier}
 			onloadearlier={() => railConversation.loadEarlier()}
 			{companyId}
