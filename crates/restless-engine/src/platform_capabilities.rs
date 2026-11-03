@@ -4,10 +4,13 @@
 //! key by name (never a value) and how healthy the model, the computer and each key are.
 //!
 //! Faults an agent finds in Restless itself are filed here too (`restless capabilities fault`):
-//! recorded with their evidence in the Authority store, and delivered to the Restless company's
-//! Exec when this plane hosts it (`RESTLESS_FAULTS_COMPANY`).
+//! recorded with their evidence in the Authority store, then delivered to the Restless company's
+//! Exec on this plane (`RESTLESS_FAULTS_COMPANY`, else the company the owner named "Restless").
+//! A fault that cannot be delivered is kept and retried until it lands; the filing agent is told
+//! which happened.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
@@ -18,6 +21,12 @@ use crate::runtime::CompanyConfig;
 
 /// The company this plane files Restless faults to, when it hosts one.
 pub const FAULTS_COMPANY_ENV: &str = "RESTLESS_FAULTS_COMPANY";
+
+/// Without that setting, faults go to the one company on the plane with this display name.
+pub const FAULTS_COMPANY_DISPLAY_NAME: &str = "Restless";
+
+/// Kept faults older than this are not retried.
+pub const FAULT_DELIVERY_WINDOW_DAYS: i32 = 30;
 
 /// What every company has, and the command that reaches it. Kept short: it is read on demand,
 /// and each line names a surface the owner can see.
@@ -210,6 +219,17 @@ pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
            created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
         "CREATE INDEX IF NOT EXISTS restless_faults_by_fingerprint \
            ON restless_authority.restless_faults (company, fingerprint, created_at DESC)",
+        // Delivery is retried until it lands (S109 D3 fix, 3 Nov 2026): faults stored before this
+        // have none of these set, so the retry loop delivers each of them once.
+        "ALTER TABLE restless_authority.restless_faults \
+           ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0, \
+           ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ, \
+           ADD COLUMN IF NOT EXISTS last_error TEXT, \
+           ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMPTZ, \
+           ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ",
+        "CREATE INDEX IF NOT EXISTS restless_faults_undelivered \
+           ON restless_authority.restless_faults (created_at) \
+           WHERE delivered_message IS NULL AND settled_at IS NULL",
     ] {
         sqlx::query(statement)
             .execute(pool)
@@ -256,8 +276,8 @@ pub fn fault_message(
     )
 }
 
-/// Record a fault, once a day per company and summary, and report where it went. Delivery is the
-/// caller's (it needs the target company's OrgIntel); `record_delivery` stores its message id.
+/// Record a fault, once a day per company and summary. [`deliver`] then sends it to the Restless
+/// company, and [`deliver_pending`] retries whatever did not land.
 pub async fn record_fault(
     pool: &PgPool,
     company: &str,
@@ -320,7 +340,8 @@ pub async fn record_fault(
 
 pub async fn record_delivery(pool: &PgPool, id: &str, message: i64) -> Result<()> {
     sqlx::query(
-        "UPDATE restless_authority.restless_faults SET delivered_message = $2 WHERE id = $1",
+        "UPDATE restless_authority.restless_faults \
+         SET delivered_message = $2, settled_at = now(), claimed_until = NULL WHERE id = $1",
     )
     .bind(id)
     .bind(message)
@@ -382,7 +403,13 @@ pub async fn read(daemon: &crate::daemon::Daemon, company: &str) -> Result<Value
         Ok(report) => json!({ "state": report["state"], "since": report["since"] }),
         Err(_) => json!({ "state": "unknown" }),
     };
-    let filed_to = faults_company(company);
+    let files_to = match faults_target(&daemon.root, company) {
+        FaultTarget::Company(target) => format!("the Restless company's Exec ({target})"),
+        FaultTarget::Itself => "this company: it is the Restless company".to_string(),
+        FaultTarget::Nowhere(reason) => {
+            format!("nowhere yet: {reason}; a filed fault is kept and delivered once there is one")
+        }
+    };
     Ok(json!({
         "built_in": built_in(),
         "integrations": integrations(&names),
@@ -393,7 +420,7 @@ pub async fn read(daemon: &crate::daemon::Daemon, company: &str) -> Result<Value
         "computer": computer,
         "faults": {
             "file_with": "restless capabilities fault --summary '<what failed>' --evidence '<exact error, command, Work or attempt id, time>'",
-            "files_to": filed_to.as_deref().unwrap_or("recorded on this plane for Restless"),
+            "files_to": files_to,
         },
     }))
 }
@@ -435,12 +462,240 @@ pub async fn already_held(pool: &PgPool, config: &CompanyConfig, site: &str) -> 
     })
 }
 
-/// The Restless company this plane files to, unless it is unset, invalid or the reporter itself.
-pub fn faults_company(reporter: &str) -> Option<String> {
-    let name = std::env::var(FAULTS_COMPANY_ENV).ok()?;
-    let name = name.trim();
-    (!name.is_empty() && name != reporter && crate::runtime::validate_company_name(name).is_ok())
-        .then(|| name.to_string())
+/// Where a fault from one company goes on this plane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FaultTarget {
+    /// The Restless company's Exec, in this company cell.
+    Company(String),
+    /// The reporter is the Restless company: the report is already where it belongs.
+    Itself,
+    /// Nowhere yet, and why; the report is kept and retried.
+    Nowhere(String),
+}
+
+/// The Restless company this plane files faults to: the one `RESTLESS_FAULTS_COMPANY` names, else
+/// the one company on this plane the owner named "Restless". The owner sets display names, so no
+/// company's agent can make itself the receiver of another company's evidence.
+pub fn faults_target(root: &Path, reporter: &str) -> FaultTarget {
+    let named = std::env::var(FAULTS_COMPANY_ENV).unwrap_or_default();
+    let named = named.trim();
+    let target = if !named.is_empty() {
+        if crate::runtime::validate_company_name(named).is_err() {
+            return FaultTarget::Nowhere(format!(
+                "{FAULTS_COMPANY_ENV} names {named:?}, which is not a company id"
+            ));
+        }
+        named.to_string()
+    } else {
+        let companies = crate::daemon::configured_companies(root).unwrap_or_default();
+        let mut found = companies.into_iter().filter(|company| {
+            CompanyConfig::load(root, company)
+                .ok()
+                .and_then(|config| config.display_name)
+                .is_some_and(|name| {
+                    name.trim()
+                        .eq_ignore_ascii_case(FAULTS_COMPANY_DISPLAY_NAME)
+                })
+        });
+        match (found.next(), found.next()) {
+            (Some(company), None) => company,
+            (None, _) => {
+                return FaultTarget::Nowhere(format!(
+                    "no company on this plane is named {FAULTS_COMPANY_DISPLAY_NAME}"
+                ))
+            }
+            (Some(_), Some(_)) => {
+                return FaultTarget::Nowhere(format!(
+                    "more than one company on this plane is named {FAULTS_COMPANY_DISPLAY_NAME}"
+                ))
+            }
+        }
+    };
+    if target == reporter {
+        FaultTarget::Itself
+    } else {
+        FaultTarget::Company(target)
+    }
+}
+
+/// What one delivery attempt came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Delivery {
+    /// In the Restless company's Exec inbox as this message.
+    Delivered { to: String, message: i64 },
+    /// Filed by the Restless company itself; nothing to forward.
+    Itself,
+    /// Not delivered; kept and retried.
+    Failed { to: Option<String>, reason: String },
+}
+
+/// Deliver one stored fault to the Restless company's Exec, at most once. A claim on the row keeps
+/// a filing and the retry loop (or two daemon replicas) from sending it twice.
+pub async fn deliver(daemon: &crate::daemon::Daemon, id: &str) -> Result<Delivery> {
+    let pool = daemon.authority.pool();
+    let claimed: Option<(String, String, String, String)> = sqlx::query_as(
+        "UPDATE restless_authority.restless_faults \
+         SET claimed_until = now() + interval '2 minutes', last_attempt_at = now(), \
+             attempts = attempts + 1 \
+         WHERE id = $1 AND delivered_message IS NULL AND settled_at IS NULL \
+           AND (claimed_until IS NULL OR claimed_until < now()) \
+         RETURNING company, actor, summary, evidence",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .context("claim restless fault for delivery")?;
+    let Some((company, actor, summary, evidence)) = claimed else {
+        let (filed_to, message, settled, last_error): (
+            Option<String>,
+            Option<i64>,
+            bool,
+            Option<String>,
+        ) = sqlx::query_as(
+            "SELECT filed_to, delivered_message, settled_at IS NOT NULL, last_error \
+             FROM restless_authority.restless_faults WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .context("read restless fault")?;
+        return Ok(match (message, settled) {
+            (Some(message), _) => Delivery::Delivered {
+                to: filed_to.unwrap_or_default(),
+                message,
+            },
+            (None, true) => Delivery::Itself,
+            (None, false) => Delivery::Failed {
+                to: filed_to,
+                reason: last_error
+                    .unwrap_or_else(|| "another delivery of this report is under way".into()),
+            },
+        });
+    };
+    let target = match faults_target(&daemon.root, &company) {
+        FaultTarget::Company(target) => target,
+        FaultTarget::Itself => {
+            sqlx::query(
+                "UPDATE restless_authority.restless_faults \
+                 SET settled_at = now(), filed_to = $2, claimed_until = NULL, last_error = NULL \
+                 WHERE id = $1",
+            )
+            .bind(id)
+            .bind(&company)
+            .execute(pool)
+            .await?;
+            return Ok(Delivery::Itself);
+        }
+        FaultTarget::Nowhere(reason) => {
+            release_failed(pool, id, None, &reason).await?;
+            return Ok(Delivery::Failed { to: None, reason });
+        }
+    };
+    let source = CompanyConfig::load(&daemon.root, &company)
+        .ok()
+        .and_then(|config| config.display_name)
+        .map(|name| format!("{} ({company})", name.trim()))
+        .unwrap_or_else(|| company.clone());
+    let body = fault_message(&source, &actor, id, &summary, &evidence);
+    let sent = async {
+        let org = daemon.orgintel.get(&target).await?;
+        let _ = org
+            .ensure_actor("daemon", "system", "system-sender", "The daemon")
+            .await;
+        Ok::<_, anyhow::Error>(org.send_message("daemon", Some("exec"), &body).await?)
+    }
+    .await;
+    match sent {
+        Ok(message) => {
+            sqlx::query(
+                "UPDATE restless_authority.restless_faults \
+                 SET delivered_message = $2, filed_to = $3, settled_at = now(), \
+                     claimed_until = NULL, last_error = NULL \
+                 WHERE id = $1",
+            )
+            .bind(id)
+            .bind(message)
+            .bind(&target)
+            .execute(pool)
+            .await
+            .context("record restless fault delivery")?;
+            tracing::info!(
+                fault = id,
+                from = company,
+                to = target,
+                message,
+                "restless fault delivered"
+            );
+            Ok(Delivery::Delivered {
+                to: target,
+                message,
+            })
+        }
+        Err(error) => {
+            let reason = format!("the {target} company could not take it: {error:#}");
+            tracing::warn!(fault = id, from = company, to = target, %reason, "restless fault not delivered; kept for retry");
+            release_failed(pool, id, Some(&target), &reason).await?;
+            Ok(Delivery::Failed {
+                to: Some(target),
+                reason,
+            })
+        }
+    }
+}
+
+async fn release_failed(pool: &PgPool, id: &str, target: Option<&str>, reason: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE restless_authority.restless_faults \
+         SET claimed_until = NULL, last_error = $2, filed_to = COALESCE($3, filed_to) WHERE id = $1",
+    )
+    .bind(id)
+    .bind(reason)
+    .bind(target)
+    .execute(pool)
+    .await
+    .context("record restless fault delivery failure")?;
+    Ok(())
+}
+
+/// Every kept fault not yet delivered, oldest first: ones that failed, ones filed before a
+/// Restless company existed here, and ones stored before delivery was retried. Backs off per fault
+/// from a minute to an hour; a report older than [`FAULT_DELIVERY_WINDOW_DAYS`] is left as stored.
+pub async fn deliver_pending(daemon: &crate::daemon::Daemon) -> Result<usize> {
+    // Only reports from companies this plane still hosts.
+    let companies = crate::daemon::configured_companies(&daemon.root)?;
+    let due: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM restless_authority.restless_faults \
+         WHERE delivered_message IS NULL AND settled_at IS NULL AND company = ANY($2) \
+           AND created_at > now() - make_interval(days => $1) \
+           AND (claimed_until IS NULL OR claimed_until < now()) \
+           AND (last_attempt_at IS NULL OR last_attempt_at < now() \
+                - LEAST(interval '1 minute' * power(2, LEAST(attempts, 6)), interval '1 hour')) \
+         ORDER BY created_at LIMIT 20",
+    )
+    .bind(FAULT_DELIVERY_WINDOW_DAYS)
+    .bind(&companies)
+    .fetch_all(daemon.authority.pool())
+    .await
+    .context("read undelivered restless faults")?;
+    let mut delivered = 0;
+    for id in due {
+        if matches!(deliver(daemon, &id).await?, Delivery::Delivered { .. }) {
+            delivered += 1;
+        }
+    }
+    Ok(delivered)
+}
+
+/// The retry loop the scheduler runs: delivers kept faults about once a minute.
+pub async fn delivery_loop(daemon: std::sync::Arc<crate::daemon::Daemon>) {
+    loop {
+        if let Some(_lease) = daemon.lifecycle.try_enter() {
+            if let Err(error) = deliver_pending(&daemon).await {
+                tracing::warn!(error = %format!("{error:#}"), "restless faults could not be delivered this round");
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    }
 }
 
 #[cfg(test)]
@@ -595,5 +850,51 @@ mod tests {
             fingerprint("Vault  lost a KEY"),
             fingerprint("vault lost a key")
         );
+    }
+
+    fn company_file(root: &Path, name: &str, display: Option<&str>) {
+        let display = display
+            .map(|display| format!("display_name = {display:?}\n"))
+            .unwrap_or_default();
+        std::fs::write(
+            root.join("companies").join(format!("{name}.toml")),
+            format!("{display}name = {name:?}\n"),
+        )
+        .unwrap();
+    }
+
+    /// Production on 3 Nov 2026: Cloud never sets `RESTLESS_FAULTS_COMPANY`, so every fault was
+    /// kept and none delivered. The company the owner named Restless is the target without it.
+    #[test]
+    fn faults_go_to_the_company_the_owner_named_restless() {
+        if std::env::var_os(FAULTS_COMPANY_ENV).is_some() {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("restless-faults-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        company_file(&root, "reno", Some("Reno"));
+        assert!(matches!(
+            faults_target(&root, "reno"),
+            FaultTarget::Nowhere(reason) if reason.contains("named Restless")
+        ));
+        company_file(
+            &root,
+            "company_01a16837109d7600b96d1b9cda47d516",
+            Some(" restless "),
+        );
+        assert_eq!(
+            faults_target(&root, "reno"),
+            FaultTarget::Company("company_01a16837109d7600b96d1b9cda47d516".into())
+        );
+        assert_eq!(
+            faults_target(&root, "company_01a16837109d7600b96d1b9cda47d516"),
+            FaultTarget::Itself
+        );
+        company_file(&root, "copycat", Some("Restless"));
+        assert!(matches!(
+            faults_target(&root, "reno"),
+            FaultTarget::Nowhere(reason) if reason.contains("more than one")
+        ));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
