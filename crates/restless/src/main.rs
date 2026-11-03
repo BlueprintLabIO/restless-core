@@ -802,10 +802,19 @@ enum EmailCommand {
     },
     /// Reserve the matching permit and send the exact prepared payload once. Without a permit,
     /// the owner approves this exact email in their Inbox first; run it again once approved.
+    /// With --rationale under an active mandate for the sender, one call does it all: find the
+    /// mandate, preview the payload, issue the permit, send, and observe the provider's record.
     Send {
         /// JSON file containing the typed email request.
         #[arg(long)]
         request_file: PathBuf,
+        /// Why this recipient should get this email, recorded on the permit. Sends under the
+        /// sender's active mandate in one call.
+        #[arg(long)]
+        rationale: Option<String>,
+        /// Evidence for the rationale (a path, URL or message id); repeatable.
+        #[arg(long = "evidence", requires = "rationale")]
+        evidence: Vec<String>,
     },
 }
 
@@ -2199,20 +2208,27 @@ enum WorkCommand {
     /// Record your overall progress estimate for Work you created, at a checkpoint: one honest
     /// rough number (rounded to tens; 100 is recorded when the Work completes) and what is left.
     /// When the Work is blocked, drop the number and say why with --blocked instead.
+    /// Several at once in one call: --batch '[{"work":"<id>","percent":60,"next":"…"},
+    /// {"work":"<id>","blocked":"…"}]'.
     Progress {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
         /// The Work id.
-        work: String,
+        #[arg(required_unless_present = "batch")]
+        work: Option<String>,
         /// Overall percent done, 0-90, rounded to tens.
-        #[arg(long, requires = "next", conflicts_with = "blocked")]
+        #[arg(long, requires = "next", conflicts_with_all = ["blocked", "batch"])]
         percent: Option<i16>,
         /// What is left, in one line, for example "export print files".
-        #[arg(long, requires = "percent", conflicts_with = "blocked")]
+        #[arg(long, requires = "percent", conflicts_with_all = ["blocked", "batch"])]
         next: Option<String>,
         /// Why it is blocked, in place of a number.
-        #[arg(long, required_unless_present = "percent")]
+        #[arg(long, required_unless_present_any = ["percent", "batch"], conflicts_with = "batch")]
         blocked: Option<String>,
+        /// Many estimates in one call: a JSON array (or @file) of {"work", "percent", "next"}
+        /// or {"work", "blocked"}.
+        #[arg(long, conflicts_with = "work")]
+        batch: Option<String>,
         #[arg(long = "as", env = "RESTLESS_ACTOR")]
         as_actor: Option<String>,
     },
@@ -2884,6 +2900,32 @@ fn main() -> Result<()> {
                 doctor(company)
             }
         }
+        Command::Email {
+            company,
+            command:
+                EmailCommand::Send {
+                    request_file,
+                    rationale: Some(rationale),
+                    evidence,
+                },
+        } => {
+            let report = mandated_send(company, &request_file, rationale, evidence)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::Work {
+            command:
+                WorkCommand::Progress {
+                    company,
+                    batch: Some(batch),
+                    as_actor,
+                    ..
+                },
+        } => {
+            let report = progress_batch(company, &batch, as_actor)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
         Command::Commission {
             company,
             lead,
@@ -3041,7 +3083,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             let (cmd, request_file) = match command {
                 EmailCommand::Observe { .. } => unreachable!("handled above"),
                 EmailCommand::Preview { request_file } => ("email-preview", request_file),
-                EmailCommand::Send { request_file } => {
+                EmailCommand::Send { request_file, .. } => {
                     let actor = acting_actor();
                     if principal() != "company/exec" || actor != "exec" {
                         bail!("email send must run as the authenticated Exec actor in the company Runtime");
@@ -4344,6 +4386,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 next,
                 blocked,
                 as_actor,
+                ..
             } => serde_json::json!({
                 "cmd": "work-progress", "company": company, "id": work,
                 "percent": percent, "next": next, "blocked": blocked,
@@ -5291,6 +5334,165 @@ fn commission(input: Commission) -> Result<serde_json::Value> {
         "team_formed": formed,
         "work": work,
     }))
+}
+
+/// `restless email send --rationale`: the mandated-send procedure (mandate list, preview, permit,
+/// send, observe) composed client-side from the ordinary daemon commands, so sending one email
+/// costs a model one tool call instead of five or more. Each step keeps its own daemon checks;
+/// a step that fails stops the rest, and nothing is sent before the permit is issued.
+fn mandated_send(
+    company: Option<String>,
+    request_file: &PathBuf,
+    rationale: String,
+    evidence: Vec<String>,
+) -> Result<serde_json::Value> {
+    let actor = acting_actor();
+    if principal() != "company/exec" || actor != "exec" {
+        bail!("email send must run as the authenticated Exec actor in the company Runtime");
+    }
+    if rationale.trim().is_empty() {
+        bail!("--rationale is empty: say why this recipient should get this email");
+    }
+    let mut request = read_json_file(request_file)?;
+    if request
+        .get("permit_id")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok_and(|id| !id.is_nil()))
+    {
+        bail!("the request already names a permit_id; drop --rationale to send under that permit");
+    }
+    let sender = request["from"]
+        .as_str()
+        .context("the email request names no `from` sender")?
+        .trim()
+        .to_ascii_lowercase();
+    let mandates = daemon_request(serde_json::json!({ "cmd": "mandate-list", "company": company }))?;
+    let now = chrono::Utc::now();
+    let mandate = mandates
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|mandate| {
+            mandate["sender"].as_str().map(str::to_ascii_lowercase).as_deref() == Some(&sender)
+                && mandate["expires_at"]
+                    .as_str()
+                    .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+                    .is_some_and(|at| at > now)
+        })
+        .max_by(|a, b| {
+            a["created_at"]
+                .as_str()
+                .unwrap_or_default()
+                .cmp(b["created_at"].as_str().unwrap_or_default())
+        })
+        .with_context(|| {
+            format!(
+                "no active email mandate covers sender {sender}. Ask the owner for standing \
+                 permission with `restless mandate propose`, or send this one email without \
+                 --rationale so the owner approves it in their Inbox"
+            )
+        })?;
+    let mandate_id = mandate["id"]
+        .as_str()
+        .context("mandate list returned a mandate without an id")?
+        .to_string();
+    if let Some(object) = request.as_object_mut() {
+        object.remove("permit_id");
+    }
+    let preview = daemon_request(serde_json::json!({
+        "cmd": "email-preview", "company": company, "email_request": request, "actor": actor,
+    }))?;
+    let permit = daemon_request(serde_json::json!({
+        "cmd": "mandate-permit", "company": company, "mandate_id": mandate_id, "actor": actor,
+        "mandate_proposal": {
+            "sender": preview["sender"],
+            "recipient": preview["recipient"],
+            "payload_sha256": preview["payload_sha256"],
+            "effect_key": preview["effect_key"],
+            "rationale": rationale,
+            "evidence_refs": evidence,
+            "expires_at": (now + chrono::Duration::minutes(4)).to_rfc3339(),
+        },
+    }))?;
+    let permit_id = permit["id"]
+        .as_str()
+        .context("mandate permit returned no id")?
+        .to_string();
+    request["permit_id"] = permit_id.clone().into();
+    let sent = daemon_request(serde_json::json!({
+        "cmd": "email-send", "company": company, "email_request": request, "actor": actor,
+    }))?;
+    // The provider's own record of the send, so no separate observe call is needed. Accepted is
+    // not delivered: report what the provider shows, and never fail a completed send over it.
+    let provider_id = sent["outcome"]["provider_id"].as_str().map(str::to_string);
+    let observed = match &provider_id {
+        None => serde_json::Value::Null,
+        Some(provider_id) => match daemon_request(serde_json::json!({
+            "cmd": "email-observe", "company": company, "actor": actor,
+            "email_observe_list": "outbound", "email_observe_after": null,
+        })) {
+            Ok(observation) => find_by_id(&observation, provider_id).unwrap_or_else(|| {
+                serde_json::json!({ "note": "not in the provider's latest outbound page yet" })
+            }),
+            Err(error) => serde_json::json!({ "error": format!("{error:#}") }),
+        },
+    };
+    Ok(serde_json::json!({
+        "mandate_id": mandate_id,
+        "permit_id": permit_id,
+        "recipient": preview["recipient"],
+        "payload_sha256": preview["payload_sha256"],
+        "sent": sent,
+        "observed": observed,
+    }))
+}
+
+/// The first object anywhere in `value` whose `id` is `id`.
+fn find_by_id(value: &serde_json::Value, id: &str) -> Option<serde_json::Value> {
+    match value {
+        serde_json::Value::Object(object) => {
+            if object.get("id").and_then(serde_json::Value::as_str) == Some(id) {
+                return Some(value.clone());
+            }
+            object.values().find_map(|inner| find_by_id(inner, id))
+        }
+        serde_json::Value::Array(items) => items.iter().find_map(|inner| find_by_id(inner, id)),
+        _ => None,
+    }
+}
+
+/// `restless work progress --batch`: many estimates in one tool call, each recorded by the
+/// ordinary `work-progress` command with its own checks. One failure does not stop the rest.
+fn progress_batch(
+    company: Option<String>,
+    batch: &str,
+    as_actor: Option<String>,
+) -> Result<serde_json::Value> {
+    let text = match batch.strip_prefix('@') {
+        Some(path) => std::fs::read_to_string(path).with_context(|| format!("read {path}"))?,
+        None => batch.to_string(),
+    };
+    let items: Vec<serde_json::Value> = serde_json::from_str(&text).context(
+        "--batch must be a JSON array of {\"work\",\"percent\",\"next\"} or {\"work\",\"blocked\"}",
+    )?;
+    let as_actor = as_actor.unwrap_or_else(|| "owner".to_string());
+    let results = items
+        .into_iter()
+        .map(|item| {
+            let result = daemon_request(serde_json::json!({
+                "cmd": "work-progress", "company": company, "id": item["work"],
+                "percent": item["percent"], "next": item["next"], "blocked": item["blocked"],
+                "as_actor": as_actor,
+            }));
+            match result {
+                Ok(recorded) => recorded,
+                Err(error) => {
+                    serde_json::json!({ "work_id": item["work"], "error": format!("{error:#}") })
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({ "recorded": results }))
 }
 
 fn daemon_request(request: serde_json::Value) -> Result<serde_json::Value> {

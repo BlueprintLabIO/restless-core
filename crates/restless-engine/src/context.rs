@@ -138,6 +138,67 @@ pub struct ContextSnapshot {
     /// Files the owner added to the Library without sending them in a message, as paths Exec can
     /// open on the company computer. Exec acts for the owner, so it sees them; Staff do not.
     pub library_uploads: Vec<String>,
+    /// Active teams and agents, one line each (`roster_lines`), so Exec does not re-read
+    /// `restless people` and `restless teams list` on every wake (S101 measured up to 28 reads).
+    pub roster: Vec<String>,
+}
+
+/// One line per active team (lead, members, owning person) and one for the agents in no team.
+pub fn roster_lines(
+    actors: &[restless_orgintel::ActorRow],
+    teams: &[restless_orgintel::TeamRow],
+) -> Vec<String> {
+    let active = |actor: &&restless_orgintel::ActorRow| {
+        actor.retired_at.is_none() && actor.actor_class == "agent" && actor.id != "exec"
+    };
+    let describe = |actor: &restless_orgintel::ActorRow| {
+        let model = actor
+            .model
+            .as_deref()
+            .map(|model| format!(", {model}"))
+            .unwrap_or_default();
+        format!("{} ({}, {}{model})", actor.id, actor.display, actor.role)
+    };
+    let mut lines = Vec::new();
+    for team in teams.iter().filter(|team| team.disbanded_at.is_none()) {
+        let lead = actors
+            .iter()
+            .find(|actor| actor.id == team.lead_actor_id)
+            .map(describe)
+            .unwrap_or_else(|| team.lead_actor_id.clone());
+        let members = actors
+            .iter()
+            .filter(active)
+            .filter(|actor| actor.team_id == Some(team.id) && actor.id != team.lead_actor_id)
+            .map(describe)
+            .collect::<Vec<_>>();
+        lines.push(format!(
+            "team {} \"{}\": lead {lead}; members: {}; owner_person: {}",
+            team.id,
+            team.name,
+            if members.is_empty() {
+                "none".to_string()
+            } else {
+                members.join(", ")
+            },
+            team.responsible_actor_id.as_deref().unwrap_or("owner"),
+        ));
+    }
+    let leads = teams
+        .iter()
+        .filter(|team| team.disbanded_at.is_none())
+        .map(|team| team.lead_actor_id.as_str())
+        .collect::<Vec<_>>();
+    let unteamed = actors
+        .iter()
+        .filter(active)
+        .filter(|actor| actor.team_id.is_none() && !leads.contains(&actor.id.as_str()))
+        .map(describe)
+        .collect::<Vec<_>>();
+    if !unteamed.is_empty() {
+        lines.push(format!("in no team: {}", unteamed.join(", ")));
+    }
+    lines
 }
 
 /// The assembled prompt pair and its content digest (sha256, hex). Standing
@@ -557,7 +618,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          Before stating a fact about Restless (what is built in or connected, a key's name, model \
          or computer health), read `restless capabilities`; say only what it shows.\n\n\
          # Work and teams [internal decision]\n\
-         Before delegating, inspect `restless people` and `restless teams list`. Actors are durable \
+         Before delegating, read People and teams under Company state now. Actors are durable \
          company roles, not disposable task labels: reuse an existing specialist across assignments \
          and revisions. When the chosen posture genuinely requires new internal capacity, commission it with \
          `restless people create --id <stable-id> --role <role> --display auto [--model <model>] \
@@ -703,23 +764,22 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          providers in Company → Intelligence. The routes are listed under Company state now.\n\n\
          {skills_contract}\n\n\
          # Affecting the world [internal decision]\n\
-         Use installed Linux tools directly for reversible work. Check restless mandate list \
-         before outbound email. Under an active email mandate, use restless email preview \
-         --request-file <json> to obtain the exact payload digest, then as Exec record a \
-         recipient-specific rationale and evidence in restless mandate permit --mandate <id> \
-         --proposal-file <json>, then restless email send --request-file <json> with that \
-         permit id. The email JSON names from, optional from_name, to, subject, text or html, effect_key, permit_id, \
-         optional in_reply_to (the Message-ID you answer, so a reply stays in the customer's thread) \
-         and optional declared attachments. The caps govern; one address may get several \
-         emails within them. For cold outreach set one_email_per_recipient (one first email per \
-         prospect, then one reply per message they send) and list the owner's inboxes in own_addresses. The permit JSON names sender, recipient, \
-         payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
+         Use installed Linux tools directly for reversible work. Under an active email mandate, \
+         one call sends: restless email send --request-file <json> --rationale '<why this \
+         recipient gets this email>' [--evidence <ref>]... finds the sender's mandate, previews, \
+         issues the permit, sends once and returns the provider's record; do not run mandate list, \
+         preview, permit or observe around it. The email JSON names from, optional from_name, to, \
+         subject, text or html, effect_key, optional in_reply_to (the Message-ID you answer, so a \
+         reply stays in the customer's thread) and optional declared attachments. The caps govern; \
+         one address may get several emails within them. For cold outreach set \
+         one_email_per_recipient (one first email per prospect, then one reply per message they \
+         send) and list the owner's inboxes in own_addresses. \
          To send outreach with no active mandate, ask the owner for standing permission once: \
          restless mandate propose --proposal-file <json> --reason <why> (purpose, audience_guidance, \
          sender, optional sender_name, max_per_day, max_total, timezone, expires_at); it is one \
          Inbox card, and you are told when it is answered. Once approved, send the first email \
-         under it to the owner's own address as a test, then permit each real email as above. \
-         For a single email without a mandate, run restless email send with no permit_id: \
+         under it to the owner's own address as a test, then send each real email as above. \
+         For a single email without a mandate, run restless email send with no --rationale: \
          nothing is sent, and the owner approves or declines that exact email in their Inbox (never \
          ask for it in chat). When told it was approved, run the same send again unchanged and it \
          goes out once; a changed draft asks the owner again. \
@@ -819,10 +879,15 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          a result. Coalesce related completions into one useful update. Do not narrate routine \
          internal progress, unchanged state, or a generic 'no action needed' message.\n\
          On a background wake with no pending owner message, if there is nothing new and useful \
-         to tell the owner, end with exactly {no_update} and no other text or intent marker. \
-         This explicitly consumes the background inputs without posting a chat message. Never use \
+         to tell the owner, end with exactly {no_update} and the turn line below. \
+         This consumes the background inputs without posting a chat message. Never use \
          this quiet response when the owner is awaiting an answer or you are answering a focused \
-         Room or document mention.\n\n\
+         Room or document mention.\n\
+         Last line of every final response, unseen by the owner: \
+         <!--restless-turn:{{\"decision\":\"waiting|continue|blocked|outcome_met|abandon\",\"reason\":\"one plain line\"}}-->. \
+         waiting: Work or an outside process will wake you; continue: executive work remains now; \
+         blocked: nothing advances until a person or outside event acts, say what; outcome_met: \
+         the company milestone itself is done, not this wake's checklist; abandon: say why.\n\n\
          # Replying to owner input [owner-only working protocol]\n\
          The owner writes once; never ask them to choose a message mode. Use judgement to interpret \
          each owner input as exactly one of: conversation, work_feedback, direction, or authority. \
@@ -830,10 +895,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          changes the durable company plan or priorities. Authority is only a request: your own \
          interpretation can never approve, revoke, raise a budget, or unlock an effect. The owner's \
          own decision about an Inbox item is carried out from the Inbox as above.\n\
-         When the owner wrote, make your final assistant response the complete reply. The Runtime \
-         atomically persists that final response with the exact consumed inputs; do not use \
-         `restless message` to reply to the owner. Follow the shared conversation contract below, \
-         then end the response with exactly one machine-readable line:\n\
+         When the owner wrote, make your final assistant response the complete reply, as above. \
+         Follow the shared conversation contract below, \
+         then end the response with exactly one machine-readable line before the turn decision:\n\
          <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"your one-line takeaway, said to the owner as you: address them as you, never as the owner in the third person, and do not grade your own work\",\"outcome\":\"optional concrete result\",\"nextStep\":\"optional next owner and action\",\"ownerNeed\":\"optional exact owner input\",\"ownerNeedHandoff\":\"optional exact existing handoff UUID for the same decision\",\"ownerReview\":\"optional name of a finished result for the owner to look at\"}}-->\n\
          Choose one real kind, not the pipe-separated example. If direction changed the plan, update \
          `/company/org/exec/current-plan.md` before claiming that it did. Your agreement or a guess at \
@@ -883,8 +947,18 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Current plan [working hypothesis] (/company/org/exec/current-plan.md)\n{plan}\n\n\
          # Latest journal entry [historical memory]\n{journal}\n\n\
          {lead_exchanges}\
+         # People and teams now [internal decision — current; re-read with `restless people` or `restless teams list` only after you change them]\n{roster}\
          # Open Goals [owner directive — complete only on Work evidence]\n{goals}\
          # Open Work graph [internal decision]\n{work}",
+        roster = if snapshot.roster.is_empty() {
+            "(no agents or teams yet)\n".to_string()
+        } else {
+            snapshot
+                .roster
+                .iter()
+                .map(|line| format!("- {line}\n"))
+                .collect::<String>()
+        },
         staffing_routes = snapshot.staffing_routes.trim(),
         ledger = snapshot.effect_ledger.trim(),
         signals = signals,
@@ -948,9 +1022,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Recent conversation in this focus [historical context; owner lines are owner-authored, your lines are prior claims]\n{}\n\n\
          # Current human boundary\n{human_boundary}\n\n\
          # {human_input_heading}\n{}\n\
-         Work this turn using the actor contract and current company state in your system context. \
-         If the owner wrote, interpret and reply through the stated conversation contract. Stop when \
-         this Exec wake's coordination or bounded executive work is done.",
+         Stop when this wake's coordination or bounded executive work is done.",
         snapshot.wake_reason.trim(),
         mention,
         if inbox.is_empty() {
@@ -1050,6 +1122,53 @@ mod tests {
         assert!(bytes <= 55_000, "Exec fixed prompt grew to {bytes} bytes");
     }
 
+    /// Exec reads people and teams from its wake state instead of re-running `restless people`
+    /// and `restless teams list` (S101: up to 28 reads a turn); the roster stays out of the
+    /// cached system prompt.
+    #[test]
+    fn exec_wake_carries_the_roster_outside_the_cached_prefix() {
+        let at = chrono::Utc::now();
+        let team = uuid::Uuid::new_v4();
+        let actor = |id: &str, team_id: Option<uuid::Uuid>| restless_orgintel::ActorRow {
+            id: id.into(),
+            kind: "staff".into(),
+            actor_class: "agent".into(),
+            role: "writer".into(),
+            display: format!("{id} name"),
+            model: None,
+            team_id,
+            retired_at: None,
+            retired_by: None,
+            retirement_reason: String::new(),
+            created_at: at,
+        };
+        let actors = vec![
+            actor("brand-lead", Some(team)),
+            actor("brand-copy", Some(team)),
+            actor("ops-solo", None),
+        ];
+        let teams = vec![restless_orgintel::TeamRow {
+            id: team,
+            name: "Brand".into(),
+            brief: String::new(),
+            lead_actor_id: "brand-lead".into(),
+            responsible_actor_id: None,
+            created_by: "exec".into(),
+            created_at: at,
+            disbanded_at: None,
+        }];
+        let mut with = snapshot();
+        with.roster = roster_lines(&actors, &teams);
+        assert_eq!(with.roster.len(), 2);
+        assert!(with.roster[0].contains("lead brand-lead"));
+        assert!(with.roster[0].contains("members: brand-copy"));
+        assert!(with.roster[1].starts_with("in no team: ops-solo"));
+        let package = assemble(&with);
+        assert!(package.user_prompt.contains("# People and teams now"));
+        assert!(package.user_prompt.contains("in no team: ops-solo"));
+        assert_eq!(package.system_prompt, assemble(&snapshot()).system_prompt);
+    }
+
     /// S109 D3: Exec checks what Restless has before stating it, and files Restless faults.
     #[test]
     fn exec_checks_restless_capabilities_and_files_its_faults() {
@@ -1142,6 +1261,7 @@ mod tests {
             staffing_routes: "- openai/gpt-6-sol — used by Exec — metered".into(),
             people_changes: Vec::new(),
             library_uploads: Vec::new(),
+            roster: Vec::new(),
         }
     }
 
