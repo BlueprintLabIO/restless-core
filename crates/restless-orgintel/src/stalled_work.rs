@@ -97,6 +97,22 @@ impl StalledWork {
 }
 
 impl OrgIntel {
+    /// Blocked Work whose Attempt stopped on a model provider's refusal (`[quota] …`: credit,
+    /// usage or rate limits; `[credential] …`: a refused sign-in or key), with nothing wrong in
+    /// the Work itself. Once no such refusal is active, it can simply go on (S109 blockers audit,
+    /// finding 15: "Work resumes within minutes of a top-up" was not true for it).
+    pub async fn work_blocked_by_provider_refusal(&self) -> Result<Vec<Uuid>> {
+        Ok(sqlx::query_scalar(
+            "SELECT w.id FROM work w WHERE w.status = 'blocked' \
+               AND (w.resolution LIKE '[quota] %' OR w.resolution LIKE '[credential] %') \
+               AND NOT EXISTS (SELECT 1 FROM owner_handoffs h \
+                               WHERE h.work_id = w.id AND h.state = 'pending') \
+             ORDER BY w.updated_at",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// Work stopped for longer than `after` with nobody asked:
     /// - blocked, with no pending owner handoff (a handoff has its own card) and not paused on
     ///   purpose by a person;
@@ -153,6 +169,89 @@ impl OrgIntel {
         }
         stalled.sort_by_key(|work| work.since);
         Ok(stalled)
+    }
+
+    /// Ask whoever briefed a pending owner judgement to brief it again once its Work has changed
+    /// since: the Inbox keeps the card, marked as written for an earlier version, and a stale
+    /// outcome review can't be accepted until it is re-briefed (S109 blockers audit, finding 18).
+    /// Once per handoff and Work revision. Returns how many were asked.
+    pub async fn ask_for_stale_owner_briefs(&self) -> Result<usize> {
+        let mut asked = 0;
+        for handoff in self.list_owner_handoffs().await? {
+            if handoff.state != crate::OwnerHandoffState::Pending
+                || handoff.category != crate::OwnerHandoffCategory::OwnerJudgement
+                || handoff.assigned_to.is_some()
+                || handoff.owner_brief.is_none()
+            {
+                continue;
+            }
+            let Some(work) = self.get_work(handoff.work_id).await? else {
+                continue;
+            };
+            if handoff.owner_brief_is_current(work.revision) {
+                continue;
+            }
+            let key = format!("stale-brief:{}:{}", handoff.id, work.revision);
+            let mut tx = self.pool.begin().await?;
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+                .bind(&key)
+                .execute(&mut *tx)
+                .await?;
+            let already: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM events WHERE kind='work_stalled_notice' \
+                   AND body->>'key' = $1)",
+            )
+            .bind(&key)
+            .fetch_one(&mut *tx)
+            .await?;
+            if already {
+                continue;
+            }
+            let to = handoff
+                .briefed_by
+                .clone()
+                .filter(|actor| !matches!(actor.as_str(), "owner" | "world" | "daemon"))
+                .unwrap_or_else(|| "exec".into());
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1)")
+                    .bind(&to)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if exists {
+                let body = format!(
+                    "The owner's Inbox still holds your brief for handoff {} on Work {} (\"{}\"), but \
+                     the Work has changed since you wrote it, so the card is marked as out of date \
+                     and an outcome review can't be accepted. Brief it again for the Work as it is \
+                     now with `restless work prepare-owner-brief --handoff {}`, or resolve the \
+                     handoff if it no longer applies.",
+                    handoff.id, work.id, work.title, handoff.id
+                );
+                let room_id = ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(&to)).await?;
+                sqlx::query(
+                    "INSERT INTO messages (room_id,from_actor,to_actor,body) VALUES ($1,'daemon',$2,$3)",
+                )
+                .bind(room_id)
+                .bind(&to)
+                .bind(body)
+                .execute(&mut *tx)
+                .await?;
+                asked += 1;
+            }
+            sqlx::query(
+                "INSERT INTO events (kind, actor_id, body) VALUES ('work_stalled_notice','daemon',$1)",
+            )
+            .bind(serde_json::json!({
+                "key": key,
+                "work_id": work.id,
+                "revision": work.revision,
+                "handoff_id": handoff.id,
+                "told": exists.then_some(to),
+            }))
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+        }
+        Ok(asked)
     }
 
     /// Tell each stalled Work's lead, once per stall, what stopped it and the way through. The

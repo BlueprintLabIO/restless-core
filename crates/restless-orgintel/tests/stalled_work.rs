@@ -40,6 +40,88 @@ fn work<'a>(owner: &'a str, title: &'a str) -> NewWork<'a> {
     }
 }
 
+/// S109 finding 18: a judgement in the owner's queue whose source changed after it was briefed
+/// keeps its card (attention), and whoever briefed it is asked once to brief it again.
+#[tokio::test]
+async fn a_stale_owner_brief_is_asked_for_again_once() {
+    let Some(org) = company().await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping stale brief scenario");
+        return;
+    };
+    let work = org
+        .add_work(work("alpha-build", "Choose the launch price"))
+        .await
+        .unwrap();
+    let handoff = org
+        .request_owner_handoff(restless_orgintel::NewOwnerHandoff {
+            work_id: work,
+            attempt_id: None,
+            requested_by: "alpha-build",
+            category: restless_orgintel::OwnerHandoffCategory::OwnerJudgement,
+            requested_action: "decide the price",
+            prepared_state: "two prices prepared",
+            resume_condition: "a decision is recorded",
+        })
+        .await
+        .unwrap();
+    org.prepare_owner_brief(
+        handoff,
+        "exec",
+        restless_orgintel::OwnerBrief {
+            kind: restless_orgintel::OwnerBriefKind::Decision,
+            headline: "Choose the launch price".into(),
+            situation: "Two prices are prepared.".into(),
+            impact: "The price sets the first month's revenue.".into(),
+            recommendation: "Choose the lower price.".into(),
+            no_action: "The launch waits.".into(),
+            uncertainty: None,
+            deadline: None,
+        },
+    )
+    .await
+    .unwrap();
+    org.escalate_handoff(handoff, "exec", "the price is the owner's call")
+        .await
+        .unwrap();
+    assert_eq!(org.ask_for_stale_owner_briefs().await.unwrap(), 0, "a current brief");
+
+    // The prepared meaning changes under the brief.
+    org.refresh_owner_handoff(
+        handoff,
+        "alpha-build",
+        "decide the price, now with a third option",
+        "three prices prepared",
+        "a decision is recorded",
+    )
+    .await
+    .unwrap();
+    let row = org
+        .list_owner_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.id == handoff)
+        .unwrap();
+    if row.assigned_to.is_some() {
+        // Refreshing already returned it to someone below the owner: their queue holds it.
+        assert_eq!(org.ask_for_stale_owner_briefs().await.unwrap(), 0);
+    } else {
+        assert_eq!(org.ask_for_stale_owner_briefs().await.unwrap(), 1);
+        assert_eq!(
+            org.ask_for_stale_owner_briefs().await.unwrap(),
+            0,
+            "asked once per revision"
+        );
+        let told = org.inbox(Some("exec")).await.unwrap();
+        assert!(
+            told.iter().any(|message| message.from_actor == "daemon"
+                && message.body.contains("prepare-owner-brief")),
+            "{told:?}"
+        );
+    }
+    org.drop_schema().await.unwrap();
+}
+
 #[tokio::test]
 async fn stalled_work_is_found_once_and_its_lead_is_told_once() {
     let Some(org) = company().await else {
@@ -146,6 +228,25 @@ async fn stalled_work_is_found_once_and_its_lead_is_told_once() {
         "the stranded Work's lead hears how to unblock it: {beta:?}"
     );
 
+    // Work a model provider refused is listed for resuming once the refusal clears; the rest is not.
+    let refused = org
+        .add_work(work("alpha-build", "Write the changelog"))
+        .await
+        .unwrap();
+    let claimed = org.claim_ready_work("refused").await.unwrap().unwrap();
+    assert_eq!(claimed.work.id, refused);
+    org.finish_work_attempt(
+        claimed.attempt_id,
+        WorkAttemptState::Blocked,
+        "[quota] provider refused on quota or credit — owner action required: 402",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.work_blocked_by_provider_refusal().await.unwrap(),
+        vec![refused]
+    );
+
     // Dropping the requirement clears the stranded Work.
     org.remove_work_edge(
         upstream,
@@ -157,8 +258,8 @@ async fn stalled_work_is_found_once_and_its_lead_is_told_once() {
     .await
     .unwrap();
     let stalled = org.stalled_work(chrono::Duration::zero()).await.unwrap();
-    assert_eq!(stalled.len(), 1);
-    assert_eq!(stalled[0].work_id, release);
+    assert!(!stalled.iter().any(|work| work.work_id == stranded));
+    assert!(stalled.iter().any(|work| work.work_id == release));
 
     org.drop_schema().await.unwrap();
 }
