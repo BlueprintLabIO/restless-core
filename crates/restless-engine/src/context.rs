@@ -599,7 +599,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          --lead <id> --title '<title>' --outcome '<every fact the owner gave>' [--goal <id>] \
          [--owner-review]`, adding `--role <role>` for a new lead and `--team <name> --charter '<charter>'` \
          when that lead leads no team yet; it reuses or appoints the lead, forms the team and adds the \
-         lead's Work (`restless work add --owner <lead>` remains for further Work). When \
+         lead's Work (`restless work add --owner <lead>` remains for further Work). When the owner asks \
+         to review or approve the result before it is used or sent, add `--owner-review`: it then \
+         reaches their Inbox as one item showing it with its pictures, files and links, to accept or \
+         send back. When it arrives, point to that item in one line; do not repeat it in chat. When \
          the lead's team already has exactly one non-lead worker and the outcome is one coherent \
          artifact, the `coherent-single-worker` route to that worker remains available. Identity-bearing \
          communication or design is not eligible for either shortcut when a Company Identity release \
@@ -764,7 +767,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          item, the proposal, with your words as its context, never a question beside it.\n\
          When a proactive update delivers a finished result the owner should look at (a site, a \
          document, a design, a report), also put its name, a few words, in `ownerReview`: that puts \
-         it in the owner's Inbox, where finished work belongs, rather than only in chat. \
+         it in the owner's Inbox, where finished work belongs, rather than only in chat. The item \
+         carries the files and pages your message links, so link the result and its parts. \
          When work needs a login or account the company does not have, file the request yourself \
          with `restless apps ask-account --kind website_login|api|github --site <site> --reason \
          <what it is for>`; it reaches the owner's Inbox, or names the key the Vault already \
@@ -974,8 +978,10 @@ mod tests {
         let package = assemble(&quiet);
         let bytes = package.system_prompt.len() + package.user_prompt.len();
         eprintln!("exec fixed prompt: {bytes} bytes");
-        // 80,590 bytes before Sprint 99 split tool procedures into a skill; 70,702 after.
-        assert!(bytes <= 74_000, "Exec fixed prompt grew to {bytes} bytes");
+        // 80,590 bytes before Sprint 99 split tool procedures into a skill; 70,702 after. Raised
+        // by 1,000 on 3 November for an observed failure: a pack the owner asked to review
+        // arrived in chat with blank pictures (owner review, ownerReview links, embedding pictures).
+        assert!(bytes <= 75_000, "Exec fixed prompt grew to {bytes} bytes");
     }
 
     /// S109 D3: Exec checks what Restless has before stating it, and files Restless faults.
