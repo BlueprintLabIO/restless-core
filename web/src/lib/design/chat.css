@@ -252,7 +252,9 @@
 	min-height: 44px;
 	/* Keep part of the conversation visible when a long draft meets a short window. */
 	max-height: clamp(44px, calc(100dvh - 360px), 160px);
-	padding: 12px 12px 4px;
+	/* One line fills the 44px exactly, so every line typed grows the field by one line. With 4px
+	 * below, the first new line grew it 11px and the rest 19.5px each (S110). */
+	padding: 12px 12px calc(44px - 12px - 1.5em);
 	overflow-y: auto;
 	border: 0;
 	background: transparent;
