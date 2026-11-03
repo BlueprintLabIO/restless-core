@@ -1099,9 +1099,15 @@ fn exec_owner_update(
         .ok_or_else(|| {
             anyhow::anyhow!("Exec finished without an owner update or explicit quiet decision")
         })?;
+    // The turn decision rides on the reply too (exec::TURN_MARKER); it is never shown.
+    let reply: std::borrow::Cow<'_, str> = if reply.contains(crate::exec::TURN_MARKER) {
+        crate::exec::take_turn_marker(reply).0.into()
+    } else {
+        reply.into()
+    };
     // Progress estimates ride on the reply and are recorded from it; the owner never sees them.
     let reply: std::borrow::Cow<'_, str> = if reply.contains(restless_orgintel::PROGRESS_MARKER) {
-        restless_orgintel::take_progress_markers(reply).0.into()
+        restless_orgintel::take_progress_markers(&reply).0.into()
     } else {
         reply.into()
     };
@@ -1885,6 +1891,24 @@ mod tests {
             .unwrap(),
             None
         );
+        // The turn decision rides on the last line and is taken off; its intent line stays.
+        let turn = "<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"The lead is writing it.\"}-->";
+        let intent = "<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"I asked the lead.\"}-->";
+        let kept = exec_owner_update(Some(&format!("Asked the lead.\n\n{intent}\n{turn}")), true)
+            .unwrap()
+            .unwrap()
+            .to_string();
+        assert!(kept.ends_with(intent), "{kept}");
+        assert!(crate::transcript::split_intent_receipt(&kept).1.is_some());
+        assert_eq!(
+            exec_owner_update(Some(&format!("{EXEC_NO_UPDATE}\n{turn}")), false).unwrap(),
+            None
+        );
+        let (_, decision) = crate::exec::take_turn_marker(turn);
+        let decision = decision.unwrap();
+        assert_eq!(decision.termination, crate::exec::Termination::Continue);
+        assert_eq!(decision.retry_after_seconds, None);
+        assert!(crate::exec::take_turn_marker("<!--restless-turn:nope-->").1.is_none());
         // A provider error streamed as text never reaches the owner.
         assert!(exec_owner_update(
             Some("429 Rate limit exceeded: free-models-per-min.  retry-after-ms=54287"),

@@ -73,6 +73,10 @@ mod plane_readiness;
 mod preferences_api;
 #[path = "owner_presence.rs"]
 mod presence_api;
+#[path = "owner_model_jobs.rs"]
+mod model_jobs_api;
+#[path = "owner_new_company_defaults.rs"]
+mod new_company_defaults;
 #[path = "owner_publications.rs"]
 mod publications_api;
 #[path = "owner_review.rs"]
@@ -1371,6 +1375,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route("/companies", get(company_catalog).post(create_company))
         .route(
+            "/account/new-company-defaults",
+            get(new_company_defaults::read).put(new_company_defaults::update),
+        )
+        .route(
             "/connections",
             get(list_owner_connections).post(create_owner_connection),
         )
@@ -1540,6 +1548,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/provider/failover",
             axum::routing::put(update_model_failover),
+        )
+        .route(
+            model_jobs_api::PATH,
+            get(model_jobs_api::read).put(model_jobs_api::update),
         )
         .route(
             "/companies/{company}/startup-doctor",
@@ -4568,6 +4580,7 @@ struct CreateCompanyInput {
 
 async fn create_company(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     Json(input): Json<CreateCompanyInput>,
 ) -> Response<Body> {
     // Hosted creation belongs to Fleet's authenticated bootstrap, not a
@@ -4602,7 +4615,7 @@ async fn create_company(
             "Enter a purpose up to 4,000 characters and a model up to 200 characters.",
         );
     }
-    let config: runtime::CompanyConfig = match serde_json::from_value(serde_json::json!({
+    let mut config: runtime::CompanyConfig = match serde_json::from_value(serde_json::json!({
         "name": name, "mission": mission, "model": model, "display_name": input.display_name,
     })) {
         Ok(config) => config,
@@ -4626,6 +4639,18 @@ async fn create_company(
             logged(error, "That model cannot be used. Choose another."),
         );
     }
+    // What the owner chose for new companies (S107 B1). A default never touches an existing one.
+    let defaults = if principal.is_account_owner() {
+        new_company_defaults::load(&state.daemon.root).unwrap_or_else(|error| {
+            tracing::warn!(%error, "new company defaults unreadable");
+            Default::default()
+        })
+    } else {
+        Default::default()
+    };
+    if let Err(error) = new_company_defaults::apply_decision_model(&defaults, &mut config) {
+        tracing::warn!(%error, "default decision model not applied");
+    }
     if let Err(error) = crate::create_local_company(&state.daemon, config.clone()).await {
         let status = if error
             .downcast_ref::<std::io::Error>()
@@ -4648,20 +4673,33 @@ async fn create_company(
             ),
         );
     }
-    (
-        StatusCode::CREATED,
-        Json(
-            company_catalog_entry(
-                config,
-                &[],
-                "active",
-                Some(runtime::ContainerStatus::Absent),
-                None,
-            )
-            .await,
-        ),
+    // The default model when the request named none: granted as "Use here" would. A failure is
+    // said in the response, never a quiet start on another model.
+    let defaults_issue = if model.is_empty() {
+        new_company_defaults::grant_default_model(
+            &state,
+            principal.actor_id(),
+            &defaults,
+            &config.name,
+        )
+        .await
+    } else {
+        None
+    };
+    let config = runtime::CompanyConfig::load(&state.daemon.root, &config.name).unwrap_or(config);
+    let entry = company_catalog_entry(
+        config,
+        &[],
+        "active",
+        Some(runtime::ContainerStatus::Absent),
+        None,
     )
-        .into_response()
+    .await;
+    let mut entry = serde_json::to_value(entry).unwrap_or_default();
+    if let Some(issue) = defaults_issue {
+        entry["defaults_issue"] = serde_json::Value::String(issue);
+    }
+    (StatusCode::CREATED, Json(entry)).into_response()
 }
 
 #[derive(Deserialize)]
@@ -5622,6 +5660,18 @@ async fn grant_owner_connection(
             "Manage model connections through your account provider.",
         );
     }
+    grant_connection(&state, principal.actor_id(), &company, &id, input).await
+}
+
+/// Give a company one of the owner's account connections, optionally as its default model: the
+/// one path "Use here" and a new company's inherited default (S107 B1) both take.
+async fn grant_connection(
+    state: &OwnerState,
+    by: &str,
+    company: &str,
+    id: &str,
+    input: GrantOwnerConnectionInput,
+) -> Response<Body> {
     let _write = state.charter_writes.lock().await;
     let registry = match load_owner_connections(&state.daemon.root) {
         Ok(registry) => registry,
@@ -5808,9 +5858,9 @@ async fn grant_owner_connection(
         None => None,
     };
     record_setting_change(
-        &state,
+        state,
         &config.name,
-        principal.actor_id(),
+        by,
         "model_connection_granted",
         serde_json::json!({
             "label": connection.label,

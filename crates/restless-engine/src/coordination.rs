@@ -1209,29 +1209,10 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                             .map(|parsed| config.spend_ceiling_usd = parsed),
                         // S102: the cheaper model for conversation and routine Work, and the
                         // decision model that gates wakes and tiers Work. An empty value clears.
-                        "everyday_model" => {
-                            let value = value.trim();
-                            if value.is_empty() {
-                                config.everyday_model = None;
-                                Ok(())
-                            } else {
-                                runtime::validate_company_model_selection(value)
-                                    .map(|()| config.everyday_model = Some(value.to_string()))
-                            }
-                        }
-                        "decision_model" => {
-                            let value = value.trim();
-                            // `included` is the relay's decision model, active; any other
-                            // value is an OpenRouter model id.
-                            config.decision_model = (!value.is_empty()).then(|| {
-                                if value.eq_ignore_ascii_case(crate::decisions::INCLUDED_DECISIONS) {
-                                    crate::decisions::INCLUDED_DECISIONS.to_string()
-                                } else {
-                                    value.to_string()
-                                }
-                            });
-                            Ok(())
-                        }
+                        "everyday_model" => config.set_everyday_model(value),
+                        // `included` is the relay's decision model, active; any other value is
+                        // an OpenRouter model id.
+                        "decision_model" => config.set_decision_model(value),
                         _ if key.starts_with("credentials.") => {
                             config.credentials.insert(credential::canonical_binding(&key[12..]).to_string(), value.to_string());
                             Ok(())

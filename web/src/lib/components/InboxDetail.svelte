@@ -931,7 +931,7 @@
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
-						{#if item.settingProposal && ['model', 'schedule', 'notifications'].includes(item.settingProposal.setting)}<InlineSettingMore
+						{#if item.settingProposal && ['model', 'everyday_model', 'decision_model', 'schedule', 'notifications'].includes(item.settingProposal.setting)}<InlineSettingMore
 								{companyId}
 								proposal={item.settingProposal}
 								{asker}

@@ -7,6 +7,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { createCompany, getCompanies } from '$lib/model/cockpit';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
 
 	const ADJECTIVES = [
 		'Hopeful',
@@ -58,7 +59,20 @@
 		plannedName ||= `${pick(ADJECTIVES)} ${pick(NOUNS)}`;
 		try {
 			try {
-				await createCompany({ name: planned, display_name: plannedName, mission: '' });
+				const created = await createCompany({
+					name: planned,
+					display_name: plannedName,
+					mission: ''
+				});
+				/* The owner's default model could not be given to it: said, never a quiet start on
+				 * another model (S107 B1). */
+				if (created.defaults_issue) {
+					const company = planned;
+					toast(created.defaults_issue, {
+						tone: 'failure',
+						action: { label: 'Choose its model', run: () => goto(`/${company}/company/provider`) }
+					});
+				}
 			} catch (cause) {
 				// A lost creation response must not create a second company on retry.
 				const existing = await getCompanies().catch(() => []);

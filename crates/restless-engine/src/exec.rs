@@ -1440,13 +1440,17 @@ async fn run_turn(
             // The decision envelope is internal coordination, not the
             // owner-facing reply that the live activity dock previews.
             session.set_live_observer_enabled(false);
-            let decision = match native_block {
-                Some(reason) => TerminationDecision {
+            let declared = take_turn_marker(&transcript.last_message_text).1;
+            let decision = match (native_block, declared) {
+                (Some(reason), _) => TerminationDecision {
                     termination: Termination::Blocked,
                     reason,
                     retry_after_seconds: None,
                 },
-                None => termination_decision(session, cancellation, native_accounting).await,
+                (None, Some(declared)) => declared,
+                (None, None) => {
+                    termination_decision(session, cancellation, native_accounting).await
+                }
             };
             Ok((
                 report(
@@ -1478,6 +1482,35 @@ pub const TERMINATION_PROMPT: &str = "The turn is ending now. Based on everythin
       external gate required by its outcome contract; this closes the milestone, so never use it merely \
       because the current wake's checklist is finished\n\
     - abandon: the work is not worth continuing — say why";
+
+/// An actor may end its final message with its turn decision, `<!--restless-turn:{"decision":
+/// "waiting","reason":"…"}-->`, so the Runtime does not spend a second full-context call asking
+/// for it (token parity, 4 November 2026). Without a valid marker the separate ask still runs.
+pub const TURN_MARKER: &str = "<!--restless-turn:";
+
+/// The text without its turn markers, and the decision the last valid one held.
+pub fn take_turn_marker(text: &str) -> (String, Option<TerminationDecision>) {
+    if !text.contains(TURN_MARKER) {
+        return (text.to_string(), None);
+    }
+    let mut clean = String::with_capacity(text.len());
+    let mut decision = None;
+    let mut rest = text;
+    while let Some(start) = rest.find(TURN_MARKER) {
+        clean.push_str(&rest[..start]);
+        let after = &rest[start + TURN_MARKER.len()..];
+        let Some(end) = after.find("-->") else {
+            rest = "";
+            break;
+        };
+        if let Some(parsed) = parse_termination(after[..end].trim()) {
+            decision = Some(parsed);
+        }
+        rest = &after[end + 3..];
+    }
+    clean.push_str(rest);
+    (clean.trim_end().to_string(), decision)
+}
 
 /// Ask the Exec to end the turn explicitly. This small postflight must never
 /// erase a completed, metered work turn. Transport loss or timeout records a

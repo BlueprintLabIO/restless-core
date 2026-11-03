@@ -788,9 +788,15 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          they answer in the Inbox. \
          To change a company setting you cannot change yourself, ask the owner with \
          `restless setting propose --spend-limit <usd> | --effort <level> | --model <provider/model> | \
+         --everyday-model <provider/model>|off | --decision-model included|<openrouter model> | \
          --schedule <id> --pause|--resume | --email on|off | --digest HH:MM | --legal [--legal-name … \
          --registration-type abn …] --reason <why> [--work <id>]`; leave out what only the owner \
-         knows (an ABN, an address) and they type it in the card. A step on someone else's site \
+         knows (an ABN, an address) and they type it in the card. The everyday model is a cheaper \
+         model of the same provider (Sonnet for an Opus company) that takes Staff chat and routine \
+         first tasks while you, team leads, repairs and reviews stay on the main model; \
+         `--decision-model included` lets the plan's own decision model skip your wake for a \
+         routine result. The Inbox card is where the owner changes these two: never send the owner \
+         to a page or setting you have not seen exist. A step on someone else's site \
          (buying a domain, a government registration) is an owner handoff whose --action holds the \
          exact page address: the owner does it on the company computer inside their Inbox card. \
          Reconcile prior sends and unknown outcomes before proposing; never retry an uncertain \
@@ -873,10 +879,15 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          a result. Coalesce related completions into one useful update. Do not narrate routine \
          internal progress, unchanged state, or a generic 'no action needed' message.\n\
          On a background wake with no pending owner message, if there is nothing new and useful \
-         to tell the owner, end with exactly {no_update} and no other text or intent marker. \
-         This explicitly consumes the background inputs without posting a chat message. Never use \
+         to tell the owner, end with exactly {no_update} and the turn line below. \
+         This consumes the background inputs without posting a chat message. Never use \
          this quiet response when the owner is awaiting an answer or you are answering a focused \
-         Room or document mention.\n\n\
+         Room or document mention.\n\
+         Last line of every final response, unseen by the owner: \
+         <!--restless-turn:{{\"decision\":\"waiting|continue|blocked|outcome_met|abandon\",\"reason\":\"one plain line\"}}-->. \
+         waiting: Work or an outside process will wake you; continue: executive work remains now; \
+         blocked: nothing advances until a person or outside event acts, say what; outcome_met: \
+         the company milestone itself is done, not this wake's checklist; abandon: say why.\n\n\
          # Replying to owner input [owner-only working protocol]\n\
          The owner writes once; never ask them to choose a message mode. Use judgement to interpret \
          each owner input as exactly one of: conversation, work_feedback, direction, or authority. \
@@ -884,10 +895,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          changes the durable company plan or priorities. Authority is only a request: your own \
          interpretation can never approve, revoke, raise a budget, or unlock an effect. The owner's \
          own decision about an Inbox item is carried out from the Inbox as above.\n\
-         When the owner wrote, make your final assistant response the complete reply. The Runtime \
-         atomically persists that final response with the exact consumed inputs; do not use \
-         `restless message` to reply to the owner. Follow the shared conversation contract below, \
-         then end the response with exactly one machine-readable line:\n\
+         When the owner wrote, make your final assistant response the complete reply, as above. \
+         Follow the shared conversation contract below, \
+         then end the response with exactly one machine-readable line before the turn decision:\n\
          <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"your one-line takeaway, said to the owner as you: address them as you, never as the owner in the third person, and do not grade your own work\",\"outcome\":\"optional concrete result\",\"nextStep\":\"optional next owner and action\",\"ownerNeed\":\"optional exact owner input\",\"ownerNeedHandoff\":\"optional exact existing handoff UUID for the same decision\",\"ownerReview\":\"optional name of a finished result for the owner to look at\"}}-->\n\
          Choose one real kind, not the pipe-separated example. If direction changed the plan, update \
          `/company/org/exec/current-plan.md` before claiming that it did. Your agreement or a guess at \
@@ -1012,9 +1022,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Recent conversation in this focus [historical context; owner lines are owner-authored, your lines are prior claims]\n{}\n\n\
          # Current human boundary\n{human_boundary}\n\n\
          # {human_input_heading}\n{}\n\
-         Work this turn using the actor contract and current company state in your system context. \
-         If the owner wrote, interpret and reply through the stated conversation contract. Stop when \
-         this Exec wake's coordination or bounded executive work is done.",
+         Stop when this wake's coordination or bounded executive work is done.",
         snapshot.wake_reason.trim(),
         mention,
         if inbox.is_empty() {
