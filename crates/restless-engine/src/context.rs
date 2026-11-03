@@ -693,11 +693,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          restless work handoff is only for identity, CAPTCHA, MFA, legal attestation, payment \
          confirmation, or irreducible owner judgement. Preserve the prepared browser state and \
          name an observable resume condition. Ordinary failure is not an owner browser task.\n\
-         # Sourcing a missing capability [company doctrine]\n{sourcing}\n\
-         # Writing what the owner reads [company doctrine]\n{owner_readable}\n\
-         # Presenting to the owner [company doctrine]\n{owner_briefing}\n\n\
-         # Running the business well [company doctrine]\n{run_business}\n\n\
-         # Align, look, learn [company doctrine]\n{align_learn}\n\n\
+         {doctrine}\n\n\
          # Intelligence you can staff with [internal decision]\n\
          Routes for `--model`. An agent on the company default may also run any other model \
          of that provider, listed under it: choose the model the work needs (`restless people \
@@ -855,12 +851,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Open Work graph [internal decision]\n{work}\
          ",
         operating_rules = snapshot.operating_rules.trim(),
-        owner_briefing = crate::owner_brief::PRESENT_TO_OWNER.trim(),
-        owner_readable = crate::owner_brief::WRITING_WHAT_THE_OWNER_READS.trim(),
-        sourcing = crate::capability_sourcing::SOURCE_CAPABILITY.trim(),
+        doctrine = crate::owner_brief::exec_doctrine(),
         skills_contract = crate::skills::contract_section(),
-        run_business = crate::owner_brief::RUN_THE_BUSINESS.trim(),
-        align_learn = crate::owner_brief::ALIGN_AND_LEARN.trim(),
         staffing_routes = snapshot.staffing_routes.trim(),
         conversation_style = crate::owner_brief::CONVERSE_WITH_OWNER.trim(),
         // A company with no charter is meeting its owner: Exec interviews instead of working.
@@ -1042,8 +1034,10 @@ mod tests {
         // refusal names its way out, #599) took it past 74,000 with the Inbox paragraph tightened,
         // then an observed failure raised it again: a pack the owner asked to review arrived in
         // chat with blank pictures (owner review, ownerReview links, embedding pictures: ~650
-        // bytes, #609).
-        assert!(bytes <= 75_500, "Exec fixed prompt grew to {bytes} bytes");
+        // bytes, #609). On 4 November the situational doctrine (~21 KB: writing for the owner,
+        // owner briefs, running the business, align and learn, sourcing) moved into built-in
+        // skills loaded on demand, taking it from 75,320 to 54,359 bytes.
+        assert!(bytes <= 55_000, "Exec fixed prompt grew to {bytes} bytes");
     }
 
     /// S109 D3: Exec checks what Restless has before stating it, and files Restless faults.
@@ -1243,7 +1237,7 @@ mod tests {
             .map(|((index, character), _)| index + character.len_utf8())
             .unwrap_or(0);
         for doctrine in [
-            "# Sourcing a missing capability",
+            "# Company doctrine",
             "# Organisational judgement protocol",
             "# Replying to owner input",
             "# Conversing with the owner",
@@ -1567,21 +1561,30 @@ mod tests {
             .contains("Never substitute Exec approval when the remaining action explicitly requires owner authority"));
         assert!(package
             .system_prompt
-            .contains("Assume the reader has no technical context"));
+            .contains("`owner-briefs`: before raising anything to the owner"));
+        assert!(crate::owner_brief::DOCTRINE_SKILLS
+            .iter()
+            .any(|(name, text)| *name == "owner-briefs"
+                && text.contains("Assume the reader has no technical context")));
         assert!(package.system_prompt.contains("optional exact owner input"));
     }
 
     #[test]
     fn missing_capability_guidance_keeps_sourcing_in_ordinary_work() {
         let package = assemble(&snapshot());
-        assert!(package.system_prompt.contains("buy an input, rent a tool"));
         assert!(package
             .system_prompt
-            .contains("A provider or counterparty is not an OrgIntel Actor"));
-        assert!(package.system_prompt.contains("Use ordinary Work"));
-        assert!(package.system_prompt.contains("`requires`/`revises` edges"));
-        assert!(package.system_prompt.contains("The decision"));
-        assert!(package.system_prompt.contains("grants no permission"));
+            .contains("`sourcing-capabilities`: when an outcome needs a capability"));
+        let (_, skill) = crate::owner_brief::DOCTRINE_SKILLS
+            .iter()
+            .find(|(name, _)| *name == "sourcing-capabilities")
+            .unwrap();
+        assert!(skill.contains("buy an input, rent a tool"));
+        assert!(skill.contains("A provider or counterparty is not an OrgIntel Actor"));
+        assert!(skill.contains("Use ordinary Work"));
+        assert!(skill.contains("`requires`/`revises` edges"));
+        assert!(skill.contains("The decision"));
+        assert!(skill.contains("grants no permission"));
         assert!(!package
             .system_prompt
             .contains("Only when a genuinely different capability is missing, commission it"));
@@ -1668,14 +1671,20 @@ mod tests {
         let package = assemble(&snapshot());
         assert!(package
             .system_prompt
-            .contains("# Writing what the owner reads [company doctrine]"));
-        assert!(package
-            .system_prompt
-            .contains("Open with one or two plain sentences a non-technical owner can read"));
+            .contains("`writing-for-the-owner`: before writing a Work title or outcome"));
+        assert!(package.system_prompt.contains(
+            "open with one or two plain sentences the owner can read, then the exact contract unchanged"
+        ));
+        let skill = crate::owner_brief::DOCTRINE_SKILLS
+            .iter()
+            .find(|(skill, _)| *skill == "writing-for-the-owner")
+            .unwrap()
+            .1;
         assert!(
-            package
-                .system_prompt
-                .contains("Then the exact contract, unchanged"),
+            skill.contains("Open with one or two plain sentences a non-technical owner can read")
+        );
+        assert!(
+            skill.contains("Then the exact contract, unchanged"),
             "the readable opening must never be presented as a replacement for the contract"
         );
         assert!(
@@ -1691,11 +1700,15 @@ mod tests {
         let package = assemble(&snapshot());
         assert!(package
             .system_prompt
-            .contains("# Running the business well [company doctrine]"));
+            .contains("`running-the-business`: before proposing an improvement"));
         assert!(
-            package
-                .system_prompt
-                .contains("Make a major operational change only after the owner agrees to it"),
+            package.system_prompt.contains("A proposal is not a change")
+                && crate::owner_brief::DOCTRINE_SKILLS
+                    .iter()
+                    .find(|(skill, _)| *skill == "running-the-business")
+                    .unwrap()
+                    .1
+                    .contains("Make a major operational change only after the owner agrees to it"),
             "proactive proposals must never become silent operational changes"
         );
         assert!(package

@@ -1891,7 +1891,7 @@ async fn run_staff(
         // Text every Staff turn shares comes first, so the provider's prompt cache can reuse it
         // across actors and fresh sessions (S101); actor- and wake-specific text follows.
         "# Company operating rules [authoritative — applies to every actor]\n{}\n\n\
-         # Capability recovery [shared operating guidance]\n{sourcing}\n\n\
+         {sourcing}\n\n\
          You are {name}, the {role} of {company}, {assignment}. Your stable OrgIntel actor id is `{actor}`.\n\
          {posture}\n\
          {workspace}\n\
@@ -1899,7 +1899,7 @@ async fn run_staff(
          # Trusted assignment context [OrgIntel decision]\n{task}\n\n\
          Work until the task is done or you are stuck. {ending}",
         crate::context::COMPANY_OPERATING_RULES.trim(),
-        sourcing = crate::capability_sourcing::SOURCE_CAPABILITY.trim(),
+        sourcing = crate::owner_brief::staff_doctrine(),
         ending = match turn_kind {
             StaffTurnKind::Work =>
                 "The session ends when you stop writing; you will then be asked for a decision envelope.",

@@ -1,3 +1,8 @@
+---
+name: sourcing-capabilities
+description: How to source a capability the company lacks - reuse, build, buy, rent or commission; asking the owner for an app or account; and recording the sourcing decision. Read when an outcome needs a capability, app, service or provider the company does not have.
+---
+
 When an outcome needs a capability the company does not currently have, do not assume the answer is
 a new Staff actor. First decide, with evidence, whether to reuse existing capacity, do the work
 internally, build or automate it, buy an input, rent a tool or bounded resource, commission a

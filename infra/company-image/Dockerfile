@@ -427,6 +427,8 @@ COPY infra/company-image/entrypoint.sh \
     infra/company-image/computer-supervisord.conf \
     /tmp/restless-runtime-assets/
 COPY infra/company-image/skills /layer/opt/restless/skills
+# Company doctrine skills live beside the engine that points at them (owner_brief.rs).
+COPY crates/restless-engine/skills /layer/opt/restless/skills
 COPY tools/scenario/restless-scenario.mjs \
     tools/web-review/restless-web-review.mjs \
     tools/codex-runner/restless-codex-runner.mjs \
