@@ -1216,9 +1216,15 @@ async fn account_headroom_item(
 /// An agent needed a home site (one reached from the owner's own computer) and no computer that
 /// carries it was online. Raised from the refusal itself and kept for a day while no helper is
 /// online; the agent was told the owner has this card (S109 blockers audit).
-async fn home_helper_offline_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> Option<AttentionItem> {
+async fn home_helper_offline_item(
+    config: &CompanyConfig,
+    pool: &sqlx::PgPool,
+) -> Option<AttentionItem> {
     let (host, refused_at) = crate::home_egress::recent_refusal(&config.name)?;
-    if crate::machines::online_helper(pool, &config.name).await.is_some() {
+    if crate::machines::online_helper(pool, &config.name)
+        .await
+        .is_some()
+    {
         return None;
     }
     let assigned = crate::machines::company_assignments(pool, &config.name)
@@ -1267,7 +1273,9 @@ async fn home_helper_offline_item(config: &CompanyConfig, pool: &sqlx::PgPool) -
         ),
         recommendation: requested_action.clone(),
         requested_action,
-        if_no_action: format!("Agents can't reach {host} until a computer that carries it is online."),
+        if_no_action: format!(
+            "Agents can't reach {host} until a computer that carries it is online."
+        ),
         uncertainty: None,
         deadline: None,
         brief_status: "source-observed",
@@ -1291,7 +1299,8 @@ async fn home_helper_offline_item(config: &CompanyConfig, pool: &sqlx::PgPool) -
             id: "open-company-computer".into(),
             label: "Open Computer".into(),
             role: "inspect",
-            consequence: "Opens the company's computers, where helpers and home sites are set.".into(),
+            consequence: "Opens the company's computers, where helpers and home sites are set."
+                .into(),
             next_state: "Once a computer that carries the site is online, this leaves the Inbox."
                 .into(),
             href: Some(format!("/{}/company/computer", config.name)),
