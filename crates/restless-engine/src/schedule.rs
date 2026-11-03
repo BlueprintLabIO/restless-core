@@ -240,6 +240,9 @@ pub async fn run(daemon: Arc<Daemon>) {
     tokio::spawn(crate::platform_capabilities::delivery_loop(Arc::clone(
         &daemon,
     )));
+    // Work stopped for over a day with nobody asked: its lead is told once per stall, and the
+    // owner's Inbox projects a card for it (S109 blockers audit, finding 10).
+    tokio::spawn(stalled_work_loop(Arc::clone(&daemon)));
     ensure_cell_listeners(&daemon).await;
     scan_all_companies(&daemon, &in_flight).await;
     let mut waiting_jobs = reconcile_waiting_jobs(&daemon).await;
@@ -285,6 +288,92 @@ pub async fn run(daemon: Arc<Daemon>) {
                 }
             }
         }
+    }
+}
+
+/// How often stopped Work is looked at: Work stopped by a model refusal goes on within minutes of
+/// the refusal clearing; leads of Work stalled for a day are told (once per stall) on the same tick.
+const STOPPED_WORK_CHECK: Duration = Duration::from_secs(2 * 60);
+
+async fn stalled_work_loop(daemon: Arc<Daemon>) {
+    // Let startup recovery (restart resumes, orphan reaping) settle first.
+    tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+    loop {
+        if let Some(_lease) = daemon.lifecycle.try_enter() {
+            check_stopped_work(&daemon).await;
+        }
+        tokio::time::sleep(STOPPED_WORK_CHECK).await;
+    }
+}
+
+async fn check_stopped_work(daemon: &Arc<Daemon>) {
+    let Some(companies) = configured_companies(daemon) else {
+        return;
+    };
+    for company in companies {
+        let org = match daemon.orgintel.get(&company).await {
+            Ok(org) => org,
+            Err(error) => {
+                tracing::debug!(company, "stopped Work check skipped: {error:#}");
+                continue;
+            }
+        };
+        resume_work_after_provider_refusals(daemon, &org, &company).await;
+        match org
+            .tell_leads_of_stalled_work(restless_orgintel::STALLED_AFTER)
+            .await
+        {
+            Ok(0) => {}
+            Ok(told) => tracing::info!(company, told, "told leads of stalled Work"),
+            Err(error) => tracing::warn!(company, "stalled Work check failed: {error:#}"),
+        }
+        match org.ask_for_stale_owner_briefs().await {
+            Ok(0) => {}
+            Ok(asked) => tracing::info!(company, asked, "asked for out-of-date owner briefs again"),
+            Err(error) => tracing::warn!(company, "stale owner brief check failed: {error:#}"),
+        }
+    }
+}
+
+/// Work that stopped because a model provider refused (credit, usage or rate limit, a refused
+/// sign-in or key) goes on once no such refusal is active for the company: a top-up, a reset or a
+/// new connection. Bounded like any interruption resume, at most twice per revision.
+async fn resume_work_after_provider_refusals(daemon: &Arc<Daemon>, org: &OrgIntel, company: &str) {
+    let stopped = match org.work_blocked_by_provider_refusal().await {
+        Ok(stopped) if !stopped.is_empty() => stopped,
+        Ok(_) => return,
+        Err(error) => {
+            tracing::warn!(company, "provider-stopped Work unavailable: {error:#}");
+            return;
+        }
+    };
+    match daemon.authority.active_model_cooldowns(company).await {
+        Ok(cooldowns)
+            if !cooldowns
+                .iter()
+                .any(|cooldown| matches!(cooldown.kind.as_str(), "quota" | "credential")) => {}
+        Ok(_) => return,
+        Err(error) => {
+            tracing::warn!(company, "model refusals unavailable: {error:#}");
+            return;
+        }
+    }
+    let mut resumed = false;
+    for work_id in stopped {
+        match org
+            .resume_after_interruption(work_id, "the model refusal that stopped it has cleared")
+            .await
+        {
+            Ok(true) => {
+                resumed = true;
+                tracing::info!(company, %work_id, "resumed Work after a model refusal cleared");
+            }
+            Ok(false) => {}
+            Err(error) => tracing::warn!(company, %work_id, "could not resume Work: {error:#}"),
+        }
+    }
+    if resumed {
+        daemon.schedule_wake.notify_one();
     }
 }
 
