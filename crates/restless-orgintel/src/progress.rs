@@ -373,7 +373,13 @@ pub fn goal_progress(
         .collect::<Vec<_>>();
     let percent = (!parts.is_empty() && numbers.iter().any(Option::is_some)).then(|| {
         let sum: i32 = numbers.iter().map(|n| i32::from(n.unwrap_or(0))).sum();
-        (sum as f64 / parts.len() as f64).round() as i16
+        let average = (sum as f64 / parts.len() as f64).round() as i16;
+        // 100% means every part is done; rounding never says it early.
+        if done < parts.len() {
+            average.min(99)
+        } else {
+            average
+        }
     });
     GoalProgress {
         percent,

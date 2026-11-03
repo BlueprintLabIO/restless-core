@@ -99,6 +99,18 @@ test('a goal rolls up its parts equally, leaving stopped Work out', () => {
 	assert.equal(partsDone({ percent: null, done: 1, total: 1 }), '1 of 1 part done');
 });
 
+test('a goal is never 100% until every part is done', () => {
+	const work = [
+		...Array.from({ length: 94 }, (_, index) => ({
+			id: `done-${index}`,
+			status: 'completed',
+			goal_id: 'g'
+		})),
+		{ id: 'open', status: 'blocked', goal_id: 'g' }
+	];
+	assert.equal(goalRollup('g', work, [row('open', 60, 'x')]).percent, 99);
+});
+
 test('a goal nobody has estimated shows nothing', () => {
 	const work = [
 		{ id: 'a', status: 'active', goal_id: 'g' },

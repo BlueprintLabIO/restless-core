@@ -1020,9 +1020,13 @@ mod tests {
         }];
         let package = assemble(&owed);
         assert!(package.user_prompt.contains("Progress estimates owed"));
-        assert!(package.user_prompt.contains("restless work progress <work-id> --percent"));
+        assert!(package
+            .user_prompt
+            .contains("restless work progress <work-id> --percent"));
         assert!(package.user_prompt.contains("--blocked"));
-        assert!(package.user_prompt.contains("\"Magnets\" [blocked] · last: ~40%"));
+        assert!(package
+            .user_prompt
+            .contains("\"Magnets\" [blocked] · last: ~40%"));
         assert_eq!(quiet.system_prompt, package.system_prompt);
     }
 

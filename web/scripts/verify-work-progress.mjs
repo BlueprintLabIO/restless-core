@@ -130,13 +130,24 @@ try {
 				await page.goto(`${origin}/${company}/work?goal=${work.goal_id}`, {
 					waitUntil: 'networkidle'
 				});
-				await page.getByText(/parts? done/).first().waitFor();
+				await page
+					.locator('.goal-facts')
+					.getByText(/parts? done/)
+					.waitFor();
 				await shot('goal');
 			}
 
-			await page.goto(`${origin}/${company}/people?person=${lead}&work=${workId}`, {
+			// The person doing it: their People row and the "Working on" card beside their chat.
+			await page.goto(`${origin}/${company}/people?person=${work.owner_id}&work=${workId}`, {
 				waitUntil: 'networkidle'
 			});
+			await page.locator('.work-now').getByText(line).waitFor();
+			await shot('working-on');
+
+			await page.goto(
+				`${origin}/${company}/people?person=${work.owner_id}&work=${workId}&details=${workId}`,
+				{ waitUntil: 'networkidle' }
+			);
 			await page.locator('.work-progress').getByText(line).waitFor();
 			await shot('detail');
 

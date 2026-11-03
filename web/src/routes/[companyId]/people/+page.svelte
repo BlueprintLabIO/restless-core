@@ -1415,9 +1415,8 @@
 									>{/if}</span
 							>{#if row.text}<small
 									class="doing"
-									title={estimate
-										? `${row.hint} · ${estimate.text} (${estimate.title})`
-										: row.hint}>{row.text}</small
+									title={estimate ? `${row.hint} · ${estimate.text} (${estimate.title})` : row.hint}
+									>{row.text}</small
 								>{/if}{#if estimate}<span
 									class="doing-progress {estimate.tone}"
 									role="meter"

@@ -124,10 +124,12 @@ export function goalRollup(
 	const parts = work.filter((item) => item.goal_id === goalId && item.status !== 'abandoned');
 	const done = parts.filter((item) => item.status === 'completed').length;
 	const numbers = parts.map((item) => workEstimate(item, rows)?.fill ?? null);
-	const percent =
+	let percent =
 		parts.length && numbers.some((value) => value !== null)
 			? Math.round(numbers.reduce<number>((sum, value) => sum + (value ?? 0), 0) / parts.length)
 			: null;
+	/* 100% means every part is done; rounding never says it early. */
+	if (percent !== null && done < parts.length) percent = Math.min(percent, 99);
 	return { percent, done, total: parts.length };
 }
 

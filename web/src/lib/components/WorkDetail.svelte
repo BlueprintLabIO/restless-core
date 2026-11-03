@@ -777,7 +777,7 @@
 						/><Trend
 							values={estimate.trend}
 							label={`Estimates so far: ${estimate.trend.map((value) => `${value}%`).join(', ')}`}
-						/><span class="work-progress-by">{estimate.title}</span>{/if}
+						/>{/if}
 				</div>{/if}
 			{#if blocker}<p class="work-blocker">{blocker}</p>{/if}
 
@@ -1393,16 +1393,10 @@
 		flex: none;
 		color: var(--text-tertiary);
 	}
+	/* The words keep the room; who and when are on hover, the trend stays small. */
 	.work-progress :global(.estimate) {
 		flex: 0 1 auto;
-	}
-	.work-progress-by {
-		flex: 0 10 auto;
 		min-width: 0;
-		overflow: hidden;
-		color: var(--text-tertiary);
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 	.work-blocker {
 		margin: 4px 0 0;

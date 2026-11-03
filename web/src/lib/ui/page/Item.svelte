@@ -176,9 +176,21 @@
 		white-space: nowrap;
 	}
 	/* The note takes a line of its own under the title and meta, always one line high. */
+	/* A grid, not a wrapping flex line: a long title shortens with an ellipsis beside its meta
+	 * instead of pushing the meta onto a line of its own and growing the row. */
 	.noted .item-main {
-		flex-wrap: wrap;
+		display: grid;
+		grid-template-columns: minmax(0, max-content) minmax(min(7ch, 30%), 1fr);
+		align-items: baseline;
+		column-gap: 10px;
 		row-gap: 1px;
+	}
+	.noted .item-main > :is(.item-note, .item-note-line) {
+		grid-column: 1 / -1;
+	}
+	/* Stacked rows lay out as a column of their own. */
+	.noted.stacked .item-main {
+		display: flex;
 	}
 	.item-note {
 		flex: 1 0 100%;
@@ -284,7 +296,9 @@
 		display: none;
 	}
 	@container page (max-width: 560px) {
-		.item-main {
+		.item-main,
+		.noted .item-main {
+			display: flex;
 			flex-direction: column;
 			gap: 1px;
 			align-items: stretch;
