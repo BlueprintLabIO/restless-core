@@ -40,7 +40,7 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { attentionTitle, isOutcomeReview } from '$lib/model/attention-presentation';
 	import type { AttentionItem } from '$lib/model/view';
-	import { ownerLine } from '$lib/model/owner-copy';
+	import { ownerLine, ownerText } from '$lib/model/owner-copy';
 	import {
 		PRIORITIES,
 		blockerSentence,
@@ -136,6 +136,13 @@
 	});
 	const goals = $derived(ownerAccess ? (cockpit?.goals ?? []) : (collaboration?.goals ?? []));
 	const people = $derived(ownerAccess ? (cockpit?.people ?? []) : (collaboration?.people ?? []));
+	/* A run's summary is the agent's own words: kept, but its ids and handles are said as names
+	 * (owner-copy.ts), and a summary that is only internals reads as the platform's line. */
+	const actorNames = $derived(
+		Object.fromEntries(people.map((person) => [person.actor_id, person.display]))
+	);
+	const runSummary = (summary: string | null | undefined, fallback: string) =>
+		ownerText(summary, fallback, actorNames);
 	const teams = $derived(ownerAccess ? (cockpit?.teams ?? []) : (collaboration?.teams ?? []));
 	const companyName = $derived(
 		ownerAccess ? (cockpit?.company.name ?? companyId) : (collaboration?.company.name ?? companyId)
@@ -927,7 +934,12 @@
 							Show recovery evidence
 						</summary>
 						<div>
-							<p>{latestAttempt?.summary}</p>
+							<p>
+								{runSummary(
+									latestAttempt?.summary,
+									'The run stopped before it could say what it did.'
+								)}
+							</p>
 							{#each recoveryArtifacts as artifact (artifact.id)}
 								<div class="recovery-artifact">
 									<strong>{artifactLabel(artifact)}</strong>
@@ -1098,7 +1110,11 @@
 											>
 											<small>Run {attempt.attempt_no} · revision {attempt.revision}</small>
 										</div>
-										<p>{attempt.summary || 'This run has not recorded a summary yet.'}</p>
+										<p>
+											{attempt.summary.trim()
+												? runSummary(attempt.summary, `${runStateLabel(attempt.state)}.`)
+												: 'This run has not recorded a summary yet.'}
+										</p>
 										<div class="attempt-meta">
 											<span>Started {displayDate(attempt.started_at)}</span>
 											{#if ownerAccess && 'model' in attempt && attempt.model}<span
@@ -1193,7 +1209,8 @@
 						<dd class="pick-cell">
 							{#if maySteer && goals.length}
 								<ActionMenu label="Goal">
-									{#snippet trigger()}<span class="pick-face">{goal?.title ?? 'No goal'}</span
+									{#snippet trigger()}<span class="pick-face" title={goal?.title}
+											>{goal?.title ?? 'No goal'}</span
 										>{/snippet}
 									{#each goals.filter((row) => !row.closed_at || row.id === goal?.id) as option (option.id)}
 										<button
@@ -1218,7 +1235,7 @@
 								</ActionMenu>
 							{:else if goal}<a
 									href={`/${encodeURIComponent(companyId)}/work?goal=${encodeURIComponent(goal.id)}`}
-									>{goal.title}</a
+									title={goal.title}>{goal.title}</a
 								>{:else}<a href={`/${encodeURIComponent(companyId)}/work?goal=other`}>No goal</a
 								>{/if}
 						</dd>
