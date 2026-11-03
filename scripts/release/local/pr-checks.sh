@@ -69,7 +69,8 @@ check() { # repo checkout number sha
       groups="$(git -C "$tree" diff --name-only "$(git -C "$tree" merge-base HEAD origin/main)" HEAD | core_groups)"
       if [ -z "$groups" ]; then
         echo "no qualified input changed (docs only)" >"$state/$name.log"
-      elif [ "$groups" = all ]; then
+      elif [ "$groups" = all ] || ! grep -q "only: string = ''" "$tree/.dagger/src/index.ts"; then
+        # The PR's own qualify runs; one from before scoped groups runs everything.
         (cd "$tree" && timeout 3h "$dagger" --silent call qualify --source=.) >"$state/$name.log" 2>&1
       else
         log "$repo#$number qualifying $groups"
