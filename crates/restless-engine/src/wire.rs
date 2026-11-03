@@ -1034,6 +1034,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "effect-reconcile" => &["key"],
         "mandate-list" => &[],
         "mandate-permit" => &["mandate_id", "mandate_proposal", "actor"],
+        "mandate-propose" => &["mandate_proposal", "purpose", "actor"],
         "email-preview" | "email-send" => &["email_request", "actor"],
         "email-observe" => &["actor", "email_observe_list", "email_observe_after"],
         "identity-evidence-add" => &[
@@ -1326,6 +1327,7 @@ const COMPANY_EXEC_ONLY: &[&str] = &[
     // The owner changes their own Inbox in the cockpit; this is Exec acting on their chat.
     "attention-act",
     "mandate-permit",
+    "mandate-propose",
     "finance-payee-propose",
     "setting-propose",
     "email-send",
