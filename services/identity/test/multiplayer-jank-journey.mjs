@@ -15,6 +15,8 @@
 // and three loads: cold (a fresh browser context: no HTTP cache, no stored queries), warm (the
 // same page loaded again) and nav (arriving by the navigation tab from another surface). Every
 // Inbox card the populated owner and member see is also opened, cold and slow, at both widths.
+// The Library's explorer is also visited by address, populated and slow, cold, for both roles:
+// Recent, a client's folder, a file shown in its folder (highlighted) and a filtered list.
 //
 // What fails a visit:
 //   layout-shift  a PerformanceObserver layout-shift entry with no input in the 500 ms before it
@@ -781,8 +783,11 @@ await run("multiplayer-jank", async () => {
     await pass_(owner, "owner", state, [documentView], ["cold", "warm"]);
     await pass_(alice, "member", state, [documentView], ["cold"]);
     // The Library's explorer, a folder, a file shown in its folder and a filtered list, by address.
-    await pass_(owner, "owner", state, libraryViews, ["cold", "warm"]);
-    await pass_(alice, "member", state, libraryViews, ["cold"]);
+    // With every read failing they are the Library's own failure, which its tab visit measures.
+    if (state !== "failure") {
+      await pass_(owner, "owner", state, libraryViews, ["cold"]);
+      await pass_(alice, "member", state, libraryViews, ["cold"]);
+    }
     pass(`${state} state measured`);
   }
   const kinds = { owner: await cardPass(owner, "owner"), member: await cardPass(alice, "member") };
