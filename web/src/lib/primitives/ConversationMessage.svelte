@@ -1,3 +1,15 @@
+<script lang="ts" module>
+	/* When each author last had a reply streaming on screen. */
+	const streamedAt = new Map<string, number>();
+	const streamKey = (author: string) => (author === 'The Exec' ? 'Exec' : author);
+	function markStreamed(author: string) {
+		streamedAt.set(streamKey(author), Date.now());
+	}
+	function streamedJustNow(author: string): boolean {
+		return Date.now() - (streamedAt.get(streamKey(author)) ?? 0) < 3_000;
+	}
+</script>
+
 <script lang="ts">
 	import { replyIsError, failureLine } from '$lib/model/turn-failure';
 	import { copyText } from '$lib/model/copy-text';
@@ -43,7 +55,8 @@
 		actions,
 		embedded = false,
 		continued = false,
-		context = null
+		context = null,
+		streaming = false
 	}: {
 		sender: 'owner' | 'agent' | 'human' | 'system';
 		author: string;
@@ -71,6 +84,10 @@
 		continued?: boolean;
 		/** The screen this message was sent from, linked so a terse question keeps its subject. */
 		context?: { href: string; label: string } | null;
+		/** The reply as it streams, drawn as the message it becomes: same header, slot and measure.
+		 * No caret: a caret line would vanish when the reply lands and pull everything below up.
+		 * The turn's line under it says it is still replying (S110). */
+		streaming?: boolean;
 	} = $props();
 
 	let copyState = $state<'idle' | 'copied' | 'failed'>('idle');
@@ -84,8 +101,21 @@
 	 * words (shown optimistically, then confirmed) stay still, as do Exec
 	 * replies, which already streamed in their live turn. */
 	const fresh = untrack(
-		() => embedded && sender !== 'owner' && Date.now() - new Date(createdAt).getTime() < 15_000
+		() =>
+			embedded &&
+			!streaming &&
+			sender !== 'owner' &&
+			Date.now() - new Date(createdAt).getTime() < 15_000 &&
+			!streamedJustNow(author)
 	);
+	/* The saved reply takes its streamed copy's place in the same frame; it must not settle in
+	 * as if it had just arrived. */
+	$effect(() => {
+		if (!streaming) return;
+		void text;
+		markStreamed(author);
+		return () => markStreamed(author);
+	});
 	const timestamp = $derived(timeLabel(createdAt));
 	/* A message in a run has no header; its time waits in the gutter until pointed at. */
 	const gutterTime = $derived(formatClock(createdAt));
@@ -154,8 +184,10 @@
 	class:pending
 	class:embedded
 	class:speaking
+	class:streaming
 	tabindex="-1"
 	data-message-sender={sender}
+	aria-busy={streaming || undefined}
 >
 	<header class="message-meta" class:sr-only={continued}>
 		<span class="message-avatar">
@@ -189,6 +221,7 @@
 		<div class="message-text" class:folded class:after-takeaway={!!takeaway}>
 			<Markdown
 				text={readableText}
+				{streaming}
 				onreference={referable
 					? (path, name) => void preview?.open(messageId, path, name)
 					: undefined}

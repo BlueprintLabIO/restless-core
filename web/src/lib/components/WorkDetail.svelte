@@ -886,7 +886,6 @@
 					<ConversationTurnDock
 						participantName={ownerName(latestAttempt?.actor_id ?? work.owner_id)}
 						turn={workTurn}
-						preview={false}
 					/>
 				</section>
 			{/if}
