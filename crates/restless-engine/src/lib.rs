@@ -20,7 +20,6 @@ pub mod authority;
 pub mod away;
 pub mod burst_jobs;
 pub mod capability;
-pub mod capability_sourcing;
 pub mod cell;
 pub mod cell_wake;
 pub mod codex;

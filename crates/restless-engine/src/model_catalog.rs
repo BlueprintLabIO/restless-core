@@ -139,7 +139,7 @@ async fn fetch_catalog() -> Result<Bytes> {
                         "modalities": { "output": ["text"] },
                         "release_date": entry["release_date"],
                         // List price per million tokens, for the Exec's
-                        // staffing economics (see prompts/run-the-business.md).
+                        // staffing economics (see skills/running-the-business).
                         "cost": {
                             "input": entry["cost"]["input"], "output": entry["cost"]["output"],
                             "cache_read": entry["cost"]["cache_read"],

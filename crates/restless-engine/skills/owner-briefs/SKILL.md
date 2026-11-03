@@ -1,3 +1,8 @@
+---
+name: owner-briefs
+description: How to bring a decision to the owner - when attention is truly owner-only, and how to prepare the handoff brief (headline, situation, impact, recommendation, no-action, uncertainty) and resolve or escalate it. Read before any owner handoff, prepare-owner-brief or escalate-handoff.
+---
+
 Use this only when attention is genuinely owner-only. First complete every machine-doable step and
 try to resolve the matter at your own altitude. Difficulty, uncertainty, a failed command, or a need
 for more explanation are not by themselves owner needs.
