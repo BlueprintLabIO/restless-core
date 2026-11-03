@@ -4,7 +4,16 @@
 	import Markdown from './Markdown.svelte';
 	import { parseDelimited, readableJson, type TextFormat } from '$lib/model/file-text';
 
-	let { text, format }: { text: string; format: TextFormat } = $props();
+	let {
+		text,
+		format,
+		source
+	}: {
+		text: string;
+		format: TextFormat;
+		/** The file's company path, so a note's relative pictures show. */
+		source?: string;
+	} = $props();
 
 	const table = $derived(
 		format === 'csv' || format === 'tsv'
@@ -16,7 +25,7 @@
 </script>
 
 {#if format === 'markdown'}
-	<div class="text-paper"><Markdown {text} /></div>
+	<div class="text-paper"><Markdown {text} {source} /></div>
 {:else if table}
 	<div class="text-table-wrap">
 		{#if table.rows.length}

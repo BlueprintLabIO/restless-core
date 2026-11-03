@@ -173,6 +173,9 @@
 					/** Who to follow up with: whoever holds it now, or Exec for an approval. */
 					followUpId: string;
 					followUpName: string;
+					/** The record's own words (an agent's reason): details only, never a notice. */
+					recorded: string;
+					byOwner: boolean;
 					workId?: string;
 				};
 		  }
@@ -201,6 +204,8 @@
 			at: String(decision.observedAt),
 			detail: {
 				unlocked: decision.whatItUnlocked,
+				recorded: decision.details ?? '',
+				byOwner: decision.byOwner ?? false,
 				state: decision.currentState,
 				outcome: decision.observedOutcome,
 				/* An approval names who prepared the draft; answered Work names who holds it now. */
@@ -436,9 +441,13 @@
 							<dl class="facts">
 								{#if entry.kind === 'decision'}
 									<div>
-										<dt>Your decision</dt>
+										<dt>{entry.detail.byOwner ? 'Your decision' : 'Outcome'}</dt>
 										<dd>{entry.summary}</dd>
 									</div>
+									{#if entry.detail.recorded}<div>
+											<dt>As recorded</dt>
+											<dd class="recorded">{entry.detail.recorded}</dd>
+										</div>{/if}
 									{#if entry.detail.unlocked}<div>
 											<dt>What it unlocked</dt>
 											<dd>{entry.detail.unlocked}</dd>
@@ -564,6 +573,10 @@
 		font-size: var(--t-body);
 		line-height: 1.55;
 		overflow-wrap: anywhere;
+	}
+	.facts dd.recorded {
+		color: var(--text-secondary);
+		white-space: pre-line;
 	}
 	.facts .btn {
 		justify-self: start;

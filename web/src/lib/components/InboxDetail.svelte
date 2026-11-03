@@ -386,6 +386,10 @@
 	);
 	/* A live outcome to review renders in the card's content beside the decision. */
 	const outcomeInline = $derived(item.category === 'review' && !!item.reviewTarget);
+	/* A finished result named in chat (`ownerReview`) is the message itself, shown in the card. */
+	const resultInline = $derived(
+		item.source.kind === 'conversation_owner_review' && !!item.whatHappened.trim()
+	);
 	const showRecommendation = $derived(
 		!!item.recommendation.trim() &&
 			item.recommendation.trim() !== item.whatHappened.trim() &&
@@ -797,6 +801,9 @@
 							</p>
 						{:else}
 							<div class="ask"><Markdown text={askText} /></div>
+							<!-- A finished result an agent brought here reads in full, its pictures in
+							     place, rather than folded behind "Context". -->
+							{#if resultInline}<div class="result"><Markdown text={item.whatHappened} /></div>{/if}
 						{/if}
 						{#if item.accountUse}<AccountUseNote
 								use={item.accountUse}
@@ -974,10 +981,10 @@
 				</div>
 
 				<div class="folds">
-					{#if item.whatHappened || item.whyItMatters || showRecommendation}
+					{#if (item.whatHappened && !resultInline) || item.whyItMatters || showRecommendation}
 						<Fold label="Context">
 							<div class="prose">
-								{#if item.whatHappened}<Markdown text={item.whatHappened} />{/if}
+								{#if item.whatHappened && !resultInline}<Markdown text={item.whatHappened} />{/if}
 								{#if item.whyItMatters && item.whyItMatters !== item.whatHappened}<Markdown
 										text={item.whyItMatters}
 									/>{/if}
@@ -1636,7 +1643,20 @@
 		line-height: 1.65;
 		overflow-wrap: anywhere;
 	}
+	.result {
+		margin-top: 12px;
+		padding-top: 12px;
+		border-top: 1px solid var(--border);
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+		line-height: 1.6;
+		overflow-wrap: anywhere;
+	}
+	.result :global(:is(strong, h1, h2, h3, h4)) {
+		color: var(--ink);
+	}
 	.ask :global(.md > :first-child),
+	.result :global(.md > :first-child),
 	.prose :global(.md > :first-child) {
 		margin-top: 0;
 	}

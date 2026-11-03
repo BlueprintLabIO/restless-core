@@ -40,8 +40,8 @@ pub(super) async fn view(
         }
     };
     if query.context {
-        return match tokio::try_join!(org.list_work(), org.list_artifact_refs(None)) {
-            Ok((work, artifacts)) => Json(serde_json::json!({ "work": work, "artifacts": artifacts.into_iter().filter(|artifact| artifact.work_id.is_some()).collect::<Vec<_>>() })).into_response(),
+        return match tokio::try_join!(org.list_work(), org.list_artifact_refs(None), org.work_progress(None)) {
+            Ok((work, artifacts, progress)) => Json(serde_json::json!({ "work": work, "artifacts": artifacts.into_iter().filter(|artifact| artifact.work_id.is_some()).collect::<Vec<_>>(), "progress": progress })).into_response(),
             Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", logged(error, "The Work graph could not be read. Try again.")),
         };
     }

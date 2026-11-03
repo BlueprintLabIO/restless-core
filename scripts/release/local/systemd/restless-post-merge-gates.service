@@ -1,0 +1,13 @@
+# Post-merge release gates (scripts/release/local/post-merge-gates.sh). Install:
+#   cp scripts/release/local/systemd/restless-post-merge-gates.* ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now restless-post-merge-gates.timer
+[Unit]
+Description=Restless post-merge gates (smoke, jank, resources on each new main commit)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/code/work/ghapp-fix
+ExecStart=/bin/bash -lc %h/code/work/ghapp-fix/scripts/release/local/post-merge-gates.sh
+# Behind PR checks and releases for the machine.
+Nice=15
+TimeoutStartSec=8h

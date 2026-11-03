@@ -72,7 +72,9 @@ try {
 			return route.continue();
 		});
 		await page.goto(origin + '/' + company + '/work', { waitUntil: 'networkidle' });
+		const completedMenu = page.locator('.head summary[aria-label="Completed work actions"]');
 		const begin = async () => {
+			await completedMenu.click();
 			await page.getByRole('button', { name: 'Clear done', exact: true }).click();
 			await page
 				.getByRole('dialog')
@@ -185,6 +187,7 @@ try {
 			0,
 			'An archived goal keeps its completed Work visible after Clear done'
 		);
+		await completedMenu.click();
 		assert.equal(
 			await page.getByRole('button', { name: 'Clear done', exact: true }).count(),
 			0,

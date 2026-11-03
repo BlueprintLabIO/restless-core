@@ -10,6 +10,10 @@ pub const WELCOME_THE_OWNER: &str = include_str!("../prompts/welcome-the-owner.m
 /// How the Exec proposes improvements, what it may change without asking,
 /// and how it weighs labour against model spend.
 pub const RUN_THE_BUSINESS: &str = include_str!("../prompts/run-the-business.md");
+
+/// What a creator owes at a checkpoint: one honest progress estimate per Work it created. Sent only
+/// in a wake where estimates are owed, so a quiet wake carries none of it.
+pub const ESTIMATE_PROGRESS: &str = include_str!("../prompts/estimate-progress.md");
 /// Align before making, look before passing, learn from every correction: foundations first,
 /// a kickoff brief before customer-facing Work, and corrections recorded as Brand
 /// evidence the owner promotes.
