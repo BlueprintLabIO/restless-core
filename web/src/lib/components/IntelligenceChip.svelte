@@ -26,7 +26,18 @@
 	import { hasOwnerSurfaceAccess } from '$lib/model/company-access';
 	import { agentConnection, agentPickerSelection } from '$lib/model/intelligence-route';
 
-	let { companyId, actorId, name }: { companyId: string; actorId: string; name: string } = $props();
+	let {
+		companyId,
+		actorId,
+		name,
+		progressing = false
+	}: {
+		companyId: string;
+		actorId: string;
+		name: string;
+		/** One of this agent's turns is running now: its model answers, whatever the routes say. */
+		progressing?: boolean;
+	} = $props();
 	/* Choosing a model is the owner's alone, as the server decides; for anyone else the chip is not
 	 * there, and reads nothing they would be refused. */
 	const principal = $derived(companyPrincipalQuery(companyId));
@@ -34,7 +45,7 @@
 	const catalog = modelCatalog(() => allowed);
 	const source = $derived(intelligenceQuery(companyId, () => allowed));
 	const agent = $derived(source.view?.agents.find((row) => row.id === actorId) ?? null);
-	const routeState = $derived(agentRouteState(source.view, actorId));
+	const routeState = $derived(agentRouteState(source.view, actorId, progressing));
 	const connection = $derived(
 		source.view && agent ? (agentConnection(source.view, agent) ?? null) : null
 	);

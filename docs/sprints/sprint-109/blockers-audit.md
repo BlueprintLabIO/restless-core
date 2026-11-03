@@ -227,7 +227,14 @@ owner's decision.
     credit or quota".
   - The quota card says "Work resumes within minutes of a top-up". That isn't true for
     already-claimed Work (item 1).
-- **Open.**
+- **Fixed** (fix/model-avail-live-row, 3 Nov; lifted from the unmerged fix/s109-blocker-cards):
+  - Granting a provider another connection clears that provider's quota and credential
+    cooldowns, not only credential ones.
+  - A rate limit (429) cools down for the provider's own wait, or two minutes, never an hour, and
+    raises no "out of credit" card: it clears by itself.
+  - The first output of any turn on a model lifts that model's cooldown at once, rather than
+    when the turn ends.
+  - The quota card's top-up wording (item 1) is still open on fix/s109-blocker-cards.
 
 ### 16. Native-turn cap raises a "spend limit" card that can't lift it
 

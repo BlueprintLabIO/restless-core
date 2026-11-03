@@ -9,6 +9,7 @@ import type {
 } from './generated/orgintel';
 import type { CompanyMembershipRole } from './query-persistence';
 import { responseFailure } from './failure.ts';
+import type { ProgressRow } from '../work/progress.ts';
 
 export const COLLABORATION_SCHEMA_VERSION = 'member-collaboration.v1';
 
@@ -134,6 +135,8 @@ export interface CollaborationBootstrap {
 		edges: CollaborationWorkEdge[];
 		attempts: CollaborationAttempt[];
 		artifacts: CollaborationArtifact[];
+		/** Rough progress estimates on the visible Work, oldest first. */
+		progress: ProgressRow[];
 	};
 	attention: {
 		handoffs: CollaborationHandoff[];
@@ -276,6 +279,19 @@ function parseWork(value: unknown): CollaborationWork {
 	};
 }
 
+function parseProgress(value: unknown): ProgressRow {
+	const row = object(value);
+	return {
+		id: integer(row.id),
+		work_id: text(row.work_id),
+		state: text(row.state),
+		percent: row.percent === null || row.percent === undefined ? null : integer(row.percent),
+		next: text(row.next),
+		estimated_by: text(row.estimated_by),
+		recorded_at: text(row.recorded_at)
+	};
+}
+
 function parseEdge(value: unknown): CollaborationWorkEdge {
 	const row = object(value);
 	return {
@@ -384,7 +400,9 @@ export function parseCollaborationBootstrap(value: unknown): CollaborationBootst
 			work: list(workGraph.work).map(parseWork),
 			edges: list(workGraph.edges).map(parseEdge),
 			attempts: list(workGraph.attempts).map(parseAttempt),
-			artifacts: list(workGraph.artifacts).map(parseArtifact)
+			artifacts: list(workGraph.artifacts).map(parseArtifact),
+			/* Older servers send no estimates: nothing is shown, never 0%. */
+			progress: list(workGraph.progress ?? []).map(parseProgress)
 		},
 		attention: {
 			handoffs: list(attention.handoffs).map(parseHandoff)

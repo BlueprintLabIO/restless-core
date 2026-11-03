@@ -4,6 +4,8 @@
 	 * it reads the Work graph. Details opens the full Work sheet (S85-15). */
 	import { reviewVerdicts, workPanel, type PanelWorkItem } from '$lib/model/people-directory';
 	import { workStatusLabel } from '$lib/work/status';
+	import { workEstimate, type ProgressRow } from '$lib/work/progress';
+	import Estimate from '$lib/ui/data/Estimate.svelte';
 	import OutputThumb from './OutputThumb.svelte';
 	import Check from '@lucide/svelte/icons/check';
 
@@ -28,6 +30,7 @@
 		gates = [],
 		gateRuns = [],
 		attempts = [],
+		progress = [],
 		owners,
 		ownerName,
 		highlight = '',
@@ -47,6 +50,8 @@
 		gates?: readonly { id: string; work_id: string; retired_at: string | null }[];
 		gateRuns?: readonly { gate_id: string; passed: boolean; ran_at: string }[];
 		attempts?: readonly { work_id: string; revision: number; attempt_no: number; state: string }[];
+		/** The creators' rough estimates, oldest first. */
+		progress?: readonly ProgressRow[];
 		owners: ReadonlySet<string>;
 		/** Who does a piece of Work, named when the panel is a team's. */
 		ownerName: (actorId: string) => string;
@@ -105,6 +110,9 @@
 		return { passed, total: mine.length };
 	});
 	const spent = $derived(now ? (spend?.get(now.id) ?? null) : null);
+	const estimateOf = (item: { id: string; status: string }) =>
+		workEstimate(item, progress, ownerName);
+	const nowEstimate = $derived(now ? estimateOf(now) : null);
 	const money = (usd: number) => `$${usd < 10 ? usd.toFixed(2) : usd.toFixed(0)}`;
 </script>
 
@@ -117,6 +125,7 @@
 		{#if monitored.length}
 			<ul class="monitoring">
 				{#each monitored as item (item.id)}
+					{@const estimate = estimateOf(item)}
 					<li>
 						<div class="monitor-owner">
 							<a
@@ -138,6 +147,15 @@
 								class="work-waiting"
 								title={line || undefined}>{line}</span
 							>{/if}
+						<!-- Held for every monitored Work, so an estimate landing never grows the list. -->
+						<span class="work-estimate"
+							>{#if estimate}<Estimate
+									fill={estimate.fill}
+									text={estimate.text}
+									title={estimate.title}
+									tone={estimate.tone}
+								/>{/if}</span
+						>
 					</li>
 				{/each}
 			</ul>
@@ -166,6 +184,16 @@
 									: workStatusLabel(now.status)}</span
 						>
 					</dd>
+					<!-- Held while the Work is open, so the first estimate never pushes the card down. -->
+					{#if nowEstimate || (!panel.nowDelivered && now.status !== 'completed')}<dt>Estimate</dt>
+						<dd>
+							{#if nowEstimate}<Estimate
+									fill={nowEstimate.fill}
+									text={nowEstimate.text}
+									title={nowEstimate.title}
+									tone={nowEstimate.tone}
+								/>{/if}
+						</dd>{/if}
 					{#if team}<dt>Owner</dt>
 						<dd>{ownerName(now.owner_id)}</dd>{/if}
 					{#if nowReview}<dt>Review</dt>
@@ -272,6 +300,12 @@
 		line-height: 1.4;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.work-estimate {
+		display: flex;
+		height: 1.4em;
+		min-width: 0;
+		overflow: hidden;
 	}
 	h3 {
 		display: flex;
