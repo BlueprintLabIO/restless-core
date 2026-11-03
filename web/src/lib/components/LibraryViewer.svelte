@@ -20,6 +20,7 @@
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import Link from '@lucide/svelte/icons/link';
 	import Check from '@lucide/svelte/icons/check';
+	import FolderOpen from '@lucide/svelte/icons/folder-open';
 	import X from '@lucide/svelte/icons/x';
 	import {
 		downloadHref,
@@ -45,7 +46,8 @@
 		backHref,
 		backLabel = 'Back to the Library',
 		resolve = null,
-		convert = null
+		convert = null,
+		folderHref = ''
 	}: {
 		companyId: string;
 		file: LibraryFile;
@@ -56,6 +58,8 @@
 		resolve?: (() => Promise<string | OpenedFile>) | null;
 		/** Make this Word, Excel or CSV file an editable document or sheet, when it can be one. */
 		convert?: { label: string; run: () => Promise<void> } | null;
+		/** All files at the folder this file sits in, with it highlighted. */
+		folderHref?: string;
 	} = $props();
 	let converting = $state(false);
 	async function runConvert() {
@@ -270,6 +274,11 @@
 				download={resolve ? file.label : ''}
 				title={`Download ${file.name}`}
 				aria-label={`Download ${file.name}`}><Download size={15} strokeWidth={1.9} /></a
+			>
+		{/if}
+		{#if folderHref}
+			<a class="btn small icon" href={folderHref} title="Show in folder" aria-label="Show in folder"
+				><FolderOpen size={15} strokeWidth={1.9} /></a
 			>
 		{/if}
 		<button
