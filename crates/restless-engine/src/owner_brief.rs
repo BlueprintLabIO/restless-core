@@ -13,7 +13,7 @@ pub const ESTIMATE_PROGRESS: &str = include_str!("../prompts/estimate-progress.m
 /// Every model call resends the fixed prompt, so ~22 KB of situational doctrine there was paid on
 /// every call of every wake; a skill costs one `restless skill use` on the turn that needs it.
 /// Name and full `SKILL.md`, for checks that read what agents can be told.
-pub const DOCTRINE_SKILLS: [(&str, &str); 5] = [
+pub const DOCTRINE_SKILLS: [(&str, &str); 6] = [
     (
         "writing-for-the-owner",
         include_str!("../skills/writing-for-the-owner/SKILL.md"),
@@ -33,6 +33,10 @@ pub const DOCTRINE_SKILLS: [(&str, &str); 5] = [
     (
         "sourcing-capabilities",
         include_str!("../skills/sourcing-capabilities/SKILL.md"),
+    ),
+    (
+        "people-and-teams",
+        include_str!("../skills/people-and-teams/SKILL.md"),
     ),
 ];
 

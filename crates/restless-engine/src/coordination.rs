@@ -6194,8 +6194,8 @@ mod tests {
             .iter()
             .find(|item| item.source.kind == "email_mandate_proposal")
             .unwrap();
-        assert!(card.what_happened.starts_with("exec proposed permission"));
-        assert!(card.requested_action.contains("5 per day, 5 total"));
+        assert!(card.what_happened.starts_with("exec asks for standing permission"), "{}", card.what_happened);
+        assert!(card.requested_action.contains("up to 5 emails a day, 5 in total"), "{}", card.requested_action);
 
         // Declined: no mandate, no card, and Exec cannot permit a send under it.
         let declined = daemon
