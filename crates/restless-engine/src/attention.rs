@@ -4239,7 +4239,13 @@ async fn project_queue(
             continue;
         };
         let note = record.body["judgement_note"].as_str().unwrap_or("");
-        let limits = format!("Purpose: {}\nAudience: {}\nSender: {}{}\nDaily cap: {}\nTotal cap: {}\nTimezone: {}\nExpires: {}", proposal.purpose, proposal.audience_guidance, proposal.sender, proposal.sender_name.as_deref().map(|name| format!(" ({name})")).unwrap_or_default(), proposal.max_per_day, proposal.max_total, proposal.timezone, proposal.expires_at.to_rfc3339());
+        let mut limits = format!("Purpose: {}\nAudience: {}\nSender: {}{}\nDaily cap: {}\nTotal cap: {}\nTimezone: {}\nExpires: {}", proposal.purpose, proposal.audience_guidance, proposal.sender, proposal.sender_name.as_deref().map(|name| format!(" ({name})")).unwrap_or_default(), proposal.max_per_day, proposal.max_total, proposal.timezone, proposal.expires_at.to_rfc3339());
+        if proposal.one_email_per_recipient {
+            limits.push_str("\nPer person: one first email, then one reply per message they send");
+        }
+        if !proposal.own_addresses.is_empty() {
+            limits.push_str(&format!("\nYour own inboxes (never limited): {}", proposal.own_addresses.join(", ")));
+        }
         let proposer = record.actor_id.as_deref().unwrap_or("a company actor");
         items.push(AttentionItem {
             id: format!("authority:email_mandate_proposal:{proposal_id}"), work_id: None,

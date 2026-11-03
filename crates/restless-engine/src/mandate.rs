@@ -3,6 +3,11 @@
 //! Exec supplies the judgement and evidence for each recipient and message.
 //! This module checks the verifiable subset: active root, sender/recipient and
 //! payload binding, expiry, timezone-aware quota, and single consumption.
+//!
+//! The mandate's daily and total caps govern how many emails go out. Repeat sends to one
+//! address are allowed within those caps (an owner test inbox, a batch to one mailbox).
+//! A cold-outreach mandate may opt in to `one_email_per_recipient`; even then the owner's
+//! own addresses and the sender's own mailbox are never limited.
 
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -29,6 +34,13 @@ pub struct EmailMandate {
     pub max_total: u32,
     pub timezone: String,
     pub expires_at: DateTime<Utc>,
+    /// Cold outreach only, and only when the mandate says so: each address gets one first
+    /// email, then one reply per message they send. Off by default.
+    #[serde(default)]
+    pub one_email_per_recipient: bool,
+    /// The owner's own inboxes (for test sends). Never limited per recipient.
+    #[serde(default)]
+    pub own_addresses: Vec<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -44,6 +56,13 @@ pub struct NewEmailMandate {
     pub max_total: u32,
     pub timezone: String,
     pub expires_at: DateTime<Utc>,
+    /// Cold outreach only, and only when the mandate says so: each address gets one first
+    /// email, then one reply per message they send. Off by default.
+    #[serde(default)]
+    pub one_email_per_recipient: bool,
+    /// The owner's own inboxes (for test sends). Never limited per recipient.
+    #[serde(default)]
+    pub own_addresses: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -214,6 +233,8 @@ pub async fn grant_in_transaction(
         max_total: mandate.max_total,
         timezone: mandate.timezone,
         expires_at: mandate.expires_at,
+        one_email_per_recipient: mandate.one_email_per_recipient,
+        own_addresses: mandate.own_addresses,
         created_at: now,
     };
     let grants = sqlx::query(
@@ -278,6 +299,17 @@ pub fn canonicalize_new_mandate(mut mandate: NewEmailMandate) -> Result<NewEmail
     mandate.sender_name = normalize_sender_name(mandate.sender_name.as_deref())?;
     mandate.purpose = mandate.purpose.trim().to_owned();
     mandate.audience_guidance = mandate.audience_guidance.trim().to_owned();
+    if mandate.own_addresses.len() > 8 {
+        bail!("an email mandate lists at most 8 of the owner's own addresses");
+    }
+    let mut own: Vec<String> = Vec::new();
+    for address in &mandate.own_addresses {
+        let address = normalize_mailbox(address)?;
+        if !own.contains(&address) {
+            own.push(address);
+        }
+    }
+    mandate.own_addresses = own;
     if mandate.max_per_day == 0 || mandate.max_total == 0 || mandate.max_per_day > mandate.max_total
     {
         bail!("email mandate limits must be positive and daily limit cannot exceed total limit");
@@ -538,6 +570,100 @@ pub async fn usage(pool: &PgPool, company: &str, mandate_id: Uuid) -> Result<Ema
     })
 }
 
+/// The opt-in cold-outreach rule: one first email per address; once they write back, each
+/// message they send allows one reply in that thread. An outcome nobody knows still refuses.
+async fn refuse_repeat_outreach(
+    tx: &mut Transaction<'_, Postgres>,
+    company: &str,
+    recipient: &str,
+) -> Result<()> {
+    let latest_inbound: Option<i64> = sqlx::query_scalar(
+        "SELECT max(id) FROM restless_authority.records \
+         WHERE company=$1 AND kind='inbound_effect' \
+           AND body->>'type' IN ('email.received','email.inbound') \
+           AND (lower(body->>'party')=$2 OR lower(body->>'party') LIKE '%<' || $2 || '>')",
+    )
+    .bind(company)
+    .bind(recipient)
+    .fetch_one(&mut **tx)
+    .await?;
+    let answered = |id: i64| latest_inbound.is_some_and(|inbound| inbound > id);
+    let prior_recipient_reservations = sqlx::query(
+        "SELECT id, body FROM restless_authority.records \
+         WHERE company=$1 AND kind='email_send_reserved' AND lower(body->>'recipient')=$2",
+    )
+    .bind(company)
+    .bind(recipient)
+    .fetch_all(&mut **tx)
+    .await?;
+    for prior in prior_recipient_reservations {
+        let prior_id: i64 = prior.try_get("id")?;
+        let body: Value = prior.try_get("body")?;
+        let prior_key = body
+            .get("effect_key")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let last_outcome: Option<String> = sqlx::query_scalar(
+            "SELECT body->>'outcome' FROM restless_authority.records \
+             WHERE company=$1 AND kind='email_send_status' AND body->>'effect_key'=$2 \
+             ORDER BY id DESC LIMIT 1",
+        )
+        .bind(company)
+        .bind(prior_key)
+        .fetch_optional(&mut **tx)
+        .await?;
+        match last_outcome.as_deref() {
+            Some("confirmed_not_sent") => {}
+            Some("confirmed_sent") if answered(prior_id) => {}
+            Some("confirmed_sent") => bail!(
+                "recipient already has a sent outbound email under an email mandate and has not written back since"
+            ),
+            _ => bail!(
+                "recipient already has an uncertain outbound email under an email mandate; reconcile it before replying"
+            ),
+        }
+    }
+    for receipt in sqlx::query(
+        "SELECT id, body FROM restless_authority.records WHERE company=$1 AND kind='effect'",
+    )
+    .bind(company)
+    .fetch_all(&mut **tx)
+    .await?
+    {
+        let body: Value = receipt.try_get("body")?;
+        if !answered(receipt.try_get("id")?)
+            && body.get("effect_class").and_then(Value::as_str) == Some("customer-contact.email")
+            && body
+                .get("party")
+                .and_then(Value::as_str)
+                .is_some_and(|party| party.eq_ignore_ascii_case(recipient))
+            && body.get("success").and_then(Value::as_bool) == Some(true)
+        {
+            bail!("recipient already has a successful customer-contact.email receipt");
+        }
+    }
+    // A generic attempt the correspondent has since answered is settled only if it has a result.
+    let prior_generic_intent: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM restless_authority.records intent \
+         WHERE intent.company=$1 AND intent.kind='effect_intent' \
+           AND intent.body->>'effect_class'='customer-contact.email' \
+           AND lower(intent.body->>'party')=$2 \
+           AND NOT (intent.id < COALESCE($3, 0) AND EXISTS(SELECT 1 FROM restless_authority.records receipt \
+             WHERE receipt.company=$1 AND receipt.kind='effect' \
+               AND receipt.body->>'idempotency_key'=intent.body->>'idempotency_key' \
+               AND receipt.body->>'execution_no'=intent.body->>'execution_no')))",
+    )
+    .bind(company)
+    .bind(recipient)
+    .bind(latest_inbound)
+    .fetch_one(&mut **tx)
+    .await?;
+    if prior_generic_intent {
+        bail!("recipient has a prior generic email attempt; reconcile its provider outcome before delegated outreach");
+    }
+    Ok(())
+}
+
 pub async fn reserve(
     pool: &PgPool,
     company: &str,
@@ -598,91 +724,16 @@ pub async fn reserve(
     if prior {
         bail!("email permit or effect key has already been consumed");
     }
-    // A reply is not outreach: once this correspondent has written in after an earlier email
-    // to them, Exec may answer in that thread. Only an outcome nobody knows still refuses.
-    let latest_inbound: Option<i64> = sqlx::query_scalar(
-        "SELECT max(id) FROM restless_authority.records \
-         WHERE company=$1 AND kind='inbound_effect' \
-           AND body->>'type' IN ('email.received','email.inbound') \
-           AND (lower(body->>'party')=$2 OR lower(body->>'party') LIKE '%<' || $2 || '>')",
-    )
-    .bind(company)
-    .bind(recipient.as_str())
-    .fetch_one(&mut *tx)
-    .await?;
-    let answered = |id: i64| latest_inbound.is_some_and(|inbound| inbound > id);
-    let prior_recipient_reservations = sqlx::query(
-        "SELECT id, body FROM restless_authority.records \
-         WHERE company=$1 AND kind='email_send_reserved' AND lower(body->>'recipient')=$2",
-    )
-    .bind(company)
-    .bind(recipient.as_str())
-    .fetch_all(&mut *tx)
-    .await?;
-    for prior in prior_recipient_reservations {
-        let prior_id: i64 = prior.try_get("id")?;
-        let body: Value = prior.try_get("body")?;
-        let prior_key = body
-            .get("effect_key")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let last_outcome: Option<String> = sqlx::query_scalar(
-            "SELECT body->>'outcome' FROM restless_authority.records \
-             WHERE company=$1 AND kind='email_send_status' AND body->>'effect_key'=$2 \
-             ORDER BY id DESC LIMIT 1",
-        )
-        .bind(company)
-        .bind(prior_key)
-        .fetch_optional(&mut *tx)
-        .await?;
-        match last_outcome.as_deref() {
-            Some("confirmed_not_sent") => {}
-            Some("confirmed_sent") if answered(prior_id) => {}
-            Some("confirmed_sent") => bail!(
-                "recipient already has a sent outbound email under an email mandate and has not written back since"
-            ),
-            _ => bail!(
-                "recipient already has an uncertain outbound email under an email mandate; reconcile it before replying"
-            ),
-        }
-    }
-    for receipt in sqlx::query(
-        "SELECT id, body FROM restless_authority.records WHERE company=$1 AND kind='effect'",
-    )
-    .bind(company)
-    .fetch_all(&mut *tx)
-    .await?
+    // The caps govern; repeat sends to one address are fine within them. Only a mandate that
+    // opts in to one first email per recipient limits an address, and never the owner's own.
+    if root.one_email_per_recipient
+        && recipient != actual_sender
+        && !root
+            .own_addresses
+            .iter()
+            .any(|own| normalize_mailbox(own).is_ok_and(|own| own == recipient))
     {
-        let body: Value = receipt.try_get("body")?;
-        if !answered(receipt.try_get("id")?)
-            && body.get("effect_class").and_then(Value::as_str) == Some("customer-contact.email")
-            && body
-                .get("party")
-                .and_then(Value::as_str)
-                .is_some_and(|party| party.eq_ignore_ascii_case(&recipient))
-            && body.get("success").and_then(Value::as_bool) == Some(true)
-        {
-            bail!("recipient already has a successful customer-contact.email receipt");
-        }
-    }
-    // A generic attempt the correspondent has since answered is settled only if it has a result.
-    let prior_generic_intent: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM restless_authority.records intent \
-         WHERE intent.company=$1 AND intent.kind='effect_intent' \
-           AND intent.body->>'effect_class'='customer-contact.email' \
-           AND lower(intent.body->>'party')=$2 \
-           AND NOT (intent.id < COALESCE($3, 0) AND EXISTS(SELECT 1 FROM restless_authority.records receipt \
-             WHERE receipt.company=$1 AND receipt.kind='effect' \
-               AND receipt.body->>'idempotency_key'=intent.body->>'idempotency_key' \
-               AND receipt.body->>'execution_no'=intent.body->>'execution_no')))",
-    )
-    .bind(company)
-    .bind(recipient.as_str())
-    .bind(latest_inbound)
-    .fetch_one(&mut *tx)
-    .await?;
-    if prior_generic_intent {
-        bail!("recipient has a prior generic email attempt; reconcile its provider outcome before delegated outreach");
+        refuse_repeat_outreach(&mut tx, company, &recipient).await?;
     }
     let timezone = Tz::from_str(&root.timezone).context("mandate timezone is invalid")?;
     let usage_day = now.with_timezone(&timezone).date_naive().to_string();
@@ -971,7 +1022,144 @@ mod replace_tests {
             max_total: 100,
             timezone: "UTC".into(),
             expires_at: Utc::now() + chrono::Duration::days(30),
+            one_email_per_recipient: false,
+            own_addresses: Vec::new(),
         }
+    }
+
+    fn cold_outreach(per_day: u32) -> NewEmailMandate {
+        NewEmailMandate {
+            one_email_per_recipient: true,
+            own_addresses: vec!["Owner@Example.com".into()],
+            ..proposal(per_day)
+        }
+    }
+
+    /// Permit, reserve and confirm one mandated email `n` to `recipient`.
+    async fn send_one(
+        authority: &AuthorityStore,
+        company: &str,
+        mandate: Uuid,
+        recipient: &str,
+        n: u32,
+    ) -> Result<()> {
+        let digest = format!("{n:064x}");
+        let key = format!("send-{n}");
+        let permit = authority
+            .issue_email_permit(
+                company,
+                "exec",
+                mandate,
+                EmailPermitProposal {
+                    sender: "hello@example.com".into(),
+                    recipient: recipient.into(),
+                    payload_sha256: digest.clone(),
+                    effect_key: key.clone(),
+                    rationale: "Owner asked for test sends.".into(),
+                    evidence_refs: vec!["owner".into()],
+                    expires_at: Utc::now() + chrono::Duration::minutes(4),
+                },
+            )
+            .await?;
+        authority
+            .reserve_email_send(
+                company,
+                permit.id,
+                "hello@example.com",
+                None,
+                recipient,
+                &digest,
+                &key,
+            )
+            .await?;
+        authority
+            .record_email_send_status(
+                company,
+                permit.id,
+                &key,
+                ProviderOutcome::ConfirmedSent,
+                Some(&format!("re_{n}")),
+                None,
+            )
+            .await
+    }
+
+    /// The caps govern, not the address: an owner's test inbox (or any batch to one mailbox)
+    /// takes several emails under one mandate, up to the per-day and total caps. This was the
+    /// 3 Nov catch-22 where test email 2 of 4 was refused under an 8-total mandate.
+    #[tokio::test]
+    async fn one_address_takes_repeat_sends_up_to_the_caps() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping repeat-send scenario");
+            return;
+        };
+        let authority = AuthorityStore::connect(&database_url).await.unwrap();
+        let company = format!("mandate_repeat_{}", Uuid::new_v4().simple());
+        let mandate = NewEmailMandate {
+            max_total: 4,
+            ..proposal(4)
+        };
+        let proposed = authority
+            .propose_email_mandate(&company, "exec", mandate, None, None)
+            .await
+            .unwrap();
+        let mandate = authority
+            .decide_email_mandate_proposal(&company, "owner", proposed, true, None)
+            .await
+            .unwrap()
+            .unwrap();
+        for n in 1..=4 {
+            send_one(&authority, &company, mandate.id, "owner@example.com", n)
+                .await
+                .unwrap_or_else(|error| panic!("test email {n} of 4 was refused: {error:#}"));
+        }
+        let refused = send_one(&authority, &company, mandate.id, "owner@example.com", 5)
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{refused:#}").contains("quota"),
+            "the total cap still governs: {refused:#}"
+        );
+    }
+
+    /// A cold-outreach mandate that opts in limits each prospect to one first email, but never
+    /// the owner's own addresses or the sender's own mailbox.
+    #[tokio::test]
+    async fn opt_in_outreach_rule_never_limits_the_owner() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping outreach-rule scenario");
+            return;
+        };
+        let authority = AuthorityStore::connect(&database_url).await.unwrap();
+        let company = format!("mandate_outreach_{}", Uuid::new_v4().simple());
+        let proposed = authority
+            .propose_email_mandate(&company, "exec", cold_outreach(10), None, None)
+            .await
+            .unwrap();
+        let mandate = authority
+            .decide_email_mandate_proposal(&company, "owner", proposed, true, None)
+            .await
+            .unwrap()
+            .unwrap();
+        for n in 1..=3 {
+            send_one(&authority, &company, mandate.id, "owner@example.com", n)
+                .await
+                .unwrap();
+        }
+        for n in 4..=5 {
+            send_one(&authority, &company, mandate.id, "hello@example.com", n)
+                .await
+                .unwrap();
+        }
+        send_one(&authority, &company, mandate.id, "prospect@example.com", 6)
+            .await
+            .unwrap();
+        assert!(
+            send_one(&authority, &company, mandate.id, "prospect@example.com", 7)
+                .await
+                .is_err(),
+            "a second cold email to the same prospect is refused when the mandate opts in"
+        );
     }
 
     /// Changing a mandate is a proposal like any other: until approved the current mandate
@@ -1021,8 +1209,8 @@ mod replace_tests {
         assert_eq!(listed[0].max_per_day, 10);
     }
 
-    /// A reply is not new outreach: after a send, the same recipient is refused until they
-    /// write back, and each message they send allows one answer in that thread.
+    /// Under the opt-in outreach rule a reply is not new outreach: after a send, the same
+    /// recipient is refused until they write back, and each message allows one answer.
     #[tokio::test]
     async fn a_correspondent_who_writes_back_can_be_answered_once_per_message() {
         let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
@@ -1032,7 +1220,7 @@ mod replace_tests {
         let authority = AuthorityStore::connect(&database_url).await.unwrap();
         let company = format!("mandate_reply_{}", Uuid::new_v4().simple());
         let proposed = authority
-            .propose_email_mandate(&company, "exec", proposal(10), None, None)
+            .propose_email_mandate(&company, "exec", cold_outreach(10), None, None)
             .await
             .unwrap();
         let mandate = authority

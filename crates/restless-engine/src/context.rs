@@ -714,8 +714,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          --proposal-file <json>, then restless email send --request-file <json> with that \
          permit id. The email JSON names from, optional from_name, to, subject, text or html, effect_key, permit_id, \
          optional in_reply_to (the Message-ID you answer, so a reply stays in the customer's thread) \
-         and optional declared attachments. A mandate covers one first email per recipient; once \
-         they write back, each message they send allows one reply in that thread. The permit JSON names sender, recipient, \
+         and optional declared attachments. The caps govern; one address may get several \
+         emails within them. For cold outreach set one_email_per_recipient (one first email per \
+         prospect, then one reply per message they send) and list the owner's inboxes in own_addresses. The permit JSON names sender, recipient, \
          payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
          To send outreach with no active mandate, ask the owner for standing permission once: \
          restless mandate propose --proposal-file <json> --reason <why> (purpose, audience_guidance, \
