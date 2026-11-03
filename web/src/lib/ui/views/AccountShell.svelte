@@ -319,7 +319,8 @@
 		font-size: var(--t-body);
 		font-weight: 600;
 		text-decoration: none;
-		transform: translateY(-160%);
+		/* Far enough up that its shadow does not show as a smudge above the brand (S110). */
+		transform: translateY(calc(-100% - 40px));
 	}
 	.account-skip:focus-visible {
 		transform: none;
