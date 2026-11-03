@@ -4466,6 +4466,68 @@ pub async fn read_runtime_text_file(company: &str, value: &str) -> Result<String
     String::from_utf8(output.stdout).context("the file is not UTF-8 text")
 }
 
+/// The largest picture an agent's message, Inbox item or document shows in place.
+pub const MAX_COMPANY_IMAGE_BYTES: usize = 24 * 1024 * 1024;
+
+/// A raster picture's type from its leading bytes, never from its name. SVG can carry script, so
+/// it opens in the Library viewer's isolated origin instead.
+pub fn sniff_raster_image(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+/// Why a company picture cannot be shown, in words the cockpit can say as they are.
+#[derive(Debug)]
+pub enum CompanyImageRefusal {
+    NotInCompany,
+    Missing,
+    TooLarge,
+    NotRaster,
+}
+
+impl std::fmt::Display for CompanyImageRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::NotInCompany => "This picture is not in the company's files.",
+            Self::Missing => "This picture is not on the company computer.",
+            Self::TooLarge => "This picture is too large to show here.",
+            Self::NotRaster => "This file is not a picture the cockpit shows in place.",
+        })
+    }
+}
+impl std::error::Error for CompanyImageRefusal {}
+
+/// One picture beneath `/company`, read whole and bounded, with its sniffed raster type. An agent
+/// names pictures by their company path in chat, Inbox items and documents; this is how the owner
+/// sees them without a review ticket per picture.
+pub async fn read_company_image(company: &str, value: &str) -> Result<(&'static str, Vec<u8>)> {
+    validate_company_name(company)?;
+    let Ok(path) = company_file_path(value) else {
+        return Err(CompanyImageRefusal::NotInCompany.into());
+    };
+    let output = read_company_file(company, path, MAX_COMPANY_IMAGE_BYTES as u64 + 1).await?;
+    if !output.status.success() {
+        if output.status.code() == Some(67) {
+            return Err(CompanyImageRefusal::NotInCompany.into());
+        }
+        return Err(CompanyImageRefusal::Missing.into());
+    }
+    if output.stdout.len() > MAX_COMPANY_IMAGE_BYTES {
+        return Err(CompanyImageRefusal::TooLarge.into());
+    }
+    let media_type = sniff_raster_image(&output.stdout).ok_or(CompanyImageRefusal::NotRaster)?;
+    Ok((media_type, output.stdout))
+}
+
 fn runtime_review_text_path(value: &str) -> Result<&Path> {
     let Ok(path) = company_file_path(value) else {
         bail!("text ReviewTarget must be a file beneath /company");

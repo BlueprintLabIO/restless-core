@@ -645,6 +645,89 @@ pub(crate) async fn library_file_content(
     response
 }
 
+/// One picture in the company home, shown in place wherever an agent names it: a chat message, an
+/// Inbox item, a Markdown document. Only bytes that really are a raster image are served, with the
+/// same opaque, script-less policy as an inline attachment, so nothing a company wrote runs on the
+/// cockpit's origin. A teammate sees only the Work files they can open.
+pub(crate) async fn library_image(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<LibraryContentQuery>,
+) -> Response<Body> {
+    let path = query.path.trim();
+    if principal.membership_role() != "owner" {
+        match teammate_library(&state, &company, principal.actor_id()).await {
+            Ok(visible) if visible.uris.contains(path) => {}
+            Ok(_) => {
+                return api_error(
+                    StatusCode::NOT_FOUND,
+                    "library",
+                    "this picture is not one of the Work files you can open",
+                )
+            }
+            Err(refusal) => return refusal,
+        }
+    }
+    if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(error, "This company could not be found."),
+        );
+    }
+    if !path.starts_with("/company/") {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "library",
+            runtime::CompanyImageRefusal::NotInCompany.to_string(),
+        );
+    }
+    if let Err(refusal) =
+        wake_for_owner_read(&state, &company, "the owner looked at a company picture").await
+    {
+        return refusal;
+    }
+    let (media_type, bytes) = match runtime::read_company_image(&company, path).await {
+        Ok(image) => image,
+        Err(error) => {
+            let (status, sentence) = match error.downcast_ref::<runtime::CompanyImageRefusal>() {
+                Some(refusal @ runtime::CompanyImageRefusal::TooLarge) => {
+                    (StatusCode::PAYLOAD_TOO_LARGE, refusal.to_string())
+                }
+                Some(refusal @ runtime::CompanyImageRefusal::NotRaster) => {
+                    (StatusCode::UNSUPPORTED_MEDIA_TYPE, refusal.to_string())
+                }
+                Some(refusal) => (StatusCode::NOT_FOUND, refusal.to_string()),
+                None => (
+                    StatusCode::NOT_FOUND,
+                    logged(error, "This picture could not be read from the company computer.")
+                        .to_string(),
+                ),
+            };
+            return api_error(status, "library", sentence);
+        }
+    };
+    let mut response = Response::new(Body::from(bytes));
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static(media_type));
+    headers.insert(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(CONTENT_DISPOSITION, HeaderValue::from_static("inline"));
+    // A re-rendered message reuses the picture rather than reading the computer again; a minute
+    // is short enough that a redrawn picture shows on the next look.
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("private, max-age=60"));
+    headers.insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'none'; style-src 'unsafe-inline'; sandbox; frame-ancestors 'self'",
+        ),
+    );
+    response
+}
+
 /// Probe one Runtime target and issue a ticket for its isolated origin, returning its URL. The
 /// cockpit never frames a target it has not just observed.
 async fn open_review_origin(

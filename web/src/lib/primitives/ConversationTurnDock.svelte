@@ -20,10 +20,14 @@
 		participantName,
 		turn,
 		onstop = null,
-		onretry = null
+		onretry = null,
+		preview = true
 	}: {
 		participantName: string;
 		turn: ActiveAgentTurn;
+		/** Stream the reply under the line. Off where the line only points at a conversation that
+		 * shows it in full (the Work panel beside the person's chat). */
+		preview?: boolean;
 		/** Stops the reply in progress without sending anything; resolves to an error sentence. */
 		onstop?: (() => Promise<string | null>) | null;
 		/** Answers the same message again after a failed reply; resolves to an error sentence. */
@@ -306,7 +310,7 @@
 		{/if}
 		{#if actionError}<p class="turn-action-error" role="alert">{actionError}</p>{/if}
 
-		{#if reply && !expanded && turn.transport !== 'idle' && !turn.replyLanded && !(phase === 'failed' && replyIsError(reply, turn.live?.error))}
+		{#if preview && reply && !expanded && turn.transport !== 'idle' && !turn.replyLanded && !(phase === 'failed' && replyIsError(reply, turn.live?.error))}
 			<article
 				class="streamed-reply visible-reply"
 				aria-label={`${participantName} streaming reply`}

@@ -599,7 +599,15 @@
 				edges: graph.edges ?? [],
 				work: graph.work,
 				attempts: graph.attempts ?? [],
-				route: intelligence.view ? (actor) => agentRouteState(intelligence.view, actor) : undefined
+				/* Someone at work now has a model that answers (3 Nov 2026). */
+				route: intelligence.view
+					? (actor) =>
+							agentRouteState(
+								intelligence.view,
+								actor,
+								everyone.some((person) => person.actor_id === actor && person.session_running)
+							)
+					: undefined
 			}) ?? ''
 		);
 	}
