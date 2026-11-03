@@ -18,14 +18,9 @@ cloud="${RESTLESS_CLOUD_DIR:-$HOME/code/restless-cloud}"
 dagger="${DAGGER_BIN:-$HOME/.local/bin/dagger}"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/restless-release/pr-checks"
 mkdir -p "$state"
-# Two workers: each timer tick takes a free slot, then keeps claiming unchecked commits until none
-# are left, so a new PR starts within a minute even while a long check runs in the other slot.
+# Two workers run side by side (below). Each claims one unchecked commit at a time and lists the
+# open PRs again after every check, so a short check never waits behind a long one.
 slot=
-for candidate in 1 2; do
-  exec 9>"$state/.slot-$candidate.lock"
-  flock -n 9 && { slot=$candidate; break; }
-done
-[ -n "$slot" ] || exit 0
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH" CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-6}"
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "[$slot] $*" >>"$state/pr-checks.log"; }
 
@@ -60,6 +55,7 @@ check() { # repo checkout number sha
   name="$(basename "$repo")-$sha"
   [ -f "$state/$name.result" ] && return 0
   mkdir "$state/$name.claim" 2>/dev/null || return 0   # the other slot has it
+  echo "$slot" >"$state/$name.claim/slot"
   tree="$state/src-$(basename "$repo")-$slot"
   log "checking $repo#$number at ${sha:0:12}"
   status "$repo" "$sha" pending "Qualifying on the owner's computer"
@@ -90,18 +86,43 @@ check() { # repo checkout number sha
   else
     echo "fail $result" >"$state/$name.result"; status "$repo" "$sha" failure "Qualification failed (exit $result); log on the owner's computer"
   fi
-  rmdir "$state/$name.claim" 2>/dev/null || true
+  rm -rf "$state/$name.claim"
   log "$repo#$number ${sha:0:12}: $(cat "$state/$name.result")"
 }
 
-for pair in "BlueprintLabIO/restless-core:$core" "BlueprintLabIO/restless-cloud:$cloud"; do
-  repo="${pair%%:*}" checkout="${pair#*:}"
-  gh pr list -R "$repo" --state open --limit 50 --json number,headRefOid,isCrossRepository \
-    -q '.[] | select(.isCrossRepository | not) | "\(.number) \(.headRefOid)"' 2>/dev/null |
+# Open PR heads as "repo checkout number sha", priority PRs first.
+candidates() {
+  local pair repo checkout
+  for pair in "BlueprintLabIO/restless-core:$core" "BlueprintLabIO/restless-cloud:$cloud"; do
+    repo="${pair%%:*}" checkout="${pair#*:}"
+    gh pr list -R "$repo" --state open --limit 50 --json number,headRefOid,isCrossRepository \
+      -q '.[] | select(.isCrossRepository | not) | "\(.number) \(.headRefOid)"' 2>/dev/null |
+      sed "s|^|$repo $checkout |"
+  done |
   # PR numbers listed in $state/priority (one per line) are checked first, e.g. a release's blockers.
-  awk -v pf="$state/priority" 'BEGIN { while ((getline n < pf) > 0) p[n] = 1 } { print (($1 in p) ? 0 : 1), $0 }' |
-  sort -s -k1,1n | cut -d' ' -f2- |
-  while read -r number sha; do
-    [ -n "$sha" ] && check "$repo" "$checkout" "$number" "$sha"
+  awk -v pf="$state/priority" 'BEGIN { while ((getline n < pf) > 0) p[n] = 1 } { print (($3 in p) ? 0 : 1), $0 }' |
+  sort -s -k1,1n | cut -d' ' -f2-
+}
+
+worker() {
+  slot="$1"
+  exec 9>"$state/.slot-$slot.lock"
+  flock -n 9 || return 0
+  # Claims this slot left behind when a run was killed.
+  grep -lx "$slot" "$state"/*.claim/slot 2>/dev/null | xargs -r -n1 dirname | xargs -r rm -rf
+  local repo checkout number sha found
+  while :; do
+    found=
+    while read -r repo checkout number sha; do
+      [ -n "$sha" ] || continue
+      [ -f "$state/$(basename "$repo")-$sha.result" ] && continue
+      [ -d "$state/$(basename "$repo")-$sha.claim" ] && continue
+      found=1; check "$repo" "$checkout" "$number" "$sha"; break
+    done < <(candidates)
+    [ -n "$found" ] || break
   done
-done
+}
+
+worker 1 &
+worker 2 &
+wait
