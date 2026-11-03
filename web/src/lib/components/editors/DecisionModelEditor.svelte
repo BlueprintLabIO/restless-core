@@ -19,14 +19,20 @@
 
 	type Mode = 'included' | 'watching' | 'openrouter' | 'off';
 	const stored = untrack(() => jobs.decision_model);
+	/* Where the included model cannot run, the editor opens on the choice that can. */
+	const includedHere = untrack(() => jobs.included_decisions);
 	let mode = $state<Mode>(
-		!stored
-			? 'watching'
-			: stored === INCLUDED_DECISIONS
-				? 'included'
-				: stored === DECISIONS_OFF
-					? 'off'
-					: 'openrouter'
+		(!stored || stored === INCLUDED_DECISIONS) && !includedHere
+			? untrack(() => jobs.openrouter_connected)
+				? 'openrouter'
+				: 'off'
+			: !stored
+				? 'watching'
+				: stored === INCLUDED_DECISIONS
+					? 'included'
+					: stored === DECISIONS_OFF
+						? 'off'
+						: 'openrouter'
 	);
 	let model = $state(
 		stored && stored !== INCLUDED_DECISIONS && stored !== DECISIONS_OFF ? stored : ''
@@ -66,14 +72,14 @@
 				title: 'Included',
 				detail: 'Routine results skip the Exec’s wake-up',
 				disabled: !jobs.included_decisions,
-				mark: jobs.included_decisions ? undefined : 'Not on this computer'
+				mark: jobs.included_decisions ? undefined : 'Hosted Restless only'
 			},
 			{
 				value: 'watching' as const,
 				title: 'Included, watching only',
 				detail: 'Notes what it would skip; changes nothing',
 				disabled: !jobs.included_decisions,
-				mark: jobs.included_decisions ? undefined : 'Not on this computer'
+				mark: jobs.included_decisions ? undefined : 'Hosted Restless only'
 			},
 			{
 				value: 'openrouter' as const,

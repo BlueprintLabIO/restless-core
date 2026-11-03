@@ -167,13 +167,7 @@ mod tests {
 
     async fn pool() -> Option<PgPool> {
         let url = std::env::var("RESTLESS_TEST_DATABASE_URL").ok()?;
-        let pool = PgPool::connect(&url).await.ok()?;
-        sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority")
-            .execute(&pool)
-            .await
-            .ok()?;
-        ensure_schema(&pool).await.ok()?;
-        Some(pool)
+        crate::authority::AuthorityStore::test_pool(&url).await.ok()
     }
 
     fn member(company: &str, actor: &str) -> VerifiedIdentity {

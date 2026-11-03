@@ -311,6 +311,8 @@
 	align-items: center;
 	overflow: hidden;
 	padding: 0;
+	/* Its controls fit themselves to its width (IntelligenceChip's short name on a phone). */
+	container: composer-slot / inline-size;
 }
 
 .bridge-root .hc-slot:empty {

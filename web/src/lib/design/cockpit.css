@@ -2238,8 +2238,13 @@
 	background: transparent;
 }
 
+/* The page chip keeps its whole label: the model chip beside it gives way instead, down to its
+ * mark (IntelligenceChip). Even a sub-pixel share of the shrinking ellipsized "Work" to "W." on a
+ * phone (S110). A label too long for the room left ends in an ellipsis. */
 .bridge-root .exec-context-line {
+	flex: 0 0 auto;
 	min-width: 0;
+	max-width: calc(100% - 26px);
 	display: flex;
 	align-items: center;
 	gap: 4px;
