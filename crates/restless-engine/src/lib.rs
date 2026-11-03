@@ -41,6 +41,7 @@ pub mod direction_authority;
 pub mod document_collaboration_token;
 pub mod document_commands;
 pub mod documents_service;
+pub mod doors;
 pub mod effect;
 pub mod email;
 pub mod email_approval;
