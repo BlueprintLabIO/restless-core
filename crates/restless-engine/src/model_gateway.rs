@@ -474,24 +474,27 @@ pub async fn available_actor_candidates(
     filter_cooling_candidates(ordered, &cooldowns)
 }
 
+/// Whether the owner gave this agent its own model on People: that choice is exact and the
+/// everyday model never replaces it (S107).
+pub fn has_own_model(config: &CompanyConfig, actor: &str) -> bool {
+    actor != "default" && config.agent_intelligence.contains_key(actor)
+}
+
 /// The company's everyday model ahead of `candidates`, which stay behind it as failover (S102).
 /// A native-harness route, an unset or cooling everyday model, or one already first keeps today's
-/// order.
+/// order. An agent the owner gave its own model on People keeps exactly that model.
 pub async fn with_everyday_model(
     config: &CompanyConfig,
+    actor: &str,
     harness: crate::runtime::AgentHarness,
     candidates: Vec<String>,
     authority: &crate::authority::AuthorityStore,
 ) -> Result<Vec<String>> {
-    let Some(everyday) = config
-        .everyday_model
-        .as_deref()
-        .map(str::trim)
-        .filter(|model| !model.is_empty())
-    else {
+    let Some(everyday) = config.everyday() else {
         return Ok(candidates);
     };
-    if config.native_model(harness).is_some()
+    if has_own_model(config, actor)
+        || config.native_model(harness).is_some()
         || candidates.first().map(String::as_str) == Some(everyday)
     {
         return Ok(candidates);

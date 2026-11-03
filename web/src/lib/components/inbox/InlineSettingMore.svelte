@@ -15,6 +15,14 @@
 	import { browserTimeZone } from '$lib/model/skills';
 	import { scheduleCadenceText } from '$lib/model/schedule-cadence';
 	import { readNotifyPreferences, type NotifyPreferences } from '$lib/model/notify-preferences';
+	import {
+		decisionLabel,
+		everydayLabel,
+		readModelJobs,
+		saveModelJobs,
+		EVERYDAY_OFF,
+		type ModelJobs
+	} from '$lib/model/model-jobs';
 	import { failureSentence } from '$lib/model/failure';
 	import InlinePanel from './InlinePanel.svelte';
 	import InlineChoice from './InlineChoice.svelte';
@@ -48,6 +56,14 @@
 	let schedule = $state<MonitoredSchedule | null>(null);
 	/* Notifications */
 	let prefs = $state<NotifyPreferences | null>(null);
+	/* Everyday and decision models */
+	let jobs = $state<ModelJobs | null>(null);
+	const jobModel = $derived(
+		proposal.setting === 'everyday_model' || proposal.setting === 'decision_model'
+			? proposal.model
+			: ''
+	);
+	const mainModel = $derived(jobs?.primary_model ? modelLabel(jobs.primary_model) : 'the main model');
 	const timeZone = browserTimeZone();
 
 	async function load() {
@@ -73,6 +89,8 @@
 					(await monitorSchedules(companyId)).find((row) => row.schedule.id === id) ?? null;
 			} else if (proposal.setting === 'notifications') {
 				prefs = await readNotifyPreferences(companyId);
+			} else if (proposal.setting === 'everyday_model' || proposal.setting === 'decision_model') {
+				jobs = await readModelJobs(companyId);
 			}
 			loaded = true;
 		} catch {
@@ -134,6 +152,49 @@
 				}
 			};
 		}
+		if (proposal.setting === 'everyday_model') {
+			const off = jobModel.trim().toLowerCase() === EVERYDAY_OFF;
+			return {
+				secondary: [decline],
+				primary: {
+					label: off ? `Run everything on ${mainModel}` : `Use ${modelLabel(jobModel)}`,
+					busyLabel: 'Saving…',
+					run: () =>
+						finish(
+							async () => {
+								const fresh = await readModelJobs(companyId);
+								jobs = await saveModelJobs(companyId, {
+									everyday_model: jobModel,
+									revision: fresh.revision
+								});
+							},
+							off
+								? `Every agent now runs on ${mainModel}.`
+								: `Chat and routine work now run on ${modelLabel(jobModel)}.`
+						)
+				}
+			};
+		}
+		if (proposal.setting === 'decision_model') {
+			return {
+				secondary: [decline],
+				primary: {
+					label: 'Turn on',
+					busyLabel: 'Saving…',
+					run: () =>
+						finish(
+							async () => {
+								const fresh = await readModelJobs(companyId);
+								jobs = await saveModelJobs(companyId, {
+									decision_model: jobModel,
+									revision: fresh.revision
+								});
+							},
+							'Routine results no longer wake the Exec.'
+						)
+				}
+			};
+		}
 		/* Email's editor offers the save; Decline stays here. */
 		if (proposal.setting === 'notifications') return { secondary: [decline] };
 		return {};
@@ -190,6 +251,34 @@
 					/>{/key}
 			{/if}
 		{/if}
+	</InlinePanel>
+{:else if proposal.setting === 'everyday_model'}
+	<InlinePanel label="Everyday model" {error}>
+		{#snippet status()}{@render compare(
+				everydayLabel(jobs?.everyday, jobs?.primary_model ?? null),
+				everydayLabel(proposal.model, jobs?.primary_model ?? null)
+			)}{/snippet}
+		<p class="explain">
+			Takes Staff chat and routine first tasks. The Exec, team leads, repairs and reviews stay on
+			{mainModel}, which also takes over if the everyday model is unavailable.
+		</p>
+	</InlinePanel>
+{:else if proposal.setting === 'decision_model'}
+	<InlinePanel
+		label="Decisions"
+		{error}
+		note={jobs && !jobs.included_decisions && proposal.model.trim().toLowerCase() === 'included'
+			? 'This computer has no included decision model, so turning it on changes nothing here.'
+			: ''}
+	>
+		{#snippet status()}{@render compare(
+				decisionLabel(jobs?.decision_model),
+				decisionLabel(proposal.model.trim().toLowerCase() === 'included' ? 'included' : proposal.model)
+			)}{/snippet}
+		<p class="explain">
+			A small, fast model reads each finished result. When it is sure a result is routine, the Exec
+			is not woken just to read it; the result still shows in Work.
+		</p>
 	</InlinePanel>
 {:else if proposal.setting === 'schedule'}
 	<InlinePanel
@@ -275,6 +364,12 @@
 	.compare small {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
+	}
+	.explain {
+		margin: 0;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+		line-height: 1.5;
 	}
 	/* The schedule and email rows sit edge to edge, as on their pages. */
 	.schedule,

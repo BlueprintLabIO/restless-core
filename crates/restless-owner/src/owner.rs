@@ -73,6 +73,8 @@ mod plane_readiness;
 mod preferences_api;
 #[path = "owner_presence.rs"]
 mod presence_api;
+#[path = "owner_model_jobs.rs"]
+mod model_jobs_api;
 #[path = "owner_publications.rs"]
 mod publications_api;
 #[path = "owner_review.rs"]
@@ -1540,6 +1542,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/provider/failover",
             axum::routing::put(update_model_failover),
+        )
+        .route(
+            model_jobs_api::PATH,
+            get(model_jobs_api::read).put(model_jobs_api::update),
         )
         .route(
             "/companies/{company}/startup-doctor",

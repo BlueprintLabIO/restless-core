@@ -20,6 +20,12 @@ pub enum SettingChange {
     ReasoningEffort { effort: String },
     /// The model the company runs on by default, as provider/model.
     Model { model: String },
+    /// The cheaper model for Staff chat and routine first tasks, as provider/model, or `off` to
+    /// run every turn on the main model (S102, S107).
+    EverydayModel { model: String },
+    /// The decision model that lets routine results skip an Exec wake: `included` (the plan's
+    /// own) or an OpenRouter provider/model.
+    DecisionModel { model: String },
     /// Pause or resume one schedule.
     Schedule {
         schedule_id: String,
@@ -61,6 +67,20 @@ pub enum SettingChange {
 
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
+fn is_off(model: &str) -> bool {
+    crate::runtime::everyday_model_setting(model)
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some(crate::runtime::EVERYDAY_OFF)
+}
+
+fn is_included(model: &str) -> bool {
+    model
+        .trim()
+        .eq_ignore_ascii_case(crate::decisions::INCLUDED_DECISIONS)
+}
+
 impl SettingChange {
     /// One line for the card's title: what changes, to what.
     pub fn summary(&self) -> String {
@@ -72,6 +92,20 @@ impl SettingChange {
                 format!("Set the company's thinking effort to {effort}")
             }
             Self::Model { model } => format!("Run the company on {model}"),
+            Self::EverydayModel { model } if is_off(model) => {
+                "Run all work on the company's main model".into()
+            }
+            Self::EverydayModel { model } => format!(
+                "Run chat and routine work on {}",
+                crate::company::model_words(model)
+            ),
+            Self::DecisionModel { model } if is_included(model) => {
+                "Skip needless Exec wake-ups with the included decision model".into()
+            }
+            Self::DecisionModel { model } => format!(
+                "Skip needless Exec wake-ups with {} on OpenRouter",
+                crate::company::model_words(model)
+            ),
             Self::Schedule { paused, label, .. } => format!(
                 "{} the schedule {}",
                 if *paused { "Pause" } else { "Resume" },
@@ -91,8 +125,38 @@ impl SettingChange {
         }
     }
 
+    /// The card's title, with what stays on the main model (S107): "Chat and routine work run on
+    /// Claude Sonnet 5.5; the Exec, leads and reviews stay on Claude Opus 5.5".
+    pub fn summary_for(&self, config: &crate::runtime::CompanyConfig) -> String {
+        let primary = config.for_agent("default");
+        match (self, primary.configured_model()) {
+            (Self::EverydayModel { model }, Some(main)) if !is_off(model) => format!(
+                "Chat and routine work run on {}; the Exec, leads and reviews stay on {}",
+                crate::company::model_words(model),
+                crate::company::model_words(main)
+            ),
+            (Self::EverydayModel { model }, Some(main)) if is_off(model) => format!(
+                "All work runs on {}, the company's main model",
+                crate::company::model_words(main)
+            ),
+            _ => self.summary(),
+        }
+    }
+
     fn validate(&self) -> Result<()> {
         match self {
+            Self::EverydayModel { model } => {
+                if !matches!(crate::runtime::everyday_model_setting(model), Ok(Some(_))) {
+                    bail!(
+                        "propose an everyday model as provider/model, e.g. anthropic/claude-sonnet-5-5, or off"
+                    );
+                }
+            }
+            Self::DecisionModel { model } => {
+                if !matches!(crate::runtime::decision_model_setting(model), Ok(Some(_))) {
+                    bail!("propose a decision model: included, or an OpenRouter provider/model");
+                }
+            }
             Self::SpendLimit { ceiling_usd } => {
                 if !ceiling_usd.is_finite() || *ceiling_usd <= 0.0 || *ceiling_usd > 1_000_000.0 {
                     bail!("propose a spend limit between US$1 and US$1,000,000");
@@ -197,6 +261,18 @@ pub fn settled(change: &SettingChange, config: &crate::runtime::CompanyConfig) -
         }
         SettingChange::ReasoningEffort { effort } => config.reasoning_effort == *effort,
         SettingChange::Model { model } => config.configured_model() == Some(model.as_str()),
+        SettingChange::EverydayModel { model } => {
+            config.everyday()
+                == crate::runtime::everyday_model_setting(model)
+                    .ok()
+                    .flatten()
+                    .as_deref()
+                    .filter(|model| *model != crate::runtime::EVERYDAY_OFF)
+        }
+        SettingChange::DecisionModel { model } => crate::runtime::decision_model_setting(model)
+            .ok()
+            .flatten()
+            .is_some_and(|wanted| config.decision_model.as_deref() == Some(wanted.as_str())),
         SettingChange::LegalProfile { .. }
         | SettingChange::Schedule { .. }
         | SettingChange::Notifications { .. } => false,
@@ -354,6 +430,60 @@ mod tests {
     }
 
     #[test]
+    fn everyday_and_decision_models_are_proposed_and_settled_like_company_set() {
+        let everyday: SettingProposalInput = serde_json::from_str(
+            r#"{"setting":"everyday_model","model":"anthropic/claude-sonnet-5-5","reason":"Most turns are routine."}"#,
+        )
+        .unwrap();
+        assert!(everyday.change.validate().is_ok());
+        let mut config: crate::runtime::CompanyConfig =
+            toml::from_str("name = \"acme\"\nmodel = \"anthropic/claude-opus-5-5\"\n").unwrap();
+        assert_eq!(
+            everyday.change.summary_for(&config),
+            "Chat and routine work run on Claude Sonnet 5.5; the Exec, leads and reviews stay on Claude Opus 5.5"
+        );
+        assert!(!settled(&everyday.change, &config));
+        config
+            .set_everyday_model("anthropic/claude-sonnet-5-5")
+            .unwrap();
+        assert!(settled(&everyday.change, &config));
+        let off = SettingChange::EverydayModel {
+            model: "off".into(),
+        };
+        assert!(off.validate().is_ok());
+        assert!(!settled(&off, &config));
+        assert_eq!(
+            off.summary_for(&config),
+            "All work runs on Claude Opus 5.5, the company's main model"
+        );
+        config.set_everyday_model("off").unwrap();
+        assert!(settled(&off, &config) && config.everyday().is_none());
+
+        let included = SettingChange::DecisionModel {
+            model: "Included".into(),
+        };
+        assert!(included.validate().is_ok());
+        assert_eq!(
+            included.summary(),
+            "Skip needless Exec wake-ups with the included decision model"
+        );
+        assert!(!settled(&included, &config));
+        config.set_decision_model("included").unwrap();
+        assert_eq!(config.decision_model.as_deref(), Some("included"));
+        assert!(settled(&included, &config));
+        for bad in ["", "sonnet", "two words/x"] {
+            assert!(SettingChange::DecisionModel { model: bad.into() }
+                .validate()
+                .is_err());
+        }
+        assert!(SettingChange::EverydayModel {
+            model: "sonnet".into()
+        }
+        .validate()
+        .is_err());
+    }
+
+    #[test]
     fn each_schedule_is_its_own_setting() {
         let pause = |id: &str| SettingChange::Schedule {
             schedule_id: id.into(),
@@ -363,12 +493,18 @@ mod tests {
         assert!(same_setting(&pause("a"), &pause("a")));
         assert!(!same_setting(&pause("a"), &pause("b")));
         assert!(same_setting(
-            &SettingChange::ReasoningEffort { effort: "low".into() },
-            &SettingChange::ReasoningEffort { effort: "high".into() }
+            &SettingChange::ReasoningEffort {
+                effort: "low".into()
+            },
+            &SettingChange::ReasoningEffort {
+                effort: "high".into()
+            }
         ));
         assert!(!same_setting(
             &pause("a"),
-            &SettingChange::ReasoningEffort { effort: "low".into() }
+            &SettingChange::ReasoningEffort {
+                effort: "low".into()
+            }
         ));
     }
 

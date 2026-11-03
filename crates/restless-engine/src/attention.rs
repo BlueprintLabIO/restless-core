@@ -4617,6 +4617,14 @@ async fn project_queue(
                     crate::setting_proposals::SettingChange::Model { .. } => {
                         serde_json::json!({ "model": config.configured_model() })
                     }
+                    crate::setting_proposals::SettingChange::EverydayModel { .. }
+                    | crate::setting_proposals::SettingChange::DecisionModel { .. } => {
+                        serde_json::json!({
+                            "model": config.for_agent("default").configured_model(),
+                            "everyday_model": config.everyday(),
+                            "decision_model": config.decision_model,
+                        })
+                    }
                     crate::setting_proposals::SettingChange::LegalProfile { .. }
                     | crate::setting_proposals::SettingChange::Schedule { .. }
                     | crate::setting_proposals::SettingChange::Notifications { .. } => {
@@ -4629,7 +4637,7 @@ async fn project_queue(
                 if settled {
                     continue;
                 }
-                let summary = proposal.change.summary();
+                let summary = proposal.change.summary_for(config);
                 let mut change = serde_json::to_value(&proposal.change).unwrap_or_default();
                 change["proposal"] = serde_json::json!(record.id);
                 change["current"] = current;

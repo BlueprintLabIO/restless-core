@@ -18,6 +18,8 @@ export type SettingProposal = { proposal: number; current: Record<string, unknow
 	| { setting: 'spend_limit'; ceiling_usd: number }
 	| { setting: 'reasoning_effort'; effort: string }
 	| { setting: 'model'; model: string }
+	| { setting: 'everyday_model'; model: string }
+	| { setting: 'decision_model'; model: string }
 	| { setting: 'schedule'; schedule_id: string; paused: boolean; label?: string | null }
 	| { setting: 'notifications'; email?: boolean | null; digest?: string | null }
 	| {

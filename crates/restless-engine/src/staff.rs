@@ -655,15 +655,23 @@ pub async fn dispatch_claimed_work(
             org.update_actor_model(&actor, first_model).await?;
         }
         // S102: a routine first Attempt starts on the everyday model, with the primary behind it
-        // as failover. A repair, a review, feedback or any doubt keeps the primary.
-        let candidates = if config.everyday_model.is_some()
+        // as failover. A repair, a review, feedback, a team lead's Work, an agent with its own
+        // model or any doubt keeps the primary (S107).
+        let candidates = if config.everyday().is_some()
+            && !crate::model_gateway::has_own_model(config, &actor)
             && claimed.attempt_no == 1
             && claimed.review_targets.is_empty()
             && claimed.feedback.is_empty()
+            && !org
+                .list_teams()
+                .await?
+                .iter()
+                .any(|team| team.lead_actor_id == actor)
             && crate::decisions::work_suits_everyday_model(org, config, &claimed.work).await
         {
             crate::model_gateway::with_everyday_model(
                 config,
+                &actor,
                 config.worker_harness,
                 candidates,
                 authority,

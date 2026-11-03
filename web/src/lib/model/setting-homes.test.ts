@@ -31,6 +31,8 @@ test('every proposable setting has a home', () => {
 		'spend_limit',
 		'reasoning_effort',
 		'model',
+		'everyday_model',
+		'decision_model',
 		'legal_profile',
 		'schedule',
 		'notifications'
