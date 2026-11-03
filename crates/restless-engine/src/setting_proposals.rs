@@ -99,6 +99,13 @@ impl SettingChange {
                 "Run chat and routine work on {}",
                 crate::company::model_words(model)
             ),
+            Self::DecisionModel { model }
+                if model
+                    .trim()
+                    .eq_ignore_ascii_case(crate::decisions::DECISIONS_OFF) =>
+            {
+                "Turn decisions off: every result wakes the Exec".into()
+            }
             Self::DecisionModel { model } if is_included(model) => {
                 "Skip needless Exec wake-ups with the included decision model".into()
             }

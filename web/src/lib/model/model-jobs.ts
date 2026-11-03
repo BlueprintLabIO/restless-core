@@ -107,6 +107,17 @@ export function decisionRecord(jobs: ModelJobs, relative: (at: string) => string
 	return `${record} · ran ${relative(summary.last_ran_at)}`;
 }
 
+/** The Decisions row's line: which model, its state, its record; never the same words twice. */
+export function decisionLine(jobs: ModelJobs, relative: (at: string) => string): string {
+	const which =
+		jobs.decision_mode === 'off'
+			? null
+			: jobs.decision_model && jobs.decision_model !== INCLUDED_DECISIONS
+				? decisionLabel(jobs.decision_model)
+				: 'Included';
+	return [which, decisionState(jobs), decisionRecord(jobs, relative)].filter(Boolean).join(' · ');
+}
+
 /** The full record, for the row's tooltip. */
 export function decisionDetail(jobs: ModelJobs): string {
 	const base =

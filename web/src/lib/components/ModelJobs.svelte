@@ -15,13 +15,7 @@
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { modelJobsQuery } from '$lib/model/model-jobs.svelte';
-	import {
-		decisionDetail,
-		decisionLabel,
-		decisionRecord,
-		decisionState,
-		everydayLine
-	} from '$lib/model/model-jobs';
+	import { decisionDetail, decisionLine, everydayLine } from '$lib/model/model-jobs';
 	import { watchIntelligenceChanges, affectsCompany } from '$lib/model/intelligence-events';
 	import { onMount, untrack } from 'svelte';
 	import EditorForm from './editors/EditorForm.svelte';
@@ -132,15 +126,7 @@
 		</Item>
 		<Item
 			title="Decisions"
-			meta={view
-				? [
-						decisionLabel(view.decision_model),
-						decisionState(view),
-						decisionRecord(view, (at) => formatRelative(at))
-					]
-						.filter(Boolean)
-						.join(' · ')
-				: null}
+			meta={view ? decisionLine(view, (at) => formatRelative(at)) : null}
 			selected={editing === 'decisions'}
 		>
 			{#snippet leading()}<Signpost size={15} strokeWidth={1.8} />{/snippet}
