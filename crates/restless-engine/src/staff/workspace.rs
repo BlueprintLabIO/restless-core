@@ -593,7 +593,43 @@ pub async fn ensure_worktree(
         }
     }
 
-    let observed = observe_workspace(&container, &path).await;
+    let mut observed = observe_workspace(&container, &path).await;
+    if observed.source_commit.is_some()
+        && (observed.source_commit.as_deref() != Some(exact_commit.as_str())
+            || observed.source_tree.as_deref() != Some(exact_tree.as_str()))
+    {
+        // One persistent worktree serves every Attempt on this Work, so a successor whose
+        // requested source differs from where the last Attempt left HEAD could never start
+        // (S109 blockers audit, item 8: 7 Attempts on 6 Work items, each abandoned and
+        // recreated). Keep everything that was there, then start from the exact source.
+        let preserved =
+            preserve_and_reset_worktree(&docker_company_command(&container), &path, attempt_id, &exact_commit)
+                .await?;
+        tracing::warn!(
+            company = config.name,
+            work_id = %work.id,
+            %attempt_id,
+            previous_head = preserved.previous_head.as_deref().unwrap_or("none"),
+            uncommitted = preserved.uncommitted_ref.as_deref().unwrap_or("none"),
+            "Work worktree was elsewhere; preserved it and reset to the requested source"
+        );
+        org.emit_event(
+            "attempt_workspace_preserved",
+            Some("daemon"),
+            serde_json::json!({
+                "work_id": work.id,
+                "attempt_id": attempt_id,
+                "workdir": path,
+                "previous_head": preserved.previous_head,
+                "preserved_ref": preserved.head_ref,
+                "uncommitted_ref": preserved.uncommitted_ref,
+                "uncommitted_entries": preserved.uncommitted_entries,
+                "reset_to": exact_commit,
+            }),
+        )
+        .await?;
+        observed = observe_workspace(&container, &path).await;
+    }
     if observed.source_commit.as_deref() != Some(exact_commit.as_str())
         || observed.source_tree.as_deref() != Some(exact_tree.as_str())
     {
@@ -634,6 +670,93 @@ pub async fn ensure_worktree(
     )
     .await?;
     Ok(path)
+}
+
+/// What a worktree held before it was moved to an Attempt's exact source.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PreservedWorkspace {
+    /// Where HEAD was.
+    pub previous_head: Option<String>,
+    /// `refs/restless/preserved/<attempt>`: the old HEAD, so its commits stay reachable.
+    pub head_ref: Option<String>,
+    /// `refs/restless/preserved/<attempt>-uncommitted`: a stash commit with every uncommitted and
+    /// untracked change (also left in `git stash list`).
+    pub uncommitted_ref: Option<String>,
+    pub uncommitted_entries: usize,
+}
+
+/// Save a worktree's HEAD and every uncommitted change under `refs/restless/preserved/`, then reset
+/// it to `target`. Nothing anyone made is discarded: commits stay reachable from the saved ref, and
+/// uncommitted and untracked files go into a stash commit kept under its own ref. Ignored files
+/// (caches) are left in place. Fails, changing nothing further, if Git can't stash (for example
+/// mid-merge), so the Attempt ends with that cause rather than losing work.
+async fn preserve_and_reset_worktree(
+    command: &CompanyCommand,
+    workdir: &str,
+    attempt_id: Uuid,
+    target: &str,
+) -> Result<PreservedWorkspace> {
+    anyhow::ensure!(valid_commit(target), "invalid reset target {target:?}");
+    let script = r#"set -eu
+wt="$1"; attempt="$2"; target="$3"
+git() { command git -c user.name=Restless -c user.email=restless@localhost -C "$wt" "$@"; }
+head="$(git rev-parse --verify -q HEAD || true)"
+entries="$(git status --porcelain=v1 --untracked-files=all | wc -l | tr -d ' ')"
+# A second preservation for the same Attempt never overwrites the first.
+name="refs/restless/preserved/$attempt"
+if git show-ref -q --verify "$name" || git show-ref -q --verify "$name-uncommitted"; then
+  name="$name-$(date +%s)"
+fi
+stash_ref=""; head_ref=""
+if [ "$entries" -gt 0 ]; then
+  git stash push --include-untracked -m "restless: preserved before Attempt $attempt" >/dev/null
+  stash_ref="$name-uncommitted"
+  git update-ref "$stash_ref" "$(git rev-parse --verify stash@{0})"
+fi
+if [ -n "$head" ]; then head_ref="$name"; git update-ref "$head_ref" "$head"; fi
+git reset -q --hard "$target"
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+printf 'head=%s\nhead_ref=%s\nstash_ref=%s\nentries=%s\n' "$head" "$head_ref" "$stash_ref" "$entries"
+"#;
+    let attempt = attempt_id.to_string();
+    let output = command(
+        [
+            "sh",
+            "-c",
+            script,
+            "restless-preserve",
+            workdir,
+            attempt.as_str(),
+            target,
+        ]
+        .map(str::to_string)
+        .to_vec(),
+    )
+    .await
+    .context("preserve the Work worktree")?;
+    if !output.success {
+        return Err(output_error(
+            "preserving the Work worktree before resetting it to the requested source",
+            &output,
+        ));
+    }
+    let report = String::from_utf8_lossy(&output.stdout).to_string();
+    let field = |name: &str| {
+        report
+            .lines()
+            .find_map(|line| line.strip_prefix(&format!("{name}=")))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    Ok(PreservedWorkspace {
+        previous_head: field("head"),
+        head_ref: field("head_ref"),
+        uncommitted_ref: field("stash_ref"),
+        uncommitted_entries: field("entries")
+            .and_then(|entries| entries.parse().ok())
+            .unwrap_or(0),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1086,8 +1209,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        observe_git_workspace, prepare_review_copy_with, probe_review_copy_as_reviewer,
-        promote_integration_commit_with, CommandFuture, CommandOutput, CompanyCommand,
+        observe_git_workspace, prepare_review_copy_with, preserve_and_reset_worktree,
+        probe_review_copy_as_reviewer, promote_integration_commit_with, CommandFuture,
+        CommandOutput, CompanyCommand,
     };
 
     fn local_git_command() -> Arc<CompanyCommand> {
@@ -1116,6 +1240,102 @@ mod tests {
             args,
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    /// S109 blockers audit, item 8: a Work worktree left elsewhere by an earlier Attempt, with
+    /// commits and uncommitted (tracked and untracked) changes, is moved to the successor's exact
+    /// source without losing any of it.
+    #[tokio::test]
+    async fn a_worktree_left_elsewhere_is_preserved_then_reset_to_the_requested_source() {
+        let root = std::env::temp_dir().join(format!(
+            "restless-preserve-worktree-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        let worktree = root.join("work");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "--initial-branch", "main"]).await;
+        git(&repo, &["config", "user.email", "preserve@test.invalid"]).await;
+        git(&repo, &["config", "user.name", "Preserve Test"]).await;
+        std::fs::write(repo.join("tracked.txt"), "base\n").unwrap();
+        git(&repo, &["add", "tracked.txt"]).await;
+        git(&repo, &["commit", "-m", "base"]).await;
+        let command = local_git_command();
+        let base = observe_git_workspace(&*command, repo.to_str().unwrap())
+            .await
+            .source_commit
+            .unwrap();
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "work/w1",
+                worktree.to_str().unwrap(),
+                "HEAD",
+            ],
+        )
+        .await;
+        // The earlier Attempt committed, then left edits and a new file behind.
+        std::fs::write(worktree.join("tracked.txt"), "attempt one\n").unwrap();
+        git(&worktree, &["commit", "-am", "attempt one"]).await;
+        let left_at = observe_git_workspace(&*command, worktree.to_str().unwrap())
+            .await
+            .source_commit
+            .unwrap();
+        std::fs::write(worktree.join("tracked.txt"), "half done\n").unwrap();
+        std::fs::write(worktree.join("notes.md"), "untracked notes\n").unwrap();
+
+        let attempt = uuid::Uuid::new_v4();
+        let preserved =
+            preserve_and_reset_worktree(&*command, worktree.to_str().unwrap(), attempt, &base)
+                .await
+                .expect("preserve and reset");
+        let after = observe_git_workspace(&*command, worktree.to_str().unwrap()).await;
+        assert_eq!(after.source_commit.as_deref(), Some(base.as_str()));
+        assert_eq!(after.dirty_entries, 0);
+        assert_eq!(preserved.previous_head.as_deref(), Some(left_at.as_str()));
+        assert_eq!(preserved.uncommitted_entries, 2);
+        let head_ref = preserved.head_ref.clone().unwrap();
+        assert_eq!(head_ref, format!("refs/restless/preserved/{attempt}"));
+        let uncommitted_ref = preserved.uncommitted_ref.clone().unwrap();
+
+        // Every commit and every change is still there.
+        let show = |spec: String| {
+            let repo = repo.clone();
+            async move {
+                let output = tokio::process::Command::new("git")
+                    .args(["show", &spec])
+                    .current_dir(&repo)
+                    .output()
+                    .await
+                    .unwrap();
+                assert!(output.status.success(), "git show {spec}");
+                String::from_utf8_lossy(&output.stdout).to_string()
+            }
+        };
+        assert_eq!(show(format!("{head_ref}:tracked.txt")).await, "attempt one\n");
+        assert_eq!(
+            show(format!("{uncommitted_ref}:tracked.txt")).await,
+            "half done\n"
+        );
+        // A stash keeps untracked files in its third parent.
+        assert_eq!(
+            show(format!("{uncommitted_ref}^3:notes.md")).await,
+            "untracked notes\n"
+        );
+
+        // A second preservation for the same Attempt keeps the first.
+        std::fs::write(worktree.join("again.md"), "again\n").unwrap();
+        let again =
+            preserve_and_reset_worktree(&*command, worktree.to_str().unwrap(), attempt, &base)
+                .await
+                .unwrap();
+        assert_ne!(again.uncommitted_ref, preserved.uncommitted_ref);
+        assert_eq!(show(format!("{head_ref}:tracked.txt")).await, "attempt one\n");
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[tokio::test]
