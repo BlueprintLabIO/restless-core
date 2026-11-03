@@ -41,6 +41,8 @@ pub enum ApprovalTarget {
     AccountRequest { request: String },
     /// A prepared publication: Authorise puts the exact build online; Decline stops it.
     Publication { publication: String },
+    /// One exact email an agent asked to send (S109 H2): Send lets it go once; Decline stops it.
+    EmailSend { request: Uuid },
 }
 
 impl ApprovalTarget {
@@ -53,6 +55,7 @@ impl ApprovalTarget {
             Self::AccountNotice { notice, .. } => format!("account-notice:{notice}"),
             Self::AccountRequest { request } => format!("account-request:{request}"),
             Self::Publication { publication } => format!("publication:{publication}"),
+            Self::EmailSend { request } => format!("email-send:{request}"),
         }
     }
 
@@ -96,6 +99,7 @@ impl ApprovalTarget {
             Self::Publication { publication } => {
                 Some(format!("authority:publication:{publication}"))
             }
+            Self::EmailSend { request } => Some(format!("authority:email_send:{request}")),
         }
     }
 
@@ -103,7 +107,7 @@ impl ApprovalTarget {
         match self {
             Self::Party { party } => party.is_empty(),
             Self::ToolCall { call_key } => call_key.is_empty(),
-            Self::EmailMandate { .. } | Self::Payee { .. } => false,
+            Self::EmailMandate { .. } | Self::Payee { .. } | Self::EmailSend { .. } => false,
             Self::AccountNotice { account, notice } => account.is_empty() || notice.is_empty(),
             Self::AccountRequest { request } => request.is_empty(),
             Self::Publication { publication } => publication.is_empty(),
@@ -182,6 +186,7 @@ impl PendingApprovalDecision {
             (ApprovalTarget::AccountNotice { .. }, ApprovalDecision::Decline { .. }) => "freeze",
             (ApprovalTarget::AccountRequest { .. }, ApprovalDecision::Decline { .. }) => "deny",
             (ApprovalTarget::Publication { .. }, ApprovalDecision::Grant { .. }) => "authorize",
+            (ApprovalTarget::EmailSend { .. }, ApprovalDecision::Grant { .. }) => "send",
             (_, decision) => decision.kind(),
         }
     }
@@ -417,6 +422,11 @@ async fn waiting_digest(
                     )
                 })
         }
+        ApprovalTarget::EmailSend { request } => {
+            crate::email_approval::waiting_request(authority, company, *request)
+                .await?
+                .map(|(stored, _)| format!("record:{}", stored.id))
+        }
         ApprovalTarget::Publication { publication } => {
             for kind in PUBLICATION_SETTLED {
                 if authority
@@ -513,6 +523,10 @@ async fn already_answered(
             .await?;
             state.as_deref() == Some(if grant { "approved" } else { "denied" })
         }
+        ApprovalTarget::EmailSend { request } => {
+            crate::email_approval::already_answered(authority, company, *request, actor, grant)
+                .await?
+        }
         ApprovalTarget::Publication { publication } => authority
             .find_body(
                 company,
@@ -586,6 +600,8 @@ pub async fn queue(
             },
         ) => bail!("This is answered yes or no. Say what should change in a note with Decline."),
         (ApprovalTarget::EmailMandate { .. } | ApprovalTarget::Payee { .. }, _) => {}
+        // An email is declined with a note, or sent back for changes like a prepared call.
+        (ApprovalTarget::EmailSend { .. }, _) => {}
         (
             _,
             ApprovalDecision::Decline {
@@ -927,6 +943,24 @@ async fn apply(effects: &Effects<'_>, saved: &PendingApprovalDecision) -> Result
                 .await?
                 .context("That request no longer exists.")?;
             }
+            return Ok(());
+        }
+        ApprovalTarget::EmailSend { request } => {
+            if !already_answered(authority, company, saved).await? {
+                recheck().await?;
+                crate::email_approval::decide(
+                    authority,
+                    org,
+                    company,
+                    *request,
+                    grant,
+                    actor,
+                    note,
+                    Some(saved.id),
+                )
+                .await?;
+            }
+            crate::approval::announce_decisions(company, authority, org).await;
             return Ok(());
         }
         ApprovalTarget::Publication { publication: id } => {
@@ -2050,6 +2084,155 @@ mod tests {
         .await;
         assert_eq!(fx.settle(decline.id, None).await, Some("applied"));
         assert_eq!(fx.count("publication_stopped").await, 1);
+        fx.done().await;
+    }
+
+    /// S109 H2: an email without a mandate waits in the Inbox. Approval takes effect only after
+    /// the window and Undo; then exactly that email may be reserved once. A changed draft asks
+    /// again, and a decline is final for that draft.
+    #[tokio::test]
+    async fn an_email_send_waits_for_the_owner_and_goes_out_once() {
+        use crate::email_approval::{approval_for, OwnerApproval};
+        let Some(fx) = Fixture::new().await else {
+            return;
+        };
+        let draft = |text: &str, key: &str| {
+            let input: crate::email::EmailSendRequest = serde_json::from_value(serde_json::json!({
+                "from": "hello@mail.example.com", "to": "jo@example.net",
+                "subject": "Your quote", "text": text, "effect_key": key,
+            }))
+            .unwrap();
+            let prepared = crate::email::prepare_email(input.clone(), Vec::new()).unwrap();
+            (input, prepared)
+        };
+        let ask = |text: &'static str, key: &'static str| {
+            let (input, prepared) = draft(text, key);
+            let authority = &fx.authority;
+            let company = fx.company.clone();
+            async move {
+                approval_for(authority, &company, "exec", &prepared, &input, None)
+                    .await
+                    .unwrap()
+            }
+        };
+        let OwnerApproval::Waiting { request, new: true } = ask("Hi Jo", "quote-jo").await else {
+            panic!("the first send asks the owner");
+        };
+        // Asking again is the same card, not another one.
+        assert_eq!(
+            ask("Hi Jo", "quote-jo").await,
+            OwnerApproval::Waiting {
+                request,
+                new: false
+            }
+        );
+        let waiting = crate::email_approval::waiting(&fx.authority, &fx.company)
+            .await
+            .unwrap();
+        assert_eq!(waiting.len(), 1);
+        assert!(waiting[0]
+            .1
+            .readable()
+            .contains("Subject: Your quote\n\nHi Jo"));
+
+        // Nothing can be reserved before the owner approves.
+        let (_, prepared) = draft("Hi Jo", "quote-jo");
+        let reserve = |prepared: crate::email::PreparedEmail, request: Uuid| {
+            let authority = &fx.authority;
+            let company = fx.company.clone();
+            async move {
+                authority
+                    .reserve_owner_approved_email_send(
+                        &company,
+                        request,
+                        prepared.sender(),
+                        prepared.sender_name(),
+                        prepared.recipient(),
+                        prepared.payload_sha256(),
+                        prepared.effect_key(),
+                    )
+                    .await
+            }
+        };
+        assert!(reserve(prepared, request).await.is_err());
+
+        // Send, then Undo: still waiting. Send again: applied after the window.
+        let target = ApprovalTarget::EmailSend { request };
+        let first = fx.answer(&target, &GRANT).await.unwrap();
+        assert_eq!(first.receipt_kind(), "send");
+        assert!(fx.settle(first.id, None).await.is_none(), "not due yet");
+        cancel(&fx.authority, &fx.company, first.id, &owner())
+            .await
+            .unwrap();
+        assert!(matches!(
+            ask("Hi Jo", "quote-jo").await,
+            OwnerApproval::Waiting { .. }
+        ));
+        let send = fx.answer(&target, &GRANT).await.unwrap();
+        fx.expire(send.id).await;
+        assert_eq!(fx.settle(send.id, None).await, Some("applied"));
+        assert_eq!(
+            ask("Hi Jo", "quote-jo").await,
+            OwnerApproval::Approved { request }
+        );
+        assert!(crate::email_approval::waiting(&fx.authority, &fx.company)
+            .await
+            .unwrap()
+            .is_empty());
+
+        // A different email under the approved key is not what the owner approved.
+        let (_, changed) = draft("Hi Jo, a cheaper quote", "quote-jo");
+        assert!(reserve(changed, request).await.is_err());
+        let (_, prepared) = draft("Hi Jo", "quote-jo");
+        reserve(prepared, request).await.unwrap();
+        let (_, again) = draft("Hi Jo", "quote-jo");
+        assert!(reserve(again, request).await.is_err(), "sent once");
+        assert!(
+            approval_for(
+                &fx.authority,
+                &fx.company,
+                "exec",
+                &draft("Hi Jo", "quote-jo").1,
+                &draft("Hi Jo", "quote-jo").0,
+                None
+            )
+            .await
+            .is_err(),
+            "a used effect key never asks again"
+        );
+
+        // Changes asked for: that draft never sends; the revised one asks again.
+        let OwnerApproval::Waiting { request: other, .. } = ask("Hey", "intro-jo").await else {
+            panic!("asks");
+        };
+        let changes = fx
+            .answer(
+                &ApprovalTarget::EmailSend { request: other },
+                &ApprovalDecision::Decline {
+                    note: Some("Say who we are".into()),
+                    changes_requested: true,
+                },
+            )
+            .await
+            .unwrap();
+        fx.expire(changes.id).await;
+        assert_eq!(fx.settle(changes.id, None).await, Some("applied"));
+        assert_eq!(
+            ask("Hey", "intro-jo").await,
+            OwnerApproval::Declined {
+                request: other,
+                note: Some("Say who we are".into()),
+                changes: true
+            }
+        );
+        let OwnerApproval::Waiting {
+            request: revised,
+            new: true,
+        } = ask("Hi Jo, I'm Sam from Reno Co.", "intro-jo").await
+        else {
+            panic!("a revised draft asks again");
+        };
+        assert_ne!(revised, other);
         fx.done().await;
     }
 

@@ -262,6 +262,14 @@ enum DecisionSubject {
         mandate_id: Option<String>,
         decision: String,
     },
+    EmailSend {
+        request_id: String,
+        recipient: String,
+        subject: String,
+        effect_key: String,
+        note: Option<String>,
+        changes: bool,
+    },
 }
 
 /// Kind of OrgIntel event that records "this exact Authority decision has been
@@ -382,6 +390,34 @@ pub async fn announce_decisions(
             },
         ));
     }
+    for kind in crate::email_approval::DECISION_KINDS {
+        let Ok(records) = authority.records_of_kind(company, kind).await else {
+            return 0;
+        };
+        for record in records {
+            let text = |name: &str| {
+                record
+                    .body
+                    .get(name)
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_owned()
+            };
+            let (note, changes) = recorded_note(&record.body);
+            pending.push((
+                record.id,
+                kind,
+                DecisionSubject::EmailSend {
+                    request_id: text("request_id"),
+                    recipient: text("recipient"),
+                    subject: text("subject"),
+                    effect_key: text("effect_key"),
+                    note,
+                    changes,
+                },
+            ));
+        }
+    }
     pending.sort_by_key(|(id, _, _)| *id);
 
     let mut announced = 0;
@@ -429,6 +465,26 @@ pub async fn announce_decisions(
                     format!("The owner declined the prepared {tool} call with key {key}. Do not run it. Work that was waiting on it needs a different route or an explicit decision to stop.{}", owner_note_sentence(note.as_deref()))
                 };
                 (body, serde_json::json!({ "call_key": key, "tool": tool }))
+            }
+            DecisionSubject::EmailSend {
+                request_id,
+                recipient,
+                subject,
+                effect_key,
+                note,
+                changes,
+            } => {
+                let body = if kind == crate::email_approval::APPROVED_KIND {
+                    format!("The owner approved the email to {recipient} (“{subject}”, effect key {effect_key}). It has not been sent yet: run the same `restless email send` again now, with the request unchanged, and it is sent exactly once.{}", owner_note_sentence(note.as_deref()))
+                } else if changes {
+                    format!("The owner asked for changes to the email to {recipient} (“{subject}”, effect key {effect_key}): “{}” Do not send it as prepared. Revise the draft and run `restless email send` with it; the new version goes to the owner.", note.as_deref().unwrap_or_default())
+                } else {
+                    format!("The owner declined the email to {recipient} (“{subject}”, effect key {effect_key}). It was not sent; do not send it. Work that was waiting on it needs a different route or an explicit decision to stop.{}", owner_note_sentence(note.as_deref()))
+                };
+                (
+                    body,
+                    serde_json::json!({ "email_request_id": request_id, "recipient": recipient }),
+                )
             }
             DecisionSubject::EmailMandate {
                 proposal_id,

@@ -16,6 +16,9 @@ import { lookup } from "node:dns/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// A Resend key the daemon can resolve and never uses: the journey asks the owner, it sends nothing.
+process.env.RESTLESS_JOURNEY_RESEND_KEY ??= "re_journey_never_sent";
 import pg from "pg";
 import { setup } from "../scripts/setup.mjs";
 
@@ -1488,6 +1491,82 @@ try {
     assert(!(await inInbox()), "answered: the card stays gone");
     await answer(owner, 400, { action: "decline" });
     pass("mandate answer: owner only, Undo by the decider only, applies once after the window");
+  }
+
+  // 9i-3. An email without a mandate waits for the owner (S109 H2). A Resend key stored under an
+  //       older name (RESEND_API_KEY) becomes the sending key. The exact email Exec wrote is in
+  //       the owner's Inbox; the admin and the member neither see nor answer it; Undo puts it
+  //       back; after the window Exec is told it may send. Nothing reaches Resend here.
+  //       Exec's own `restless email send` needs its Runtime capability, which this journey has
+  //       no Runtime to hold, so the request is the record that send writes (engine tests cover
+  //       the send itself).
+  {
+    await daemonCommand({ cmd: "company-set", company, state: "credentials.RESEND_API_KEY", body: "env:RESTLESS_JOURNEY_RESEND_KEY" });
+    const references = (await coreApi(owner, `${base}/vault`)).references;
+    assert(
+      references.some((ref) => ref.name === "resend.production" && ref.reference === "env:RESTLESS_JOURNEY_RESEND_KEY"),
+      "a key saved as RESEND_API_KEY is the sending key without being entered again",
+    );
+    const requestId = randomUUID();
+    const plane = new pg.Client({ connectionString: (await readFile(join(root, "orgintel.toml"), "utf8")).match(/database_url = "(.*)"/)[1] });
+    await plane.connect();
+    await plane.query("INSERT INTO restless_authority.records (company, kind, actor_id, body) VALUES ($1, 'email_send_request', 'exec', $2)", [
+      company,
+      {
+        id: requestId, effect_key: `journey-quote-${requestId}`, payload_sha256: "a".repeat(64),
+        sender: "hello@multiplayer.test", sender_name: null, recipient: "jo@example.net",
+        subject: "Your quote for the open day", body: "Hi Jo,\n\nThanks for coming by. Your quote is attached in spirit.\n\nSam",
+        body_truncated: false, attachments: [], in_reply_to: null, work_id: null,
+      },
+    ]);
+    const asked = { request_id: requestId };
+    const approvals = async () =>
+      (await plane.query("SELECT count(*)::int AS n FROM restless_authority.records WHERE company = $1 AND kind = 'email_send_approved' AND body->>'request_id' = $2", [company, requestId])).rows[0].n;
+    const itemId = `authority:email_send:${asked.request_id}`;
+    const inInbox = async (who = owner) => (await coreApi(who, `${base}/attention`)).items.some((item) => item.id === itemId);
+    const card = (await coreApi(owner, `${base}/attention`)).items.find((item) => item.id === itemId);
+    assert(card, "the email is in the owner's Inbox");
+    assert.match(card.evidence[0].content, /^From: hello@multiplayer\.test\nTo: jo@example\.net\nSubject: Your quote/, "the card shows the email itself");
+    assert(!(await inInbox(bob)) && !(await inInbox(alice)), "only the owner is asked");
+    // The owner reads the email in the card, at desktop and phone width, light and dark.
+    for (const [width, height] of [[1440, 900], [390, 844]])
+      for (const colorScheme of ["light", "dark"]) {
+        await owner.page.setViewportSize({ width, height });
+        await owner.page.emulateMedia({ colorScheme });
+        await owner.page.goto(`${core}/${company}?item=${encodeURIComponent(itemId)}`);
+        await owner.page.locator("article.email").waitFor({ timeout: 15000 });
+        await owner.page.getByText("Hold to send email").first().waitFor({ timeout: 15000 });
+        const sideways = await owner.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        assert(sideways <= 0, `the email card scrolls sideways by ${sideways}px at ${width}`);
+        await shot(owner, `email-card-${width}-${colorScheme}`);
+      }
+    await owner.page.setViewportSize({ width: 1280, height: 900 });
+    await owner.page.emulateMedia({ colorScheme: "light" });
+    const answer = (who, expected, decision = { action: "grant" }) =>
+      coreApi(who, `${base}/approvals/pending-decision`, {
+        method: "POST", expected,
+        body: { id: randomUUID(), item_id: itemId, target: { kind: "email_send", request: asked.request_id }, decision },
+      });
+    await answer(bob, 403);
+    await answer(alice, 403);
+    const undone = await answer(owner, 200);
+    assert.equal(undone.kind, "send");
+    assert(!(await inInbox()), "the card leaves at once");
+    assert.equal((await coreApi(owner, `${base}/approval-decisions/${undone.id}`, { method: "DELETE" })).state, "canceled");
+    assert(await inInbox(), "Undo puts the card back");
+    assert.equal(await approvals(), 0, "an undone approval records nothing");
+    const saved = await answer(owner, 200);
+    const deadline = Date.now() + 20000;
+    let state = saved.state;
+    while (state === "pending" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      state = (await coreApi(owner, `${base}/approval-decisions`)).items.find((item) => item.id === saved.id)?.state ?? "gone";
+    }
+    assert.equal(state, "applied", "the approval takes effect after the window");
+    assert(!(await inInbox()), "answered: the card stays gone");
+    assert.equal(await approvals(), 1, "approved exactly once");
+    await plane.end();
+    pass("email send: a key under an old name counts; the exact email waits in the owner's Inbox only; Undo, then approval after the window");
   }
 
 

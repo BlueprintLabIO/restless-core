@@ -46,6 +46,10 @@ test('every other Inbox approval names its own request, never a party', () => {
 		kind: 'publication',
 		publication: 'p1'
 	});
+	assert.deepEqual(approvalTarget(of('email_send_request', 'e1')), {
+		kind: 'email_send',
+		request: 'e1'
+	});
 });
 
 test('a grant carries no note; a decline carries only the words given', () => {

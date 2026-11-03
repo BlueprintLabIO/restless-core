@@ -775,6 +775,103 @@ pub async fn reserve(
     })
 }
 
+/// Reserve the one send of an email the owner approved exactly (S109 H2). The approval stands in
+/// for a mandate permit: the request id is the reservation's `permit_id`, so provider outcomes
+/// are recorded the same way, and no mandate quota is used. The actual email must be the one the
+/// owner saw, and it is sent at most once.
+#[allow(clippy::too_many_arguments)]
+pub async fn reserve_owner_approved(
+    pool: &PgPool,
+    company: &str,
+    request_id: Uuid,
+    actual_sender: &str,
+    actual_sender_name: Option<&str>,
+    recipient: &str,
+    payload_sha256: &str,
+    effect_key: &str,
+) -> Result<EmailReservation> {
+    let actual_sender = normalize_mailbox(actual_sender)?;
+    let actual_sender_name = normalize_sender_name(actual_sender_name)?;
+    let recipient = normalize_mailbox(recipient)?;
+    validate_digest(payload_sha256)?;
+    let now = Utc::now();
+    let mut tx = pool.begin().await?;
+    lock_company(&mut tx, company).await?;
+    let request: Value = sqlx::query_scalar(
+        "SELECT body FROM restless_authority.records \
+         WHERE company=$1 AND kind=$2 AND body->>'id'=$3 ORDER BY id DESC LIMIT 1",
+    )
+    .bind(company)
+    .bind(crate::email_approval::REQUEST_KIND)
+    .bind(request_id.to_string())
+    .fetch_optional(&mut *tx)
+    .await?
+    .context("this email was never put to the owner")?;
+    let approved: Option<Value> = sqlx::query_scalar(
+        "SELECT body FROM restless_authority.records \
+         WHERE company=$1 AND kind=$2 AND body->>'request_id'=$3 ORDER BY id DESC LIMIT 1",
+    )
+    .bind(company)
+    .bind(crate::email_approval::APPROVED_KIND)
+    .bind(request_id.to_string())
+    .fetch_optional(&mut *tx)
+    .await?;
+    let approved = approved.context("the owner has not approved this email")?;
+    let field =
+        |body: &Value, name: &str| body.get(name).and_then(Value::as_str).map(str::to_owned);
+    let digest = payload_sha256.to_ascii_lowercase();
+    let mailbox =
+        |name: &str| field(&request, name).and_then(|value| normalize_mailbox(&value).ok());
+    if mailbox("sender").as_deref() != Some(actual_sender.as_str())
+        || normalize_sender_name(field(&request, "sender_name").as_deref())? != actual_sender_name
+        || mailbox("recipient").as_deref() != Some(recipient.as_str())
+        || field(&request, "payload_sha256").as_deref() != Some(digest.as_str())
+        || field(&request, "effect_key").as_deref() != Some(effect_key)
+        || field(&approved, "payload_sha256").as_deref() != Some(digest.as_str())
+    {
+        bail!("actual email does not match the email the owner approved");
+    }
+    let prior: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM restless_authority.records \
+         WHERE company=$1 AND kind='email_send_reserved' \
+           AND (body->>'permit_id'=$2 OR body->>'effect_key'=$3))",
+    )
+    .bind(company)
+    .bind(request_id.to_string())
+    .bind(effect_key)
+    .fetch_one(&mut *tx)
+    .await?;
+    if prior {
+        bail!("this approved email was already sent or attempted");
+    }
+    sqlx::query(
+        "INSERT INTO restless_authority.records (company,kind,actor_id,body) \
+         VALUES ($1,'email_send_reserved','exec',$2)",
+    )
+    .bind(company)
+    .bind(serde_json::json!({
+        "permit_id": request_id,
+        "approval_request_id": request_id,
+        "mandate_id": null,
+        "recipient": recipient,
+        "sender": actual_sender,
+        "sender_name": actual_sender_name,
+        "payload_sha256": digest,
+        "effect_key": effect_key,
+        "usage_day": now.date_naive().to_string(),
+        "status": "reserved",
+        "reserved_at": now,
+    }))
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(EmailReservation {
+        permit_id: request_id,
+        effect_key: effect_key.to_owned(),
+        reserved_at: now,
+    })
+}
+
 pub async fn record_status(
     pool: &PgPool,
     company: &str,
