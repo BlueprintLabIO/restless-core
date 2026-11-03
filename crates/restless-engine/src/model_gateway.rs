@@ -2566,9 +2566,7 @@ async fn relay_anthropic_messages(
     }
     // A non-streaming reply is accounted from its final usage, like a stream's terminal event.
     let streaming = request.get("stream").and_then(serde_json::Value::as_bool) == Some(true);
-    let request_contract = request.to_string();
-    if request_contract.contains("\"ttl\":\"1h\"")
-        || request.get("speed").and_then(serde_json::Value::as_str) == Some("fast")
+    if request.get("speed").and_then(serde_json::Value::as_str) == Some("fast")
         || request
             .get("inference_geo")
             .and_then(serde_json::Value::as_str)
@@ -2576,7 +2574,7 @@ async fn relay_anthropic_messages(
     {
         return relay_error(
             StatusCode::BAD_REQUEST,
-            "Anthropic request uses an unpriced cache, speed, or inference-region tier",
+            "Anthropic request uses an unpriced speed or inference-region tier",
         );
     }
     request["model"] = serde_json::Value::String(model_id.to_string());
@@ -2618,6 +2616,7 @@ async fn relay_anthropic_messages(
             "model billing does not match the admitted Anthropic connection",
         );
     };
+    let long_head = grant.billing == "metered_api" && keep_stable_head_for_an_hour(&mut request);
     let encoded = match serde_json::to_vec(&request) {
         Ok(encoded) => encoded,
         Err(_) => return relay_error(StatusCode::BAD_REQUEST, "could not encode model request"),
@@ -2641,10 +2640,17 @@ async fn relay_anthropic_messages(
             )
         }
     };
-    for name in ["anthropic-version", "anthropic-beta", "accept"] {
+    for name in ["anthropic-version", "accept"] {
         if let Some(value) = headers.get(name) {
             upstream_request = upstream_request.header(name, value);
         }
+    }
+    let beta = headers
+        .get("anthropic-beta")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    if let Some(beta) = with_extended_cache_ttl_beta(beta.as_deref(), long_head) {
+        upstream_request = upstream_request.header("anthropic-beta", beta);
     }
     let upstream = match upstream_request.send().await {
         Ok(response) => response,
@@ -3326,6 +3332,8 @@ struct AnthropicUsage {
     input_tokens: u64,
     output_tokens: u64,
     cache_creation_input_tokens: u64,
+    /// The part of `cache_creation_input_tokens` written with a one-hour lifetime.
+    cache_creation_1h_input_tokens: u64,
     cache_read_input_tokens: u64,
 }
 
@@ -3588,6 +3596,12 @@ impl MeteredStream {
                 *target = value;
             }
         }
+        if let Some(value) = usage
+            .pointer("/cache_creation/ephemeral_1h_input_tokens")
+            .and_then(serde_json::Value::as_u64)
+        {
+            self.anthropic_usage.cache_creation_1h_input_tokens = value;
+        }
     }
 
     fn record_anthropic_terminal(&mut self) {
@@ -3601,11 +3615,12 @@ impl MeteredStream {
                 split_model(&self.request.model)
                     .ok()
                     .and_then(|(_, model)| {
-                        anthropic_tariff_micro_usd(
+                        anthropic_tariff_with_long_cache_micro_usd(
                             model,
                             usage.input_tokens,
                             usage.output_tokens,
                             usage.cache_creation_input_tokens,
+                            usage.cache_creation_1h_input_tokens,
                             usage.cache_read_input_tokens,
                         )
                     })
@@ -3938,10 +3953,62 @@ pub fn responses_model_has_pinned_tariff(provider_model: &str) -> bool {
         .is_some_and(|model| response_tariff_micro_usd(model, 0, 0, 0).is_some())
 }
 
+const EXTENDED_CACHE_TTL_BETA: &str = "extended-cache-ttl-2025-04-11";
+
+/// Give the cache breakpoints on the stable request head (tool definitions and system blocks) a
+/// one-hour lifetime, leaving the message tail's at five minutes. An actor's head is the same on
+/// every wake, and wakes are often more than five minutes apart, so a five-minute write was
+/// re-written cold on most wakes (Reno: ~99% of tokens are input re-sent). A one-hour write costs
+/// 2x base input against 1.25x, so it pays back from the second wake in the hour. Anthropic
+/// requires longer lifetimes before shorter ones, which tools → system → messages order keeps.
+/// Returns whether any breakpoint was upgraded.
+fn keep_stable_head_for_an_hour(request: &mut serde_json::Value) -> bool {
+    let mut upgraded = false;
+    for section in ["tools", "system"] {
+        let Some(blocks) = request
+            .get_mut(section)
+            .and_then(serde_json::Value::as_array_mut)
+        else {
+            continue;
+        };
+        for block in blocks {
+            if let Some(control) = block
+                .get_mut("cache_control")
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                control.insert("ttl".into(), serde_json::Value::String("1h".into()));
+                upgraded = true;
+            }
+        }
+    }
+    upgraded
+}
+
+/// The `anthropic-beta` header to send: the client's, plus the extended cache TTL beta when the
+/// head was upgraded.
+fn with_extended_cache_ttl_beta(client: Option<&str>, long_head: bool) -> Option<String> {
+    match (
+        client.map(str::trim).filter(|beta| !beta.is_empty()),
+        long_head,
+    ) {
+        (Some(beta), true)
+            if beta
+                .split(',')
+                .any(|item| item.trim() == EXTENDED_CACHE_TTL_BETA) =>
+        {
+            Some(beta.to_string())
+        }
+        (Some(beta), true) => Some(format!("{beta},{EXTENDED_CACHE_TTL_BETA}")),
+        (None, true) => Some(EXTENDED_CACHE_TTL_BETA.to_string()),
+        (client, false) => client.map(str::to_string),
+    }
+}
+
 /// Standard global Claude API tariff. Rates are hundredths of a micro-USD
 /// per token so cache-read fractions remain exact before the final upward
-/// quantisation into the ledger's whole-micro-USD unit. The relay rejects 1h
-/// cache writes, fast mode and non-global inference before this is used.
+/// quantisation into the ledger's whole-micro-USD unit. The relay rejects fast
+/// mode and non-global inference before this is used; one-hour cache writes are
+/// priced by `anthropic_tariff_with_long_cache_micro_usd`.
 fn anthropic_tariff_micro_usd(
     model: &str,
     input_tokens: u64,
@@ -3949,6 +4016,27 @@ fn anthropic_tariff_micro_usd(
     cache_creation_input_tokens: u64,
     cache_read_input_tokens: u64,
 ) -> Option<u64> {
+    anthropic_tariff_with_long_cache_micro_usd(
+        model,
+        input_tokens,
+        output_tokens,
+        cache_creation_input_tokens,
+        0,
+        cache_read_input_tokens,
+    )
+}
+
+/// The same tariff where `cache_creation_1h_input_tokens` of the cache writes are one-hour
+/// writes, charged at twice the base input rate (five-minute writes are 1.25x).
+fn anthropic_tariff_with_long_cache_micro_usd(
+    model: &str,
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_creation_input_tokens: u64,
+    cache_creation_1h_input_tokens: u64,
+    cache_read_input_tokens: u64,
+) -> Option<u64> {
+    let short_writes = cache_creation_input_tokens.checked_sub(cache_creation_1h_input_tokens)?;
     // Haiku 5.5 is priced by the whole prompt, cache reads and writes included. Its
     // eighth-of-a-cent cache-write rates round up to the next unit.
     let long_prompt = input_tokens
@@ -3979,7 +4067,8 @@ fn anthropic_tariff_micro_usd(
     let hundredth_micro_usd = input_tokens
         .checked_mul(input_rate)?
         .checked_add(output_tokens.checked_mul(output_rate)?)?
-        .checked_add(cache_creation_input_tokens.checked_mul(cache_write_rate)?)?
+        .checked_add(short_writes.checked_mul(cache_write_rate)?)?
+        .checked_add(cache_creation_1h_input_tokens.checked_mul(input_rate.checked_mul(2)?)?)?
         .checked_add(cache_read_input_tokens.checked_mul(cache_read_rate)?)?;
     hundredth_micro_usd.checked_add(99).map(|value| value / 100)
 }
@@ -6688,6 +6777,65 @@ mission = "Choose native intelligence"
             "a Haiku 5.5 prompt over 100k tokens, cache reads included, pays the long-prompt rate"
         );
         assert!(anthropic_tariff_micro_usd("unknown", 1, 1, 0, 0).is_none());
+        assert_eq!(
+            anthropic_tariff_with_long_cache_micro_usd("claude-sonnet-4-6", 0, 0, 1_000, 1_000, 0),
+            Some(6_000),
+            "a one-hour cache write costs twice base input ($3/M): 1,000 tokens = 6,000 micro-USD"
+        );
+        assert_eq!(
+            anthropic_tariff_with_long_cache_micro_usd("claude-sonnet-4-6", 0, 0, 1_000, 400, 0),
+            Some(4_650),
+            "600 five-minute writes at 1.25x plus 400 one-hour writes at 2x"
+        );
+        assert!(
+            anthropic_tariff_with_long_cache_micro_usd("claude-sonnet-4-6", 0, 0, 1, 2, 0)
+                .is_none(),
+            "more one-hour writes than writes is malformed usage, never a negative charge"
+        );
+    }
+
+    #[test]
+    fn a_metered_head_is_cached_for_an_hour_and_the_tail_for_five_minutes() {
+        let mut request = serde_json::json!({
+            "tools": [{"name": "bash"}, {"name": "read", "cache_control": {"type": "ephemeral"}}],
+            "system": [
+                {"type": "text", "text": "rules"},
+                {"type": "text", "text": "contract", "cache_control": {"type": "ephemeral"}}
+            ],
+            "messages": [{"role": "user", "content": [
+                {"type": "text", "text": "wake", "cache_control": {"type": "ephemeral"}}
+            ]}]
+        });
+        assert!(keep_stable_head_for_an_hour(&mut request));
+        assert_eq!(request["tools"][1]["cache_control"]["ttl"], "1h");
+        assert_eq!(request["system"][1]["cache_control"]["ttl"], "1h");
+        assert!(request["tools"][0].get("cache_control").is_none());
+        assert!(
+            request["messages"][0]["content"][0]["cache_control"]
+                .get("ttl")
+                .is_none(),
+            "the moving tail keeps the cheaper five-minute write"
+        );
+        let mut plain = serde_json::json!({"system": "rules", "messages": []});
+        assert!(!keep_stable_head_for_an_hour(&mut plain));
+
+        assert_eq!(
+            with_extended_cache_ttl_beta(None, true).as_deref(),
+            Some(EXTENDED_CACHE_TTL_BETA)
+        );
+        assert_eq!(
+            with_extended_cache_ttl_beta(Some("a-beta"), true).as_deref(),
+            Some("a-beta,extended-cache-ttl-2025-04-11")
+        );
+        assert_eq!(
+            with_extended_cache_ttl_beta(Some("extended-cache-ttl-2025-04-11"), true).as_deref(),
+            Some("extended-cache-ttl-2025-04-11")
+        );
+        assert_eq!(
+            with_extended_cache_ttl_beta(Some("a-beta"), false).as_deref(),
+            Some("a-beta")
+        );
+        assert_eq!(with_extended_cache_ttl_beta(None, false), None);
     }
 
     #[tokio::test]
