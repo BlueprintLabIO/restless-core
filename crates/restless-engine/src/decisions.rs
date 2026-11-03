@@ -3,8 +3,9 @@
 //! recorded with its probabilities. A decision kind starts in shadow: it is logged beside what the
 //! company actually did and changes nothing, so it earns its switch-on from the company's own record.
 //! A company that names a `decision_model` calls it directly on OpenRouter's decisions API with its
-//! OpenRouter inference credential (S102). Without either route decisions are simply absent and
-//! today's behaviour holds.
+//! OpenRouter inference credential (S102). A company set to [`INCLUDED_DECISIONS`] uses the hosted
+//! relay with the gate active, so it needs no key of its own. Without a route decisions are simply
+//! absent and today's behaviour holds.
 
 use std::time::{Duration, Instant};
 
@@ -21,6 +22,41 @@ const RELAY_TOKEN_ENV: &str = "RESTLESS_HOSTED_MODEL_RELAY_TOKEN";
 /// first kind whose shadow record earns an active mode.
 pub fn enabled() -> bool {
     !matches!(std::env::var("RESTLESS_DECISIONS").as_deref(), Ok("off"))
+}
+
+/// `decision_model = "included"`: the plane's included decision model behind the hosted relay,
+/// with the gate active. Any other value names a model on OpenRouter.
+pub const INCLUDED_DECISIONS: &str = "included";
+
+/// Where a company's decisions go, read from its `decision_model` setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecisionRoute<'a> {
+    /// Unset: the hosted relay, when this plane has one, in shadow.
+    RelayShadow,
+    /// `included`: the hosted relay, active.
+    Relay,
+    /// A model on OpenRouter with the company's own OpenRouter key, active (S102).
+    OpenRouter(&'a str),
+}
+
+impl DecisionRoute<'_> {
+    /// Whether a confident double no may consume a result without an Exec wake.
+    pub fn active(self) -> bool {
+        !matches!(self, Self::RelayShadow)
+    }
+}
+
+pub fn decision_route(config: &crate::runtime::CompanyConfig) -> DecisionRoute<'_> {
+    match config
+        .decision_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        None => DecisionRoute::RelayShadow,
+        Some(model) if model.eq_ignore_ascii_case(INCLUDED_DECISIONS) => DecisionRoute::Relay,
+        Some(model) => DecisionRoute::OpenRouter(model),
+    }
 }
 
 pub struct DecisionClient {
@@ -55,14 +91,10 @@ impl DecisionClient {
     }
 
     /// This company's decision route: its own `decision_model` on OpenRouter when it names one and
-    /// holds an OpenRouter inference credential, else the hosted relay when this plane has one.
+    /// holds an OpenRouter inference credential, else the hosted relay when this plane has one
+    /// (unset or `included`).
     pub async fn for_company(config: &crate::runtime::CompanyConfig) -> Option<Self> {
-        let Some(model) = config
-            .decision_model
-            .as_deref()
-            .map(str::trim)
-            .filter(|model| !model.is_empty())
-        else {
+        let DecisionRoute::OpenRouter(model) = decision_route(config) else {
             return Self::from_env();
         };
         let reference = config
@@ -268,9 +300,9 @@ fn exec_gate_questions() -> Value {
 
 /// Decide whether each unread successful-result notice needs an Exec wake. In shadow the wake still
 /// happens and its own quiet-or-update finish becomes the outcome (see [`settle_exec_results`]).
-/// With `gate` and a company that names its own decision model, a confident double no is consumed
-/// here and the Exec is not woken for it (S102). Failures only log: a decision never stands between
-/// work and the Exec.
+/// With `gate` and a company that names a decision model (its own on OpenRouter, or `included`), a
+/// confident double no is consumed here and the Exec is not woken for it (S102). Failures only
+/// log: a decision never stands between work and the Exec.
 pub async fn shadow_exec_results(
     org: &OrgIntel,
     config: &crate::runtime::CompanyConfig,
@@ -280,7 +312,7 @@ pub async fn shadow_exec_results(
         return;
     }
     if let Some(client) = DecisionClient::for_company(config).await {
-        let active = gate && config.decision_model.is_some();
+        let active = gate && decision_route(config).active();
         shadow_exec_results_with(&client, org, &config.mission, active).await;
     }
 }
@@ -333,7 +365,7 @@ pub async fn shadow_exec_results_with(
                     continue;
                 };
                 let routine = update < EXEC_GATE_SKIP_BELOW && next < EXEC_GATE_SKIP_BELOW;
-                // Active only for a company that named its own decision model (S102).
+                // Active only for a company that named a decision model (S102), or `included`.
                 let skip = active && routine;
                 let choice = if routine { "skip_wake" } else { "wake" };
                 if skip {
