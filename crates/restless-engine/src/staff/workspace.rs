@@ -603,7 +603,7 @@ pub async fn ensure_worktree(
         // (S109 blockers audit, item 8: 7 Attempts on 6 Work items, each abandoned and
         // recreated). Keep everything that was there, then start from the exact source.
         let preserved =
-            preserve_and_reset_worktree(&docker_company_command(&container), &path, attempt_id, &exact_commit)
+            preserve_and_reset_worktree(&*docker_company_command(&container), &path, attempt_id, &exact_commit)
                 .await?;
         tracing::warn!(
             company = config.name,

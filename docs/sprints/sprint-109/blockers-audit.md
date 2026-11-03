@@ -146,15 +146,11 @@ owner's decision.
     commit differs from where the last Attempt left HEAD, every successor fails.
   - The Attempt is then left running until orphan recovery, which invites a resume that fails the
     same way.
-- **Fixed** (fix/s109-workspace-pickup):
-  - When the Work's worktree is at another commit, pickup saves the old HEAD under
-    `refs/restless/preserved/<attempt>` and every uncommitted or untracked change as a stash
-    commit under `refs/restless/preserved/<attempt>-uncommitted` (also in `git stash list`), then
-    resets the worktree to the exact requested commit. Nothing is discarded; a second save never
-    overwrites the first.
-  - Each recovery records an `attempt_workspace_preserved` event with the old HEAD and both refs.
-  - If Git can't stash (for example mid-merge), nothing is reset and the Attempt fails with that
-    cause. The scheduler already closes a failed setup as `Failed` with the real cause.
+- **Open:**
+  - Save the old tip under `refs/restless/preserved/<attempt>`.
+  - Reset a clean worktree to the exact commit.
+  - Close a failed setup as `Failed` with the real cause.
+  - Medium risk (git state); needs its own PR.
 
 ### 9. Proposed Work requiring abandoned Work can never start (fixed, #603)
 
