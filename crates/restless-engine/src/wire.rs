@@ -1025,6 +1025,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "effect-reconcile" => &["key"],
         "mandate-list" => &[],
         "mandate-permit" => &["mandate_id", "mandate_proposal", "actor"],
+        "mandate-propose" => &["mandate_proposal", "purpose", "actor"],
         "email-preview" | "email-send" => &["email_request", "actor"],
         "email-observe" => &["actor", "email_observe_list", "email_observe_after"],
         "identity-evidence-add" => &[
@@ -1315,6 +1316,7 @@ pub const OWNER_ONLY: &[&str] = &[
 /// administrative path and cannot impersonate Exec through these commands.
 const COMPANY_EXEC_ONLY: &[&str] = &[
     "mandate-permit",
+    "mandate-propose",
     "finance-payee-propose",
     "setting-propose",
     "email-send",

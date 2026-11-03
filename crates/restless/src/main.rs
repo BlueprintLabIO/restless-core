@@ -662,6 +662,18 @@ enum Command {
 enum MandateCommand {
     /// List active owner-granted outbound email mandates.
     List,
+    /// Ask the owner for standing permission to send email: purpose, audience, sender, daily and
+    /// total caps, timezone and expiry. It waits in the owner's Inbox; each email still needs
+    /// its own permit.
+    Propose {
+        /// JSON file containing purpose, audience_guidance, sender, optional sender_name,
+        /// max_per_day, max_total, timezone and expires_at.
+        #[arg(long)]
+        proposal_file: PathBuf,
+        /// Why the company needs it, in a sentence the owner reads on the card.
+        #[arg(long)]
+        reason: Option<String>,
+    },
     /// Issue a one-use permit for a specific sender, recipient and payload.
     Permit {
         /// The exact root mandate UUID.
@@ -2850,6 +2862,22 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "cmd": "mandate-list",
                 "company": company,
             }),
+            MandateCommand::Propose {
+                proposal_file,
+                reason,
+            } => {
+                let actor = acting_actor();
+                if principal() != "company/exec" || actor != "exec" {
+                    bail!("mandate propose must run as the authenticated Exec actor in the company Runtime");
+                }
+                serde_json::json!({
+                    "cmd": "mandate-propose",
+                    "company": company,
+                    "mandate_proposal": read_json_file(&proposal_file)?,
+                    "purpose": reason,
+                    "actor": actor,
+                })
+            }
             MandateCommand::Permit {
                 mandate,
                 proposal_file,
