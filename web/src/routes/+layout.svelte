@@ -117,7 +117,11 @@
 					networkMode: 'always',
 					staleTime: 5_000,
 					gcTime: 10 * 60_000,
-					refetchOnWindowFocus: true,
+					/* Shown again: read what a hint marked while hidden, and anything older than a
+					 * minute. A quick switch between tabs no longer reads the whole page each time;
+					 * every read is a request through the edge. */
+					refetchOnWindowFocus: (query) =>
+						query.state.isInvalidated || Date.now() - query.state.dataUpdatedAt > 60_000,
 					/* Retry only what a second attempt can fix. A 404 or a rejected
 					 * request is shown at once rather than after a pointless wait. */
 					retry: (failureCount, error) => failureCount < 3 && isRetryable(error),

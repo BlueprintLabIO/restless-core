@@ -69,9 +69,26 @@ const CONVERSATION_KEYS = new Set([
 	'message-reactions'
 ]);
 
-/** Kinds that touch messages only. Anything else (Work, handoffs, library,
- * schedules, resync, an unknown kind) may change any non-settings query. */
-const CONVERSATION_KINDS = new Set(['message', 'room_event', 'mention']);
+/** What each narrow kind can change. Anything else (Work, handoffs, schedules, an unknown
+ * kind) may change any non-settings query. A busy company sends these every few seconds, and
+ * each query a hint touches is a request through the edge (3 Nov 2026). */
+const KIND_TOUCHES: Record<string, (head: string) => boolean> = {
+	message: (head) => CONVERSATION_KEYS.has(head),
+	room_event: (head) => CONVERSATION_KEYS.has(head),
+	mention: (head) => CONVERSATION_KEYS.has(head) || head.startsWith('document'),
+	document_decision_changed: (head) => head === 'attention' || head.startsWith('document'),
+	handoff_decision_changed: (head) =>
+		head === 'handoff-decisions' || head === 'attention' || head === 'exec-inbox-actions',
+	/* A progress estimate moves a Work's bar: the Work views, the Inbox and the company card. */
+	work_progress: (head) => head.startsWith('work') || head === 'attention' || head === 'cockpit',
+	/* Documents and sheets, their sharing, comments and asks (migration 0096). */
+	library_changed: (head) =>
+		head.startsWith('document') ||
+		head.startsWith('library') ||
+		head.startsWith('sheet') ||
+		head === 'attention' ||
+		head === 'for-you'
+};
 
 /**
  * Whether a hint naming `kinds` should refetch the query with this key.
@@ -81,17 +98,11 @@ export function hintTouches(kinds: readonly string[], queryKey: readonly unknown
 	const head = String(queryKey[0]);
 	if (kinds.includes('resync')) return !SETTINGS_KEYS.has(head);
 	if (SETTINGS_KEYS.has(head)) return false;
-	if (kinds.every((kind) => kind === 'document_decision_changed'))
-		return head === 'document-decisions' || head === 'attention' || head.startsWith('document');
-	if (kinds.every((kind) => kind === 'handoff_decision_changed'))
-		return head === 'handoff-decisions' || head === 'attention' || head === 'exec-inbox-actions';
-	if (head === 'schedules') return kinds.includes('schedule_changed');
-	if (kinds.every((kind) => CONVERSATION_KINDS.has(kind))) {
-		return (
-			CONVERSATION_KEYS.has(head) || (kinds.includes('mention') && head.startsWith('document'))
-		);
-	}
-	return true;
+	return kinds.some((kind) => {
+		const touches = KIND_TOUCHES[kind];
+		if (touches) return touches(head);
+		return head !== 'schedules' || kind === 'schedule_changed';
+	});
 }
 
 export function parseHint(data: unknown): string[] {
