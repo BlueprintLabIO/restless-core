@@ -328,34 +328,26 @@
 		}
 	}
 
-	/* The owner's bubble sits right; its actions wait beside it rather than
-	 * reserving a row beneath, so a run of bubbles stays tight. Their column is
-	 * never narrower than the actions: a wide bubble gives way instead of
-	 * pushing them past the rail's edge. */
+	/* The owner's bubble sits right and may use the whole message column: nothing sits beside it,
+	 * so a narrow rail never squeezes it into a thin strip. */
 	.conversation-message.owner {
-		grid-template-columns: minmax(max-content, 1fr) minmax(0, auto);
-		column-gap: 6px;
+		grid-template-columns: minmax(0, 1fr);
 	}
 
-	.conversation-message.owner .message-meta {
-		grid-row: 1;
-		grid-column: 1 / -1;
+	.conversation-message.owner :is(.message-meta, .message-body) {
 		justify-self: end;
 	}
 
-	.conversation-message.owner .message-body {
-		grid-row: 2;
-		grid-column: 2;
-	}
-
-	/* The owner's toolbar waits beside the bubble's top corner, clear of its time above. */
+	/* The owner's toolbar rides the top edge too, on every input: it overlays the gap above the
+	 * bubble instead of taking width beside it or a row beneath, so showing it moves nothing. */
 	.conversation-message.owner .message-footer {
-		grid-row: 2;
-		grid-column: 1;
-		align-self: start;
-		justify-self: end;
+		position: absolute;
+		z-index: 2;
+		top: -10px;
+		right: 12px;
 		min-height: 0;
 		margin: 0;
+		padding: 0;
 	}
 
 	/* Your own bubble shows no name or avatar, but a screen reader still hears whose words they are. */
