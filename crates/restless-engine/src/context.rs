@@ -979,9 +979,9 @@ mod tests {
         let bytes = package.system_prompt.len() + package.user_prompt.len();
         eprintln!("exec fixed prompt: {bytes} bytes");
         // 80,590 bytes before Sprint 99 split tool procedures into a skill; 70,702 after. Raised
-        // by 1,000 on 3 November for an observed failure: a pack the owner asked to review
-        // arrived in chat with blank pictures (owner review, ownerReview links, embedding pictures).
-        assert!(bytes <= 75_000, "Exec fixed prompt grew to {bytes} bytes");
+        // on 3 November for an observed failure: a pack the owner asked to review arrived in chat
+        // with blank pictures (owner review, ownerReview links, embedding pictures: ~650 bytes).
+        assert!(bytes <= 75_500, "Exec fixed prompt grew to {bytes} bytes");
     }
 
     /// S109 D3: Exec checks what Restless has before stating it, and files Restless faults.
