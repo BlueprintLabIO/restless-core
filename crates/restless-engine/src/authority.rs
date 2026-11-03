@@ -469,6 +469,17 @@ impl AuthorityStore {
         &self.pool
     }
 
+    /// A test database with the whole Authority schema, bootstrapped under the daemon's own
+    /// lock. A test that made `restless_authority` itself raced every other test doing the same
+    /// on a new database (duplicate `pg_namespace` / `pg_type` rows from `IF NOT EXISTS` DDL).
+    #[cfg(test)]
+    pub(crate) async fn test_pool(database_url: &str) -> Result<PgPool> {
+        Self::connect(database_url).await?;
+        PgPool::connect(database_url)
+            .await
+            .context("connect test database")
+    }
+
     pub async fn propose_email_mandate(
         &self,
         company: &str,
