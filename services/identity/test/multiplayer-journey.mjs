@@ -18,7 +18,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // A Resend key the daemon can resolve and never uses: the journey asks the owner, it sends nothing.
-process.env.RESTLESS_JOURNEY_RESEND_KEY ??= "re_journey_never_sent";
+process.env.JOURNEY_RESEND_KEY ??= "re_journey_never_sent";
 import pg from "pg";
 import { setup } from "../scripts/setup.mjs";
 
@@ -1501,10 +1501,10 @@ try {
   //       no Runtime to hold, so the request is the record that send writes (engine tests cover
   //       the send itself).
   {
-    await daemonCommand({ cmd: "company-set", company, state: "credentials.RESEND_API_KEY", body: "env:RESTLESS_JOURNEY_RESEND_KEY" });
+    await daemonCommand({ cmd: "company-set", company, state: "credentials.RESEND_API_KEY", body: "env:JOURNEY_RESEND_KEY" });
     const references = (await coreApi(owner, `${base}/vault`)).references;
     assert(
-      references.some((ref) => ref.name === "resend.production" && ref.reference === "env:RESTLESS_JOURNEY_RESEND_KEY"),
+      references.some((ref) => ref.name === "resend.production" && ref.reference === "env:JOURNEY_RESEND_KEY"),
       "a key saved as RESEND_API_KEY is the sending key without being entered again",
     );
     const requestId = randomUUID();
