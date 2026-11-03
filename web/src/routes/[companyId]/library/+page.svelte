@@ -1673,7 +1673,15 @@
 			? Boolean(attention.view || attention.failure)
 			: Boolean(collaboration.view || collaboration.failure)
 	);
-	const loading = $derived(documents.status === 'unknown' || !sheetsLoaded || !filesLoaded);
+	/* Goals name Live now; the list, Pinned and Live now are drawn together once all have answered. */
+	const goalsLoaded = $derived(
+		owner
+			? Boolean(cockpit.view || cockpit.failure)
+			: Boolean(collaboration.view || collaboration.failure)
+	);
+	const loading = $derived(
+		documents.status === 'unknown' || !sheetsLoaded || !filesLoaded || !goalsLoaded
+	);
 	const VIEW_LABEL: Record<Filter, string> = {
 		all: 'All files',
 		recent: 'Recent',
@@ -1756,15 +1764,10 @@
 		}
 		visitSince = { company, at };
 	});
-	const goalsLoaded = $derived(
-		owner
-			? Boolean(cockpit.view || cockpit.failure)
-			: Boolean(collaboration.view || collaboration.failure)
-	);
 	$effect(() => {
 		void page.url.pathname;
 		void page.url.search;
-		if (loading || !goalsLoaded || visitSince.company !== companyId) return;
+		if (loading || visitSince.company !== companyId) return;
 		untrack(() => {
 			liveNow = {
 				company: companyId,
@@ -2168,7 +2171,8 @@
 				count={loading ? null : counts.all || null}
 				title="Everything made for you, folder by folder; agents' working notes are behind the Filter"
 			/>
-			{#if pinnedRows.length}
+			<!-- Pinned and Live now arrive with the list, in one frame, never one before the other. -->
+			{#if pinnedRows.length && !loading}
 				<SidebarGroup label="Pinned">
 					{#each pinnedRows as row (row.key)}
 						<SidebarRow href={row.href} label={row.label} icon={row.icon} active={row.active} />
@@ -2237,7 +2241,7 @@
 						aria-current={filter === 'all' && !liveParam && !collectionParam ? 'page' : undefined}
 						>All files</a
 					>
-					{#each pinnedRows as row (row.key)}
+					{#each loading ? [] : pinnedRows as row (row.key)}
 						<a
 							href={row.href}
 							class:active={row.active}

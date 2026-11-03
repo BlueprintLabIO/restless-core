@@ -42,6 +42,7 @@ import {
   base,
   boot,
   browser,
+  cellPool,
   company,
   core,
   coreApi,
@@ -685,8 +686,45 @@ async function seed(owner, alice) {
       body: { block_id: block.attrs.block_id, quote, content_json: { type: "doc", content: [paragraph(text)] } },
     });
   await until(async () => (await coreApi(owner, `${base}/attention`)).items.length >= 2, "seeded Inbox items", 30);
-  pass("seeded documents, a sheet, goals, a team, a room with a mention, direction requests, a charter draft, a review and margin comments");
-  return { path: `/${company}/library/documents?document=${plan}`, name: "document" };
+  /* The Library redesign (3 November): Work files in folders, a client's versions with its
+   * screenshots and an agent's notes beside them, so the explorer, a folder visit and "Show in
+   * folder" are measured. Recorded only: the explorer is drawn from the records. */
+  const siteWork = randomUUID();
+  await cellPool.query(
+    `INSERT INTO "${company}".work (id, owner_id, title, outcome, status, resolution, created_at, updated_at, priority, commissioned_by)
+     VALUES ($1, 'exec', 'Harbour Street café concept site', 'A concept site.', 'completed', 'accepted', now(), now(), 1, 'exec')`,
+    [siteWork],
+  );
+  const folder = "/company/outputs/sites/harbour-street-cafe";
+  let highlighted = "";
+  for (const [index, [uri, kind, label]] of [
+    [`${folder}/v1/index.html`, "site", "Harbour Street café, version 1.html"],
+    [`${folder}/v1/desktop-1440.png`, "image", "desktop-1440.png"],
+    [`${folder}/v2/index.html`, "site", "Harbour Street café, version 2.html"],
+    [`${folder}/v2/mobile-390.png`, "image", "mobile-390.png"],
+    [`${folder}/v2/notes.md`, "document", "notes.md"],
+    ["/company/outputs/images/reference-01.png", "image", "reference-01.png"],
+  ].entries()) {
+    const id = randomUUID();
+    if (index === 3) highlighted = `image:${id}`;
+    await cellPool.query(
+      `INSERT INTO "${company}".artifact_refs (id, kind, uri, created_by, created_at, work_id, label) VALUES ($1, $2, $3, 'exec', now(), $4, $5)`,
+      [id, kind, uri, siteWork, label],
+    );
+  }
+  pass("seeded documents, a sheet, goals, a team, a room with a mention, direction requests, a charter draft, a review, margin comments and Library folders");
+  return {
+    documentView: { path: `/${company}/library/documents?document=${plan}`, name: "document" },
+    libraryViews: [
+      { path: `/${company}/library?show=recent`, name: "library-recent" },
+      { path: `/${company}/library?folder=${encodeURIComponent(folder)}`, name: "library-folder" },
+      {
+        path: `/${company}/library?folder=${encodeURIComponent(`${folder}/v2`)}&highlight=${encodeURIComponent(highlighted)}`,
+        name: "library-show-in-folder",
+      },
+      { path: `/${company}/library?type=image&notes=1`, name: "library-filtered" },
+    ],
+  };
 }
 
 await run("multiplayer-jank", async () => {
@@ -709,7 +747,7 @@ await run("multiplayer-jank", async () => {
   await pass_(alice, "member", "empty", surfaces.member, ["cold"]);
   pass("empty state measured");
 
-  const documentView = await seed(owner, alice);
+  const { documentView, libraryViews } = await seed(owner, alice);
   for (const state of ["populated", "slow", "failure"]) {
     // With every read failing the shell has no navigation to arrive by, so that state has no nav load.
     await pass_(owner, "owner", state, surfaces.owner, state === "failure" ? ["cold", "warm"] : undefined);
@@ -717,6 +755,9 @@ await run("multiplayer-jank", async () => {
     // A document with margin comments: opened by its address (no tab arrives at it).
     await pass_(owner, "owner", state, [documentView], ["cold", "warm"]);
     await pass_(alice, "member", state, [documentView], ["cold"]);
+    // The Library's explorer, a folder, a file shown in its folder and a filtered list, by address.
+    await pass_(owner, "owner", state, libraryViews, ["cold", "warm"]);
+    await pass_(alice, "member", state, libraryViews, ["cold"]);
     pass(`${state} state measured`);
   }
   const kinds = { owner: await cardPass(owner, "owner"), member: await cardPass(alice, "member") };
