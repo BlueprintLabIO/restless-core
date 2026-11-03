@@ -161,8 +161,8 @@ owner's decision.
   - Abandoning never looks at dependents.
   - `add_work_edge` accepts an abandoned upstream.
 - **Fixed** (#603): abandoning tells each open dependent's lead (`work edge ... --remove` or
-  abandon), and new requirements on abandoned Work are refused. Already-stranded Work is covered by
-  the stalled-Work check in finding 10.
+  abandon), and new requirements on abandoned Work are refused. Already-stranded Work needs the
+  sweep in finding 10.
 
 ### 10. Blocked Work with no card and nobody asked
 
@@ -170,14 +170,8 @@ owner's decision.
   - Frankensurf "Reconcile the public 0.50.4 release", blocked since 19 Oct. Its "accountable
     recovery" is a single message to the lead.
   - Items 1, 2 and 9 also end in this state.
-- **Fixed** (fix/s109-stalled-work):
-  - The owner's Inbox carries one `work_stalled` card per Work item stopped for over a day with
-    nobody asked: blocked with no pending handoff (and not paused on purpose), or requiring
-    abandoned Work. It names the lead it waits on, quotes the block, says the way through, and
-    opens the Work, whose page has Resume and Stop for good.
-  - An hourly check tells each such Work's lead once per stall, from the daemon (never in Exec's
-    name), with the exact command to resume, or to drop the abandoned requirement.
-  - Work already stranded by abandoned requirements before #603 is covered by the same check.
+- **Open:** a sweep that raises one card per revision for Work blocked over 24 h with no pending
+  handoff, with Resume and Abandon. That is the backstop for this whole class.
 
 ### 11. Unknown generic-effect outcome blocks the key forever
 
