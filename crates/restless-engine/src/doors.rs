@@ -314,6 +314,7 @@ pub const ATTENTION_KINDS: &[(&str, Raiser)] = &[
     ("native_limit_stopped", Raiser::System),
     ("home_helper_offline", Raiser::System),
     ("machine_offline", Raiser::System),
+    ("work_stalled", Raiser::System),
 ];
 
 #[cfg(test)]
