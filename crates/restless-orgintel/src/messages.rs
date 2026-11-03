@@ -2541,43 +2541,32 @@ impl OrgIntel {
     /// earlier wake was still running and treated a health-gated wake that
     /// assembled no context at all as an observation (S19-T1).
     pub async fn owed_conversation_count(&self, actor: &str) -> Result<i64> {
-        Ok(sqlx::query_scalar(
-            "SELECT count(*) FROM messages message \
-             WHERE message.read_at IS NULL AND message.deleted_at IS NULL \
-               AND message.from_actor<>$1 \
-               AND NOT EXISTS (\
-                 SELECT 1 FROM actors human_sender \
-                 WHERE human_sender.id=message.from_actor \
-                   AND human_sender.actor_class='human' \
-                   AND EXISTS (SELECT 1 FROM human_principal_actor_bindings binding \
-                               WHERE binding.actor_id=human_sender.id) \
-                   AND NOT EXISTS (SELECT 1 FROM human_principal_actor_bindings active_binding \
-                                   WHERE active_binding.actor_id=human_sender.id \
-                                     AND active_binding.membership_status='active')\
-               ) \
-               AND NOT EXISTS (SELECT 1 FROM message_mentions WHERE message_id=message.id) \
-               AND (\
-                 EXISTS (SELECT 1 FROM work_feedback feedback \
-                         WHERE feedback.message_id=message.id \
-                           AND feedback.routed_to_actor=$1) \
-                 OR (message.to_actor=$1 AND NOT EXISTS (\
-                   SELECT 1 FROM work_feedback feedback \
-                   WHERE feedback.message_id=message.id \
-                     AND feedback.routed_to_actor IS NOT NULL\
-                 ))\
-               ) \
-               AND NOT EXISTS (\
-                 SELECT 1 FROM work_feedback feedback JOIN work ON work.id=feedback.work_id \
-                 WHERE feedback.message_id=message.id \
-                   AND COALESCE(feedback.routed_to_actor,message.to_actor)=work.owner_id \
-                   AND work.status IN ('proposed','active') \
-                   AND NOT EXISTS (\
-                     SELECT 1 FROM owner_handoffs handoff \
-                     WHERE handoff.work_id=work.id AND handoff.state='pending'\
-                   )\
-               )",
-        )
+        self.owed_conversation_count_settled(actor, MailSettle::IMMEDIATE)
+            .await
+    }
+
+    /// [`Self::owed_conversation_count`], counting machine mail (from an agent or the daemon)
+    /// only once it has settled: no newer machine mail for `settle.quiet_secs`, or the oldest
+    /// waiting longer than `settle.max_secs`. A person's message is owed at once. Result notices
+    /// and coordination mail that land close together then cost one wake, not one each.
+    pub async fn owed_conversation_count_settled(
+        &self,
+        actor: &str,
+        settle: MailSettle,
+    ) -> Result<i64> {
+        Ok(sqlx::query_scalar(&format!(
+            "SELECT COALESCE(CASE WHEN bool_or(owed.human) \
+                    OR max(owed.created_at) <= now() - make_interval(secs => $2) \
+                    OR min(owed.created_at) <= now() - make_interval(secs => $3) \
+                  THEN count(*) END, 0) \
+             FROM (SELECT message.created_at, {human} AS human FROM messages message \
+                   WHERE {owed}) owed",
+            human = HUMAN_SENDER_SQL,
+            owed = owed_mail_predicate("$1"),
+        ))
         .bind(actor)
+        .bind(f64::from(settle.quiet_secs))
+        .bind(f64::from(settle.max_secs))
         .fetch_one(&self.pool)
         .await?)
     }
@@ -2588,51 +2577,74 @@ impl OrgIntel {
     /// recover a lost direct-message wake without knowing the recipient in
     /// advance.
     pub async fn actors_owing_conversation_mail(&self, limit: i64) -> Result<Vec<String>> {
-        Ok(sqlx::query_scalar(
+        self.actors_owing_conversation_mail_settled(limit, MailSettle::IMMEDIATE)
+            .await
+    }
+
+    /// [`Self::actors_owing_conversation_mail`] with machine mail owed only once settled, as in
+    /// [`Self::owed_conversation_count_settled`].
+    pub async fn actors_owing_conversation_mail_settled(
+        &self,
+        limit: i64,
+        settle: MailSettle,
+    ) -> Result<Vec<String>> {
+        Ok(sqlx::query_scalar(&format!(
             "SELECT recipient.id FROM actors recipient \
+             JOIN LATERAL (SELECT count(*) AS waiting, bool_or({human}) AS human, \
+                                  max(message.created_at) AS newest, \
+                                  min(message.created_at) AS oldest \
+                           FROM messages message WHERE {owed}) owed ON owed.waiting > 0 \
              WHERE recipient.kind='staff' AND recipient.actor_class='agent' AND recipient.retired_at IS NULL \
-               AND EXISTS (\
-                 SELECT 1 FROM messages message \
-                 WHERE message.read_at IS NULL AND message.deleted_at IS NULL \
-                   AND message.from_actor<>recipient.id \
-                   AND NOT EXISTS (\
-                     SELECT 1 FROM actors human_sender \
-                     WHERE human_sender.id=message.from_actor \
-                       AND human_sender.actor_class='human' \
-                       AND EXISTS (SELECT 1 FROM human_principal_actor_bindings binding \
-                                   WHERE binding.actor_id=human_sender.id) \
-                       AND NOT EXISTS (SELECT 1 FROM human_principal_actor_bindings active_binding \
-                                       WHERE active_binding.actor_id=human_sender.id \
-                                         AND active_binding.membership_status='active')\
-                   ) \
-                   AND NOT EXISTS (SELECT 1 FROM message_mentions \
-                                   WHERE message_id=message.id) \
-                   AND (\
-                     EXISTS (SELECT 1 FROM work_feedback feedback \
-                             WHERE feedback.message_id=message.id \
-                               AND feedback.routed_to_actor=recipient.id) \
-                     OR (message.to_actor=recipient.id AND NOT EXISTS (\
-                       SELECT 1 FROM work_feedback feedback \
-                       WHERE feedback.message_id=message.id \
-                         AND feedback.routed_to_actor IS NOT NULL\
-                     ))\
-                   ) \
-                   AND NOT EXISTS (\
-                     SELECT 1 FROM work_feedback feedback JOIN work ON work.id=feedback.work_id \
-                     WHERE feedback.message_id=message.id \
-                       AND COALESCE(feedback.routed_to_actor,message.to_actor)=work.owner_id \
-                       AND work.status IN ('proposed','active') \
-                       AND NOT EXISTS (\
-                         SELECT 1 FROM owner_handoffs handoff \
-                         WHERE handoff.work_id=work.id AND handoff.state='pending'\
-                       )\
-                   )\
-               ) \
+               AND (owed.human OR owed.newest <= now() - make_interval(secs => $2) \
+                    OR owed.oldest <= now() - make_interval(secs => $3)) \
              ORDER BY recipient.id LIMIT $1",
-        )
+            human = HUMAN_SENDER_SQL,
+            owed = owed_mail_predicate("recipient.id"),
+        ))
         .bind(limit.clamp(1, 1024))
+        .bind(f64::from(settle.quiet_secs))
+        .bind(f64::from(settle.max_secs))
         .fetch_all(&self.pool)
         .await?)
+    }
+
+    /// When unread machine mail next settles, if some is still settling: the scheduler looks again
+    /// then rather than at its slow repair sweep. Mail that settled already, or mail that is not
+    /// conversation at all, never makes this due, so it cannot spin the scheduler.
+    pub async fn next_mail_settles_at(
+        &self,
+        settle: MailSettle,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
+        if settle.quiet_secs == 0 {
+            return Ok(None);
+        }
+        Ok(
+            sqlx::query_scalar::<_, Option<chrono::DateTime<chrono::Utc>>>(&format!(
+                "SELECT LEAST(max(message.created_at) + make_interval(secs => $1), \
+                          min(message.created_at) + make_interval(secs => $2)) \
+             FROM messages message \
+             WHERE message.read_at IS NULL AND message.deleted_at IS NULL \
+               AND message.to_actor IS NOT NULL AND NOT {human} \
+               AND message.created_at > now() - make_interval(secs => $1)",
+                human = HUMAN_SENDER_SQL,
+            ))
+            .bind(f64::from(settle.quiet_secs))
+            .bind(f64::from(settle.max_secs))
+            .fetch_one(&self.pool)
+            .await?
+            .filter(|due| *due > chrono::Utc::now()),
+        )
+    }
+
+    /// Whether this actor is a person (the owner or a member), whose messages are owed at once.
+    pub async fn is_human_actor(&self, actor: &str) -> Result<bool> {
+        Ok(actor == "owner"
+            || sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1 AND actor_class='human')",
+            )
+            .bind(actor)
+            .fetch_one(&self.pool)
+            .await?)
     }
 
     /// The few preceding turns in the exact direct Room that delivered a
@@ -3386,4 +3398,68 @@ pub enum ConversationStop {
     AlreadyRead,
     /// Not this human's message in a live direct room with that actor.
     NotTheirs,
+}
+
+/// How long machine mail (from an agent or the daemon) waits for more of the same before it owes
+/// its recipient a wake. A person's message is never held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MailSettle {
+    /// Owed once no newer machine mail has arrived for this long.
+    pub quiet_secs: u32,
+    /// Owed once the oldest waiting machine mail is this old, however busy it stays.
+    pub max_secs: u32,
+}
+
+impl MailSettle {
+    pub const IMMEDIATE: MailSettle = MailSettle {
+        quiet_secs: 0,
+        max_secs: 0,
+    };
+}
+
+/// True when the message's sender is a person.
+const HUMAN_SENDER_SQL: &str =
+    "(message.from_actor='owner' OR EXISTS (SELECT 1 FROM actors sender \
+     WHERE sender.id=message.from_actor AND sender.actor_class='human'))";
+
+/// Unread mail that owes `recipient` (an SQL expression) a conversation turn: addressed to it,
+/// not its own note, not from a departed member, not a mention, and not already input to an
+/// active Work revision.
+fn owed_mail_predicate(recipient: &str) -> String {
+    format!(
+        "message.read_at IS NULL AND message.deleted_at IS NULL \
+         AND message.from_actor<>{r} \
+         AND NOT EXISTS (\
+           SELECT 1 FROM actors human_sender \
+           WHERE human_sender.id=message.from_actor \
+             AND human_sender.actor_class='human' \
+             AND EXISTS (SELECT 1 FROM human_principal_actor_bindings binding \
+                         WHERE binding.actor_id=human_sender.id) \
+             AND NOT EXISTS (SELECT 1 FROM human_principal_actor_bindings active_binding \
+                             WHERE active_binding.actor_id=human_sender.id \
+                               AND active_binding.membership_status='active')\
+         ) \
+         AND NOT EXISTS (SELECT 1 FROM message_mentions WHERE message_id=message.id) \
+         AND (\
+           EXISTS (SELECT 1 FROM work_feedback feedback \
+                   WHERE feedback.message_id=message.id \
+                     AND feedback.routed_to_actor={r}) \
+           OR (message.to_actor={r} AND NOT EXISTS (\
+             SELECT 1 FROM work_feedback feedback \
+             WHERE feedback.message_id=message.id \
+               AND feedback.routed_to_actor IS NOT NULL\
+           ))\
+         ) \
+         AND NOT EXISTS (\
+           SELECT 1 FROM work_feedback feedback JOIN work ON work.id=feedback.work_id \
+           WHERE feedback.message_id=message.id \
+             AND COALESCE(feedback.routed_to_actor,message.to_actor)=work.owner_id \
+             AND work.status IN ('proposed','active') \
+             AND NOT EXISTS (\
+               SELECT 1 FROM owner_handoffs handoff \
+               WHERE handoff.work_id=work.id AND handoff.state='pending'\
+             )\
+         )",
+        r = recipient
+    )
 }

@@ -79,14 +79,15 @@ pub use human_decisions::*;
 pub use invocations::*;
 pub use library_items::*;
 pub use library_pins::*;
-pub use messages::ConversationStop;
+pub use messages::{ConversationStop, MailSettle};
 pub use notice_digest::notice_digest_body;
 pub use notifications::*;
 pub use owner_ready::*;
 pub use pending_shares::*;
 pub use progress::{
     current_percent, goal_progress, progress_line, progress_moves_enough, progress_owed_section,
-    rounded_percent, GoalProgress, ProgressReport, PROGRESS_HISTORY, PROGRESS_POST_STEP,
+    rounded_percent, take_progress_markers, GoalProgress, ProgressReport, ReportedProgress,
+    PROGRESS_HISTORY, PROGRESS_MARKER, PROGRESS_POST_STEP,
 };
 pub use responsibility::*;
 pub use schedules::{

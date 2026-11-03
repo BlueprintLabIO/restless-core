@@ -388,6 +388,83 @@ pub fn goal_progress(
     }
 }
 
+/// The marker a turn's final reply carries its estimates in, so recording them costs no tool
+/// call (S110): `<!--restless-progress:[{"work":"<id>","percent":60,"next":"…"},
+/// {"work":"<id>","blocked":"…"}]-->`. The Runtime takes it out before the reply is saved.
+pub const PROGRESS_MARKER: &str = "<!--restless-progress:";
+
+/// One estimate a reply carried.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct ReportedProgress {
+    pub work: Uuid,
+    #[serde(default)]
+    pub percent: Option<i16>,
+    #[serde(default)]
+    pub next: Option<String>,
+    #[serde(default)]
+    pub blocked: Option<String>,
+}
+
+/// The reply without its progress markers, and the estimates they held. A marker that does not
+/// parse is still removed (the owner never sees it) and simply records nothing.
+pub fn take_progress_markers(text: &str) -> (String, Vec<ReportedProgress>) {
+    if !text.contains(PROGRESS_MARKER) {
+        return (text.to_string(), Vec::new());
+    }
+    let mut clean = String::with_capacity(text.len());
+    let mut reported = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find(PROGRESS_MARKER) {
+        clean.push_str(&rest[..start]);
+        let after = &rest[start + PROGRESS_MARKER.len()..];
+        let Some(end) = after.find("-->") else {
+            rest = "";
+            break;
+        };
+        let payload = after[..end].trim();
+        if let Ok(items) = serde_json::from_str::<Vec<ReportedProgress>>(payload) {
+            reported.extend(items);
+        } else if let Ok(item) = serde_json::from_str::<ReportedProgress>(payload) {
+            reported.push(item);
+        }
+        rest = &after[end + 3..];
+    }
+    clean.push_str(rest);
+    (clean.trim().to_string(), reported)
+}
+
+impl OrgIntel {
+    /// Record the estimates a reply carried, as `by`. Each stands alone: one the creator may not
+    /// record (wrong Work, finished Work, a bad number) is skipped with its reason, never failing
+    /// the turn that carried it.
+    pub async fn record_reported_progress(
+        &self,
+        by: &str,
+        reported: &[ReportedProgress],
+    ) -> Vec<std::result::Result<WorkProgressRecorded, String>> {
+        let mut results = Vec::with_capacity(reported.len());
+        for item in reported {
+            let report = match (item.percent, item.next.as_deref(), item.blocked.as_deref()) {
+                (_, _, Some(why)) => ProgressReport::Blocked { why },
+                (Some(percent), Some(next), None) => ProgressReport::Estimate { percent, next },
+                _ => {
+                    results.push(Err(format!(
+                        "Work {}: give percent with next, or blocked",
+                        item.work
+                    )));
+                    continue;
+                }
+            };
+            results.push(
+                self.record_work_progress(item.work, by, report)
+                    .await
+                    .map_err(|error| format!("Work {}: {error}", item.work)),
+            );
+        }
+        results
+    }
+}
+
 /// The section a creator's wake carries when estimates are owed: the doctrine, then one line per
 /// Work. Empty when nothing is owed, so a quiet wake costs nothing.
 pub fn progress_owed_section(owed: &[WorkProgressOwed], doctrine: &str) -> String {
@@ -463,6 +540,30 @@ mod tests {
         );
         assert!(one_line("   ", "x").is_err());
         assert!(one_line(&"a".repeat(161), "x").is_err());
+    }
+
+    #[test]
+    fn estimates_ride_on_the_reply_and_never_reach_the_owner() {
+        let id = Uuid::nil();
+        let reply = format!(
+            "Site is live.
+<!--restless-progress:[{{\"work\":\"{id}\",\"percent\":60,\"next\":\"export\"}},{{\"work\":\"{id}\",\"blocked\":\"printer spec\"}}]-->
+<!--restless-intent:{{}}-->"
+        );
+        let (clean, reported) = take_progress_markers(&reply);
+        assert_eq!(
+            clean,
+            "Site is live.
+
+<!--restless-intent:{}-->"
+        );
+        assert_eq!(reported.len(), 2);
+        assert_eq!(reported[0].percent, Some(60));
+        assert_eq!(reported[1].blocked.as_deref(), Some("printer spec"));
+        // A broken marker is still hidden; a reply without one is untouched.
+        let (clean, reported) = take_progress_markers("Done. <!--restless-progress:nope-->");
+        assert_eq!((clean.as_str(), reported.len()), ("Done.", 0));
+        assert_eq!(take_progress_markers("plain").0, "plain");
     }
 
     #[test]

@@ -597,16 +597,36 @@ pub async fn announce_decisions(
             );
             return announced;
         }
-        if let Err(error) = org.send_message("owner", Some("exec"), &body).await {
-            tracing::warn!(company, "could not announce authority decision: {error:#}");
-            return announced;
+        // The decision is a structured fact, not something the owner said to Exec in chat (S110).
+        // It shows in the owner's chat as their decision, already read, so it never demands an
+        // owner-reply turn; Exec and whoever prepared it act on it from a system notice, a
+        // background turn that may stay quiet and settles with other notices into one wake.
+        match org.send_message("owner", Some("exec"), &body).await {
+            Ok(shown) => {
+                if let Err(error) = org.mark_read(shown).await {
+                    tracing::warn!(
+                        company,
+                        "could not settle the owner's decision line: {error:#}"
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::warn!(company, "could not announce authority decision: {error:#}");
+                return announced;
+            }
+        }
+        if let Err(error) = org.send_message("daemon", Some("exec"), &body).await {
+            tracing::warn!(
+                company,
+                "could not tell Exec about an authority decision: {error:#}"
+            );
         }
         for preparer in preparers_key
             .and_then(|key| preparers.get(&key))
             .into_iter()
             .flatten()
         {
-            if let Err(error) = org.send_message("owner", Some(preparer), &body).await {
+            if let Err(error) = org.send_message("daemon", Some(preparer), &body).await {
                 tracing::warn!(
                     company,
                     preparer = %preparer,
@@ -996,6 +1016,14 @@ mod tests {
             "grant, decline and revoke each reach the company"
         );
         assert_eq!(exec_inbox_len(org.clone()).await, 3);
+        // Each reaches Exec as a system notice; the owner's own line is already read, so no
+        // decision demands an owner-reply turn (S110).
+        assert!(org
+            .inbox(Some("exec"))
+            .await
+            .unwrap()
+            .iter()
+            .all(|message| message.from_actor == "daemon"));
 
         // Idempotent: the owner action and the scheduler both call this.
         assert_eq!(
