@@ -13,6 +13,7 @@ import { responseFailure } from './failure.ts';
 import { bootFetch } from './boot-fetch.ts';
 import { postFiles } from './attachments.ts';
 import { inboxPreviewContext } from './inbox-preview.ts';
+import { ownerText } from './owner-copy.ts';
 
 export type {
 	AgentActivityPhase,
@@ -207,7 +208,11 @@ export async function getAttention(company: string, signal?: AbortSignal): Promi
 				directionRequest: item.direction_request,
 				charterProposal: item.charter_proposal,
 				category: item.category,
-				title: item.preparing ? 'Preparing your next step' : item.title,
+				/* A row title is plain words, whoever wrote it (owner-copy.ts); the engine already
+				 * scrubs what it projects, so this only catches a title from an older engine. */
+				title: item.preparing
+					? 'Preparing your next step'
+					: ownerText(item.title, 'This needs you'),
 				whatHappened: item.preparing ? item.requested_action : item.what_happened,
 				whyItMatters: item.why_it_matters,
 				recommendation: item.preparing

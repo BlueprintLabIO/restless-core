@@ -74,6 +74,7 @@ pub mod outside_actions;
 pub mod owner_brief;
 pub mod owner_cell_readiness;
 pub mod owner_config;
+pub mod owner_copy;
 pub mod ownership_handover;
 pub mod plane;
 pub mod platform_capabilities;

@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { decidedNotice, leaksInternals, ownerLine, RESOLVED_ELSEWHERE } from './owner-copy.ts';
+import {
+	decidedNotice,
+	leaksInternals,
+	ownerLine,
+	ownerText,
+	RESOLVED_ELSEWHERE,
+	scrubInternals
+} from './owner-copy.ts';
 import { blockerSentence } from './work-actions.ts';
 
 /* The record that reached the owner on 3 Nov 2026, word for word. */
@@ -133,4 +140,60 @@ test('a blocker line never quotes a leaky reason', () => {
 		'Paused: waiting for the signed contract'
 	);
 	assert.equal(blockerSentence('', ''), '');
+});
+
+test('the guard also sees code names and a provider’s raw error', () => {
+	for (const leak of [
+		'The exec_startup_blocked state',
+		'[quota] provider refused the request',
+		'402 Payment Required',
+		'provider returned status 429',
+		'{"error":{"type":"invalid_request"}}',
+		'Error: connection reset',
+		'Blocked on 6f1d2c4e-1a2b-4c3d-9e8f-0a1b2c3d4e5f',
+		'Reply to msg#42 first'
+	])
+		assert.ok(leaksInternals(leak), leak);
+	for (const plain of [
+		'Approve sending the four prospect emails once sending is switched on',
+		'Raise the spend limit to $40 so the launch can finish this week.',
+		'Call them on 0412345678 after nine',
+		'Decided in 2026 by the team',
+		'Open https://example.com/work_id/44b3016c to sign in'
+	])
+		assert.ok(!leaksInternals(plain), plain);
+});
+
+test('an agent’s own words stay, without ids and handles', () => {
+	assert.equal(
+		scrubInternals('Raise the limit so reno-supervisor can finish (msg 1513).', {
+			'reno-supervisor': 'Reno'
+		}),
+		'Raise the limit so Reno can finish.'
+	);
+	assert.equal(
+		scrubInternals('Needed for the launch post, rewrite 44b3016c, by Friday'),
+		'Needed for the launch post, rewrite, by Friday'
+	);
+	assert.equal(
+		scrubInternals('Ask ops-lead before paying site_design'),
+		'Ask a teammate before paying site design'
+	);
+	assert.equal(
+		scrubInternals('Kit asked: see https://example.com/a1b2c3d4e5 for msg 12 details'),
+		'Kit asked: see https://example.com/a1b2c3d4e5 for details'
+	);
+	assert.equal(ownerText(ABANDONED, 'Stopped: no longer needed.'), 'Stopped: no longer needed.');
+	assert.equal(ownerText('[quota] 402 AI credit is used up', 'Out of credit.'), 'Out of credit.');
+	assert.equal(ownerText(null, 'Fallback.'), 'Fallback.');
+	assert.equal(ownerText('(44b3016c)', 'Fallback.'), 'Fallback.');
+	for (const said of [
+		ownerText('Drafted the reply for human-kit-agent; check a81cc8b2', 'x', {
+			'human-kit-agent': 'Kit'
+		}),
+		ownerText('Exported the work_node digest', 'Exported the result.')
+	]) {
+		assertOwnerSafe(said);
+		assert.ok(!leaksInternals(said), said);
+	}
 });
