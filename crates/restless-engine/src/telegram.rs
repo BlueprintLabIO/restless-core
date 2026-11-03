@@ -472,7 +472,7 @@ pub async fn outgoing(
                 (None, None) => None,
             }
         }
-        ("authority", "mandate_proposal") => Some(Binding::Mandate {
+        ("authority", "mandate_request") => Some(Binding::Mandate {
             proposal: item.source.reference.parse()?,
         }),
         ("authority", "payee_proposal") => Some(Binding::Payee {

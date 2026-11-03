@@ -10,8 +10,8 @@
 //! `email_mandate.rs` and keep their exact-text binding. Ordering from a vendor is the second:
 //! only the mandate and the check, never a payment.
 //!
-//! Records live in Authority's append-only table: `mandate_proposal`,
-//! `mandate_proposal_decision`, `mandate_granted`, `mandate_revoked` and `mandate_used`. A
+//! Records live in Authority's append-only table: `mandate_request`,
+//! `mandate_request_decision`, `mandate_granted`, `mandate_revoked` and `mandate_used`. A
 //! grant's record id is its version. The email-only kinds that came before (`email_mandate_*`)
 //! are rewritten in place into these by [`migrate_email_records`], keeping each record's id.
 
@@ -30,8 +30,8 @@ pub use crate::authority::{
     NewEmailMandate, ProviderOutcome,
 };
 
-pub const PROPOSAL_KIND: &str = "mandate_proposal";
-pub const DECISION_KIND: &str = "mandate_proposal_decision";
+pub const PROPOSAL_KIND: &str = "mandate_request";
+pub const DECISION_KIND: &str = "mandate_request_decision";
 pub const GRANTED_KIND: &str = "mandate_granted";
 pub const REVOKED_KIND: &str = "mandate_revoked";
 pub const USED_KIND: &str = "mandate_used";
@@ -932,7 +932,7 @@ pub async fn propose(
     }
     sqlx::query(
         "INSERT INTO restless_authority.records (company,kind,actor_id,body) \
-         VALUES ($1,'mandate_proposal',$2,$3)",
+         VALUES ($1,'mandate_request',$2,$3)",
     )
     .bind(company)
     .bind(proposer)
@@ -1040,9 +1040,9 @@ pub async fn raise(
 pub async fn pending(pool: &PgPool, company: &str) -> Result<Vec<MandateProposal>> {
     let records: Vec<crate::authority::AuthorityRecord> = sqlx::query_as(
         "SELECT p.id,p.actor_id,p.body,p.created_at FROM restless_authority.records p \
-         WHERE p.company=$1 AND p.kind='mandate_proposal' AND NOT EXISTS (\
+         WHERE p.company=$1 AND p.kind='mandate_request' AND NOT EXISTS (\
            SELECT 1 FROM restless_authority.records d WHERE d.company=p.company \
-           AND d.kind='mandate_proposal_decision' AND d.body->>'proposal_id'=p.body->>'id') \
+           AND d.kind='mandate_request_decision' AND d.body->>'proposal_id'=p.body->>'id') \
          ORDER BY p.id",
     )
     .bind(company)
@@ -1123,7 +1123,7 @@ pub async fn decide(
         .await?;
     let record: Option<crate::authority::AuthorityRecord> = sqlx::query_as(
         "SELECT id,actor_id,body,created_at FROM restless_authority.records \
-         WHERE company=$1 AND kind='mandate_proposal' AND body->>'id'=$2 ORDER BY id DESC LIMIT 1",
+         WHERE company=$1 AND kind='mandate_request' AND body->>'id'=$2 ORDER BY id DESC LIMIT 1",
     )
     .bind(company)
     .bind(proposal_id.to_string())
@@ -1133,7 +1133,7 @@ pub async fn decide(
     let decision_word = if approve { "approve" } else { "decline" };
     if let Some(row) = sqlx::query(
         "SELECT body FROM restless_authority.records \
-         WHERE company=$1 AND kind='mandate_proposal_decision' AND body->>'proposal_id'=$2 \
+         WHERE company=$1 AND kind='mandate_request_decision' AND body->>'proposal_id'=$2 \
          ORDER BY id LIMIT 1",
     )
     .bind(company)
@@ -1191,7 +1191,7 @@ pub async fn decide(
     };
     sqlx::query(
         "INSERT INTO restless_authority.records (company,kind,actor_id,body) \
-         VALUES ($1,'mandate_proposal_decision',$2,$3)",
+         VALUES ($1,'mandate_request_decision',$2,$3)",
     )
     .bind(company)
     .bind(owner)
@@ -2229,6 +2229,40 @@ mod tests {
         );
         assert!(active(pool, &company).await.unwrap().is_empty());
         assert_eq!(list(pool, &company).await.unwrap()[0].id, granted.id);
+    }
+
+    /// Charter drafts already use the Authority kind `mandate_proposal` (the charter was once the
+    /// company's "mandate"). Standing permissions never read or rewrite them.
+    #[tokio::test]
+    async fn charter_drafts_are_not_standing_permissions() {
+        let Some(url) = database() else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping charter collision scenario");
+            return;
+        };
+        let authority = crate::authority::AuthorityStore::connect(&url)
+            .await
+            .unwrap();
+        let pool = authority.pool();
+        let company = format!("mandate_charter_{}", Uuid::new_v4().simple());
+        sqlx::query(
+            "INSERT INTO restless_authority.records (company,kind,actor_id,body) VALUES ($1,$2,'owner',$3)",
+        )
+        .bind(&company)
+        .bind(crate::direction_authority::CHARTER_PROPOSAL)
+        .bind(serde_json::json!({"id": Uuid::new_v4(), "markdown": "# Charter"}))
+        .execute(pool)
+        .await
+        .unwrap();
+        assert!(pending(pool, &company).await.unwrap().is_empty());
+        assert_eq!(migrate_email_records(pool).await.unwrap(), 0);
+        let kind: String =
+            sqlx::query_scalar("SELECT kind FROM restless_authority.records WHERE company=$1")
+                .bind(&company)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        assert_eq!(kind, crate::direction_authority::CHARTER_PROPOSAL);
+        assert_ne!(PROPOSAL_KIND, crate::direction_authority::CHARTER_PROPOSAL);
     }
 
     /// Email records written before mandates were generic keep working after the migration.

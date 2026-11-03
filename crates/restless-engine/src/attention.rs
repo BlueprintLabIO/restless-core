@@ -3722,9 +3722,12 @@ async fn project_queue(
     }
 
     // A standing permission an agent asked for, of any kind: one card that says exactly what is
-    // granted, approved or declined inside the Authority Undo window.
-    for proposal in mandate_proposals {
-        items.push(mandate_proposal_item(&proposal, &actors));
+    // granted, approved or declined inside the Authority Undo window. Only the owner answers it,
+    // so only the owner's Inbox shows it.
+    if assignee.is_none() {
+        for proposal in mandate_proposals {
+            items.push(mandate_proposal_item(&proposal, &actors));
+        }
     }
     // One exact email an agent asked to send without a mandate (S109 H2). Only the owner sends it.
     if assignee.is_none() {
@@ -4702,7 +4705,7 @@ async fn authority_decisions(
                 .body
                 .get("proposal_id")
                 .and_then(Value::as_str)
-                .map(|id| format!("authority:mandate_proposal:{id}")),
+                .map(|id| format!("authority:mandate_request:{id}")),
             decided_by: decider(&record),
         });
     }
@@ -4757,11 +4760,11 @@ fn mandate_proposal_item(
         });
     }
     AttentionItem {
-        id: format!("authority:mandate_proposal:{}", proposal.id),
+        id: format!("authority:mandate_request:{}", proposal.id),
         work_id: None,
         source: AttentionSource {
             plane: "authority",
-            kind: "mandate_proposal".into(),
+            kind: "mandate_request".into(),
             reference: proposal.id.to_string(),
             party: None,
             call_key: None,

@@ -710,7 +710,7 @@ async function seed(owner, alice) {
   ]);
   /* A standing permission Exec asks for (3 Nov 2026), with a long title, scope and vendor list:
    * the record `restless mandate propose` writes. */
-  await plane.query("INSERT INTO restless_authority.records (company, kind, actor_id, body) VALUES ($1, 'mandate_proposal', 'exec', $2)", [
+  await plane.query("INSERT INTO restless_authority.records (company, kind, actor_id, body) VALUES ($1, 'mandate_request', 'exec', $2)", [
     company,
     {
       id: randomUUID(),

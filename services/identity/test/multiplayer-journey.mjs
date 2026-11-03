@@ -1463,7 +1463,7 @@ try {
         },
       },
     });
-    const itemId = `authority:mandate_proposal:${proposal}`;
+    const itemId = `authority:mandate_request:${proposal}`;
     const answer = (who, expected, decision = { action: "grant" }) =>
       coreApi(who, `${base}/approvals/pending-decision`, {
         method: "POST", expected,
@@ -1503,7 +1503,7 @@ try {
     const plane = new pg.Client({ connectionString: (await readFile(join(root, "orgintel.toml"), "utf8")).match(/database_url = "(.*)"/)[1] });
     await plane.connect();
     // The record `restless mandate propose` writes for Exec (the journey holds no Runtime).
-    await plane.query("INSERT INTO restless_authority.records (company, kind, actor_id, body) VALUES ($1, 'mandate_proposal', 'exec', $2)", [
+    await plane.query("INSERT INTO restless_authority.records (company, kind, actor_id, body) VALUES ($1, 'mandate_request', 'exec', $2)", [
       company,
       {
         id: proposal, kind: "vendor_order",
@@ -1518,11 +1518,11 @@ try {
       },
     ]);
     await plane.end();
-    const itemId = `authority:mandate_proposal:${proposal}`;
+    const itemId = `authority:mandate_request:${proposal}`;
     const inInbox = async (who = owner) => (await coreApi(who, `${base}/attention`)).items.some((item) => item.id === itemId);
     const card = (await coreApi(owner, `${base}/attention`)).items.find((item) => item.id === itemId);
     assert(card, "the permission is in the owner's Inbox");
-    assert.equal(card.source.kind, "mandate_proposal");
+    assert.equal(card.source.kind, "mandate_request");
     const granted = card.evidence.find((entry) => entry.kind === "authority-mandate");
     assert.match(granted.content, /^Allows: Print fridge magnets with Vistaprint\n/, "the card says what it allows");
     assert.match(granted.content, /\nLimits: Up to A\$150 per order; At most 4 orders in total; Only with vistaprint\.com\.au\n/, "and its limits in plain words");

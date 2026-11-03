@@ -21,7 +21,7 @@ export function approvalTarget(
 	item: Pick<AttentionItem, 'source'> & Partial<Pick<AttentionItem, 'accountUse'>>
 ): ApprovalTarget {
 	const { kind, reference } = item.source;
-	if (kind === 'mandate_proposal') return { kind: 'mandate', proposal: reference };
+	if (kind === 'mandate_request') return { kind: 'mandate', proposal: reference };
 	if (kind === 'payee_proposal' && /^\d+$/.test(reference))
 		return { kind: 'payee', proposal: Number(reference) };
 	if (kind === 'account_notice' && item.accountUse?.account.id)

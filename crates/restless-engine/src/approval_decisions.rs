@@ -88,7 +88,7 @@ impl ApprovalTarget {
         match self {
             Self::Party { .. } => None,
             Self::ToolCall { call_key } => Some(format!("authority:tool-call:{call_key}")),
-            Self::Mandate { proposal } => Some(format!("authority:mandate_proposal:{proposal}")),
+            Self::Mandate { proposal } => Some(format!("authority:mandate_request:{proposal}")),
             Self::Payee { proposal } => Some(format!("authority:payee:{proposal}")),
             Self::AccountNotice { notice, .. } => {
                 Some(format!("authority:account_notice:{notice}"))
@@ -471,7 +471,7 @@ async fn already_answered(
         ApprovalTarget::Mandate { proposal } => {
             let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
                 "SELECT actor_id, body->>'decision' FROM restless_authority.records \
-                 WHERE company=$1 AND kind='mandate_proposal_decision' \
+                 WHERE company=$1 AND kind='mandate_request_decision' \
                  AND body->>'proposal_id'=$2 ORDER BY id LIMIT 1",
             )
             .bind(company)
@@ -1718,7 +1718,7 @@ mod tests {
                 .len(),
             1
         );
-        assert_eq!(fx.count("mandate_proposal_decision").await, 1);
+        assert_eq!(fx.count("mandate_request_decision").await, 1);
         assert!(fx.settle(saved.id, None).await.is_none());
 
         // A decline with a note is recorded once, with the note.
@@ -1737,12 +1737,12 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(fx.count("mandate_proposal_decision").await, 1);
+        assert_eq!(fx.count("mandate_request_decision").await, 1);
         fx.expire(declined.id).await;
         assert_eq!(fx.settle(declined.id, None).await, Some("applied"));
         let decisions = fx
             .authority
-            .records_of_kind(&fx.company, "mandate_proposal_decision")
+            .records_of_kind(&fx.company, "mandate_request_decision")
             .await
             .unwrap();
         assert_eq!(decisions.len(), 2);

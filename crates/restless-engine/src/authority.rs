@@ -70,8 +70,8 @@ pub const GOVERNANCE_KINDS: &[&str] = &[
     "email_mandate_proposal",
     "email_mandate_proposal_decision",
     "email_mandate_revoked",
-    "mandate_proposal",
-    "mandate_proposal_decision",
+    "mandate_request",
+    "mandate_request_decision",
     "mandate_granted",
     "mandate_revoked",
     "mandate_used",
@@ -282,11 +282,15 @@ impl AuthorityStore {
             ),
             (
                 "standing permission proposal decision once",
-                "CREATE UNIQUE INDEX IF NOT EXISTS authority_mandate_proposal_decision_once                  ON restless_authority.records (company, (body->>'proposal_id'))                  WHERE kind = 'mandate_proposal_decision'",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_mandate_request_decision_once \
+                 ON restless_authority.records (company, (body->>'proposal_id')) \
+                 WHERE kind = 'mandate_request_decision'",
             ),
             (
                 "standing permission use once per action key",
-                "CREATE UNIQUE INDEX IF NOT EXISTS authority_mandate_use_key_once                  ON restless_authority.records (company, (body->>'action_key'))                  WHERE kind = 'mandate_used' AND body->>'action_key' IS NOT NULL",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_mandate_use_key_once \
+                 ON restless_authority.records (company, (body->>'action_key')) \
+                 WHERE kind = 'mandate_used' AND body->>'action_key' IS NOT NULL",
             ),
             (
                 "email effect key reservation once",

@@ -23,7 +23,7 @@ test('every other Inbox approval names its own request, never a party', () => {
 		source: { plane: 'authority', kind, reference },
 		...extra
 	});
-	assert.deepEqual(approvalTarget(of('mandate_proposal', 'f6b1')), {
+	assert.deepEqual(approvalTarget(of('mandate_request', 'f6b1')), {
 		kind: 'mandate',
 		proposal: 'f6b1'
 	});
