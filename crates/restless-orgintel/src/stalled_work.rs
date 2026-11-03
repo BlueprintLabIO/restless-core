@@ -226,8 +226,7 @@ impl OrgIntel {
                      handoff if it no longer applies.",
                     handoff.id, work.id, work.title, handoff.id
                 );
-                let room_id =
-                    ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(&to)).await?;
+                let room_id = ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(&to)).await?;
                 sqlx::query(
                     "INSERT INTO messages (room_id,from_actor,to_actor,body) VALUES ($1,'daemon',$2,$3)",
                 )

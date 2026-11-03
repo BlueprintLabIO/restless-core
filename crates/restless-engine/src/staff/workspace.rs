@@ -602,13 +602,9 @@ pub async fn ensure_worktree(
         // requested source differs from where the last Attempt left HEAD could never start
         // (S109 blockers audit, item 8: 7 Attempts on 6 Work items, each abandoned and
         // recreated). Keep everything that was there, then start from the exact source.
-        let preserved = preserve_and_reset_worktree(
-            &*docker_company_command(&container),
-            &path,
-            attempt_id,
-            &exact_commit,
-        )
-        .await?;
+        let preserved =
+            preserve_and_reset_worktree(&*docker_company_command(&container), &path, attempt_id, &exact_commit)
+                .await?;
         tracing::warn!(
             company = config.name,
             work_id = %work.id,
@@ -1319,10 +1315,7 @@ mod tests {
                 String::from_utf8_lossy(&output.stdout).to_string()
             }
         };
-        assert_eq!(
-            show(format!("{head_ref}:tracked.txt")).await,
-            "attempt one\n"
-        );
+        assert_eq!(show(format!("{head_ref}:tracked.txt")).await, "attempt one\n");
         assert_eq!(
             show(format!("{uncommitted_ref}:tracked.txt")).await,
             "half done\n"
@@ -1340,10 +1333,7 @@ mod tests {
                 .await
                 .unwrap();
         assert_ne!(again.uncommitted_ref, preserved.uncommitted_ref);
-        assert_eq!(
-            show(format!("{head_ref}:tracked.txt")).await,
-            "attempt one\n"
-        );
+        assert_eq!(show(format!("{head_ref}:tracked.txt")).await, "attempt one\n");
 
         let _ = std::fs::remove_dir_all(root);
     }

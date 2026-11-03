@@ -363,18 +363,12 @@ mod tests {
         assert!(same_setting(&pause("a"), &pause("a")));
         assert!(!same_setting(&pause("a"), &pause("b")));
         assert!(same_setting(
-            &SettingChange::ReasoningEffort {
-                effort: "low".into()
-            },
-            &SettingChange::ReasoningEffort {
-                effort: "high".into()
-            }
+            &SettingChange::ReasoningEffort { effort: "low".into() },
+            &SettingChange::ReasoningEffort { effort: "high".into() }
         ));
         assert!(!same_setting(
             &pause("a"),
-            &SettingChange::ReasoningEffort {
-                effort: "low".into()
-            }
+            &SettingChange::ReasoningEffort { effort: "low".into() }
         ));
     }
 
