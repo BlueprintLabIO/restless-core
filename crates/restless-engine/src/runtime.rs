@@ -3073,7 +3073,10 @@ pub async fn cockpit_company_statuses(
             let stale = result.clone();
             drop(cached);
             let configs = configs.to_vec();
-            refresh_behind(slot, async move { configured_company_statuses(&configs).await });
+            refresh_behind(
+                slot,
+                async move { configured_company_statuses(&configs).await },
+            );
             return Ok(stale);
         }
     }
