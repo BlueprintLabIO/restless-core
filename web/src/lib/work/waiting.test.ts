@@ -47,6 +47,18 @@ test('an authored action reads as the tail of the line, names kept', () => {
 	assert.equal(actionPhrase('  '), '');
 });
 
+test('an ask never brings a lead’s ids or handles onto the line', () => {
+	assert.equal(
+		actionPhrase('Approve the DNS change for reno-supervisor (msg 1513).'),
+		'approve the DNS change for a teammate'
+	);
+	assert.equal(actionPhrase('attempt_id 44b3016c handoff'), '');
+	assert.equal(
+		inboxWaitingLine(item({ requestedAction: 'resolve work_node a81cc8b2 digests' })),
+		'Waiting on you: your approval · from Baloo'
+	);
+});
+
 test('finished and stopped Work waits on nobody', () => {
 	assert.equal(workWaitingLine(work('completed'), base), null);
 	assert.equal(workWaitingLine(work('abandoned'), base), null);

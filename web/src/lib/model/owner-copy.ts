@@ -5,24 +5,93 @@
 
 import type { DecisionContinuation } from './view';
 
-/* 8+ hex characters with a digit among them (a commit, a short or full uuid), never a word. */
-const HEX_ID = /\b(?=[0-9a-f]*\d)[0-9a-f]{8,}\b/i;
+/* The engine's half of this guard is crates/restless-engine/src/owner_copy.rs; keep the two
+ * saying the same. */
+
+/* 8+ hex characters with a digit and a letter among them (a commit, a short or full uuid), never
+ * a word or a plain number such as a phone number. */
+const HEX_ID = /(?<![\w/.-])[0-9a-f]+(?:-[0-9a-f]+)*(?![\w/-])/gi;
 const MESSAGE_NUMBER = /\b(?:msg|message)\s*#?\d+/i;
 /* An agent's handle: lowercase, hyphenated, ending in a role (`reno-supervisor`, `ops-lead`). */
 const AGENT_HANDLE =
-	/\b[a-z][a-z0-9]*(?:-[a-z0-9]+)*-(?:supervisor|lead|exec|staff|agent|worker|writer|reviewer|bot|ops)\b/;
+	/(?<![\w-])[a-z][a-z0-9]*(?:-[a-z0-9]+)*-(?:supervisor|lead|exec|staff|agent|worker|writer|reviewer|bot|ops)(?![\w-])/;
+/* A code name such as `work_id` or `exec_startup_blocked`. */
+const SNAKE_CASE = /(?<![\w/.-])[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![\w/-])/;
 /* Engine nouns an owner never needs to read. */
 const INTERNAL_NOUN =
-	/\b(?:delivery node|work node|digests?|bound to|handoff|attempt_id|work_id|orgintel|authority record)\b/i;
+	/\b(?:delivery node|work node|digests?|bound to|handoff|attempt[_ ]id|work[_ ]id|orgintel|authority record)\b/i;
+/* A provider's or the runtime's own error rather than a sentence: a `[kind]` tag, a JSON body, an
+ * `error:` label, a request id or an HTTP status code. */
+const RAW_ERROR =
+	/^\s*\[[a-z_-]*\]|[{}]|\brequest[ _]id\b|\berror\s*[:=]|\bexception\b|(?:^\s*|\b(?:http|status|code|error|returned)\s+)[45]\d\d\b/i;
+const URL = /\S*:\/\/\S*/g;
 
-/** True when a line carries ids, hashes, message numbers, agent handles or engine nouns. */
+function hexIds(text: string): string[] {
+	return (text.match(HEX_ID) ?? []).filter((word) => {
+		const bare = word.replace(/-/g, '');
+		return bare.length >= 8 && /\d/.test(bare) && /[a-f]/i.test(bare);
+	});
+}
+
+/** True when a line carries ids, hashes, message numbers, agent handles, code names, engine nouns
+ * or a raw provider error. Addresses are read whole, so their paths are not words. */
 export function leaksInternals(text: string, actorIds: readonly string[] = []): boolean {
-	if (HEX_ID.test(text) || MESSAGE_NUMBER.test(text) || AGENT_HANDLE.test(text)) return true;
-	if (INTERNAL_NOUN.test(text)) return true;
+	const plain = text.replace(URL, ' ');
+	if (hexIds(plain).length || MESSAGE_NUMBER.test(plain) || AGENT_HANDLE.test(plain)) return true;
+	if (SNAKE_CASE.test(plain) || INTERNAL_NOUN.test(plain) || RAW_ERROR.test(plain)) return true;
 	return actorIds.some(
 		(id) =>
-			/[-_]/.test(id) && new RegExp(`\\b${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text)
+			/[-_]/.test(id) &&
+			new RegExp(`(?<![\\w-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(plain)
 	);
+}
+
+/**
+ * An agent's own words with ids, hashes, message numbers and handles taken out: a known actor id
+ * becomes their name, an unknown handle "a teammate", a code name plain words. Addresses stay
+ * whole. What is left may still leak (a raw error); `ownerText` decides.
+ */
+export function scrubInternals(text: string, names: Readonly<Record<string, string>> = {}): string {
+	const urls: string[] = [];
+	let said = text.replace(URL, (url) => `\u0000${urls.push(url) - 1}\u0000`);
+	/* "(msg 1513)", "[44b3016c]": an aside of internals goes with its space. */
+	said = said.replace(/\s*[([]([^()[\]]*)[)\]]/g, (aside, inner: string) =>
+		leaksInternals(inner) ? '' : aside
+	);
+	said = said.replace(new RegExp(MESSAGE_NUMBER.source, 'gi'), '');
+	for (const id of hexIds(said)) said = said.replace(id, '');
+	said = said.replace(new RegExp(AGENT_HANDLE.source, 'g'), (handle) => {
+		const name = names[handle];
+		return name && !AGENT_HANDLE.test(name) ? name : 'a teammate';
+	});
+	for (const [id, name] of Object.entries(names))
+		if (/[-_]/.test(id) && name)
+			said = said.replace(
+				new RegExp(`(?<![\\w-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'g'),
+				name
+			);
+	said = said.replace(new RegExp(SNAKE_CASE.source, 'g'), (code) => code.replace(/_/g, ' '));
+	said = said
+		.replace(/\s+([,.;:])/g, '$1')
+		.replace(/\(\s*\)|\[\s*\]/g, '')
+		.replace(/,(?=[,.])/g, '')
+		.replace(/:(?=\.)/g, '')
+		.replace(/\s{2,}/g, ' ')
+		.trim()
+		.replace(/^[,.;:]+\s*/, '')
+		.replace(/[,;:]+$/, '');
+	return said.replace(/\u0000(\d+)\u0000/g, (_, at: string) => urls[Number(at)]);
+}
+
+/** A line an agent or a provider wrote, scrubbed for the owner, or the platform's own line when
+ * nothing plain is left. */
+export function ownerText(
+	text: string | null | undefined,
+	fallback: string,
+	names: Readonly<Record<string, string>> = {}
+): string {
+	const said = scrubInternals(text ?? '', names);
+	return said && !leaksInternals(said) ? said : fallback;
 }
 
 /** A recorded line the owner may read, or the platform's own line when it leaks internals. */

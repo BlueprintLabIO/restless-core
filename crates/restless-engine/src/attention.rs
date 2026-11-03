@@ -267,6 +267,53 @@ fn handoff_category_words(category: restless_orgintel::OwnerHandoffCategory) -> 
     }
 }
 
+/// A row title for a step whose ask has no plain words left.
+fn handoff_category_title(category: restless_orgintel::OwnerHandoffCategory) -> &'static str {
+    use restless_orgintel::OwnerHandoffCategory as Category;
+    match category {
+        Category::Identity => "Confirm your identity",
+        Category::Captcha => "Pass a human check",
+        Category::Mfa => "Enter a sign-in code",
+        Category::LegalAttestation => "Confirm a legal statement",
+        Category::PaymentConfirmation => "Confirm a payment",
+        Category::OwnerJudgement => "Make a decision",
+    }
+}
+
+/// Each actor's name by id, so an agent's own words name people as the owner knows them.
+fn name_in(actors: &HashMap<String, AttentionActorRef>) -> impl Fn(&str) -> Option<String> + '_ {
+    move |id| {
+        actors
+            .get(id)
+            .map(|actor| actor.display.clone())
+            .filter(|name| !looks_like_actor_id(name))
+    }
+}
+
+/// A lead's resume condition ("an image is chosen", "The owner records a decision.") as the
+/// end of "… paused until": scrubbed of ids and handles, or nothing when no plain words are left.
+fn resume_words(condition: &str, actors: &HashMap<String, AttentionActorRef>) -> Option<String> {
+    let said = crate::owner_copy::owner_text(condition, "", &name_in(actors));
+    let said = said.trim_end_matches(['.', ';', ':', ',']).trim();
+    let mut letters = said.chars();
+    let first = letters.next()?;
+    // "The owner …" reads "the owner …" mid-sentence; a name or an acronym keeps its case.
+    let second_is_lower = letters.clone().next().is_some_and(char::is_lowercase);
+    let lead = if first.is_uppercase()
+        && second_is_lower
+        && said.split_whitespace().next().is_some_and(|word| {
+            matches!(
+                word,
+                "The" | "A" | "An" | "Your" | "Someone" | "Each" | "Every"
+            )
+        }) {
+        first.to_lowercase().collect::<String>()
+    } else {
+        first.to_string()
+    };
+    Some(format!("{lead}{}.", letters.as_str()))
+}
+
 /// An id-shaped name (`reno-supervisor`, `human-bodhi`, `exec`) rather than a
 /// person's display name.
 fn looks_like_actor_id(name: &str) -> bool {
@@ -1301,11 +1348,10 @@ fn model_cooldown_items(
         // A rate limit clears by itself within minutes; there is nothing for the owner to do.
         .filter(|cooldown| !crate::health::is_rate_limit(&cooldown.reason))
         .map(|cooldown| {
-            // "[quota] provider refused … owner action required: 402 AI credit is used up. …": the
-            // provider's own words, first line only.
-            let reason = cooldown.reason.lines().next().unwrap_or_default();
-            let reason = reason.split_once("] ").filter(|(tag, _)| tag.starts_with('[')).map_or(reason, |(_, rest)| rest);
-            let reason = reason.split_once("owner action required: ").map_or(reason, |(_, rest)| rest);
+            // The reason is the provider's own error ("[quota] provider refused … owner action
+            // required: 402 AI credit is used up. …"): it decides what the card says, and the
+            // card says it in the platform's words.
+            let model = crate::owner_copy::model_label(&cooldown.model);
             let credit = cooldown.reason.contains("AI credit is used up");
             // A subscription sign-in out of its plan's allowance comes back on its own at the reset.
             let usage = cooldown.reason.contains("usage limit was reached");
@@ -1325,9 +1371,16 @@ fn model_cooldown_items(
             let title = match (cooldown.kind.as_str(), credit) {
                 _ if usage => format!("Your {account} account hit its usage limit"),
                 (_, true) => "AI credit is used up".to_string(),
-                ("quota", _) => format!("{} refused: out of credit or quota", cooldown.model),
-                ("credential", _) => format!("{} refused its sign-in or key", cooldown.model),
-                _ => format!("{} is not available", cooldown.model),
+                ("quota", _) => format!("{model} is out of credit or over its limit"),
+                ("credential", _) => format!("{model} turned down the company's sign-in or key"),
+                _ => format!("{model} is not available"),
+            };
+            let what_happened = match (cooldown.kind.as_str(), credit) {
+                _ if usage => format!("Your {account} account used up its plan's allowance, so {model} is refusing new requests until it resets."),
+                (_, true) => format!("The company's AI credit is used up, so {model} is refusing new requests."),
+                ("quota", _) => format!("The account behind {model} is out of credit or over its limit, so it is refusing new requests."),
+                ("credential", _) => format!("The provider turned down the sign-in or key the company uses for {model}."),
+                _ => format!("The provider no longer offers {model} to this company's account."),
             };
             let mut actions = Vec::new();
             if let Some(url) = top_up {
@@ -1360,10 +1413,9 @@ fn model_cooldown_items(
                 },
                 category: "blocker".into(),
                 title,
-                what_happened: reason.to_string(),
+                what_happened,
                 why_it_matters: format!(
-                    "Exec and the team use {}, so no one in the company can think until this is fixed; work waits.",
-                    cooldown.model
+                    "Exec and the team use {model}, so no one in the company can think until this is fixed; work waits."
                 ),
                 recommendation: if usage {
                     format!("Wait for the reset, or add a fallback model from another account you hold so work carries on now. Work resumes by itself at {} either way.", cooldown.retry_at.format("%H:%M UTC on %-d %b"))
@@ -1641,11 +1693,8 @@ async fn account_items(
             },
             request.created_at,
         );
-        item.what_happened = if request.reason.is_empty() {
-            format!("{who} asked for an account.")
-        } else {
-            request.reason.clone()
-        };
+        item.what_happened =
+            crate::owner_copy::owner_line(&request.reason, &format!("{who} asked for an account."));
         // An API key is the company's own and lives in its Vault (S109 B6), not among your accounts.
         let vault_key = request.account_id.is_none() && request.kind.as_deref() == Some("api");
         let vault_name = vault_key
@@ -2151,11 +2200,7 @@ async fn direction_items(
                 None => (
                     format!("{who} asks: {}", request.summary),
                     format!("{who} asked Exec to change something only you can approve: {}", request.change),
-                    if request.reason.trim().is_empty() {
-                        "Nothing changes until you answer.".into()
-                    } else {
-                        request.reason.clone()
-                    },
+                    crate::owner_copy::owner_line(&request.reason, "Nothing changes until you answer."),
                     "Approve or decline.".to_string(),
                     format!("Nothing changes; {who}'s request waits."),
                 ),
@@ -2546,11 +2591,10 @@ async fn charter_item(
                 "Publish the charter change".into()
             },
             what_happened: "Exec drafted the charter in Company › Charter.".into(),
-            why_it_matters: if proposal.reason.trim().is_empty() {
-                "Every agent works under the charter; nothing changes until you publish it.".into()
-            } else {
-                proposal.reason.clone()
-            },
+            why_it_matters: crate::owner_copy::owner_line(
+                &proposal.reason,
+                "Every agent works under the charter; nothing changes until you publish it.",
+            ),
             recommendation: "Read the draft, edit it if you like, then publish or discard it."
                 .into(),
             requested_action: "Publish or discard.".into(),
@@ -3168,7 +3212,7 @@ async fn project_queue(
             .or_else(|| {
                 Some(AttentionActorRef {
                     id: item.owner_id.clone(),
-                    display: title_case(&item.owner_id),
+                    display: unnamed_actor(&item.owner_id),
                     role: "work lead".into(),
                 })
             });
@@ -3202,7 +3246,7 @@ async fn project_queue(
                     Ok(sources) => sources
                         .into_iter()
                         .map(|source| ReviewSourceRef {
-                            label: format!("{} source message", title_case(&source.provider)),
+                            label: format!("{} source message", provider_words(&source.provider)),
                             provider: source.provider,
                             reference: source.source_ref,
                             verification: external_source_verification(&source.metadata),
@@ -3458,10 +3502,21 @@ async fn project_queue(
             restless_orgintel::OwnerBriefKind::Contradiction => "contradiction",
             restless_orgintel::OwnerBriefKind::HumanStep => "human_step",
         });
-        let fallback_title = app_titles
-            .get(&handoff.id)
-            .map(String::as_str)
-            .unwrap_or(handoff.requested_action.trim());
+        // The last word on a row's title: the app it asks for, the ask in plain words, or what
+        // kind of step it is. Never the lead's raw instruction.
+        let fallback_title = app_titles.get(&handoff.id).cloned().unwrap_or_else(|| {
+            crate::owner_copy::owner_text(
+                handoff
+                    .requested_action
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())
+                    .unwrap_or(""),
+                handoff_category_title(handoff.category),
+                &name_in(&actors),
+            )
+        });
+        let fallback_title = fallback_title.as_str();
         let payment_title = payment.map(|payment| {
             format!(
                 "Approve {} {} to {}",
@@ -3534,7 +3589,10 @@ async fn project_queue(
                 ))
             },
             why_it_matters: payment_impact.unwrap_or_else(|| brief.map_or_else(
-                || format!("This Work is paused until the required human step is complete: {}", handoff.resume_condition),
+                || match resume_words(&handoff.resume_condition, &actors) {
+                    Some(until) => format!("This Work is paused until {until}"),
+                    None => "This Work is paused until this step is done.".into(),
+                },
                 |brief| brief.impact.clone(),
             )),
             recommendation: if preparing {
@@ -3552,13 +3610,20 @@ async fn project_queue(
             } else {
                 payment_action.unwrap_or_else(|| {
                     brief.map_or_else(
-                        || without_local_addresses(&handoff.requested_action),
+                        || crate::owner_copy::owner_text(
+                            &without_local_addresses(&handoff.requested_action),
+                            "Do the prepared step, then hand it back here. Restless sees the result and carries on.",
+                            &name_in(&actors),
+                        ),
                         |brief| brief.recommendation.clone(),
                     )
                 })
             },
             if_no_action: payment_no_action.unwrap_or_else(|| brief.map_or_else(
-                || format!("Work remains paused until: {}", handoff.resume_condition),
+                || match resume_words(&handoff.resume_condition, &actors) {
+                    Some(until) => format!("The Work stays paused until {until}"),
+                    None => "The Work stays paused.".into(),
+                },
                 |brief| brief.no_action.clone(),
             )),
             uncertainty: brief.and_then(|brief| brief.uncertainty.clone()),
@@ -3811,6 +3876,10 @@ async fn project_queue(
                     if !what_happened.ends_with('.') {
                         what_happened.push('.');
                     }
+                    let what_happened = crate::owner_copy::owner_line(
+                        &what_happened,
+                        "The company reached its spend limit.",
+                    );
                     items.push(spend_stopped_item(config, what_happened, event.created_at));
                 }
                 if let Some(true) = exec_startup_failure(reason) {
@@ -3838,27 +3907,30 @@ async fn project_queue(
                                         call_key: None,
                                     },
                                     category: "blocker".into(),
-                                    title: provider_issue.split(". ").next().unwrap_or(&provider_issue).into(),
-                                    what_happened: reason.to_string(),
+                                    // Said by the platform from the kind of failure; the
+                                    // runtime's own reason stays in Activity's record of the turn.
+                                    title: crate::owner_copy::owner_line(
+                                        provider_issue.split(". ").next().unwrap_or(&provider_issue),
+                                        "The company's AI connection needs fixing",
+                                    ),
+                                    what_happened: exec_startup_sentence(reason).into(),
                                     why_it_matters:
-                                        "The latest Exec turn ended blocked without recorded tool use. Its outcome has not been verified."
+                                        "Exec stopped before it could start, so nothing the company is working on moves until this is fixed."
                                             .into(),
-                                    recommendation: "Reconnect the selected intelligence connection so Exec can resume the existing work.".into(),
-                                    requested_action: provider_issue,
+                                    recommendation: "Reconnect the company's AI so Exec can carry on with the work it already has.".into(),
+                                    requested_action: crate::owner_copy::owner_line(
+                                        &provider_issue,
+                                        "Reconnect the company's AI in Company → Intelligence.",
+                                    ),
                                     if_no_action:
-                                        "Future Exec opportunities may continue to stop before productive work begins."
+                                        "Exec keeps stopping before it starts, and work waits."
                                             .into(),
                                     uncertainty: None,
                                     deadline: None,
                                     brief_status: "source-authored",
                                     brief_author: None,
                                     briefed_at: Some(event.created_at),
-                                    evidence: vec![AttentionEvidence {
-                                        label: "Exec terminal reason".into(),
-                                        uri: None,
-                                        content: Some(reason.to_string()),
-                                        kind: "runtime-observation",
-                                    }],
+                                    evidence: Vec::new(),
                                     review_sources: Vec::new(),
                                     responsible_actor: actors.get("exec").cloned(),
                                     runtime_attach: None,
@@ -4180,7 +4252,15 @@ async fn project_queue(
                     },
                     category: "approval".into(),
                     title: format!("Add a payee: {}", proposal.beneficiary_ref),
-                    what_happened: proposal.reason.clone(),
+                    // The asker's reason, in their words but without ids and handles.
+                    what_happened: crate::owner_copy::owner_text(
+                        &proposal.reason,
+                        &format!(
+                            "{} asked to add them as a payee.",
+                            actors.get(asker).map(|actor| actor.display.as_str()).filter(|name| !looks_like_actor_id(name)).unwrap_or("Exec")
+                        ),
+                        &name_in(&actors),
+                    ),
                     why_it_matters: format!(
                         "Approving lets the company pay {} from the {} allowance, within its limits.",
                         proposal.beneficiary_ref, proposal.currency
@@ -4288,11 +4368,15 @@ async fn project_queue(
                     },
                     category: "approval".into(),
                     title: summary.clone(),
-                    what_happened: format!("{} proposed this change.", actors.get(asker).map(|actor| actor.display.as_str()).unwrap_or("Exec")),
+                    what_happened: format!("{} proposed this change.", actors.get(asker).map(|actor| actor.display.as_str()).filter(|name| !looks_like_actor_id(name)).unwrap_or("Exec")),
                     why_it_matters: "Applying changes the setting exactly as Settings would; you can change it back there.".into(),
                     recommendation: "Apply if this is right for the company; adjust the value first if it is not.".into(),
                     // The why is what the owner decides on, so it is the ask the card leads with.
-                    requested_action: proposal.reason.clone(),
+                    requested_action: crate::owner_copy::owner_text(
+                        &proposal.reason,
+                        "Decide whether to apply this change.",
+                        &name_in(&actors),
+                    ),
                     if_no_action: "The setting stays as it is.".into(),
                     uncertainty: None,
                     deadline: None,
@@ -4637,7 +4721,7 @@ fn handoff_decisions(
             let responsible_actor = actors.get(accountable).cloned().or_else(|| {
                 Some(AttentionActorRef {
                     id: accountable.to_string(),
-                    display: title_case(accountable),
+                    display: unnamed_actor(accountable),
                     role: "work lead".into(),
                 })
             });
@@ -5206,6 +5290,27 @@ fn exec_startup_failure(reason: &str) -> Option<bool> {
     }
 }
 
+/// What a failed Exec start means, in the owner's words, from the kind of failure the runtime
+/// recorded. The runtime's reason itself (a tag, a status code, the provider's message) is never
+/// the sentence.
+fn exec_startup_sentence(reason: &str) -> &'static str {
+    match crate::health::block_kind_from_message(reason) {
+        Some(crate::health::BlockKind::Credential) => {
+            "The AI provider turned down the company's sign-in or key, so Exec could not start."
+        }
+        Some(crate::health::BlockKind::Quota) => {
+            "The company's AI account is out of credit or over its limit, so Exec could not start."
+        }
+        Some(crate::health::BlockKind::Model) => {
+            "The company's chosen model is not available, so Exec could not start."
+        }
+        Some(crate::health::BlockKind::Transport) => {
+            "Restless could not reach the company's AI provider, so Exec could not start."
+        }
+        _ => "The company's AI connection stopped working, so Exec could not start.",
+    }
+}
+
 /// "Add Stripe" for a catalogue key, "Add an app" for an address.
 fn app_request_title(app: &str) -> String {
     if app.contains("://") || app.contains('/') {
@@ -5243,11 +5348,40 @@ fn has_reviewable_prepared_command(body: &serde_json::Value) -> bool {
         .is_some_and(serde_json::Value::is_object)
 }
 
-fn title_case(value: &str) -> String {
-    let mut chars = value.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
+/// Who an actor is when the directory has no name for them: an id such as `reno-supervisor` is
+/// never shown title-cased ("Reno-supervisor"); the owner reads the part they play.
+fn unnamed_actor(id: &str) -> String {
+    match id {
+        "exec" => "Exec".into(),
+        "owner" => "The owner".into(),
+        _ if looks_like_actor_id(id) || crate::owner_copy::leaks_internals(id, &[]) => {
+            "The lead".into()
+        }
+        _ => id.to_string(),
+    }
+}
+
+/// A message provider as the owner knows it: `gmail` is "Gmail", `google_workspace` is
+/// "Google Workspace", never the code name.
+fn provider_words(provider: &str) -> String {
+    match provider {
+        "gmail" => "Gmail".into(),
+        "imap" | "smtp" | "email" => "Email".into(),
+        "agentmail" => "AgentMail".into(),
+        "github" => "GitHub".into(),
+        "linkedin" => "LinkedIn".into(),
+        _ => provider
+            .split(['_', '-'])
+            .filter(|word| !word.is_empty())
+            .map(|word| {
+                let mut letters = word.chars();
+                letters
+                    .next()
+                    .map(|first| first.to_uppercase().collect::<String>() + letters.as_str())
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
     }
 }
 
@@ -5350,13 +5484,20 @@ fn projected_handoff_title(
     if preparing {
         return "Preparing your next step".into();
     }
-    let action =
-        human_action.and_then(|action| action.lines().map(str::trim).find(|line| !line.is_empty()));
+    // A row title is the first line of what was asked, in plain words: a lead's instruction that
+    // is only ids and handles gives way to the brief's headline, then the platform's title.
+    let action = human_action
+        .and_then(|action| action.lines().map(str::trim).find(|line| !line.is_empty()))
+        .map(|line| crate::owner_copy::owner_line(line, ""))
+        .filter(|line| !line.is_empty());
+    let brief_title = brief_title
+        .map(|title| crate::owner_copy::owner_line(title, ""))
+        .filter(|title| !title.is_empty());
     payment_title
+        .map(str::to_string)
         .or(action)
-        .or(brief_title.filter(|title| !title.trim().is_empty()))
-        .unwrap_or(fallback_title)
-        .into()
+        .or(brief_title)
+        .unwrap_or_else(|| fallback_title.to_string())
 }
 
 /// An explicit external URL in the current instructions for a ready,
@@ -5538,7 +5679,39 @@ mod tests {
         );
         let item = &items[0];
         assert_eq!(item.title, "AI credit is used up");
-        assert_eq!(item.what_happened, "402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings#billing");
+        // The provider's error decides the card; it is never the card's words (no "402", no
+        // "[quota]", no model id).
+        assert_eq!(
+            item.what_happened,
+            "The company's AI credit is used up, so Deepseek V4.1 Flash is refusing new requests."
+        );
+        for text in [
+            &item.title,
+            &item.what_happened,
+            &item.why_it_matters,
+            &item.requested_action,
+        ] {
+            assert!(!crate::owner_copy::leaks_internals(text, &[]), "{text:?}");
+            assert!(
+                !text.contains("litellm/") && !text.contains("deepseek-v4"),
+                "{text:?}"
+            );
+        }
+        let refused = model_cooldown_items(
+            &config,
+            &[cooldown(
+                "credential",
+                "[credential] 401 Unauthorized: {\"error\":\"invalid_api_key\"}",
+            )],
+        );
+        assert_eq!(
+            refused[0].title,
+            "Deepseek V4.1 Flash turned down the company's sign-in or key"
+        );
+        assert_eq!(
+            refused[0].what_happened,
+            "The provider turned down the sign-in or key the company uses for Deepseek V4.1 Flash."
+        );
         // The relay of the time said #billing; the button goes to the section's own address.
         assert_eq!(
             item.actions[0].href.as_deref(),
@@ -6270,6 +6443,73 @@ mod tests {
             projected_handoff_title(false, None, None, Some("Review the outcome"), "Fallback"),
             "Review the outcome"
         );
+    }
+
+    #[test]
+    fn a_row_title_and_its_pause_are_plain_words_never_a_leads_ids() {
+        // A lead's instruction keeps its words without its ids and handles.
+        assert_eq!(
+            projected_handoff_title(
+                false,
+                None,
+                Some("Add the DNS record for reno-supervisor (msg 1513)"),
+                Some("Confirm the domain"),
+                "Fallback"
+            ),
+            "Add the DNS record for a teammate"
+        );
+        // Nothing plain left: the brief's headline, then the platform's title.
+        assert_eq!(
+            projected_handoff_title(
+                false,
+                None,
+                Some("attempt_id 44b3016c handoff"),
+                Some("Confirm the domain"),
+                "Fallback"
+            ),
+            "Confirm the domain"
+        );
+        assert_eq!(
+            projected_handoff_title(false, None, Some("[44b3016c]"), Some("msg 12"), "Fallback"),
+            "Fallback"
+        );
+
+        let mut actors = HashMap::new();
+        actors.insert(
+            "site-design".to_string(),
+            AttentionActorRef {
+                id: "site-design".into(),
+                display: "Kit".into(),
+                role: "lead".into(),
+            },
+        );
+        assert_eq!(
+            resume_words("an image is chosen", &actors).as_deref(),
+            Some("an image is chosen.")
+        );
+        assert_eq!(
+            resume_words("The owner records a decision.", &actors).as_deref(),
+            Some("the owner records a decision.")
+        );
+        assert_eq!(
+            resume_words("site-design confirms the copy (msg 88)", &actors).as_deref(),
+            Some("Kit confirms the copy.")
+        );
+        assert_eq!(
+            resume_words("work_id 6f1d2c4e resolved; digests bound", &actors),
+            None
+        );
+        assert_eq!(resume_words("  ", &actors), None);
+    }
+
+    #[test]
+    fn an_actor_without_a_name_is_its_part_never_its_title_cased_id() {
+        assert_eq!(unnamed_actor("reno-supervisor"), "The lead");
+        assert_eq!(unnamed_actor("site_design"), "The lead");
+        assert_eq!(unnamed_actor("exec"), "Exec");
+        assert_eq!(unnamed_actor("Avery Holt"), "Avery Holt");
+        assert_eq!(provider_words("gmail"), "Gmail");
+        assert_eq!(provider_words("google_workspace"), "Google Workspace");
     }
 
     #[test]
