@@ -21,7 +21,8 @@
 </script>
 
 <span class="time-left" role="timer" title={label} aria-label={`${label}: ${left}`}
-	><span class="value" aria-hidden="true">{left}</span><span aria-hidden="true"> left</span></span
+	><span class="value" aria-hidden="true">{left}</span><span aria-hidden="true">{' left'}</span
+	></span
 >
 
 <style>
