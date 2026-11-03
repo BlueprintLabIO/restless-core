@@ -29,6 +29,7 @@
 	import { askExec, workDraftFrom } from '$lib/model/ask-exec';
 	import Pin from '@lucide/svelte/icons/pin';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
+	import StreamedReply, { streamedReplyText } from '$lib/primitives/StreamedReply.svelte';
 	import RoomMessage from '$lib/components/RoomMessage.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
 	import {
@@ -1812,6 +1813,20 @@
 							</div>
 						{/if}
 					{/each}
+					<!-- Each reply as it streams, framed as a room row, where its saved message lands;
+					     the turns' lines follow (S110). -->
+					{#if streamedReplyText(directTurn)}<div class="room-streamed">
+							<StreamedReply participantName={actorDisplay} turn={directTurn!} embedded />
+						</div>{/if}
+					{#each agentTurns as agent (agent.actor)}
+						{#if streamedReplyText(agent.turn)}<div class="room-streamed">
+								<StreamedReply
+									participantName={actorName(agent.actor)}
+									turn={agent.turn}
+									embedded
+								/>
+							</div>{/if}
+					{/each}
 					{#if directTurn}
 						<ConversationTurnDock participantName={actorDisplay} turn={directTurn} />
 					{/if}
@@ -2596,6 +2611,14 @@
 		line-clamp: 2;
 		font-size: var(--t-body);
 		line-height: 1.45;
+	}
+
+	/* A streamed reply's frame is a room row's (RoomMessage .room-message), so the saved message
+	 * replaces it in place. */
+	.room-streamed {
+		position: relative;
+		min-width: 0;
+		padding: 10px 16px 4px;
 	}
 
 	.room-day,

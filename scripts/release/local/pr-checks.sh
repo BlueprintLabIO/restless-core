@@ -32,7 +32,10 @@ core_groups() {
     [ -n "$path" ] || continue
     case "$path" in
       .dagger/*|scripts/release/*|infra/*|contracts/*|release/*|LICENSE|docs/COMPANY_OPERATING_RULES.md) echo all; return ;;
-      crates/*|Cargo.toml|Cargo.lock|rust-toolchain*) groups+=(rust release) ;;
+      crates/*|Cargo.toml|Cargo.lock|rust-toolchain*) groups+=(rust engine release) ;;
+      # The engine tests read the generated web contract and the identity corpora.
+      web/src/lib/model/generated/*|web/src/lib/model/fixtures/*) groups+=(web issuer engine) ;;
+      docs/dogfood/company-identity/*) groups+=(engine) ;;
       web/*) groups+=(web issuer) ;;
       services/identity/*) groups+=(issuer web) ;;
       services/native-documents-collaboration/*) groups+=(documents) ;;
@@ -42,6 +45,18 @@ core_groups() {
     esac
   done
   [ ${#groups[@]} -gt 0 ] && printf '%s\n' "${groups[@]}" | sort -u | paste -sd, -
+  return 0
+}
+
+# The groups of a comma list that this tree's qualify declares (its QUALIFY_GROUPS line); all of
+# them for a tree with no such line, which qualifies everything below anyway.
+known_groups() { # tree groups
+  local declared group kept=()
+  declared="$(grep -m1 '^const QUALIFY_GROUPS' "$1/.dagger/src/index.ts")" || { echo "$2"; return 0; }
+  for group in ${2//,/ }; do
+    case "$declared" in *"'$group'"*) kept+=("$group") ;; esac
+  done
+  [ ${#kept[@]} -gt 0 ] && (IFS=,; echo "${kept[*]}")
   return 0
 }
 
@@ -67,6 +82,8 @@ check() { # repo checkout number sha
       git -C "$checkout" fetch -q origin main
       local groups
       groups="$(git -C "$tree" diff --name-only "$(git -C "$tree" merge-base HEAD origin/main)" HEAD | core_groups)"
+      # A branch from before a group existed cannot run it; it runs the groups its qualify knows.
+      [ -z "$groups" ] || [ "$groups" = all ] || groups="$(known_groups "$tree" "$groups")"
       if [ -z "$groups" ]; then
         echo "no qualified input changed (docs only)" >"$state/$name.log"
       elif [ "$groups" = all ] || ! grep -q "only: string = ''" "$tree/.dagger/src/index.ts"; then

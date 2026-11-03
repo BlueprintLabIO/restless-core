@@ -370,6 +370,15 @@
 	/* When retrying cannot help (signed out, refused, no such company) the dialog offers the way
 	 * out instead of a "Try again" that would trap the person behind the scrim. */
 	const startupView = $derived(startupFailure ? describeFailure(startupFailure) : null);
+	/* Restless answered, with an error a retry may clear (a 500, a 503 with its own message, a
+	 * 429): the connection is up, so the page must not say it dropped. */
+	const startupAnswered = $derived(
+		!!startupView &&
+			startupView.retryable &&
+			startupView.kind !== 'unreachable' &&
+			startupView.kind !== 'offline'
+	);
+	const startupStatus = $derived((startupFailure as { status?: number } | null)?.status ?? null);
 	let startupExit: HTMLAnchorElement | undefined = $state();
 	$effect(() => {
 		if (!startupBlocking) return;
@@ -2004,24 +2013,37 @@
 				aria-labelledby="startup-error-title"
 				aria-describedby="startup-error-copy"
 			>
-				<!-- One message, one reason, one action (21 October). A retryable failure is a dropped
-				     connection, usually an update, so it says what is happening rather than that
-				     something failed; only a failure a retry cannot fix says the company won't open. -->
+				<!-- One message, one reason, one action (21 October). A dropped connection, usually an
+				     update, says what is happening rather than that something failed; an error Restless
+				     answered with says so, with a retry; only a failure a retry cannot fix says the
+				     company won't open. -->
 				{#if startupView && !startupView.retryable}
 					<div class="startup-error-mark" aria-hidden="true">
 						<TriangleAlert size={18} strokeWidth={1.8} />
 					</div>
 					<h1 id="startup-error-title">We couldn’t open this company</h1>
+				{:else if startupAnswered}
+					<!-- The server is there and answered with an error: not a dropped connection, so it
+					     is not called one (S110). The retry is the way on. -->
+					<div class="startup-error-mark" aria-hidden="true">
+						<TriangleAlert size={18} strokeWidth={1.8} />
+					</div>
+					<h1 id="startup-error-title">{companyName || 'Your company'} couldn’t load</h1>
 				{:else}
 					<div class="startup-error-mark reconnecting" aria-hidden="true">
 						<span></span><span></span><span></span>
 					</div>
 					<h1 id="startup-error-title">Reconnecting to {companyName || 'your company'}…</h1>
 				{/if}
-				<p id="startup-error-copy">
+				<p
+					id="startup-error-copy"
+					title={startupAnswered ? (startupView?.technical ?? undefined) : undefined}
+				>
 					{startupView && !startupView.retryable
 						? startupView.detail
-						: 'The connection dropped, usually because Restless is updating. Your page and drafts stay as they are.'}
+						: startupAnswered
+							? `Restless is running but answered with an error${startupStatus ? ` (${startupStatus})` : ''}. Try again in a moment. Your page and drafts stay as they are.`
+							: 'The connection dropped, usually because Restless is updating. Your page and drafts stay as they are.'}
 				</p>
 				{#if startupView && !startupView.retryable}
 					<!-- A retry cannot succeed: offer the way out instead. Full loads, so on a hosted
@@ -2049,7 +2071,13 @@
 						disabled={retryingStartup}
 						onclick={retryStartup}
 					>
-						{retryingStartup ? 'Reconnecting…' : 'Try now'}
+						{retryingStartup
+							? startupAnswered
+								? 'Trying again…'
+								: 'Reconnecting…'
+							: startupAnswered
+								? 'Try again'
+								: 'Try now'}
 					</button>
 				{/if}
 			</div>

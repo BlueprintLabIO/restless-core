@@ -31,6 +31,7 @@
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
+	import StreamedReply from '$lib/primitives/StreamedReply.svelte';
 	import CompanyOffice, { preloadOffice } from '$lib/office/LazyCompanyOffice.svelte';
 	import type { AttentionItem } from '$lib/model/view';
 	import {
@@ -714,6 +715,11 @@
 							{companyId}
 						/>
 					{/each}
+					<!-- The reply as it streams, where the saved reply will land (S110). -->
+					{#if conversationTurn}<StreamedReply
+							participantName={requestingActorName}
+							turn={conversationTurn}
+						/>{/if}
 				</div>
 
 				{#if requestingActor}
