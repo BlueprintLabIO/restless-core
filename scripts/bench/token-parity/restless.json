@@ -1,0 +1,42 @@
+{
+	"_about": "Scripted agent behaviour for scripts/bench/token-parity on the current prompts: each step is what the prompt tells the actor to do, at its fewest calls. restless-before.json is the same tasks as the prompts before the token diet told the actors to do them.",
+	"rules": [
+		{
+			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-EMAIL to ([a-z0-9.]+@[a-z0-9.]+[a-z])",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "cat > /tmp/bench-email.json <<'J'\n{\"from\":\"hello@bench.example\",\"to\":\"{{1}}\",\"subject\":\"Welcome to Bench Bakery\",\"text\":\"Hi, thanks for signing up. Your first loaf is on us this week.\",\"effect_key\":\"bench-welcome-{{1}}\"}\nJ\nrestless email send --request-file /tmp/bench-email.json --rationale 'They signed up on the site today and asked for the welcome note.' --evidence 'owner message'" } } },
+				{ "text": "Sent the welcome email to {{1}}.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"I sent the welcome email.\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"The email is sent.\"}-->" }
+			]
+		},
+		{
+			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-DOC",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "mkdir -p /company/outputs && cat > /company/outputs/delivery-policy.md <<'D'\n# Delivery policy\n\nWe deliver within 10 km of the bakery. Orders placed by 8 pm arrive the next morning. Delivery is $5, free over $40.\nD" } } },
+				{ "tool": { "name": "bash", "input": { "command": "cat /company/outputs/delivery-policy.md" } } },
+				{ "text": "Here is the one-page delivery policy: /company/outputs/delivery-policy.md\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"I wrote the delivery policy for you to look at.\",\"ownerReview\":\"Delivery policy\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"The policy is ready for the owner.\"}-->" }
+			]
+		},
+		{
+			"match": "BENCH-WORK",
+			"scope": "all",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "mkdir -p /company/outputs && cat > /company/outputs/delivery-policy.md <<'D'\n# Delivery policy\n\nWe deliver within 10 km of the bakery. Orders placed by 8 pm arrive the next morning. Delivery is $5, free over $40.\nD" } } },
+				{ "tool": { "name": "bash", "input": { "command": "cat /company/outputs/delivery-policy.md" } } },
+				{ "text": "Wrote and reviewed the one-page delivery policy at /company/outputs/delivery-policy.md.\n<!--restless-turn:{\"decision\":\"outcome_met\",\"reason\":\"The policy is written and checked.\"}-->" }
+			]
+		},
+		{
+			"match": "Completed Work result for Exec delivery consideration",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "cat /company/outputs/delivery-policy.md" } } },
+				{ "text": "The delivery policy is ready for you to look at.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"The delivery policy is ready.\",\"ownerReview\":\"Delivery policy\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"The owner has the result.\"}-->" }
+			]
+		},
+		{
+			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-QA",
+			"steps": [
+				{ "text": "One piece of work is done: the delivery policy is waiting for your look.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Nothing else is in progress.\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"Answered the owner.\"}-->" }
+			]
+		}
+	]
+}

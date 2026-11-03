@@ -684,7 +684,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          outcome itself by default: in this same delegation, commission it as Work owned by that lead, \
          so no second paid lead turn restates your brief. One call does all of it: `restless commission \
          --lead <id> --title '<title>' --outcome '<every fact the owner gave>' [--goal <id>] \
-         [--owner-review]`, adding `--role <role>` for a new lead and `--team <name> --charter '<charter>'` \
+         [--owner-review --expected-artifact <path>]`, adding `--role <role>` for a new lead and `--team <name> --charter '<charter>'` \
          when that lead leads no team yet; it reuses or appoints the lead, forms the team and adds the \
          lead's Work (`restless work add --owner <lead>` remains for further Work). When the owner asks \
          to review or approve the result before it is used or sent, add `--owner-review`: it then \
