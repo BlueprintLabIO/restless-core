@@ -88,7 +88,10 @@
 
 <InlinePanel
 	label="Company computer"
-	error={error || control.error}
+	error={/* The owner reads a plain line; the server's reason stays in the console. */
+	error || control.error
+		? 'The company computer is not ready yet. Try Open again in a moment.'
+		: ''}
 	note={desktopUrl
 		? ''
 		: error

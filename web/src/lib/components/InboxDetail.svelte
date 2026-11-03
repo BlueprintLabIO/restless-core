@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { isSiteTask } from '$lib/model/site-ask';
+	import { withoutLinks } from '$lib/model/owner-copy';
 	/* One Inbox item, read as a message from whoever is asking and answered
 	 * from one action bar at the bottom.
 	 *
@@ -231,7 +232,11 @@
 	const ownerAccountAsk = $derived(!!item.accountRequest && !canPassToOwner);
 	const askText = $derived.by(() => {
 		const ask = item.accountRequest;
-		if (!ask || canPassToOwner) return item.requestedAction;
+		/* A sign-in link is the card's Open button; the ask is the words around it. */
+		if (!ask || canPassToOwner)
+			return action('open-external-human-step')
+				? withoutLinks(item.requestedAction)
+				: item.requestedAction;
 		if (ask.account_id) return 'Approve as asked, or set its access below and give it. Or deny.';
 		if (ask.kind === 'website_login' || ask.kind === 'browser_profile')
 			return 'Sign in below, then choose what the company may do there. Or deny.';
@@ -329,7 +334,14 @@
 						candidate.href &&
 						candidate.role !== 'conversation' &&
 						!(ownerAccountAsk && candidate.id === 'approve-with-limits') &&
-						!(candidate.id === 'open-external-human-step' && canSetAside && !item.preparing)
+						/* The embedded computer opens the page itself; with no prepared computer the
+						 * link is the card's own Open button. */
+						!(
+							candidate.id === 'open-external-human-step' &&
+							canSetAside &&
+							!item.preparing &&
+							!!item.runtimeAttach
+						)
 				)
 	);
 	/* A refused model offers two ways out (Top up, or another account the owner already holds);
@@ -378,7 +390,11 @@
 		canSetAside &&
 			!appRequest &&
 			!item.preparing &&
-			((!!item.runtimeAttach && item.category !== 'review') || !!stepUrl)
+			/* Only a step with a prepared computer embeds it. A sign-in link alone is the card's
+			 * Open action: on 3 November a Cloudflare consent step embedded a grey "could not be
+			 * opened" panel and an internal error instead (bug B). */
+			!!item.runtimeAttach &&
+			item.category !== 'review'
 	);
 	/* An agent's question about doing something on a site (register a domain, sign in, pay) shows
 	 * the company computer too, at the page the agent left open, so it is done in the card. A
@@ -1577,6 +1593,13 @@
 		line-height: 1.3;
 		letter-spacing: -0.015em;
 		text-wrap: balance;
+		/* Two lines at most, cut with an ellipsis: a title never grows into a tall header. */
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		overflow: hidden;
+		overflow-wrap: anywhere;
 	}
 	/* One line: what does not fit is cut at the end, never wrapped into a taller header. */
 	.meta {

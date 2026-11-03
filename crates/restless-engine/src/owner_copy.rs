@@ -301,6 +301,34 @@ pub fn owner_line(text: &str, fallback: &str) -> String {
     owner_text(text, fallback, &|_| None)
 }
 
+/// Longest card title, in characters; the card clamps it to two lines as well.
+pub const TITLE_LIMIT: usize = 120;
+
+/// A card title an owner reads: never a URL, never more than a short line. On 3 November an
+/// agent titled a sign-in step "Sign in to Cloudflare … consent page: https://dash.cloudflare.com/
+/// oauth2/auth?response_type=code&client_id=…", a ten-line heading. The link belongs to the card's
+/// Open action, which already carries it; the title keeps the words around it.
+pub fn owner_title(text: &str) -> String {
+    let words: Vec<&str> = text
+        .split_whitespace()
+        .filter(|word| {
+            let bare = core(word).to_ascii_lowercase();
+            !(bare.starts_with("http://") || bare.starts_with("https://") || bare.starts_with("www."))
+        })
+        .collect();
+    let joined = words.join(" ");
+    let mut title = joined
+        .trim_end_matches(|c: char| c.is_whitespace() || matches!(c, ':' | ',' | ';' | '-' | '–' | '—' | '(' | '['))
+        .trim()
+        .to_string();
+    if title.chars().count() > TITLE_LIMIT {
+        let cut: String = title.chars().take(TITLE_LIMIT - 1).collect();
+        let cut = cut.rsplit_once(' ').map_or(cut.as_str(), |(head, _)| head);
+        title = format!("{}…", cut.trim_end_matches(|c: char| !c.is_alphanumeric()));
+    }
+    title
+}
+
 /// A readable name for a model id (`openai-codex/gpt-5.6-sol` → "GPT-5.6 Sol"), the same
 /// fallback the web's `modelLabel` uses when the catalogue does not know it.
 pub fn model_label(model: &str) -> String {
@@ -340,6 +368,25 @@ pub fn model_label(model: &str) -> String {
     match label.strip_prefix("GPT ") {
         Some(rest) if rest.starts_with(|c: char| c.is_ascii_digit()) => format!("GPT-{rest}"),
         _ => label,
+    }
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::*;
+
+    #[test]
+    fn a_title_never_carries_a_url_and_stays_short() {
+        let raw = "Sign in to Cloudflare as the owner and click Allow on the Wrangler consent page: https://dash.cloudflare.com/oauth2/auth?response_type=code&client_id=54d11594-84e4-41aa-b438-e81b8fa78ee7&redirect_uri=http%3A%2F%2Flocalhost%3A8976%2Foauth%2Fcallback&scope=account%3Aread&state=abc&code_challenge=xyz";
+        assert_eq!(
+            owner_title(raw),
+            "Sign in to Cloudflare as the owner and click Allow on the Wrangler consent page"
+        );
+        assert_eq!(owner_title("Open (https://example.com) now"), "Open now");
+        let long = "word ".repeat(60);
+        let title = owner_title(&long);
+        assert!(title.chars().count() <= TITLE_LIMIT && title.ends_with('…'), "{title}");
+        assert_eq!(owner_title("Let Exec send email: [TEST] emails to your inbox"), "Let Exec send email: [TEST] emails to your inbox");
     }
 }
 

@@ -1,3 +1,4 @@
+import { ownerTitle } from './owner-copy.ts';
 import { withExecPlaces } from './exec-places.ts';
 import type { AttentionItem } from './view';
 import type { OwnerFailure } from './failure.ts';
@@ -18,8 +19,8 @@ export function ownerAttention(items: AttentionItem[]): AttentionItem[] {
 
 export function attentionTitle(item: AttentionItem): string {
 	// The row already names who asked; the title is what they asked for.
-	if (item.directionRequest) return item.directionRequest.summary;
-	return item.title.replace(/^(Blocked|Decision|Approval|Outcome review):\s*/i, '');
+	if (item.directionRequest) return ownerTitle(item.directionRequest.summary);
+	return ownerTitle(item.title.replace(/^(Blocked|Decision|Approval|Outcome review):\s*/i, ''));
 }
 
 /** An owner handoff awaiting outcome review: the only item `?review=` opens,

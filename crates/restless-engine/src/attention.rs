@@ -4897,6 +4897,13 @@ async fn project_queue(
             }
         }
     }
+    // A title is a short line of words: links belong to the card's actions (3 November).
+    for item in &mut items {
+        let title = crate::owner_copy::owner_title(&item.title);
+        if !title.is_empty() {
+            item.title = title;
+        }
+    }
     // Set aside by the owner as not needed, until it is raised again.
     let mut set_aside = Vec::new();
     if let Some(org) = org {
@@ -7573,6 +7580,7 @@ mod question_beside_decision_tests {
         let (title, _, limits) = mandate_proposal_copy("Exec", &proposal, false);
         assert_eq!(title, "Let Exec send email: [TEST] emails to your inbox");
         assert!(!title.to_lowercase().contains("mandate"));
+        assert!(limits.starts_with("Approve these limits, or decline."), "{limits}");
         assert!(limits.contains("- **How many:** up to 8 emails a day, 8 in total"));
         assert!(limits.contains("- **Sent from:** Acme <hello@example.com>"));
         assert!(limits.contains("- **Until:** 7 Nov 2026"), "{limits}");
