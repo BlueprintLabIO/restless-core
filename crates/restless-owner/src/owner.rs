@@ -2393,25 +2393,49 @@ fn cockpit_files(
     })
 }
 
+/// The cockpit's own unfingerprinted files from `web/static`: public build output, never a page.
+fn is_cockpit_static_file(path: &str) -> bool {
+    ["/vendor/", "/office/", "/licenses/"]
+        .iter()
+        .any(|prefix| path.starts_with(prefix))
+        || matches!(
+            path,
+            "/app-icon.svg"
+                | "/apple-touch-icon.png"
+                | "/favicon-32.png"
+                | "/favicon.ico"
+                | "/favicon.svg"
+                | "/icon-192.png"
+                | "/icon-512.png"
+                | "/icon-maskable-512.png"
+        )
+}
+
 async fn cockpit_cache_policy(request: Request, next: Next) -> Response<Body> {
     let fingerprinted_path = request.uri().path().starts_with("/_app/immutable/");
     // The account sections Cloud's Settings mounts (ADR 0008) keep one address across releases,
     // so they are not immutable; kept but revalidated, a repeat visit costs a 304 instead of the
     // whole module (about a second on Cloud, 19 October). Private: only a signed-in owner gets it.
     let plane_ui = request.uri().path().starts_with("/plane-ui/");
+    // The office sprites, licences and icons keep their names across releases but rarely
+    // change. Kept for a day: no-store sent about sixty sprite requests through the hosted edge,
+    // which is billed per request, on every page load (3 Nov 2026).
+    let static_path = is_cockpit_static_file(request.uri().path());
     let mut response = next.run(request).await;
     let revalidated = plane_ui
         && (response.status().is_success() || response.status() == StatusCode::NOT_MODIFIED);
-    let immutable = fingerprinted_path
-        && response.status().is_success()
+    let asset = response.status().is_success()
         && !response
             .headers()
             .get(CONTENT_TYPE)
             .is_some_and(|value| value.as_bytes().starts_with(b"text/html"));
+    let immutable = fingerprinted_path && asset;
     response.headers_mut().insert(
         CACHE_CONTROL,
         HeaderValue::from_static(if immutable {
             "public, max-age=31536000, immutable"
+        } else if static_path && asset {
+            "public, max-age=86400"
         } else if revalidated {
             "private, no-cache"
         } else {
@@ -10363,6 +10387,7 @@ async fn room_events_live(
 /// reported as `resync`, which makes the cockpit refetch everything visible.
 async fn company_changes(
     State(state): State<OwnerState>,
+    principal: Option<Extension<RequestPrincipal>>,
     AxumPath(company): AxumPath<String>,
     session_lease: Option<Extension<SessionLease>>,
     upgrade: event_transport::Upgrade,
@@ -10378,7 +10403,13 @@ async fn company_changes(
             "the verified company session is no longer active",
         );
     }
-    let admission = match state.daemon.cell_wakes.try_admit(&company, "owner-changes") {
+    let admission = match state.daemon.cell_wakes.try_admit(
+        &company,
+        &company_changes_admission_key(
+            principal.as_ref().map(|Extension(principal)| principal),
+            session_lease.as_ref(),
+        ),
+    ) {
         Ok(admission) => admission,
         Err(refusal) => return room_stream_refusal(refusal),
     };
@@ -10410,6 +10441,25 @@ async fn company_changes(
     )
     .into_response();
     event_transport::respond(response, upgrade)
+}
+
+/// Whose share of the stream cap a change stream takes: each person's own,
+/// apart from their Room streams. One key for the whole company let eight open
+/// tabs, everyone's together, hold every change stream; the ninth was refused
+/// and, hosted, its EventSource gave up and the page polled at its ordinary
+/// pace for as long as it stayed open (3 Nov 2026). The company-wide cap still
+/// bounds the total.
+fn company_changes_admission_key(
+    principal: Option<&RequestPrincipal>,
+    session_lease: Option<&SessionLease>,
+) -> String {
+    match principal {
+        Some(principal) => format!(
+            "changes:{}",
+            room_stream_principal_key(principal, session_lease)
+        ),
+        None => "changes:unidentified".to_string(),
+    }
 }
 
 /// How long one burst of notifications is gathered into a single hint. A
@@ -14839,6 +14889,20 @@ mod cache_policy_tests {
             .to_str()
             .unwrap()
             .to_owned()
+    }
+
+    #[tokio::test]
+    async fn office_sprites_and_icons_are_kept_for_a_day_and_pages_never() {
+        assert_eq!(
+            cache_control("/vendor/pixel-agents/assets/floors/floor_4.png").await,
+            "public, max-age=86400"
+        );
+        assert_eq!(cache_control("/favicon.svg").await, "public, max-age=86400");
+        assert_eq!(cache_control("/acme/library").await, "no-store");
+        assert_eq!(
+            cache_control("/api/companies/acme/attention").await,
+            "no-store"
+        );
     }
 
     #[tokio::test]
