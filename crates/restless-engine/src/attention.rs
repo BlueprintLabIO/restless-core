@@ -4696,7 +4696,7 @@ fn handoff_decisions(
                 recorded_decision: handoff_outcome_line(&ended).into(),
                 what_it_unlocked,
                 current_state: provider_state
-                    .unwrap_or_else(|| format!("{work_state}; {attempt_state}")),
+                    .unwrap_or_else(|| format!("{work_state} {attempt_state}")),
                 observed_outcome: payment.map_or_else(
                     || work_state,
                     |payment| {
