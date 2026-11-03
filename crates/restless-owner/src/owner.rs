@@ -61,6 +61,8 @@ mod native_import_api;
 mod notification_delivery_api;
 #[path = "owner_oauth_login.rs"]
 mod oauth_login_api;
+#[path = "owner_integrations.rs"]
+mod owner_integrations;
 #[path = "owner_vault.rs"]
 mod owner_vault;
 #[path = "owner_pending_shares.rs"]
@@ -1689,6 +1691,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route("/companies/{company}/vault", get(company_vault))
         .route(
+            "/companies/{company}/integrations",
+            get(owner_integrations::integrations),
+        )
+        .route(
+            "/companies/{company}/integrations/email/test",
+            post(owner_integrations::send_test),
+        )
+        .route(
             "/companies/{company}/vault/secret",
             post(owner_vault::store_secret),
         )
@@ -2688,6 +2698,12 @@ async fn network_session_is_current(
     .map_err(Into::into)
 }
 
+fn is_company_integrations_read(path: &str) -> bool {
+    path.strip_prefix("/api/companies/")
+        .and_then(|rest| rest.split_once('/'))
+        .is_some_and(|(company, tail)| !company.is_empty() && tail == "integrations")
+}
+
 fn is_company_accounts_read(path: &str) -> bool {
     path.strip_prefix("/api/companies/")
         .and_then(|rest| rest.split_once('/'))
@@ -2753,6 +2769,8 @@ fn membership_boundary_violation(
         // Everyone in a company sees which of the owner's accounts it may use (S98); the handler
         // checks the company and returns grants only, never a credential.
         || (method == Method::GET && is_company_accounts_read(path))
+        // Everyone sees whether the company can send email (S109 H2); the handler hides key names.
+        || (method == Method::GET && is_company_integrations_read(path))
         || (principal.membership_role() == "admin" && is_company_account_request(method, path))
         // Chat lists, message search and reactions answer only from the
         // Rooms the caller takes part in.
@@ -11825,6 +11843,14 @@ async fn send_actor_message(
                     {
                         tracing::error!(%error, %attention_id, message_id, "Attention context event was not recorded after message delivery");
                     }
+                }
+            }
+            // The owner has moved on from what Exec already showed them: each of Exec's Inbox
+            // changes is applied once it has been open 30 seconds, rather than at its two-minute
+            // ceiling. A change still in a streaming reply keeps waiting to be shown.
+            if created && actor == "exec" && principal.membership_role() == "owner" {
+                if let Err(error) = org.owner_moved_on_from_exec_inbox_actions().await {
+                    tracing::warn!(%error, %company, "Exec's Inbox changes kept their full Undo window");
                 }
             }
             if created {

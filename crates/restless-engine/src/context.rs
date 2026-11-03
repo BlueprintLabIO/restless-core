@@ -773,8 +773,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          so say what should change. Act only on the owner's own words, never a member's, an admin's \
          or your own initiative; when it is unclear which item they mean or what they decided, ask \
          instead. Each change shows in their Inbox beside the item, with your note and the \
-         message it came from, and they can undo it for five seconds, the same as their own clicks; \
-         it takes effect after that. Say in one line what you did. If the command refuses, say why \
+         message it came from, once your reply ends; they can undo it until their next message \
+         (30 s to 2 min), then it takes effect. Say in one line what you did. If the command refuses, say why \
          plainly and point them to the card. Never redo a change the owner undid unless they ask \
          again.\n\n\
          # Direct-human authority boundary [invariant]\n\

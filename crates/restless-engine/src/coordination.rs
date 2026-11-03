@@ -1480,10 +1480,12 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         "finance-reserve" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<finance::PaymentIntentInput>(body) {
                 Ok(mut input) => {
+                    // The caller, never Exec by default: a staff member's request is theirs,
+                    // and the answer goes back to them (S109 blockers audit).
                     input.requesting_actor = if principal == Principal::Owner {
                         "owner".into()
                     } else {
-                        "exec".into()
+                        request.orgintel.actor.as_deref().unwrap_or("exec").to_string()
                     };
                     match daemon.orgintel.get(company).await {
                         Ok(org) => match finance::validate_work_link(&org, &input).await {
@@ -1502,7 +1504,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         },
         "finance-payee-propose" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<finance::PayeeProposalInput>(body) {
-                Ok(input) => match finance::propose_payee(&daemon.authority, company, "exec", input).await {
+                Ok(input) => match finance::propose_payee(&daemon.authority, company, request.orgintel.actor.as_deref().unwrap_or("exec"), input).await {
                     Ok(id) => Response::ok(serde_json::json!({
                         "proposal": id,
                         "status": "waiting for the owner in the Inbox",
@@ -1521,12 +1523,17 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 {
                     Response::err("there is no live schedule with that id; name one from `restless schedule opportunities` or the company's Schedules")
                 }
-                Ok(input) => match crate::setting_proposals::propose(&daemon.authority, company, "exec", input).await {
-                    Ok(id) => Response::ok(serde_json::json!({
-                        "proposal": id,
+                Ok(input) => match runtime::CompanyConfig::load(&daemon.root, company) {
+                    Err(error) => Response::err(format!("{error:#}")),
+                    Ok(config) => match crate::setting_proposals::propose(&daemon.authority, &config, request.orgintel.actor.as_deref().unwrap_or("exec"), input).await {
+                    Ok(proposed) => Response::ok(serde_json::json!({
+                        "proposal": proposed.id,
                         "status": "waiting for the owner in the Inbox",
+                        // Earlier proposals the owner settled by changing Settings directly.
+                        "superseded": proposed.superseded,
                     })),
                     Err(error) => Response::err(format!("{error:#}")),
+                    },
                 },
                 Err(error) => Response::err(format!("invalid setting proposal: {error}")),
             },
@@ -6087,6 +6094,190 @@ mod tests {
             .await
             .unwrap();
         crate::cell::destroy_database(&root, &database_url, &restless)
+            .await
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The Reno fault (3 Nov): Exec's `restless mandate propose` becomes one owner Inbox card;
+    /// a repeat returns the waiting one; declining grants nothing and no permit can be issued;
+    /// approving creates the active mandate that `mandate list` shows and permits honour.
+    #[tokio::test]
+    async fn an_exec_mandate_proposal_is_one_owner_card_and_only_approval_grants_it() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Exec mandate proposal");
+            return;
+        };
+        let suffix = &uuid::Uuid::new_v4().simple().to_string()[..10];
+        let company = format!("mandate_{suffix}_test");
+        let root = std::env::temp_dir().join(format!("restless-mandate-propose-{suffix}"));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        std::fs::write(
+            root.join("companies").join(format!("{company}.toml")),
+            format!("display_name = \"Reno\"\nname = {company:?}\n"),
+        )
+        .unwrap();
+        let authority = authority::AuthorityStore::connect(&database_url)
+            .await
+            .unwrap();
+        let daemon = Daemon {
+            root: root.clone(),
+            capabilities: capability::CapabilityIssuer::open(&root).unwrap(),
+            spend: spend::SpendLedger::open(&root).unwrap(),
+            publication: publication::PublicationManager::new(&root, authority.clone()).unwrap(),
+            launch: launch::LaunchBroker::new(&root).unwrap(),
+            authority,
+            orgintel: OrgIntelRegistry {
+                database_url: database_url.clone(),
+                root: root.clone(),
+                handles: std::sync::Mutex::new(HashMap::new()),
+            },
+            staff: staff::StaffRegistry::default(),
+            activities: activity::AgentActivityStreams::default(),
+            cell_wakes: cell_wake::CellWakeHub::default(),
+            runtime_bridges: runtime_bridge::RuntimeBridgeRegistry::default(),
+            lifecycle: restless_contracts::appliance::LifecycleGate::default(),
+            in_flight: std::sync::Arc::new(std::sync::Mutex::new(schedule::WakeClaims::default())),
+            schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
+        };
+        let config = runtime::CompanyConfig::load(&root, &company).unwrap();
+        let expires = (chrono::Utc::now() + chrono::Duration::days(30)).to_rfc3339();
+        // Exactly what the CLI sends for `restless mandate propose --proposal-file --reason`.
+        let propose = || {
+            decoded_request(serde_json::json!({
+                "cmd": "mandate-propose",
+                "company": company,
+                "actor": "exec",
+                "purpose": "The owner reviewed five outreach emails and wants them sent.",
+                "mandate_proposal": {
+                    "purpose": "Outreach to renovation leads the owner reviewed",
+                    "audience_guidance": "Only the five leads the owner approved by name",
+                    "sender": "hello@example.com",
+                    "sender_name": "Reno",
+                    "max_per_day": 5,
+                    "max_total": 5,
+                    "timezone": "Australia/Sydney",
+                    "expires_at": expires,
+                },
+            }))
+        };
+        let mandate_cards = |view: &crate::attention::AttentionView| {
+            view.items
+                .iter()
+                .filter(|item| item.source.kind == "email_mandate_proposal")
+                .map(|item| item.source.reference.clone())
+                .collect::<Vec<_>>()
+        };
+        let permit = |mandate: String| {
+            decoded_request(serde_json::json!({
+                "cmd": "mandate-permit",
+                "company": company,
+                "actor": "exec",
+                "mandate_id": mandate,
+                "mandate_proposal": {
+                    "sender": "hello@example.com",
+                    "recipient": "lead@example.com",
+                    "payload_sha256": "a".repeat(64),
+                    "effect_key": format!("outreach-{suffix}"),
+                    "rationale": "The owner approved this lead by name.",
+                    "evidence_refs": ["owner-reviewed-list"],
+                    "expires_at": (chrono::Utc::now() + chrono::Duration::minutes(4)).to_rfc3339(),
+                },
+            }))
+        };
+        let value = |response: Response| serde_json::to_value(response).unwrap();
+
+        // The owner cannot impersonate Exec through this command.
+        assert!(authorize(Principal::Owner, "mandate-propose").is_err());
+
+        // Exec asks: one card in the owner's Inbox, and a repeat returns the waiting one.
+        let asked = value(dispatch(propose(), &daemon, Principal::CompanyExec).await);
+        assert_eq!(asked["ok"], true, "{asked}");
+        assert_eq!(asked["data"]["status"], "waiting_for_owner");
+        let first = asked["data"]["proposal_id"].as_str().unwrap().to_string();
+        let again = value(dispatch(propose(), &daemon, Principal::CompanyExec).await);
+        assert_eq!(again["data"]["proposal_id"], first.as_str(), "{again}");
+        let view = crate::attention::project(&config, &daemon.authority, None)
+            .await
+            .unwrap();
+        assert_eq!(mandate_cards(&view), vec![first.clone()]);
+        let card = view
+            .items
+            .iter()
+            .find(|item| item.source.kind == "email_mandate_proposal")
+            .unwrap();
+        assert!(card.what_happened.starts_with("exec proposed permission"));
+        assert!(card.requested_action.contains("5 per day, 5 total"));
+
+        // Declined: no mandate, no card, and Exec cannot permit a send under it.
+        let declined = daemon
+            .authority
+            .decide_email_mandate_proposal(
+                &company,
+                "owner",
+                uuid::Uuid::parse_str(&first).unwrap(),
+                false,
+                Some("Not before the launch"),
+            )
+            .await
+            .unwrap();
+        assert!(declined.is_none());
+        let listed = value(
+            dispatch(
+                decoded_request(serde_json::json!({"cmd": "mandate-list", "company": company})),
+                &daemon,
+                Principal::CompanyExec,
+            )
+            .await,
+        );
+        assert_eq!(listed["data"], serde_json::json!([]), "{listed}");
+        let view = crate::attention::project(&config, &daemon.authority, None)
+            .await
+            .unwrap();
+        assert!(mandate_cards(&view).is_empty());
+        let refused = value(dispatch(permit(first.clone()), &daemon, Principal::CompanyExec).await);
+        assert_eq!(refused["ok"], false, "{refused}");
+
+        // Asked again and approved: the active mandate `mandate list` shows, which permits honour.
+        let asked = value(dispatch(propose(), &daemon, Principal::CompanyExec).await);
+        let second = asked["data"]["proposal_id"].as_str().unwrap().to_string();
+        assert_ne!(second, first);
+        let granted = daemon
+            .authority
+            .decide_email_mandate_proposal(
+                &company,
+                "owner",
+                uuid::Uuid::parse_str(&second).unwrap(),
+                true,
+                None,
+            )
+            .await
+            .unwrap()
+            .expect("approval grants the mandate");
+        let listed = value(
+            dispatch(
+                decoded_request(serde_json::json!({"cmd": "mandate-list", "company": company})),
+                &daemon,
+                Principal::CompanyExec,
+            )
+            .await,
+        );
+        let mandates = listed["data"].as_array().unwrap();
+        assert_eq!(mandates.len(), 1, "{listed}");
+        assert_eq!(mandates[0]["id"], granted.id.to_string());
+        assert_eq!(mandates[0]["max_per_day"], 5);
+        let view = crate::attention::project(&config, &daemon.authority, None)
+            .await
+            .unwrap();
+        assert!(mandate_cards(&view).is_empty());
+        let permitted =
+            value(dispatch(permit(granted.id.to_string()), &daemon, Principal::CompanyExec).await);
+        assert_eq!(permitted["ok"], true, "{permitted}");
+        assert_eq!(permitted["data"]["mandate_id"], granted.id.to_string());
+
+        daemon
+            .authority
+            .delete_test_company(&company)
             .await
             .unwrap();
         std::fs::remove_dir_all(root).unwrap();

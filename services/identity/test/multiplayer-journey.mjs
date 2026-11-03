@@ -18,7 +18,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // A Resend key the daemon can resolve and never uses: the journey asks the owner, it sends nothing.
-process.env.RESTLESS_JOURNEY_RESEND_KEY ??= "re_journey_never_sent";
+process.env.JOURNEY_RESEND_KEY ??= "re_journey_never_sent";
 import pg from "pg";
 import { setup } from "../scripts/setup.mjs";
 
@@ -1501,10 +1501,10 @@ try {
   //       no Runtime to hold, so the request is the record that send writes (engine tests cover
   //       the send itself).
   {
-    await daemonCommand({ cmd: "company-set", company, state: "credentials.RESEND_API_KEY", body: "env:RESTLESS_JOURNEY_RESEND_KEY" });
+    await daemonCommand({ cmd: "company-set", company, state: "credentials.RESEND_API_KEY", body: "env:JOURNEY_RESEND_KEY" });
     const references = (await coreApi(owner, `${base}/vault`)).references;
     assert(
-      references.some((ref) => ref.name === "resend.production" && ref.reference === "env:RESTLESS_JOURNEY_RESEND_KEY"),
+      references.some((ref) => ref.name === "resend.production" && ref.reference === "env:JOURNEY_RESEND_KEY"),
       "a key saved as RESEND_API_KEY is the sending key without being entered again",
     );
     const requestId = randomUUID();
@@ -1567,6 +1567,47 @@ try {
     assert.equal(await approvals(), 1, "approved exactly once");
     await plane.end();
     pass("email send: a key under an old name counts; the exact email waits in the owner's Inbox only; Undo, then approval after the window");
+  }
+
+  // 9i-4. Company › Integrations › Email (S109 H2): everyone reads the same status the agents
+  //       read; only the owner and an admin see the key's name; only the owner sends a test. The
+  //       journey's key is not a real Resend key, so its test is refused (or never reaches
+  //       Resend) and the status turns to Not sending with the reason. No email is sent.
+  {
+    const read = async (who) => (await coreApi(who, `${base}/integrations`)).email;
+    const before = await read(owner);
+    assert.equal(before.key, "resend.production", "the key saved as RESEND_API_KEY is the email key");
+    assert.equal(before.state, "key_only", "nothing sent yet, so it is not known to work");
+    assert.equal(before.sender, "hello@example.com", "it sends from the mandate's address");
+    assert.equal(before.mandate_daily, 5);
+    assert.equal((await read(bob)).key, "resend.production", "an admin sees the key's name");
+    assert.equal((await read(alice)).key, null, "a member sees the status, not the key");
+    assert.equal((await read(alice)).state, "key_only");
+    const test = { from: "hello@multiplayer.test", to: "owner@multiplayer.test" };
+    await coreApi(bob, `${base}/integrations/email/test`, { method: "POST", body: test, expected: 403 });
+    await coreApi(alice, `${base}/integrations/email/test`, { method: "POST", body: test, expected: 403 });
+    const tried = await coreApi(owner, `${base}/integrations/email/test`, { method: "POST", body: test });
+    assert.notEqual(tried.last_send.outcome, "accepted", "a made-up key never sends");
+    const after = await read(owner);
+    assert.equal(after.state, "failing");
+    assert(after.action, "Not sending says why");
+    for (const [who, role] of [[owner, "owner"], [bob, "admin"], [alice, "member"]])
+      for (const [width, height] of [[1440, 900], [390, 844]])
+        for (const colorScheme of ["light", "dark"]) {
+          await who.page.setViewportSize({ width, height });
+          await who.page.emulateMedia({ colorScheme });
+          await who.page.goto(`${core}/${company}/company/integrations`);
+          await who.page.getByText("Not sending", { exact: true }).first().waitFor({ timeout: 15000 });
+          const sideways = await who.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+          assert(sideways <= 0, `Integrations scrolls sideways by ${sideways}px for ${role} at ${width}`);
+          assert.equal(await who.page.getByText("resend.production · in the Vault").count(), role === "member" ? 0 : 1);
+          await shot(who, `integrations-${width}-${colorScheme}`);
+        }
+    for (const who of [owner, bob, alice]) {
+      await who.page.setViewportSize({ width: 1280, height: 900 });
+      await who.page.emulateMedia({ colorScheme: "light" });
+    }
+    pass("integrations: everyone reads Email's status, only owner and admin see the key name, only the owner tests; a refused key reads Not sending with its reason");
   }
 
 

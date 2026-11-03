@@ -290,6 +290,7 @@ export class RestlessCore {
     if (unknown.length) throw new Error(`unknown qualify groups: ${unknown.join(', ')}`);
     const runs = (group: string) => groups.size === 0 || groups.has(group);
     const checks: [string, string, () => Promise<unknown>][] = [
+      ['release', 'schema version', () => this.verifySchemaVersion(source).sync()],
       ['rust', 'rust check and boundary tests', () => rust(source).withExec(['cargo', 'check', '--workspace', '--locked'])
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'company_projection::tests'])
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync()],
@@ -313,8 +314,25 @@ export class RestlessCore {
 `
         + `timings ${JSON.stringify(timings)}`;
     }
-    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build, browser overlays and chat warning motion, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports and versioned release contracts\n'
+    return 'Core qualification passed: schema version, Rust workspace, projection contract and public-key boundary tests, cockpit check/build, browser overlays and chat warning motion, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports and versioned release contracts\n'
       + `timings ${JSON.stringify(timings)}`;
+  }
+
+  /**
+   * The release identity's SCHEMA_VERSION must be the highest migration on disk. The engine's own
+   * test says so too, but qualification never runs the engine tests, and twice on 3 November 2026 a
+   * migration merged without the bump. This script check needs no compile.
+   */
+  @func()
+  verifySchemaVersion(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
+    source: Directory,
+  ): Container {
+    return dag.container().from(NODE_IMAGE)
+      .withDirectory('/src', source, { include: ['scripts/check-schema-version.sh', 'crates/restless-engine/src/release.rs',
+        'crates/restless-orgintel/migrations/**'] })
+      .withWorkdir('/src')
+      .withExec(['/bin/sh', 'scripts/check-schema-version.sh', '/src']);
   }
 
   /** Build the architecture-independent cockpit once per actual UI inputs. */

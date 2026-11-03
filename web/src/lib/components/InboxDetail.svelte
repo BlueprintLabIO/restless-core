@@ -49,6 +49,7 @@
 	import InlineConversation from './inbox/InlineConversation.svelte';
 	import InlineModel from './inbox/InlineModel.svelte';
 	import InlineSpendLimit from './inbox/InlineSpendLimit.svelte';
+	import InlineNativeLimit from './inbox/InlineNativeLimit.svelte';
 	import InlineDesktop from './inbox/InlineDesktop.svelte';
 	import { provideCardActions } from './inbox/card-actions.svelte';
 	import {
@@ -294,6 +295,8 @@
 		MODEL_KINDS.includes(item.source.kind) || !!action('open-intelligence-provider')
 	);
 	const spendSurface = $derived(SPEND_KINDS.includes(item.source.kind));
+	/* The native-harness cap is its own limit: the spend editor can't lift it (S109, finding 16). */
+	const nativeLimitSurface = $derived(item.source.kind === 'native_limit_stopped');
 	const driftSurface = $derived(item.source.kind === 'identity_drift');
 	const proposalSurface = $derived(item.source.kind === 'identity_proposal');
 	const skillSurface = $derived(item.source.kind === 'skill_candidate');
@@ -314,6 +317,7 @@
 	const navigation = $derived(
 		modelSurface ||
 			spendSurface ||
+			nativeLimitSurface ||
 			driftSurface ||
 			proposalSurface ||
 			skillSurface ||
@@ -562,7 +566,7 @@
 	}
 	/* Where what this card settles lives (S101): named under its panel, and in the receipt. */
 	const home = $derived.by((): SettingHome | null => {
-		if (spendSurface) return settingHome(companyId, 'limits');
+		if (spendSurface || nativeLimitSurface) return settingHome(companyId, 'limits');
 		if (item.settingProposal)
 			return settingHome(companyId, PROPOSAL_HOMES[item.settingProposal.setting] ?? 'limits');
 		if (modelSurface) return settingHome(companyId, 'intelligence');
@@ -875,7 +879,7 @@
 									itemId="runtime-rescue"
 									attached={false}
 								/>{/key}{/if}
-						{#if (item.source.kind === 'conversation_owner_need' || item.source.kind === 'teammate_message') && item.responsibleActor}<InlineConversation
+						{#if (item.source.kind === 'conversation_owner_need' || item.source.kind === 'teammate_message' || item.source.kind === 'work_stalled') && item.responsibleActor}<InlineConversation
 								{companyId}
 								actorId={item.responsibleActor.id}
 								actorName={asker}
@@ -960,6 +964,11 @@
 									url={stepUrl}
 								/>{/key}{/if}
 						{#if spendSurface}<InlineSpendLimit
+								{companyId}
+								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
+						{#if nativeLimitSurface}<InlineNativeLimit
 								{companyId}
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}

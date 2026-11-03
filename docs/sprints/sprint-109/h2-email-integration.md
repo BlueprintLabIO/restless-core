@@ -1,6 +1,18 @@
 # Sprint 109 H2: Email integration (design for owner review)
 
-Status: design only, not built. Built on A2 (one secret name) and D3 (`restless capabilities`).
+Status: partly built (3 November). Built on A2 (one secret name) and D3 (`restless capabilities`).
+
+Built so far, from production evidence on Reno (Core ede37227):
+- A Resend key under any older name (`RESEND_API_KEY`, `resend-api-key`, `Resend`, ...) is the
+  sending key without re-entry: bound to `resend.production` on load, resolved from a bound or
+  unbound Resend name otherwise (#588).
+- Without a mandate permit, `restless email send` puts the exact email in the owner's Inbox; Send,
+  Ask for changes and Decline wait out Authority's Undo window; once approved it is sent once (#589).
+- Company › Integrations › Email shows the observed status (`not_connected`, `key_only`, `ready`,
+  `failing`) that `restless capabilities` gives agents, and the owner can send a test (#590).
+
+Not built, waiting on open questions 1 and 2: domain setup, DNS records, the background checker,
+`domain_pending`, the unverified-domain send guard, Cloudflare apply, and Receive replies.
 Triage references are to `restless-triage-2026-10-28.md` (#2, #3, #11, #12, #15, #53, #54, and
 improvement 4). The owner approved an Email preview layout on 29 October; this document is the
 concrete behaviour behind it and should be reviewed against that preview before building.

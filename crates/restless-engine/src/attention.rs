@@ -1115,6 +1115,46 @@ fn spend_stopped_item(
     }
 }
 
+/// The company's monthly native-harness cap (turns or tokens on its own Codex or Claude sign-in)
+/// has stopped Exec. Only raising or clearing that cap lifts it, so the card says so and opens it;
+/// raising it tells Exec to carry on.
+fn native_limit_stopped_item(
+    config: &CompanyConfig,
+    what_happened: String,
+    created_at: DateTime<Utc>,
+) -> AttentionItem {
+    AttentionItem {
+        id: "authority:native_limit_stopped".into(),
+        source: AttentionSource {
+            plane: "authority",
+            kind: "native_limit_stopped".into(),
+            reference: "native_limit".into(),
+            party: None,
+            call_key: None,
+        },
+        title: "Work on your own sign-in stopped at its monthly cap".into(),
+        why_it_matters: "No new turn on the company's own Codex or Claude sign-in starts until \
+                         the cap is raised or cleared, or the month ends; work waits."
+            .into(),
+        recommendation: "Raise or clear the native usage limit if the work is worth it. The \
+                         spend limit does not affect this cap."
+            .into(),
+        requested_action: "Raise or clear the native usage limit.".into(),
+        if_no_action: "Native work stays stopped until the limit is raised or a new month starts."
+            .into(),
+        actions: vec![AttentionAction {
+            id: "open-native-limit".into(),
+            label: "Raise native limit".into(),
+            role: "inspect",
+            consequence: "Opens Company › Resources, where the native usage limit is set.".into(),
+            next_state: "Raising or clearing it above this month's use tells Exec to carry on."
+                .into(),
+            href: Some(format!("/{}/company/resources#spend", config.name)),
+        }],
+        ..spend_stopped_item(config, what_happened, created_at)
+    }
+}
+
 /// The account behind the company's model is past [`crate::account_usage::WARN_PERCENT`] of a
 /// window (S100): say how full, when it resets, when it runs out at this pace, and offer a fallback.
 async fn account_headroom_item(
@@ -1218,6 +1258,104 @@ async fn account_headroom_item(
         preparing: false,
         created_at: Utc::now(),
     }))
+}
+
+/// An agent needed a home site (one reached from the owner's own computer) and no computer that
+/// carries it was online. Raised from the refusal itself and kept for a day while no helper is
+/// online; the agent was told the owner has this card (S109 blockers audit).
+async fn home_helper_offline_item(
+    config: &CompanyConfig,
+    pool: &sqlx::PgPool,
+) -> Option<AttentionItem> {
+    let (host, refused_at) = crate::home_egress::recent_refusal(&config.name)?;
+    if crate::machines::online_helper(pool, &config.name)
+        .await
+        .is_some()
+    {
+        return None;
+    }
+    let assigned = crate::machines::company_assignments(pool, &config.name)
+        .await
+        .map(|assignments| {
+            assignments
+                .iter()
+                .any(|assignment| assignment.role == crate::machines::ROLE_HELPER)
+        })
+        .unwrap_or(true);
+    let (title, what_happened, requested_action) = if assigned {
+        (
+            "Your computer that carries home sites is offline".to_string(),
+            format!(
+                "An agent needed {host}, which goes through your own computer so the site sees a \
+                 home address, and that computer is offline."
+            ),
+            "Turn that computer on and let Restless run on it.".to_string(),
+        )
+    } else {
+        (
+            "No computer of yours carries home sites".to_string(),
+            format!(
+                "An agent needed {host}, which this company reaches only through one of your own \
+                 computers, and none is set up to carry it."
+            ),
+            "Add one of your computers as a helper, or stop treating the site as a home site."
+                .to_string(),
+        )
+    };
+    Some(AttentionItem {
+        id: format!("authority:home_helper_offline:{}", config.name),
+        work_id: None,
+        source: AttentionSource {
+            plane: "authority",
+            kind: "home_helper_offline".into(),
+            reference: host.clone(),
+            party: None,
+            call_key: None,
+        },
+        category: "blocker".into(),
+        title,
+        what_happened,
+        why_it_matters: format!(
+            "Work that needs {host} waits; it is never sent from the cloud's address instead."
+        ),
+        recommendation: requested_action.clone(),
+        requested_action,
+        if_no_action: format!(
+            "Agents can't reach {host} until a computer that carries it is online."
+        ),
+        uncertainty: None,
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: Some(refused_at),
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: None,
+        runtime_attach: None,
+        review_target: None,
+        review_version: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        account_use: None,
+        account_request: None,
+        request_fields: None,
+        setting_proposal: None,
+        owner_replies: Vec::new(),
+        actions: vec![AttentionAction {
+            id: "open-company-computer".into(),
+            label: "Open Computer".into(),
+            role: "inspect",
+            consequence: "Opens the company's computers, where helpers and home sites are set."
+                .into(),
+            next_state: "Once a computer that carries the site is online, this leaves the Inbox."
+                .into(),
+            href: Some(format!("/{}/company/computer", config.name)),
+        }],
+        can_continue: false,
+        preparing: false,
+        created_at: refused_at,
+    })
 }
 
 /// The company's computer runs on one of the owner's machines, and that machine is offline or
@@ -1389,7 +1527,7 @@ fn model_cooldown_items(
                     label: "Top up".into(),
                     role: "inspect",
                     consequence: "Opens your plan and credit.".into(),
-                    next_state: "Work resumes within minutes of a top-up.".into(),
+                    next_state: "Within minutes of a top-up, new turns run and Work the refusal stopped goes on.".into(),
                     href: Some(url),
                 });
             }
@@ -2167,6 +2305,136 @@ async fn stranded_agent_items(
         });
     }
     items
+}
+
+/// Said on a judgement card whose Work changed after it was briefed.
+const STALE_BRIEF_NOTE: &str = "This was briefed for an earlier version of the Work, which has changed since. Its lead has been asked to brief it again; ask them in chat if it still holds.";
+
+/// One card per Work item stopped for over a day with nobody asked: blocked with no pending
+/// handoff, or requiring abandoned Work. It names who the Work waits on and the way through, and
+/// opens the Work, whose page has Resume and Stop for good (S109 blockers audit, finding 10).
+async fn stalled_work_items(
+    config: &runtime::CompanyConfig,
+    org: &OrgIntel,
+) -> Result<Vec<AttentionItem>> {
+    let stalled = org.stalled_work(restless_orgintel::STALLED_AFTER).await?;
+    if stalled.is_empty() {
+        return Ok(Vec::new());
+    }
+    let actors: HashMap<String, (String, String)> = org
+        .list_actors()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|actor| (actor.id, (actor.display, actor.role)))
+        .collect();
+    Ok(stalled
+        .into_iter()
+        .map(|work| stalled_work_item(&config.name, &actors, work))
+        .collect())
+}
+
+fn stalled_work_item(
+    company: &str,
+    actors: &HashMap<String, (String, String)>,
+    work: restless_orgintel::StalledWork,
+) -> AttentionItem {
+    let lead = actors
+        .get(&work.lead)
+        .map(|(display, role)| AttentionActorRef {
+            id: work.lead.clone(),
+            display: display.clone(),
+            role: role.clone(),
+        });
+    let lead_name = lead
+        .as_ref()
+        .map(|lead| lead.display.clone())
+        .unwrap_or_else(|| work.lead.clone());
+    let since = work.since.format("%-d %b");
+    let way_through = work.way_through();
+    let (title, what_happened, requested_action, replies) = match &work.cause {
+        restless_orgintel::StallCause::Blocked { reason } => {
+            let reason = reason.trim();
+            (
+                format!("Stuck since {since}: {}", work.title),
+                format!(
+                    "Blocked since {since}, and nobody has been asked to unblock it. It waits on \
+                     {lead_name}, who leads it. The block said: {}",
+                    if reason.is_empty() {
+                        "nothing (no reason was recorded)."
+                    } else {
+                        reason
+                    }
+                ),
+                "Resume it once the cause is fixed, or stop it for good.".to_string(),
+                vec!["Resume it".to_string(), "Stop it for good".to_string()],
+            )
+        }
+        restless_orgintel::StallCause::AbandonedRequirement { upstream_title, .. } => (
+            format!("Can't start: {}", work.title),
+            format!(
+                "It requires \"{upstream_title}\", which was abandoned on {since}, so it can never \
+                 start as it is. It waits on {lead_name}, who leads it, to drop that requirement."
+            ),
+            "Have its lead drop the requirement, or stop it for good.".to_string(),
+            vec![
+                "Drop the requirement".to_string(),
+                "Stop it for good".to_string(),
+            ],
+        ),
+    };
+    AttentionItem {
+        id: format!("orgintel:work-stalled:{}:{}", work.work_id, work.revision),
+        work_id: Some(work.work_id),
+        source: AttentionSource {
+            plane: "orgintel",
+            kind: "work_stalled".into(),
+            reference: format!("{}:{}", work.work_id, work.revision),
+            party: None,
+            call_key: None,
+        },
+        category: "blocker".into(),
+        title,
+        what_happened,
+        why_it_matters: "Nothing moves it on its own: blocked Work is never picked up again until \
+                         someone resumes it."
+            .into(),
+        recommendation: way_through,
+        requested_action,
+        if_no_action: "The Work stays stopped, and anything that requires it waits too.".into(),
+        uncertainty: None,
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: Some(work.since),
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: lead,
+        runtime_attach: None,
+        review_target: None,
+        review_version: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        account_use: None,
+        account_request: None,
+        request_fields: None,
+        setting_proposal: None,
+        // Answered in the card: the owner's answer goes to the lead, who resumes, drops the
+        // requirement or stops it (S101: every card is completed inside the card).
+        owner_replies: replies,
+        actions: vec![AttentionAction {
+            id: "open-work".into(),
+            label: "Open the Work".into(),
+            role: "inspect",
+            consequence: "Opens the Work, where you can resume it or stop it for good.".into(),
+            next_state: "Resuming, stopping or unblocking it clears this card.".into(),
+            href: Some(format!("/{company}/work/{}", work.work_id)),
+        }],
+        can_continue: false,
+        preparing: false,
+        created_at: work.since,
+    }
 }
 
 /// Open direction requests routed to `viewer` (the owner sees every one), and approved ones that
@@ -3083,14 +3351,12 @@ async fn project_queue(
             continue;
         }
         let brief_current = handoff.owner_brief_is_current(item.revision);
-        if judgement && !brief_current {
-            tracing::warn!(
-                handoff = %handoff.id,
-                work = %handoff.work_id,
-                "ordinary judgement was in the owner queue without a current authored brief; withholding it from Attention"
-            );
-            continue;
-        }
+        // A judgement whose Work changed after it was briefed used to vanish from the Inbox with
+        // only a log line, while the handoff stayed pending and the Work stayed blocked (S109
+        // blockers audit, finding 18). It stays, carried over and marked as written for an earlier
+        // version; its briefer is asked to re-brief it, and a stale outcome review can't be
+        // accepted until they have.
+        let stale_judgement = judgement && !brief_current;
         let brief = handoff.owner_brief.as_ref();
         let mut evidence = Vec::new();
         let mut seen = HashSet::new();
@@ -3233,8 +3499,10 @@ async fn project_queue(
                 )
             })
             .flatten();
-        let outcome_review = brief
-            .is_some_and(|brief| brief.kind == restless_orgintel::OwnerBriefKind::OutcomeReview);
+        let outcome_review = !stale_judgement
+            && brief.is_some_and(|brief| {
+                brief.kind == restless_orgintel::OwnerBriefKind::OutcomeReview
+            });
         let review_version = Some(restless_orgintel::OwnerReviewVersion {
             handoff: handoff.conversation_input(),
             work_revision: item.revision,
@@ -3626,7 +3894,11 @@ async fn project_queue(
                 },
                 |brief| brief.no_action.clone(),
             )),
-            uncertainty: brief.and_then(|brief| brief.uncertainty.clone()),
+            uncertainty: if stale_judgement {
+                Some(STALE_BRIEF_NOTE.into())
+            } else {
+                brief.and_then(|brief| brief.uncertainty.clone())
+            },
             deadline: brief.and_then(|brief| brief.deadline.clone()),
             brief_status: if brief_current { "current" } else { "human-fallback" },
             brief_author,
@@ -3880,7 +4152,13 @@ async fn project_queue(
                         &what_happened,
                         "The company reached its spend limit.",
                     );
-                    items.push(spend_stopped_item(config, what_happened, event.created_at));
+                    // A native-harness cap is its own limit: the spend card's editor can't lift
+                    // it (S109 blockers audit, finding 16).
+                    items.push(if crate::spend::is_native_limit_reason(reason) {
+                        native_limit_stopped_item(config, what_happened, event.created_at)
+                    } else {
+                        spend_stopped_item(config, what_happened, event.created_at)
+                    });
                 }
                 if let Some(true) = exec_startup_failure(reason) {
                     if let Some(provider_issue) =
@@ -4085,6 +4363,17 @@ async fn project_queue(
     // Owner-only: an agent whose model connection no longer reaches the company (Sprint 86).
     if assignee.is_none() {
         items.extend(stranded_agent_items(config, org).await);
+    }
+    // Owner-only: Work stopped for over a day with nobody asked (S109 blockers audit, 10).
+    if assignee.is_none() {
+        if let Some(org) = org {
+            match stalled_work_items(config, org).await {
+                Ok(stalled) => items.extend(stalled),
+                Err(error) => {
+                    tracing::warn!(company = config.name, "stalled Work unavailable: {error:#}")
+                }
+            }
+        }
     }
     if let Some(org) = org {
         match direction_items(authority, &config.name, org, assignee.unwrap_or("owner")).await {
@@ -4335,20 +4624,8 @@ async fn project_queue(
                     }
                 };
                 // Already true: answered by someone changing it in Settings, so nothing to ask.
-                let settled = match &proposal.change {
-                    crate::setting_proposals::SettingChange::SpendLimit { ceiling_usd } => {
-                        (config.spend_ceiling_usd.as_usd() - ceiling_usd).abs() < 0.005
-                    }
-                    crate::setting_proposals::SettingChange::ReasoningEffort { effort } => {
-                        config.reasoning_effort == *effort
-                    }
-                    crate::setting_proposals::SettingChange::Model { model } => {
-                        config.configured_model() == Some(model.as_str())
-                    }
-                    crate::setting_proposals::SettingChange::LegalProfile { .. }
-                    | crate::setting_proposals::SettingChange::Schedule { .. }
-                    | crate::setting_proposals::SettingChange::Notifications { .. } => false,
-                };
+                // The next proposal for the setting closes it as superseded.
+                let settled = crate::setting_proposals::settled(&proposal.change, config);
                 if settled {
                     continue;
                 }
@@ -4432,6 +4709,7 @@ async fn project_queue(
         Ok(offline) => items.extend(offline),
         Err(error) => tracing::warn!(%error, "machine placement unavailable"),
     }
+    items.extend(home_helper_offline_item(config, authority.pool()).await);
     if !items
         .iter()
         .any(|item| item.source.kind == "exec_startup_blocked")

@@ -249,9 +249,14 @@ pub const ATTENTION_KINDS: &[(&str, Raiser)] = &[
             op: "email-send",
         },
     ),
-    // Only the owner's own settings propose one until #595 lands; then this becomes
-    // `Raiser::Agent { cli: "restless mandate propose", op: "mandate-propose" }`.
-    ("email_mandate_proposal", Raiser::Person),
+    // The owner can also propose one from Company settings; Exec asks with this command.
+    (
+        "email_mandate_proposal",
+        Raiser::Agent {
+            cli: "restless mandate propose",
+            op: "mandate-propose",
+        },
+    ),
     (
         "direction_request",
         Raiser::Agent {
@@ -311,7 +316,10 @@ pub const ATTENTION_KINDS: &[(&str, Raiser)] = &[
     ("account_headroom", Raiser::System),
     ("spend_warning", Raiser::System),
     ("spend_stopped", Raiser::System),
+    ("native_limit_stopped", Raiser::System),
+    ("home_helper_offline", Raiser::System),
     ("machine_offline", Raiser::System),
+    ("work_stalled", Raiser::System),
 ];
 
 #[cfg(test)]

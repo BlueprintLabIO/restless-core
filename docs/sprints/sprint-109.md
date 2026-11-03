@@ -342,7 +342,9 @@ also identified `https://restless.run` as the Reno production target for final s
   what's using it, and one clear way to buy more with prices. Linear-quality design, reviewed by
   the owner before it's built.
 - [ ] **H2 Email integration [15].** Resend as a first-class integration: guided setup, domain and
-  DNS records, a test send, status, sending limits. Built on A2 and D3.
+  DNS records, a test send, status, sending limits. Built on A2 and D3. Partial (3 November): old
+  Resend key names send, owner approves single emails in the Inbox with Undo, Integrations › Email
+  status and test send; domain and DNS setup wait on the design's open questions 1 and 2.
 - [ ] **H3 Interactive maps [57].** Concept page maps get basic zoom, or a click through to Google
   Maps.
 

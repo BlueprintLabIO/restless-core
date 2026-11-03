@@ -53,6 +53,7 @@ mod sheet_comments;
 mod sheet_search;
 mod sheets;
 mod skills;
+mod stalled_work;
 mod substrate;
 mod types;
 mod visual;
@@ -95,6 +96,7 @@ pub use sheet_comments::*;
 pub use sheet_search::*;
 pub use sheets::*;
 pub use skills::*;
+pub use stalled_work::*;
 pub use types::*;
 
 /// Resolve the canonical direct Room for one durable Message write, creating

@@ -27,6 +27,30 @@ pub const HOME_EGRESS_PORT: u16 = 7799;
 static CALLERS: LazyLock<Mutex<(HashMap<IpAddr, String>, Option<Instant>)>> =
     LazyLock::new(|| Mutex::new((HashMap::new(), None)));
 
+/// The last home site refused per company because no helper was online, and when. The Inbox
+/// raises a card from it while no helper is online; it lives in memory, so a restart forgets it
+/// until the next refusal.
+static REFUSED: LazyLock<Mutex<HashMap<String, (String, chrono::DateTime<chrono::Utc>)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// How long after a refusal the card stays, if no helper comes online.
+const REFUSAL_CARD_FOR: chrono::Duration = chrono::Duration::hours(24);
+
+fn note_refused(company: &str, host: &str) {
+    if let Ok(mut refused) = REFUSED.lock() {
+        refused.insert(company.to_string(), (host.to_string(), chrono::Utc::now()));
+    }
+}
+
+/// The home site last refused for `company` in the past day, and when.
+pub fn recent_refusal(company: &str) -> Option<(String, chrono::DateTime<chrono::Utc>)> {
+    let refused = REFUSED.lock().ok()?;
+    refused
+        .get(company)
+        .filter(|(_, at)| chrono::Utc::now() - *at < REFUSAL_CARD_FOR)
+        .cloned()
+}
+
 pub async fn serve(pool: PgPool, listener: TcpListener) {
     loop {
         match listener.accept().await {
@@ -157,10 +181,17 @@ async fn handle(pool: &PgPool, mut stream: TcpStream, peer: IpAddr) -> Result<()
         .context("load the company")?;
     if is_home_site(&host, &config.home_sites) {
         let Some(machine) = crate::machines::online_helper(pool, &company).await else {
+            // The owner gets a card for it; the agent is told so, not to "ask the owner" with
+            // nothing to ask through (S109 blockers audit).
+            note_refused(&company, &host);
             return reply(
                 &mut stream,
                 "502 Bad Gateway",
-                &format!("{host} goes through the owner's own computer, and it is offline. Turn it on, or ask the owner."),
+                &format!(
+                    "{host} goes through the owner's own computer, and none that carries it is online. \
+                     The owner has a card in their Inbox to bring it online; carry on with other work \
+                     and try {host} again later."
+                ),
             )
             .await;
         };
