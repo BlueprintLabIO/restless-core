@@ -714,16 +714,13 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          --proposal-file <json>, then restless email send --request-file <json> with that \
          permit id. The email JSON names from, optional from_name, to, subject, text or html, effect_key, permit_id, \
          optional in_reply_to (the Message-ID you answer, so a reply stays in the customer's thread) \
-         and optional declared attachments. A mandate's per-day and total caps govern: \
-         several emails to one address are fine within them (the owner's test inbox, a batch). \
-         For cold outreach, set one_email_per_recipient true in the proposal: each prospect then \
-         gets one first email, and once they write back each message allows one reply; list the \
-         owner's own inboxes in own_addresses so test sends are never limited. The permit JSON names sender, recipient, \
+         and optional declared attachments. The caps govern; one address may get several \
+         emails within them. For cold outreach set one_email_per_recipient (one first email per \
+         prospect, then one reply per message they send) and list the owner's inboxes in own_addresses. The permit JSON names sender, recipient, \
          payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
          To send outreach with no active mandate, ask the owner for standing permission once: \
          restless mandate propose --proposal-file <json> --reason <why> (purpose, audience_guidance, \
-         sender, optional sender_name, max_per_day, max_total, timezone, expires_at, optional \
-         one_email_per_recipient and own_addresses); it is one \
+         sender, optional sender_name, max_per_day, max_total, timezone, expires_at); it is one \
          Inbox card, and you are told when it is answered. Once approved, send the first email \
          under it to the owner's own address as a test, then permit each real email as above. \
          For a single email without a mandate, run restless email send with no permit_id: \
