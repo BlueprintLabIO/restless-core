@@ -92,6 +92,7 @@
 	} from '$lib/model/room-queries.svelte';
 	import { conversationUnread, messagePreview } from '$lib/model/rooms';
 	import { fetchAppRequests } from '$lib/model/app-requests';
+	import { whileSeen } from '$lib/model/activity';
 	import { CATALOGUE, buildApps, type App } from '$lib/model/apps';
 	import {
 		fetchSkillLibrary,
@@ -1157,9 +1158,9 @@
 	$effect(() => keepCompanyFavicon(companyId, companyLogo));
 
 	/* The Apps dot: a sign-in to renew, a tool to review, or an app Exec asked
-	 * for. Checked on arrival, on every move and once a minute. Know-how
-	 * candidates are counted on the Apps page itself, not here, because reading
-	 * the skill library scans the company computer. */
+	 * for. Checked on arrival, on every move and once a minute while the page is in use
+	 * (whileSeen). Know-how candidates are counted on the Apps page itself, not here,
+	 * because reading the skill library scans the company computer. */
 	let appsAttention = $state('');
 	/* The company's apps as the same check read them, so ⌘K opens what is connected. */
 	let companyApps = $state<App[]>([]);
@@ -1170,9 +1171,16 @@
 		let stopped = false;
 		const check = async () => {
 			try {
+				/* The Inbox reads the same requests; one cached read serves both. */
 				const [tools, asked] = await Promise.all([
 					fetchConnections(id),
-					fetchAppRequests(id).catch(() => [])
+					queryClient
+						.fetchQuery({
+							queryKey: ['app-requests', id],
+							queryFn: () => fetchAppRequests(id),
+							staleTime: 30_000
+						})
+						.catch(() => [])
 				]);
 				if (stopped) return;
 				const mine = buildApps(tools, null).mine;
@@ -1184,16 +1192,16 @@
 			}
 		};
 		void check();
-		const timer = setInterval(() => void check(), 60_000);
+		const stop = whileSeen(() => void check(), 60_000);
 		return () => {
 			stopped = true;
-			clearInterval(timer);
+			stop();
 		};
 	});
 
 	/* The Company dot for schedules: a recurring run that failed, asked for a person, or was
 	 * skipped reaches the owner outside Schedules. Checked on arrival, on every move and once a
-	 * minute, like the Apps dot. */
+	 * minute while the page is in use, like the Apps dot. */
 	let scheduleAttention = $state('');
 	$effect(() => {
 		if (!ownerAccess) return;
@@ -1214,10 +1222,10 @@
 			}
 		};
 		void check();
-		const timer = setInterval(() => void check(), 60_000);
+		const stop = whileSeen(() => void check(), 60_000);
 		return () => {
 			stopped = true;
-			clearInterval(timer);
+			stop();
 		};
 	});
 

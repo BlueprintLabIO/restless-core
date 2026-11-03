@@ -43,6 +43,7 @@
 	import type { Snippet } from 'svelte';
 	import { listFlip, listIn, listOut } from '../motion';
 	import Estimate from '../data/Estimate.svelte';
+	import { truncatedTitle } from '../truncated-title';
 
 	const id = $props.id();
 
@@ -105,7 +106,7 @@
 									tone={item.progress.tone}
 								/>{/if}</span
 						>{/if}
-					{#if item.signal}<p>{item.signal}</p>{/if}
+					{#if item.signal}<p use:truncatedTitle={item.signal}>{item.signal}</p>{/if}
 					<footer>
 						<span
 							>{item.ownerName}{#if item.ownerBusy}<em
@@ -265,16 +266,16 @@
 		font-size: var(--t-label);
 		line-height: 1.4;
 	}
+	/* Priority, holder and outputs: one label-sized line like the lines above it. At body size it
+	 * wrapped "4 outputs" onto a line of its own in a narrow column (S110). */
 	.board-item p {
-		display: -webkit-box;
-		-webkit-line-clamp: 3;
-		line-clamp: 3;
-		-webkit-box-orient: vertical;
 		overflow: hidden;
-		margin: 6px 0 9px;
-		font-size: var(--t-body);
-		line-height: 1.45;
+		margin: 6px 0 0;
+		font-size: var(--t-label);
+		line-height: 1.4;
 		color: var(--text-secondary);
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.board-item footer {
 		display: flex;

@@ -750,7 +750,7 @@ async function seed(owner, alice) {
   let view = await coreApi(owner, `${base}/documents/${reviewed}`);
   await coreApi(owner, `${base}/documents/${reviewed}/participants/${requester}`, { method: "PUT", body: { expected_document_version: view.document.version, access: "edit" } });
   view = await coreApi(owner, `${base}/documents/${reviewed}`);
-  await coreApi(owner, `${base}/documents/${reviewed}/reviews`, {
+  const review = await coreApi(owner, `${base}/documents/${reviewed}/reviews`, {
     method: "POST",
     expected: 201,
     body: { expected_document_version: view.document.version, expected_current_version_id: view.current_version.version.id, summary: "Alice checks the voice", reviewer_actor_id: requester },
@@ -822,6 +822,9 @@ async function seed(owner, alice) {
   pass("seeded documents, a sheet, goals, a team, a room with a mention, direction requests, a charter draft, a review, margin comments, an email to approve and Library folders");
   return {
     documentView: { path: `/${company}/library/documents?document=${plan}`, name: "document" },
+    /* The review card its reviewer opens from the Inbox (S110): it once drew the "Request review"
+     * form and "Review details" until the reviews were read, then swapped in the decision. */
+    reviewView: { path: `/${company}?item=${encodeURIComponent(`document:review:${review.review.id}`)}`, name: "card-document-review" },
     libraryViews: [
       { path: `/${company}/library?show=recent`, name: "library-recent" },
       { path: `/${company}/library?folder=${encodeURIComponent(folder)}`, name: "library-folder" },
@@ -854,7 +857,7 @@ await run("multiplayer-jank", async () => {
   await pass_(alice, "member", "empty", surfaces.member, ["cold"]);
   pass("empty state measured");
 
-  const { documentView, libraryViews } = await seed(owner, alice);
+  const { documentView, reviewView, libraryViews } = await seed(owner, alice);
   for (const state of ["populated", "slow", "failure"]) {
     // With every read failing the shell has no navigation to arrive by, so that state has no nav load.
     await pass_(owner, "owner", state, surfaces.owner, state === "failure" ? ["cold", "warm"] : undefined);
@@ -862,6 +865,7 @@ await run("multiplayer-jank", async () => {
     // A document with margin comments: opened by its address (no tab arrives at it).
     await pass_(owner, "owner", state, [documentView], ["cold", "warm"]);
     await pass_(alice, "member", state, [documentView], ["cold"]);
+    if (state !== "failure") await pass_(alice, "member", state, [reviewView], ["cold"]);
     // The Library's explorer, a folder, a file shown in its folder and a filtered list, by address.
     // With every read failing they are the Library's own failure, which its tab visit measures.
     if (state !== "failure") {

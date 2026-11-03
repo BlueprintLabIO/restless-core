@@ -2,6 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
 	import { pollEvery } from '$lib/model/connection.svelte';
+	import { whileSeen } from '$lib/model/activity';
 	/* The Library: everything the company has written and made, in one place (S64). Native
 	 * documents and sheets open in their editors; the sites, images, PDFs, decks and recordings Work
 	 * produced on the company computer open in place, a deck as a slideshow. Files the owner adds or
@@ -904,6 +905,12 @@
 	/* Everything agents wrote under /company/outputs, linked as an output or not: Calcifer's card
 	 * site was on disk but missing from the Library because nothing linked it (21 October). */
 	let outputFiles = $state<OutputFile[]>([]);
+	/* Whether the listing has answered once for this company. Its folders are rows above the
+	 * files, so a list drawn before it pushed every file down a row when they arrived (S110).
+	 * A listing that has not answered within OUTPUTS_WAIT_MS no longer holds the list. */
+	const OUTPUTS_WAIT_MS = 4_000;
+	let outputsAnswered = $state(false);
+	let outputsWaitOver = $state(false);
 	let outputFilesTruncated = $state(false);
 	let outputSkippedNames = $state(0);
 	let outputStale = $state(false);
@@ -1019,6 +1026,9 @@
 		outputFiles = [];
 		outputCursor = null;
 		outputFilesTruncated = false;
+		outputsAnswered = false;
+		outputsWaitOver = false;
+		const giveUp = setTimeout(() => (outputsWaitOver = true), OUTPUTS_WAIT_MS);
 		const read = () => {
 			if (document.visibilityState === 'hidden') return;
 			const epoch = outputEpoch;
@@ -1027,6 +1037,9 @@
 			});
 			if (owner && !untrack(() => outputLoadingMore))
 				void readLibraryOutputs(company, controller.signal)
+					.finally(() => {
+						if (!controller.signal.aborted && epoch === outputEpoch) outputsAnswered = true;
+					})
 					.then((result) => {
 						if (!controller.signal.aborted && epoch === outputEpoch) {
 							if (result.stale) {
@@ -1064,12 +1077,13 @@
 					});
 		};
 		read();
-		const timer = setInterval(read, 60_000);
-		document.addEventListener('visibilitychange', read);
+		/* Files on the company computer send no change hint: read again each minute while the
+		 * page is in use, and at once when it is shown or touched after a minute away. */
+		const stop = whileSeen(read, 60_000);
 		return () => {
 			controller.abort();
-			clearInterval(timer);
-			document.removeEventListener('visibilitychange', read);
+			clearTimeout(giveUp);
+			stop();
 		};
 	});
 	const fileEntry = (file: LibraryFile, archived = false): Entry => ({
@@ -1675,8 +1689,17 @@
 			? Boolean(cockpit.view || cockpit.failure)
 			: Boolean(collaboration.view || collaboration.failure)
 	);
+	/* The computer's files (owner only) and the files this person kept are rows of the same list:
+	 * held for too, so neither lands above or between rows already drawn. */
+	const outputsLoaded = $derived(!owner || outputsAnswered || outputsWaitOver);
+	const keptLoaded = $derived(!principal.view || !!kept || !!keptFailure);
 	const loading = $derived(
-		documents.status === 'unknown' || !sheetsLoaded || !filesLoaded || !goalsLoaded
+		documents.status === 'unknown' ||
+			!sheetsLoaded ||
+			!filesLoaded ||
+			!goalsLoaded ||
+			!outputsLoaded ||
+			!keptLoaded
 	);
 	const VIEW_LABEL: Record<Filter, string> = {
 		all: 'All files',
@@ -3541,7 +3564,7 @@
 		pointer-events: none;
 		border-radius: 8px;
 		background: var(--intent-authority);
-		color: var(--on-primary);
+		color: var(--text-inverse);
 		font-size: var(--t-label);
 		font-weight: 600;
 	}

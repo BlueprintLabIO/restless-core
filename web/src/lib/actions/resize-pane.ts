@@ -15,6 +15,11 @@ export type PaneResize = {
 	defaultSize: number | `--${string}` | ((width: number) => number);
 	enabled?: boolean;
 	breakpoint?: number;
+	/**
+	 * Keep the width set while the pane is disabled above the breakpoint (a closed rail), so it
+	 * opens at its own width instead of the token's and then resizing to it a frame later.
+	 */
+	holdWhileDisabled?: boolean;
 };
 export function resizePane(node: HTMLElement, initial: PaneResize) {
 	let options = initial,
@@ -77,7 +82,12 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 			pane.getBoundingClientRect().width > 0;
 		handle.hidden = !active;
 		if (!active) {
-			node.style.removeProperty(options.variable);
+			const wide = window.innerWidth > (options.breakpoint ?? 980);
+			if (options.holdWhileDisabled && wide && node.clientWidth > 0) {
+				const { min, max } = bounds();
+				current = Math.max(min, Math.min(max, saved ?? heldDefault ?? fallbackSize()));
+				node.style.setProperty(options.variable, `${current}px`);
+			} else node.style.removeProperty(options.variable);
 			return;
 		}
 		const { min, max } = bounds();

@@ -1072,7 +1072,7 @@
 			display: grid;
 		}
 		.embedded .inspector-pane :global(.share-head),
-		.embedded .inspector-pane :global(.inspector-dismiss) {
+		.embedded .inspector-pane :global(.inspector-tabs .inspector-close) {
 			display: none;
 		}
 	}
@@ -1256,7 +1256,7 @@
 			display: grid;
 		}
 		.inspector-pane :global(.share-head),
-		.inspector-pane :global(.inspector-dismiss) {
+		.inspector-pane :global(.inspector-tabs .inspector-close) {
 			display: none;
 		}
 	}

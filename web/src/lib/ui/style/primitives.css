@@ -183,7 +183,7 @@
 			.btn.small,
 			.btn,
 			.hold-approve,
-			button:not(.tb-exec, .info-tip),
+			button:not(.tb-exec, .info-tip, .block-handle),
 			summary,
 			select,
 			textarea,
@@ -192,7 +192,7 @@
 		) {
 		min-height: 44px;
 	}
-	:is(.bridge-root, .bridge-tokens) :is(.btn.small, button:not(.tb-exec, .info-tip)) {
+	:is(.bridge-root, .bridge-tokens) :is(.btn.small, button:not(.tb-exec, .info-tip, .block-handle)) {
 		min-width: 44px;
 	}
 	/* Standalone links: the same reach, text links inside sentences excepted. */

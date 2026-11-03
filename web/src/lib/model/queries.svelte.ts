@@ -45,8 +45,11 @@ import {
 import { getCompanyIdentity, type CompanyIdentitySnapshot } from './identity';
 import { getCompanyPrincipal, type CompanyPrincipal } from './query-persistence';
 import type { ThreadMessage } from './view';
-import { changes, pollEvery } from './connection.svelte';
+import { CATCH_UP_AFTER_MS, changes, pollEvery } from './connection.svelte';
 import { hintTouches, parseHint } from './steady';
+import { HintPace } from './hint-pace.ts';
+import { onReturn, untouched } from './activity.ts';
+import { pageShown } from './page-shown.svelte.ts';
 import { restoringCards } from './inbox-restore';
 
 export type QuerySourceStatus = 'unknown' | 'live' | 'stale';
@@ -774,6 +777,7 @@ function trackedConversationQuery(
 	 * the answer does. */
 	const followingAmbient = $derived(
 		queryEnabled(enabled) &&
+			pageShown.current &&
 			queryEnabled(followLiveActivity) &&
 			queryEnabled(followAmbient) &&
 			typeof EventSource !== 'undefined'
@@ -818,6 +822,7 @@ function trackedConversationQuery(
 	let onWorkTransport = $state<ActivityTransport>('idle');
 	const busyWorkId = $derived(
 		queryEnabled(enabled) &&
+			pageShown.current &&
 			queryEnabled(followLiveActivity) &&
 			queryEnabled(followWork) &&
 			typeof EventSource !== 'undefined'
@@ -1223,15 +1228,25 @@ const HINT_GATHER_MS = 1_500;
 /**
  * One change stream per open company. Each hint refetches the company's
  * queries that are on screen — a single rule, cheap because hints are
- * coalesced server-side and only active queries refetch. EventSource
- * reconnects by itself; while it is down, polling returns to its ordinary pace.
+ * coalesced server-side and only active queries refetch. The stream reopens by
+ * itself, even after a refusal; while it is down, polling returns to its ordinary pace.
  */
 export function companyChangeStream(companyId: () => string, enabled: QueryEnabled = true) {
 	const client = useQueryClient();
 	$effect(() => {
 		const company = companyId();
-		if (!company || !queryEnabled(enabled) || typeof EventSource === 'undefined') return;
-		const source = openLiveEvents(`/api/companies/${encodeURIComponent(company)}/changes`);
+		/* A tab hidden for a minute lets the stream go; shown again, it reopens and the query client
+		 * reads what is older than a minute (refetchOnWindowFocus). */
+		if (
+			!company ||
+			!queryEnabled(enabled) ||
+			!pageShown.current ||
+			typeof EventSource === 'undefined'
+		)
+			return;
+		const source = openLiveEvents(`/api/companies/${encodeURIComponent(company)}/changes`, {
+			retry: true
+		});
 		/* The stream ends when the session does (a role change, removal, an update). Ask at once
 		 * whether this person may still be here, so a lapsed session re-enters within a second
 		 * instead of at the next slow poll; once it is back, catch up on any hint it missed. */
@@ -1256,10 +1271,74 @@ export function companyChangeStream(companyId: () => string, enabled: QueryEnabl
 		};
 		/* A send and its reply, or a Work commission's several rows, arrive as a burst of hints;
 		 * each refetch of the screen is a dozen requests through the edge. So hints are gathered
-		 * for a moment and refetched once. A hidden tab only marks them stale, and catches up
-		 * once when it is shown (refetchOnWindowFocus). */
+		 * for a moment, and each query then reads at the pace `HintPace` allows: at once after a
+		 * quiet spell, less often while a busy company keeps hinting, and least while nobody is
+		 * touching the page (3 Nov 2026: idle tabs on a busy company made about 45 requests a
+		 * minute each and the edge's daily cap ran out). A hidden tab only marks them stale, and
+		 * catches up once when it is shown (refetchOnWindowFocus). */
 		let pending = new Set<string>();
 		let flush: ReturnType<typeof setTimeout> | undefined;
+		const pace = new HintPace();
+		/* Queries a hint touched that wait for their pace, by hash. */
+		const held = new Map<string, Query>();
+		let release: ReturnType<typeof setTimeout> | undefined;
+		const read = (query: Query) => {
+			pace.read(query.queryHash, Date.now());
+			void client.invalidateQueries({
+				queryKey: query.queryKey,
+				exact: true,
+				refetchType: document.hidden ? 'none' : 'active'
+			});
+		};
+		const releaseDue = () => {
+			clearTimeout(release);
+			release = undefined;
+			const now = Date.now();
+			const idle = untouched(now);
+			let soonest = Infinity;
+			for (const [hash, query] of held) {
+				const wait = pace.wait(hash, now, idle);
+				if (wait > 0) soonest = Math.min(soonest, wait);
+				else {
+					held.delete(hash);
+					read(query);
+				}
+			}
+			if (held.size) release = setTimeout(releaseDue, soonest);
+		};
+		/* Someone touched the page again: what was held back, and any read older than the slow
+		 * repair, reads now, so nobody works from the copy an untouched page kept. */
+		const stopReturn = onReturn(() => {
+			for (const query of held.values()) read(query);
+			held.clear();
+			clearTimeout(release);
+			release = undefined;
+			void client.invalidateQueries(
+				{
+					predicate: (query) =>
+						query.queryKey.includes(company) &&
+						!ROOM_STREAM_OWNED.has(String(query.queryKey[0])) &&
+						query.state.dataUpdatedAt > 0 &&
+						Date.now() - query.state.dataUpdatedAt > CATCH_UP_AFTER_MS,
+					refetchType: 'active'
+				},
+				{ cancelRefetch: false }
+			);
+		});
+		/* Going hidden hands what is held to the refetch on focus: it reads once when shown. */
+		const onHide = () => {
+			if (!document.hidden) return;
+			for (const query of held.values())
+				void client.invalidateQueries({
+					queryKey: query.queryKey,
+					exact: true,
+					refetchType: 'none'
+				});
+			held.clear();
+			clearTimeout(release);
+			release = undefined;
+		};
+		document.addEventListener('visibilitychange', onHide);
 		source.addEventListener('change', (event) => {
 			/* A hint names what kind of thing changed, and only queries that kind can affect
 			 * refetch: a teammate's message never reloads settings, the principal or model
@@ -1271,35 +1350,54 @@ export function companyChangeStream(companyId: () => string, enabled: QueryEnabl
 				flush = undefined;
 				const kinds = [...pending];
 				pending = new Set();
-				const refetchType = document.hidden ? 'none' : 'active';
 				const touched = (query: Query) =>
 					query.queryKey.includes(company) &&
 					!ROOM_STREAM_OWNED.has(String(query.queryKey[0])) &&
 					hintTouches(kinds, query.queryKey);
+				if (document.hidden) {
+					void client.invalidateQueries({ predicate: touched, refetchType: 'none' });
+					return;
+				}
 				/* A read still fetching its first answer is not cancelled and started again: the page's
 				 * own arrival (its presence, its first reads) sends hints within a second, and
 				 * restarting the Inbox read then held a cold page's first paint for a second read
 				 * (3 Nov walkthrough). It finishes, then reads once more for what the hint named. */
 				const first = (query: Query) =>
 					query.state.data === undefined && query.state.fetchStatus === 'fetching';
-				void client.invalidateQueries({
-					predicate: (query) => touched(query) && !first(query),
-					refetchType
-				});
-				for (const query of client
-					.getQueryCache()
-					.findAll({ predicate: (query) => touched(query) && first(query) }))
-					void query.promise
-						?.catch(() => undefined)
-						.then(() =>
-							client.invalidateQueries({ queryKey: query.queryKey, exact: true, refetchType })
-						);
+				for (const query of client.getQueryCache().findAll({ predicate: touched })) {
+					if (first(query)) {
+						void query.promise
+							?.catch(() => undefined)
+							.then(() => {
+								held.set(query.queryHash, query);
+								releaseDue();
+							});
+						continue;
+					}
+					if (query.isActive()) {
+						held.set(query.queryHash, query);
+						continue;
+					}
+					/* A query nobody watches now is only marked stale; it reads when next shown. */
+					void client.invalidateQueries({
+						queryKey: query.queryKey,
+						exact: true,
+						refetchType: 'none'
+					});
+				}
+				releaseDue();
 			}, HINT_GATHER_MS);
 		});
 		return () => {
 			clearTimeout(flush);
+			clearTimeout(release);
+			stopReturn();
+			document.removeEventListener('visibilitychange', onHide);
 			source.close();
-			changes.live = false;
+			/* Let go because the tab is hidden: nothing polls while hidden, and the stream is back
+			 * before anything shows. Saying it was down would rebuild every query that reads the
+			 * pace, and each rebuilt query reads again, hidden or not. */
+			if (untrack(() => pageShown.current)) changes.live = false;
 		};
 	});
 }

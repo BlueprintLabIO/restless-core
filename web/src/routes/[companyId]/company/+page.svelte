@@ -312,6 +312,16 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-body);
 	}
+	/* Too narrow for one line: one fact per line, without the separators that were left
+	 * dangling at the ends of the wrapped lines (S110). */
+	@media (max-width: 560px) {
+		/* Each separator becomes a line break: a full-width item of no height. */
+		.company-facts > span[aria-hidden='true'] {
+			flex-basis: 100%;
+			height: 0;
+			overflow: hidden;
+		}
+	}
 	.company-facts a {
 		display: inline-flex;
 		align-items: center;

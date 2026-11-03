@@ -1,12 +1,4 @@
 {
   "note": "Known jank the zero-jank gate (multiplayer-jank-journey.mjs) tolerates until fixed. Each entry names the visit (role/state/width/load/surface, * matches one part), the kind, the element and the measured maximum; a failure above 1.5x that value, on another element or in another visit fails the gate. Remove an entry when its fix lands; the gate notes entries it no longer observes.",
-  "entries": [
-    {
-      "visit": "member/populated/desktop/open-warm/rail",
-      "kind": "layout-shift",
-      "element": "p.exr-empty-p",
-      "max": 0.00013,
-      "why": "A member's empty rail: its 'model connection isn't working' line moves by under a pixel as the rail opens, about 500 ms after the click (so it lands either side of the input window). Seen before and after the 4 November lazy-rail fix; not caused by the rail's code arriving."
-    }
-  ]
+  "entries": []
 }

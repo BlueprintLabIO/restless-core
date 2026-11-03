@@ -40,8 +40,9 @@ export function documentDecisionsQuery(company: () => string) {
 		queryKey: [...documentDecisionsKey(company()), principal?.cache_partition ?? ''],
 		queryFn: ({ signal }) => read(company(), signal),
 		enabled: Boolean(company() && principal),
+		// Nothing pending: only a repair. While the change stream was down this read once a second.
 		refetchInterval: (query) =>
-			query.state.data?.items.some((item) => item.state === 'pending') ? 1000 : pollEvery(1000)(),
+			query.state.data?.items.some((item) => item.state === 'pending') ? 1000 : pollEvery(15_000)(),
 		retry: 1
 	}));
 }

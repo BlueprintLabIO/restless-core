@@ -1983,7 +1983,7 @@
 		padding: 0 4px;
 		border-radius: 8px;
 		background: var(--intent-conversation);
-		color: var(--on-primary);
+		color: var(--text-inverse);
 		font-size: var(--t-label);
 		font-weight: 600;
 		line-height: 16px;
