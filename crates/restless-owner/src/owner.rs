@@ -14899,7 +14899,10 @@ mod cache_policy_tests {
         );
         assert_eq!(cache_control("/favicon.svg").await, "public, max-age=86400");
         assert_eq!(cache_control("/acme/library").await, "no-store");
-        assert_eq!(cache_control("/api/companies/acme/attention").await, "no-store");
+        assert_eq!(
+            cache_control("/api/companies/acme/attention").await,
+            "no-store"
+        );
     }
 
     #[tokio::test]
