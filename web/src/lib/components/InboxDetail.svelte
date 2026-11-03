@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isSiteTask } from '$lib/model/site-ask';
 	/* One Inbox item, read as a message from whoever is asking and answered
 	 * from one action bar at the bottom.
 	 *
@@ -282,8 +283,6 @@
 		item.source.kind === 'document_collaboration' || item.source.kind === 'document_review'
 	);
 	/* Cards whose task the card itself does (S101): their links out are not shown. */
-	const SITE_ASK =
-		/company browser|shared desktop|https?:\/\/|\b[a-z0-9-]+\.(?:com|net|org|io|co|au|nz|uk)\b|\b(?:sign|log) in\b|\bregister\b|\bpay\b|\bcheckout\b/i;
 	const MODEL_KINDS = [
 		'model_cooldown',
 		'account_headroom',
@@ -382,11 +381,12 @@
 			((!!item.runtimeAttach && item.category !== 'review') || !!stepUrl)
 	);
 	/* An agent's question about doing something on a site (register a domain, sign in, pay) shows
-	 * the company computer too, at the page the agent left open, so it is done in the card. */
+	 * the company computer too, at the page the agent left open, so it is done in the card. A
+	 * decision never does: its links are evidence (see model/site-ask). */
 	const siteAsk = $derived(
 		item.source.kind === 'conversation_owner_need' &&
 			canSetAside &&
-			SITE_ASK.test(`${item.requestedAction} ${item.whatHappened}`)
+			isSiteTask(item.requestedAction, item.whatHappened)
 	);
 	/* A live outcome to review renders in the card's content beside the decision. */
 	const outcomeInline = $derived(item.category === 'review' && !!item.reviewTarget);
@@ -1060,7 +1060,7 @@
 					class="note"
 					title="Exec judges whether each recipient and message fits the mandate. The system enforces the mechanical limits."
 				>
-					Approving gives Exec bounded sending authority.
+					Exec decides whether each email fits; Restless holds it to these limits.
 				</p>
 			{/if}
 
@@ -1367,8 +1367,8 @@
 					{#key `${item.id}:${attempt}`}
 						<HoldApprove
 							small
-							completeLabel="Saving approval…"
-							label="Hold to approve mandate"
+							completeLabel="Approved"
+							label="Hold to approve"
 							disabled={acting}
 							title={`${approveMandate.consequence} ${approveMandate.nextState}`}
 							onapprove={() => void decideMandate('approve')}

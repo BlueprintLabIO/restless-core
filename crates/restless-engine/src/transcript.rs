@@ -282,6 +282,20 @@ pub struct DecodedBody<'a> {
     pub context_path: Option<String>,
 }
 
+/// An owner decision told to an agent (approve, decline, revoke). The owner's transcript shows
+/// one short line in their own words, marked as an authority receipt so the cockpit draws it as
+/// a system line rather than a message they typed. The instruction, with its ids, is
+/// system-supplied context only the agent reads.
+pub fn owner_decision_message(owner_line: &str, instruction: &str, decision_id: &str) -> String {
+    let receipt = serde_json::json!({ "kind": "authority", "summary": owner_line });
+    let visible = format!("{owner_line}\n\n{INTENT_MARKER}{receipt}-->");
+    let marker = serde_json::json!({
+        "item_id": format!("authority-decision:{decision_id}"),
+        "original_bytes": visible.len(),
+    });
+    format!("{visible}{ATTENTION_CONTEXT_BLOCK}{instruction}{ATTENTION_CONTEXT_MARKER}{marker}-->")
+}
+
 pub fn decode_body(raw: &str) -> DecodedBody<'_> {
     let (body, _) = split_attention_context(raw);
     let (body, intent) = split_intent_receipt(body);

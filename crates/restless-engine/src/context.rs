@@ -792,9 +792,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          limitations or the exact decision needed. A producer completion is not proof of lead \
          acceptance or completion of downstream Work. Deliver requested results promptly rather \
          than promising to return later. Do not create approval gates merely to report a result.\n\
-         When you propose a setting with `restless setting propose` and also explain it to the \
-         owner, put the proposal number it returns in `ownerNeedHandoff`: the Inbox then shows one \
-         item, the proposal, with your words as its context, never a question beside it.\n\
+         A proposal you raise (a setting, a mandate, an email to approve) is already the owner's \
+         Inbox card: never ask for it again as a question. When you mention it, put the number or \
+         id it returns in `ownerNeedHandoff`, so the Inbox shows one item with your words as context.\n\
          When a proactive update delivers a finished result the owner should look at (a site, a \
          document, a design, a report), also put its name, a few words, in `ownerReview`: that puts \
          it in the owner's Inbox, where finished work belongs, rather than only in chat. The item \

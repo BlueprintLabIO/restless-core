@@ -17,6 +17,7 @@ function when(value: Date | string): string {
 }
 
 function authorOf(message: ThreadMessage, participantName: string): string {
+	if (message.from === 'system') return 'Restless';
 	return message.from === 'you' ? 'You' : message.author || participantName;
 }
 
