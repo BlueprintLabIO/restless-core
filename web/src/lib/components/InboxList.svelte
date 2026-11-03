@@ -160,9 +160,9 @@
 		new Set((appRequests.data ?? []).map((request) => request.handoff_id))
 	);
 	/* The rows draw once what restyles them has been read: whether each was opened (a read row's
-	 * title is lighter, an unread one bold enough to wrap to a second line and push every row
-	 * under it down 21px) and what is snoozed (it leaves the list). A read that fails does not
-	 * hold the list. */
+	 * title is lighter, an unread one bold) and what is snoozed (it leaves the list). A read that
+	 * fails does not hold the list. Every row is one fixed height: a title keeps one line, cut with
+	 * an ellipsis, its full text on hover and in the row's name. */
 	const settled = $derived(!marksQuery.isLoading);
 	const canComplete = (item: AttentionItem) =>
 		item.actions.some((action) => action.id === 'complete-human-step') &&
@@ -403,6 +403,7 @@
 						<Item
 							role="listitem"
 							stacked
+							fixed
 							title={attentionTitle(item)}
 							label={`${unreadNow ? 'Unread. ' : ''}${attentionKindLabel(item)}: ${attentionTitle(item)}${snoozedNow ? '. Snoozed' : ''}`}
 							meta={inboxWaitingLine(item)}

@@ -19,7 +19,7 @@
 	<h3>Done</h3>
 	{#if history.error}<FailureNotice error={history.error} subject="done items" onretry={() => history.refetch()} />{/if}
 	{#each items as item (item.id)}
-		<Item stacked title={item.title} meta={item.recordedDecision}
+		<Item stacked fixed title={item.title} meta={item.recordedDecision}
 			href={`/${encodeURIComponent(companyId)}/company/activity?show=decisions&open=${encodeURIComponent(item.id)}`}>
 			{#snippet trailing()}<RelativeTime value={item.observedAt} />{/snippet}
 		</Item>

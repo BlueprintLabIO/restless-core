@@ -71,6 +71,7 @@
 <Item
 	role="listitem"
 	stacked
+	fixed
 	title={forYouSentence(item)}
 	meta={item.kind === 'applied' ? null : item.excerpt || null}
 	{href}
