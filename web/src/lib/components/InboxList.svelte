@@ -159,6 +159,11 @@
 	const appRequestIds = $derived(
 		new Set((appRequests.data ?? []).map((request) => request.handoff_id))
 	);
+	/* The rows draw once what restyles them has been read: whether each was opened (a read row's
+	 * title is lighter, an unread one bold enough to wrap to a second line and push every row
+	 * under it down 21px) and what is snoozed (it leaves the list). A read that fails does not
+	 * hold the list. */
+	const settled = $derived(!marksQuery.isLoading);
 	const canComplete = (item: AttentionItem) =>
 		item.actions.some((action) => action.id === 'complete-human-step') &&
 		!(item.source.kind === 'owner_handoff' && appRequestIds.has(item.source.reference));
@@ -386,7 +391,7 @@
 			>
 		{/if}
 		<div role="list" aria-label="Waiting on you" class="inbox-rows">
-			{#each feed as row (row.key)}
+			{#each settled ? feed : [] as row (row.key)}
 				<div data-inbox-key={row.key}>
 					{#if row.kind === 'update' && forYou}
 						<InboxUpdate {companyId} source={forYou} item={row.item} />
@@ -442,7 +447,7 @@
 				</div>
 			{/each}
 		</div>
-		{#if showOpen && loaded && !feed.length && !(coordination && !items.length)}
+		{#if showOpen && loaded && settled && !feed.length && !(coordination && !items.length)}
 			<p class="empty">
 				{requestsOnly
 					? 'No requests waiting on you.'
@@ -450,7 +455,7 @@
 						? 'Everything here is snoozed.'
 						: 'No decisions waiting on you.'}
 			</p>
-		{:else if !loaded && !failure}
+		{:else if (!loaded || !settled) && !failure}
 			<div class="waiting" aria-label="Loading the Inbox"><i></i><i></i><i></i></div>
 		{/if}
 		{#if canSetAside && (filter === 'skipped' || filter === 'all')}

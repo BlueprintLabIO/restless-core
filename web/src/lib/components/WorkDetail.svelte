@@ -1209,7 +1209,8 @@
 						<dd class="pick-cell">
 							{#if maySteer && goals.length}
 								<ActionMenu label="Goal">
-									{#snippet trigger()}<span class="pick-face">{goal?.title ?? 'No goal'}</span
+									{#snippet trigger()}<span class="pick-face" title={goal?.title}
+											>{goal?.title ?? 'No goal'}</span
 										>{/snippet}
 									{#each goals.filter((row) => !row.closed_at || row.id === goal?.id) as option (option.id)}
 										<button
@@ -1234,7 +1235,7 @@
 								</ActionMenu>
 							{:else if goal}<a
 									href={`/${encodeURIComponent(companyId)}/work?goal=${encodeURIComponent(goal.id)}`}
-									>{goal.title}</a
+									title={goal.title}>{goal.title}</a
 								>{:else}<a href={`/${encodeURIComponent(companyId)}/work?goal=other`}>No goal</a
 								>{/if}
 						</dd>
