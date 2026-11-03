@@ -6106,7 +6106,9 @@ mod person_queue_tests {
             .await
             .unwrap();
 
-        // A judgement climbs designer -> lead -> Exec (with its brief) -> Kit.
+        // A judgement climbs designer -> lead -> Exec (with its brief) -> Kit. Choosing between two
+        // prepared images is a decision: an outcome review would need its prepared preview linked
+        // before it can reach a person (S109 A4), which is not what this scenario is about.
         let kits_work = work_for(&org, "site-design", "Choose the hero image").await;
         let kits = org
             .request_owner_handoff(NewOwnerHandoff {
@@ -6131,7 +6133,7 @@ mod person_queue_tests {
             kits,
             "exec",
             OwnerBrief {
-                kind: OwnerBriefKind::OutcomeReview,
+                kind: OwnerBriefKind::Decision,
                 headline: "Choose the hero image".into(),
                 situation: "The team prepared two images.".into(),
                 impact: "The page ships with the chosen one.".into(),
