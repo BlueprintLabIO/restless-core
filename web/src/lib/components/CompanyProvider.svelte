@@ -19,6 +19,7 @@
 	import CustomHarnesses from './CustomHarnesses.svelte';
 	import AgentIntelligence from './AgentIntelligence.svelte';
 	import ModelFallbacks from './ModelFallbacks.svelte';
+	import ModelJobs from './ModelJobs.svelte';
 	import ModelHeadroom from './ModelHeadroom.svelte';
 	import CopyCompanySetting from './CopyCompanySetting.svelte';
 	import EditorForm from './editors/EditorForm.svelte';
@@ -505,6 +506,7 @@
 
 	<ModelHeadroom {companyId} />
 	<AgentIntelligence {companyId} />
+	<ModelJobs {companyId} />
 	{#if status}<ModelFallbacks
 			{companyId}
 			{status}

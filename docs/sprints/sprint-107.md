@@ -33,17 +33,26 @@ choice of model, and nothing reads replies aloud.
 
 ## C. Company › Intelligence: default model and decisions
 
-- [ ] C1 The page shows, one row each, using the same picker:
+- [x] C1 The page shows, one row each, using the same picker:
   - **Default model**: what the Exec and every agent use unless an agent has its own.
   - **Decisions**: the model behind structured decisions. Choices: included (the relay's
     `decide`) or an OpenRouter model through the owner's OpenRouter key. Say plainly that
     decisions are advisory and start in shadow, and show when one last ran.
   - **Fallbacks**: as today (`ModelFallbacks`).
-- [ ] C2 Per-agent models stay where they are (People), and the row says which agents override
+
+  Built (4 Nov) as "Models by job" under Models: Main, Everyday and Decisions rows. Decisions
+  offers Included (gate active, `decision_model = "included"`), Included watching only (unset,
+  shadow), an OpenRouter model through the company's OpenRouter account, or Off; the row shows
+  the state, what it saved or would save and when it last ran, from `GET .../model-jobs`
+  (also `GET .../decisions`).
+- [x] C2 Per-agent models stay where they are (People), and the row says which agents override
   the default.
-- [ ] C3 No everyday model in the UI. The `everyday_model` key stays in config, unused by the UI,
-  until the owner asks for it.
-- [ ] C4 Rows never grow (house rules): one fixed-height row per setting, the picker opens below.
+- [x] ~~C3 No everyday model in the UI.~~ Superseded 3 Nov: the owner asked for it ("some agents
+  should be automatically a smaller agent like sonnet 5.5"). Everyday is a row; unset means the
+  main model's cheaper sibling (Opus to Sonnet, GPT Sol to Terra, Gemini Pro to Flash), "Same as
+  main" stores `off`, and an agent with its own model on People keeps it. Team leads, repairs,
+  reviews and feedback stay on the main model.
+- [x] C4 Rows never grow (house rules): one fixed-height row per setting, the picker opens below.
 
 ## D. Voice, on the owner's account
 
@@ -90,5 +99,5 @@ company. A company that needs voice for its own work uses an account as a tool, 
 
 ## Not in this sprint
 
-- An everyday or per-tier model (the owner: not needed now).
+- ~~An everyday or per-tier model~~ (asked for on 3 Nov; built in C).
 - Voice calls or always-on listening.
