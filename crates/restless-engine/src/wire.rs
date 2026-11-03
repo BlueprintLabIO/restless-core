@@ -722,6 +722,11 @@ impl Request {
 /// This is a decoder allowlist, not a second command algebra: the dispatcher
 /// remains the only command behaviour and source owner. Each row merely names
 /// the already-existing fields that cross its concrete domain boundary.
+/// Whether the daemon accepts this command at all.
+pub(crate) fn is_command(command: &str) -> bool {
+    command_fields(command).is_some()
+}
+
 fn command_fields(command: &str) -> Option<&'static [&'static str]> {
     Some(match command {
         "appliance-drain"
@@ -1333,10 +1338,15 @@ const COMPANY_EXEC_ONLY: &[&str] = &[
 
 pub fn authorize(principal: Principal, cmd: &str) -> std::result::Result<Principal, String> {
     if principal != Principal::Owner && OWNER_ONLY.contains(&cmd) {
-        return Err(format!(
+        let refusal = format!(
             "{cmd} is an act of owner authority; principal {} may not perform it",
             principal.as_str()
-        ));
+        );
+        // Name the agent's way out, so the refusal is never a dead end (S109 blockers audit).
+        return Err(match crate::doors::owner_only_door(cmd) {
+            Some(door) => crate::doors::refusal_with_door(refusal, door),
+            None => refusal,
+        });
     }
     if principal != Principal::CompanyExec && COMPANY_EXEC_ONLY.contains(&cmd) {
         return Err(format!(

@@ -269,16 +269,33 @@ pub async fn serve(
             }
         }
     };
-    match &decision {
-        Decision::Refuse(reason) => {
+    let lift = broker::lift_for(
+        &usable.account,
+        &usable.grant,
+        &grant.actor,
+        tier,
+        scoped,
+        today,
+        now,
+    );
+    match (&decision, lift) {
+        (Decision::Run | Decision::RunAndTell, _) => {}
+        // The owner can lift this with one tap: raise that card rather than say "ask them".
+        (Decision::Refuse(reason) | Decision::Ask(reason), Some(abilities)) => {
+            record("refused").await;
+            let reason = format!("{reason} A push cannot wait for approval.");
+            let message =
+                broker::ask_owner_to_lift(pool, &usable, &grant.actor, abilities, &reason).await;
+            return git_refusal(&service, &message);
+        }
+        (Decision::Refuse(reason), None) => {
             record("refused").await;
             return git_refusal(&service, reason);
         }
-        Decision::Ask(reason) => {
+        (Decision::Ask(reason), None) => {
             record("refused").await;
-            return git_refusal(&service, &format!("{reason} A push cannot wait for approval: ask the owner to allow it, then push again."));
+            return git_refusal(&service, &format!("{reason} A push cannot wait for approval. The owner allows it in Settings › Accounts; tell them, then push again."));
         }
-        Decision::Run | Decision::RunAndTell => {}
     }
     let secret = match broker::secret(&usable).await {
         Ok(secret) => secret,

@@ -832,7 +832,7 @@ fn spend_warning_item(
             role: "inspect",
             consequence: "Opens Company › Resources, where the limit and its warning are set.".into(),
             next_state: "The warning clears when spend falls below it, the limit changes, or a new month starts.".into(),
-            href: Some(format!("/{}/company/limits#spend", config.name)),
+            href: Some(format!("/{}/company/resources#spend", config.name)),
         }],
         can_continue: true,
         preparing: false,
@@ -912,7 +912,7 @@ fn spend_stopped_item(
             role: "inspect",
             consequence: "Opens Company › Resources, where the limit is set.".into(),
             next_state: "Raising the limit above spend tells Exec to resume the stopped work.".into(),
-            href: Some(format!("/{}/company/limits#spend", config.name)),
+            href: Some(format!("/{}/company/resources#spend", config.name)),
         }],
         can_continue: false,
         preparing: false,
@@ -1574,7 +1574,7 @@ async fn account_items(
                 "Add it",
                 "Opens Company › Vault.",
                 "A key saved there under the service's name answers the request.",
-                Some(format!("/{company}/vault")),
+                Some(format!("/{company}/company/vault")),
             ));
         } else {
             item.actions.push(action(

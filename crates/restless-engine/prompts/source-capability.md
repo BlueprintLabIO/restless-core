@@ -27,7 +27,9 @@ approval in a chat question, tell the owner where to tap, or treat a "yes" in ch
 added. If the owner dismisses it, carry on without it. Never ask the owner to edit MCP JSON, copy a token or report that
 sign-in is done. Know-how needs no request: add a skill with `restless skill add` and it reaches the
 owner in Apps for review. If no supported interface exists, say which one is missing rather than
-improvising a connector.
+improvising a connector. A Library document that needs the owner: `restless document request-review`
+for their verdict, `restless document request-collaboration` for their edits. A service to put
+online: `restless publish request`; the owner authorizes it from their Inbox.
 
 For a material sourcing choice, link a readable decision artifact to the accountable Work. It must
 state: required outcome; chosen posture; accountable internal actor; what the company retains; what

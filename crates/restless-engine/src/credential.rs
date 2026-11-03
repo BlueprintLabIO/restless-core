@@ -257,6 +257,19 @@ pub fn unbound_resend_send_reference(
     resend_send_alias(rows).map(|(_, reference)| reference.to_string())
 }
 
+/// The reference of a company Vault secret saved under exactly the name an agent asks for, when
+/// no binding points at it yet. `platform_capabilities::already_held` tells an agent to use such
+/// a key by name, so resolving must find it too, or the agent is sent round in a circle.
+pub fn unbound_vault_reference(binding: &str, inventory: &[serde_json::Value]) -> Option<String> {
+    inventory.iter().find_map(|row| {
+        let name = row["name"].as_str()?;
+        if name.trim() != binding && canonical_binding(name) != binding {
+            return None;
+        }
+        row["reference"].as_str().map(str::to_string)
+    })
+}
+
 /// Resolve the Resend sending key (S109 H2). Its own binding comes first. A key saved under an
 /// older name is used as it is: a bound alias (normally already bound to `resend.production` on
 /// load), and failing that an unbound Vault secret with a Resend name. The owner never re-enters a
@@ -324,12 +337,33 @@ pub async fn resolve(config: &CompanyConfig, binding: &str) -> Result<String> {
         // Whoever holds it can sign inbound events as the outside world.
         bail!("{RESEND_WEBHOOK_BINDING} may only be resolved by the event ingress");
     }
-    let reference = config.credentials.get(binding).with_context(|| {
-        format!(
-            "company {} has no credential reference for binding {binding}; add it with `restless credential set`",
-            config.name
-        )
-    })?;
+    let Some(reference) = config.credentials.get(binding) else {
+        // A key in the company Vault that was never bound under this name (saved outside
+        // Restless, a rename, a migration collision) is still the company's own: use it rather
+        // than send the agent back to a request `already_held` answers with "use it by name"
+        // (S109 blockers audit).
+        if infisical_configured() {
+            if let Ok(inventory) = company_vault_inventory(&config.name).await {
+                if let Some(reference) = unbound_vault_reference(binding, &inventory) {
+                    return resolve_reference(&reference).await;
+                }
+            }
+        }
+        bail!(
+            "company {} has no key named {binding} in its Vault. {}",
+            config.name,
+            crate::doors::Door::Ask {
+                cli: "restless apps ask-account",
+                op: "account-ask",
+                card: "account_request",
+            }
+            .text()
+            .replace(
+                "`restless apps ask-account`",
+                "`restless apps ask-account --kind api --site <service> --reason <why>`"
+            )
+        );
+    };
     resolve_reference(reference).await
 }
 
@@ -1290,6 +1324,21 @@ mod tests {
             resolve(&config, "resend.production").await.unwrap_err()
         );
         assert!(error.contains("binding resend.production"), "{error}");
+    }
+
+    /// The capabilities answer says "the Vault already holds GITHUB_TOKEN, use it by name"; the
+    /// name then resolves even though no binding was ever saved for it.
+    #[test]
+    fn a_vault_key_without_a_binding_resolves_by_its_name() {
+        let inventory = vec![
+            serde_json::json!({"name": "OTHER", "reference": "infisical://companies/demo/OTHER"}),
+            serde_json::json!({"name": "GITHUB_TOKEN", "reference": "infisical://companies/demo/GITHUB_TOKEN"}),
+        ];
+        assert_eq!(
+            unbound_vault_reference("GITHUB_TOKEN", &inventory).as_deref(),
+            Some("infisical://companies/demo/GITHUB_TOKEN")
+        );
+        assert_eq!(unbound_vault_reference("MISSING", &inventory), None);
     }
 
     /// Reno's case (S109 H2): the owner saved the Resend key before its name was fixed, under a

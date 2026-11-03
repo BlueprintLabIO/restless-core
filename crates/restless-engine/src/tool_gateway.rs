@@ -1210,16 +1210,35 @@ impl ToolScope {
                 .await;
             }
         };
-        match &decision {
-            Decision::Refuse(reason) => {
+        let lift = broker::lift_for(
+            &usable.account,
+            &usable.grant,
+            &actor,
+            "act",
+            true,
+            today,
+            now,
+        );
+        match (&decision, lift) {
+            (Decision::Run | Decision::RunAndTell, _) => {}
+            // The owner can lift this with one tap: raise that card rather than say "ask them".
+            (Decision::Refuse(reason) | Decision::Ask(reason), Some(abilities)) => {
+                record("refused").await;
+                let reason = format!(
+                    "Nothing was opened. {reason} An account's browser cannot wait for approval."
+                );
+                return text_error(
+                    broker::ask_owner_to_lift(pool, &usable, &actor, abilities, &reason).await,
+                );
+            }
+            (Decision::Refuse(reason), None) => {
                 record("refused").await;
                 return text_error(format!("Nothing was opened. {reason}"));
             }
-            Decision::Ask(reason) => {
+            (Decision::Ask(reason), None) => {
                 record("refused").await;
-                return text_error(format!("{reason} An account's browser cannot wait for approval: ask the owner to allow acting with it."));
+                return text_error(format!("Nothing was opened. {reason} An account's browser cannot wait for approval. The owner allows it in Settings › Accounts. Exec: ask them in your reply and put the exact ask in `ownerNeed`. Staff: tell Exec with `restless message --to exec`."));
             }
-            Decision::Run | Decision::RunAndTell => {}
         }
         if filling {
             if !identity::holds_lease(&account_id, &company, &actor).await {
@@ -1612,7 +1631,23 @@ impl ToolCaller<'_> {
         };
         if let Decision::Refuse(reason) = &decision {
             record("refused").await;
-            return text_error(format!("Nothing was sent. {reason}"));
+            let reason = format!("Nothing was sent. {reason}");
+            // An ability that is off is one tap for the owner: raise that card (S109 audit).
+            if let Some(abilities) = broker::lift_for(
+                &usable.account,
+                &usable.grant,
+                &self.grant.actor,
+                tier,
+                scoped,
+                today,
+                now,
+            ) {
+                return text_error(
+                    broker::ask_owner_to_lift(pool, &usable, &self.grant.actor, abilities, &reason)
+                        .await,
+                );
+            }
+            return text_error(reason);
         }
         let answer_text =
             |answer: &broker::Answer| serde_json::to_string_pretty(answer).unwrap_or_default();
