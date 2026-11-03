@@ -45,6 +45,7 @@ pub const APPROVAL_KINDS: &[&str] = &[
     "account_notice",
     "account_request",
     "publication_authorization",
+    "email_send_request",
 ];
 
 /// The id an item Exec added has in the Inbox.

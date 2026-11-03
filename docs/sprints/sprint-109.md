@@ -856,7 +856,7 @@ conversation, on the owner's own words only.
 - Exec acts with `restless attention accept|decline|answer|snooze|dismiss|move|add`, each citing
   the owner's message (`--source-message`). Accept and decline cover owner handoffs (questions,
   decisions, human steps, outcome reviews), every Authority approval (first contact, held calls,
-  email mandates, payees, account notices and requests, publications), know-how candidates, brand
+  email mandates, payees, account notices and requests, publications, email sends), know-how candidates, brand
   proposals and direction requests; a setting proposal and a charter draft can be declined (a
   setting is applied in its card, where the value can be adjusted; Exec already publishes a charter
   the owner agreed with `restless charter apply`). Snooze, move (top, bottom or a place) and

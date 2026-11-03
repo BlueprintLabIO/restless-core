@@ -338,6 +338,10 @@ async fn decide(
                 "account_request" => ApprovalTarget::AccountRequest {
                     request: reference.to_string(),
                 },
+                "email_send_request" => ApprovalTarget::EmailSend {
+                    request: Uuid::parse_str(reference)
+                        .map_err(|_| "This email request is unreadable.".to_string())?,
+                },
                 "publication_authorization" => ApprovalTarget::Publication {
                     publication: reference.to_string(),
                 },
@@ -361,6 +365,7 @@ async fn decide(
                     | ApprovalTarget::ToolCall { .. }
                     | ApprovalTarget::EmailMandate { .. }
                     | ApprovalTarget::Payee { .. }
+                    | ApprovalTarget::EmailSend { .. }
             );
             let decision = if yes {
                 ApprovalDecision::Grant { always: false }
