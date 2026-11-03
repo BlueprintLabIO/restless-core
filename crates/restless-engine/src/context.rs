@@ -1002,8 +1002,8 @@ mod tests {
         OwnerHandoffRow, OwnerHandoffState, RoomMessageRow, WorkStatus,
     };
 
-    /// Exec is asked for a progress estimate only on a wake where one is owed, with the exact
-    /// command; a quiet wake carries none of that doctrine (owner decision, 3 November 2026).
+    /// Exec is asked for a progress estimate only on a wake where one is owed, on its final
+    /// reply; a quiet wake carries none of that doctrine (owner decision, 3 November 2026).
     #[test]
     fn exec_is_asked_for_progress_estimates_only_when_owed() {
         let quiet = assemble(&snapshot());
@@ -1018,10 +1018,9 @@ mod tests {
         }];
         let package = assemble(&owed);
         assert!(package.user_prompt.contains("Progress estimates owed"));
-        assert!(package
-            .user_prompt
-            .contains("restless work progress <work-id> --percent"));
-        assert!(package.user_prompt.contains("--blocked"));
+        // Estimates ride on the final reply, never as separate tool calls (S110).
+        assert!(package.user_prompt.contains("<!--restless-progress:["));
+        assert!(!package.user_prompt.contains("restless work progress"));
         assert!(package
             .user_prompt
             .contains("\"Magnets\" [blocked] · last: ~40%"));

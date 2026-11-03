@@ -922,6 +922,20 @@ impl OrgIntel {
         .execute(&mut *tx)
         .await?;
 
+        // `restless commission` appoints a lead and adds its Work in one go. The Work carries the
+        // charter, so the appointment has nothing left to ask: settle it here rather than spend a
+        // lead conversation turn acknowledging it (S110; machine mail settles before it wakes).
+        if work.owner_id != commissioned_by {
+            sqlx::query(
+                "UPDATE messages SET read_at=now()                  WHERE read_at IS NULL AND to_actor=$1 AND from_actor=$2 AND body LIKE $3",
+            )
+            .bind(work.owner_id)
+            .bind(&commissioned_by)
+            .bind(format!("{}%", crate::actors::APPOINTMENT_PREFIX))
+            .execute(&mut *tx)
+            .await?;
+        }
+
         if let Some((opportunity_id, schedule_id, scheduled_for)) = validated_opportunity_source {
             // This insert and Work creation share one transaction. An existing
             // primary link fails the unique index and rolls the Work back.

@@ -639,7 +639,10 @@ async fn the_undo_window_opens_when_the_owner_can_see_it_and_ends_when_they_move
     assert!(f.org.next_human_decision_delay().await.unwrap().is_none());
     assert!(f.org.due_exec_inbox_actions().await.unwrap().is_empty());
     assert_eq!(
-        f.org.owner_moved_on_from_exec_inbox_actions().await.unwrap(),
+        f.org
+            .owner_moved_on_from_exec_inbox_actions()
+            .await
+            .unwrap(),
         0
     );
     assert!(action(&f, accept.id).await.held());
@@ -660,7 +663,10 @@ async fn the_undo_window_opens_when_the_owner_can_see_it_and_ends_when_they_move
 
     // The owner answers straight away: the window still runs its 30 seconds.
     assert_eq!(
-        f.org.owner_moved_on_from_exec_inbox_actions().await.unwrap(),
+        f.org
+            .owner_moved_on_from_exec_inbox_actions()
+            .await
+            .unwrap(),
         1
     );
     let floor = action(&f, accept.id).await;
@@ -668,7 +674,10 @@ async fn the_undo_window_opens_when_the_owner_can_see_it_and_ends_when_they_move
     assert!((29_000..=31_000).contains(&left), "{left} ms");
     assert!(f.org.due_exec_inbox_actions().await.unwrap().is_empty());
     assert_eq!(
-        f.org.owner_moved_on_from_exec_inbox_actions().await.unwrap(),
+        f.org
+            .owner_moved_on_from_exec_inbox_actions()
+            .await
+            .unwrap(),
         0,
         "a window is never lengthened by a later message"
     );
@@ -676,7 +685,11 @@ async fn the_undo_window_opens_when_the_owner_can_see_it_and_ends_when_they_move
     // A second change, shown 50 seconds ago and still open: the owner's next message ends it.
     let skip_words = f.says("owner", "exec", "skip the spend warning").await;
     let skip = f
-        .queue("authority:spend_warning", ExecInboxVerb::Dismiss, skip_words)
+        .queue(
+            "authority:spend_warning",
+            ExecInboxVerb::Dismiss,
+            skip_words,
+        )
         .await
         .unwrap();
     f.org.show_exec_inbox_actions().await.unwrap();
@@ -688,7 +701,10 @@ async fn the_undo_window_opens_when_the_owner_can_see_it_and_ends_when_they_move
         .unwrap()
         .iter()
         .any(|a| a.id == skip.id));
-    f.org.owner_moved_on_from_exec_inbox_actions().await.unwrap();
+    f.org
+        .owner_moved_on_from_exec_inbox_actions()
+        .await
+        .unwrap();
     assert!(f
         .org
         .due_exec_inbox_actions()
@@ -758,7 +774,10 @@ async fn undo_after_the_reply_finishes_and_a_change_applies_exactly_once() {
         .unwrap();
     f.org.show_exec_inbox_actions().await.unwrap();
     shown_ago(&f, accept.id, 25.0).await;
-    f.org.owner_moved_on_from_exec_inbox_actions().await.unwrap();
+    f.org
+        .owner_moved_on_from_exec_inbox_actions()
+        .await
+        .unwrap();
     assert_eq!(
         f.org
             .cancel_exec_inbox_action(accept.id)

@@ -462,6 +462,17 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
             if is_exec_self_message(&value) {
                 return;
             }
+            // Machine mail (a result notice, a lead's report) settles first, so several landing
+            // together cost one Exec wake; the scan wakes Exec once it has (`mail_settle`).
+            let from = value["body"]["from"].as_str().unwrap_or_default();
+            let from_person = match daemon.orgintel.get(company).await {
+                Ok(org) => org.is_human_actor(from).await.unwrap_or(true),
+                Err(_) => true,
+            };
+            if !from_person && mail_settle() != restless_orgintel::MailSettle::IMMEDIATE {
+                scan_company(daemon, in_flight, company).await;
+                return;
+            }
             let message_id = value["body"]["message_id"].as_i64();
             let routes_through_work = match message_id {
                 Some(message_id) => match daemon.orgintel.get(company).await {
@@ -563,6 +574,13 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
             );
         }
         if runtime_running || runtime_sleeping {
+            if let Ok(Some(next)) = org.next_mail_settles_at(mail_settle()).await {
+                earliest = Some(
+                    earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
+                        current.min(next)
+                    }),
+                );
+            }
             if let Ok(Some(next)) = org.next_opportunity_due_at().await {
                 earliest = Some(
                     earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
@@ -806,7 +824,10 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     // Direct mail is a durable peer wake, including for Staff who are not
     // accountable leads. Re-derive recipients from unread mail on every scan
     // so a lost NOTIFY or daemon restart cannot strand a colleague's question.
-    match org.actors_owing_conversation_mail(128).await {
+    match org
+        .actors_owing_conversation_mail_settled(128, mail_settle())
+        .await
+    {
         Ok(actors) => {
             for actor in actors {
                 if !daemon.staff.has_capacity(company) {
@@ -972,7 +993,10 @@ async fn recover_owed_exec_work(
     }
 
     let judgements = org.undelivered_handoff_count("exec").await.unwrap_or(0);
-    let conversation = org.owed_conversation_count("exec").await.unwrap_or(0);
+    let conversation = org
+        .owed_conversation_count_settled("exec", mail_settle())
+        .await
+        .unwrap_or(0);
     let mention = crate::mentions::pending(org, "exec").await.unwrap_or(false);
     let reason = match (judgements, conversation, mention) {
         (0, 0, false) => return,
@@ -1075,6 +1099,12 @@ fn exec_owner_update(
         .ok_or_else(|| {
             anyhow::anyhow!("Exec finished without an owner update or explicit quiet decision")
         })?;
+    // Progress estimates ride on the reply and are recorded from it; the owner never sees them.
+    let reply: std::borrow::Cow<'_, str> = if reply.contains(restless_orgintel::PROGRESS_MARKER) {
+        restless_orgintel::take_progress_markers(reply).0.into()
+    } else {
+        reply.into()
+    };
     let reply: std::borrow::Cow<'_, str> = if reply.contains(crate::context::EXEC_NO_UPDATE) {
         reply
             .replace(crate::context::EXEC_NO_UPDATE, "")
@@ -1082,7 +1112,7 @@ fn exec_owner_update(
             .to_string()
             .into()
     } else {
-        reply.into()
+        reply
     };
     if reply.is_empty() {
         anyhow::ensure!(
@@ -1481,6 +1511,22 @@ async fn run_exec_turn_with_lease(
         cancellation,
     )
     .await;
+    // Estimates owed at this wake came back on the final reply, not as tool calls (S110).
+    if let Ok(exec::WakeReport {
+        owner_reply: Some(reply),
+        ..
+    }) = &outcome
+    {
+        let (_, reported) = restless_orgintel::take_progress_markers(reply);
+        for refused in org
+            .record_reported_progress("exec", &reported)
+            .await
+            .into_iter()
+            .filter_map(Result::err)
+        {
+            tracing::info!(company = %config.name, %refused, "progress estimate on the reply not recorded");
+        }
+    }
 
     // Execution and settlement are distinct. If the actor did useful work but
     // failed to declare a verifiable Opportunity outcome, retain every effect
@@ -1820,6 +1866,25 @@ mod tests {
                 .as_deref(),
             Some("Site is live.")
         );
+        // Progress estimates are taken off the reply; with nothing else said the turn is quiet.
+        let estimate = "<!--restless-progress:[{\"work\":\"00000000-0000-0000-0000-000000000000\",\"percent\":40,\"next\":\"x\"}]-->";
+        assert_eq!(
+            exec_owner_update(Some(&format!("Done. {estimate}")), true)
+                .unwrap()
+                .as_deref(),
+            Some("Done.")
+        );
+        assert_eq!(
+            exec_owner_update(
+                Some(&format!(
+                    "{estimate}
+{EXEC_NO_UPDATE}"
+                )),
+                false
+            )
+            .unwrap(),
+            None
+        );
         // A provider error streamed as text never reaches the owner.
         assert!(exec_owner_update(
             Some("429 Rate limit exceeded: free-models-per-min.  retry-after-ms=54287"),
@@ -1973,6 +2038,24 @@ mod tests {
             claims.record_unusable_wake("probe");
         }
         assert!(held_for(&claims) <= super::BACKOFF_CEILING);
+    }
+}
+
+/// How long machine mail settles before it owes a wake (S110: fewer wakes). Result notices from
+/// Attempts finishing together, or a commission's appointment followed by its Work, then cost one
+/// model turn instead of one each. A person's message is never held.
+/// `RESTLESS_MAIL_SETTLE_SECS` sets the quiet period; 0 turns settling off.
+pub(crate) fn mail_settle() -> restless_orgintel::MailSettle {
+    let quiet = std::env::var("RESTLESS_MAIL_SETTLE_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(20);
+    if quiet == 0 {
+        return restless_orgintel::MailSettle::IMMEDIATE;
+    }
+    restless_orgintel::MailSettle {
+        quiet_secs: quiet,
+        max_secs: quiet.max(90),
     }
 }
 

@@ -379,7 +379,7 @@ pub(super) async fn oauth_callback(
                     let body = format!(
                         "The owner signed in to {name}; its tools work now. Resume any Work that failed while {name} needed a sign-in."
                     );
-                    if let Err(error) = org.send_message("owner", Some("exec"), &body).await {
+                    if let Err(error) = org.send_message("daemon", Some("exec"), &body).await {
                         tracing::warn!(%error, "could not tell Exec about a renewed sign-in");
                     }
                 }

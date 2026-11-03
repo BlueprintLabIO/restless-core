@@ -2123,6 +2123,9 @@ mod credential_cooldown_tests {
             .map(|cooldown| cooldown.model)
             .collect();
         left.sort();
-        assert_eq!(left, ["anthropic/claude-opus-5-5", "openai-codex/gpt-6-nano"]);
+        assert_eq!(
+            left,
+            ["anthropic/claude-opus-5-5", "openai-codex/gpt-6-nano"]
+        );
     }
 }

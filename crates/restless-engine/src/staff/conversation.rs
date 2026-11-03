@@ -577,7 +577,10 @@ pub async fn dispatch_actor_conversation(
     // re-reads and, for a mention, atomically claims the authoritative input.
     // Any active Actor can owe direct mail. Team handoffs remain a lead-only
     // obligation; a named mention remains owed even after a role change.
-    let observed_owed = org.owed_conversation_count(actor).await? > 0
+    let observed_owed = org
+        .owed_conversation_count_settled(actor, crate::schedule::mail_settle())
+        .await?
+        > 0
         || (current_lead_team.is_some() && org.undelivered_handoff_count(actor).await? > 0)
         || crate::mentions::pending(org, actor).await?;
     if !observed_owed {
@@ -966,6 +969,25 @@ pub async fn dispatch_actor_conversation(
             cancellation,
         })
         .await;
+        // Progress estimates ride on the final reply rather than costing tool calls (S110): take
+        // them off before the reply is saved, and record them as this actor.
+        let mut reported = Vec::new();
+        let outcome = outcome.map(|mut outcome| {
+            if outcome.summary.contains(restless_orgintel::PROGRESS_MARKER) {
+                let (summary, found) = restless_orgintel::take_progress_markers(&outcome.summary);
+                outcome.summary = summary;
+                reported = found;
+            }
+            outcome
+        });
+        for refused in org
+            .record_reported_progress(&actor, &reported)
+            .await
+            .into_iter()
+            .filter_map(Result::err)
+        {
+            tracing::info!(company = %company, actor = %actor, %refused, "progress estimate on the reply not recorded");
+        }
         // Settlement is separate from actor execution. Preserve all Work and
         // effects, then wake this same actor for a bounded judgement pass if
         // the lead ended without a durable business outcome.

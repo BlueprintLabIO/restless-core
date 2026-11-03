@@ -262,10 +262,9 @@ pub(super) async fn save_spend_limit(
                     principal.actor_id(),
                     input.ceiling.as_usd()
                 );
-                if let Err(error) = org
-                    .send_message(principal.actor_id(), Some("exec"), &body)
-                    .await
-                {
+                // A resume condition, not something the person said to Exec: a system notice
+                // wakes a background turn that resumes the Work without an owner reply (S110).
+                if let Err(error) = org.send_message("daemon", Some("exec"), &body).await {
                     tracing::warn!(%error, "could not tell Exec that the spend limit was raised");
                 }
             }
@@ -690,7 +689,8 @@ pub(super) async fn save_native_limit(
         let was_capped = restless_engine::spend::native_limit_reason(&config, &usage).is_some();
         config.native_monthly_turn_limit = input.monthly_turn_limit;
         config.native_monthly_token_limit = input.monthly_token_limit;
-        let lifted = was_capped && restless_engine::spend::native_limit_reason(&config, &usage).is_none();
+        let lifted =
+            was_capped && restless_engine::spend::native_limit_reason(&config, &usage).is_none();
         if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -719,10 +719,9 @@ pub(super) async fn save_native_limit(
                     "{} raised the native usage limit; work on the company's own sign-in can run again. Resume the work that stopped on the native limit.",
                     principal.actor_id()
                 );
-                if let Err(error) = org
-                    .send_message(principal.actor_id(), Some("exec"), &body)
-                    .await
-                {
+                // A resume condition, not something the person said to Exec: a system notice
+                // wakes a background turn that resumes the Work without an owner reply (S110).
+                if let Err(error) = org.send_message("daemon", Some("exec"), &body).await {
                     tracing::warn!(%error, "could not tell Exec that the native limit was raised");
                 }
             }
