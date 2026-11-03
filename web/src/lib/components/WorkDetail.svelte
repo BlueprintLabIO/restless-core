@@ -36,6 +36,7 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { attentionTitle, isOutcomeReview } from '$lib/model/attention-presentation';
 	import type { AttentionItem } from '$lib/model/view';
+	import { ownerLine } from '$lib/model/owner-copy';
 	import {
 		PRIORITIES,
 		blockerSentence,
@@ -338,7 +339,13 @@
 	);
 	const latestAttempt = $derived(attempts.at(-1) ?? null);
 	const blocker = $derived(
-		work?.status === 'blocked' ? blockerSentence(work.resolution, latestAttempt?.summary) : ''
+		work?.status === 'blocked'
+			? blockerSentence(
+					work.resolution,
+					latestAttempt?.summary,
+					'Blocked. The run history below has the details.'
+				)
+			: ''
 	);
 	/* Why this Work waits and on whom, under its title (S109 A1). The blocker's reason has its own
 	 * line below, so it is left out here. Empty until the model routes are read, so the line never
@@ -415,10 +422,14 @@
 	);
 	const outcomeParts = $derived(splitOutcome(work?.outcome ?? ''));
 	/* A settled Work says what happened; unsettled Work keeps its outcome, and a
-	 * pause or resume note shows once, as the blocker line under the title. */
+	 * pause or resume note shows once, as the blocker line under the title. A recorded reason
+	 * with ids, hashes or agent handles is said in the platform's words instead (owner-copy.ts). */
 	const settledResolution = $derived(
-		work && (work.status === 'completed' || work.status === 'abandoned')
-			? steerResolution(work.resolution)
+		work && (work.status === 'completed' || work.status === 'abandoned') && work.resolution.trim()
+			? ownerLine(
+					steerResolution(work.resolution),
+					work.status === 'abandoned' ? 'Stopped: no longer needed.' : 'Finished.'
+				)
 			: ''
 	);
 	const readerSummary = $derived((settledResolution || outcomeParts.opening).trim());
