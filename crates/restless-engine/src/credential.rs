@@ -179,19 +179,142 @@ pub fn held_key_for<'a>(names: impl IntoIterator<Item = &'a str>, site: &str) ->
     })
 }
 
+/// Whether a Vault name is an older or hand-chosen name for the Resend sending key: `resend`,
+/// `Resend`, `RESEND_API_KEY`, `resend-api-key`, `resend.key`, `resend_token` and the like (the
+/// Vault picker's rule for the service `resend`). The webhook signing secret and anything else
+/// named for webhooks or signing is never the sending key.
+pub fn is_resend_send_name(name: &str) -> bool {
+    let lowered = name.trim().to_ascii_lowercase();
+    let Some(rest) = lowered.strip_prefix("resend") else {
+        return false;
+    };
+    (rest.is_empty() || rest.starts_with(['.', '-', '_']))
+        && lowered != RESEND_WEBHOOK_BINDING
+        && !["webhook", "signing", "whsec", "inbound", "setup"]
+            .iter()
+            .any(|word| lowered.contains(word))
+}
+
+/// Where the Resend sending key is, among names that are not its own binding: `resend` first,
+/// then the usual API-key spellings, then any other Resend name in order. `None` when no name
+/// qualifies.
+pub fn resend_send_alias<'a>(
+    names: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Option<(&'a str, &'a str)> {
+    let mut found: Vec<(&str, &str)> = names
+        .into_iter()
+        .filter(|(name, _)| *name != RESEND_SEND_BINDING && is_resend_send_name(name))
+        .collect();
+    let rank = |name: &str| match name.to_ascii_lowercase().replace('-', "_").as_str() {
+        "resend" => 0,
+        "resend_api_key" | "resend_key" | "resend.api_key" => 1,
+        _ => 2,
+    };
+    found.sort_by_key(|(name, _)| (rank(name), name.to_string()));
+    found.into_iter().next()
+}
+
 /// Upgrade old company bindings without moving or reading secret values. A configured production
 /// binding wins a collision; the other value remains in the Vault as an unbound secret.
+///
+/// A Resend key the owner saved under another name (`RESEND_API_KEY`, `resend-api-key`, ...)
+/// before the name was fixed also becomes the sending key: `resend.production` is bound to the same
+/// secret, and the old name keeps working for whatever already uses it. Nothing is re-entered.
 pub fn migrate_bindings(bindings: &mut std::collections::BTreeMap<String, String>) {
     if let Some(reference) = bindings.remove("resend") {
         bindings
             .entry(RESEND_SEND_BINDING.into())
             .or_insert(reference);
     }
+    if !bindings.contains_key(RESEND_SEND_BINDING) {
+        let alias = resend_send_alias(
+            bindings
+                .iter()
+                .map(|(name, reference)| (name.as_str(), reference.as_str())),
+        )
+        .map(|(_, reference)| reference.to_string());
+        if let Some(reference) = alias {
+            bindings.insert(RESEND_SEND_BINDING.into(), reference);
+        }
+    }
+}
+
+/// The Vault secret that holds the Resend sending key when no binding names it: an unbound
+/// secret stored under the company with a Resend name. `inventory` rows carry `name` and
+/// `reference`, as [`company_vault_inventory`] returns them.
+pub fn unbound_resend_send_reference(
+    config: &CompanyConfig,
+    inventory: &[serde_json::Value],
+) -> Option<String> {
+    if config.credentials.contains_key(RESEND_SEND_BINDING) {
+        return None;
+    }
+    let rows: Vec<(&str, &str)> = inventory
+        .iter()
+        .filter_map(|row| Some((row["name"].as_str()?, row["reference"].as_str()?)))
+        .filter(|(_, reference)| !config.credentials.values().any(|bound| bound == reference))
+        .collect();
+    resend_send_alias(rows).map(|(_, reference)| reference.to_string())
+}
+
+/// Resolve the Resend sending key (S109 H2). Its own binding comes first. A key saved under an
+/// older name is used as it is: a bound alias (normally already bound to `resend.production` on
+/// load), and failing that an unbound Vault secret with a Resend name. The owner never re-enters a
+/// key the Vault already holds.
+pub async fn resolve_resend_send(config: &CompanyConfig) -> Result<String> {
+    let mut candidates: Vec<String> = Vec::new();
+    if let Some(reference) = config.credentials.get(RESEND_SEND_BINDING) {
+        candidates.push(reference.clone());
+    }
+    let mut aliases: Vec<(&str, &str)> = config
+        .credentials
+        .iter()
+        .map(|(name, reference)| (name.as_str(), reference.as_str()))
+        .collect();
+    while let Some((name, reference)) = resend_send_alias(aliases.iter().copied()) {
+        if !candidates.iter().any(|known| known == reference) {
+            candidates.push(reference.to_string());
+        }
+        aliases.retain(|(other, _)| *other != name);
+    }
+    let mut first_error = None;
+    for reference in &candidates {
+        match resolve_reference(reference).await {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                first_error.get_or_insert(error);
+            }
+        }
+    }
+    if infisical_configured() {
+        if let Ok(inventory) = company_vault_inventory(&config.name).await {
+            let mut config = config.clone();
+            config.credentials.remove(RESEND_SEND_BINDING);
+            if let Some(reference) = unbound_resend_send_reference(&config, &inventory) {
+                match resolve_reference(&reference).await {
+                    Ok(value) => return Ok(value),
+                    Err(error) => {
+                        first_error.get_or_insert(error);
+                    }
+                }
+            }
+        }
+    }
+    Err(first_error.unwrap_or_else(|| {
+        anyhow::anyhow!(
+            "company {} has no Resend key in its Vault; the owner adds it as {RESEND_SEND_BINDING} in Company › Vault",
+            config.name
+        )
+    }))
+    .with_context(|| format!("resolve credential binding {RESEND_SEND_BINDING}"))
 }
 
 /// Resolve one named binding for one governed child process.
 pub async fn resolve(config: &CompanyConfig, binding: &str) -> Result<String> {
     let binding = canonical_binding(binding);
+    if binding == RESEND_SEND_BINDING {
+        return resolve_resend_send(config).await;
+    }
     if finance_binding(binding) {
         bail!(
             "finance credential bindings may only be resolved by the host-side Authority adapter"
@@ -1167,6 +1290,84 @@ mod tests {
             resolve(&config, "resend.production").await.unwrap_err()
         );
         assert!(error.contains("binding resend.production"), "{error}");
+    }
+
+    /// Reno's case (S109 H2): the owner saved the Resend key before its name was fixed, under a
+    /// name of their own. Sending finds it without the owner entering it again.
+    #[tokio::test]
+    async fn a_resend_key_saved_under_an_old_name_still_sends() {
+        // SAFETY: only this test reads this variable.
+        unsafe { std::env::set_var("TEST_OLD_NAME_RESEND_KEY", "re_old_name_value") };
+        for old in ["RESEND_API_KEY", "resend-api-key", "Resend", "resend_key"] {
+            let mut config = config_with(&[
+                (old, "env:TEST_OLD_NAME_RESEND_KEY"),
+                (RESEND_WEBHOOK_BINDING, "env:WEBHOOK_NEVER_THE_SEND_KEY"),
+            ]);
+            // Before the load-time upgrade runs, resolution already finds the key...
+            assert_eq!(
+                resolve(&config, RESEND_SEND_BINDING).await.unwrap(),
+                "re_old_name_value",
+                "{old}"
+            );
+            // ...and the upgrade binds the sending name to the same secret, keeping the old name.
+            migrate_bindings(&mut config.credentials);
+            assert_eq!(
+                config.credentials[RESEND_SEND_BINDING], "env:TEST_OLD_NAME_RESEND_KEY",
+                "{old}"
+            );
+            assert!(config.credentials.contains_key(old), "{old}");
+            assert_eq!(
+                resolve(&config, "resend").await.unwrap(),
+                "re_old_name_value"
+            );
+        }
+        // A sending binding pointing at a key that is gone falls through to the one that exists.
+        let config = config_with(&[
+            (RESEND_SEND_BINDING, "env:TEST_RESEND_PLACEHOLDER_NEVER_SET"),
+            ("RESEND_API_KEY", "env:TEST_OLD_NAME_RESEND_KEY"),
+        ]);
+        assert_eq!(
+            resolve(&config, RESEND_SEND_BINDING).await.unwrap(),
+            "re_old_name_value"
+        );
+        unsafe { std::env::remove_var("TEST_OLD_NAME_RESEND_KEY") };
+    }
+
+    #[test]
+    fn only_resend_sending_names_stand_in_for_the_sending_key() {
+        for name in [
+            "resend",
+            "Resend",
+            "RESEND_API_KEY",
+            "resend-api-key",
+            "resend.key",
+            "resend_token",
+        ] {
+            assert!(is_resend_send_name(name), "{name}");
+        }
+        for name in [
+            "resend.webhook",
+            "RESEND_WEBHOOK_SECRET",
+            "resend-signing-secret",
+            "resend.setup",
+            "resendish",
+            "sendgrid",
+        ] {
+            assert!(!is_resend_send_name(name), "{name}");
+        }
+        assert_eq!(
+            resend_send_alias([("resend-token", "a"), ("RESEND_API_KEY", "b")]),
+            Some(("RESEND_API_KEY", "b"))
+        );
+        let config = config_with(&[("other", "infisical:/companies/aris/other")]);
+        let inventory = vec![
+            serde_json::json!({"name": "other", "reference": "infisical:/companies/aris/other"}),
+            serde_json::json!({"name": "RESEND_API_KEY", "reference": "infisical:/companies/aris/RESEND_API_KEY"}),
+        ];
+        assert_eq!(
+            unbound_resend_send_reference(&config, &inventory).as_deref(),
+            Some("infisical:/companies/aris/RESEND_API_KEY")
+        );
     }
 
     #[tokio::test]

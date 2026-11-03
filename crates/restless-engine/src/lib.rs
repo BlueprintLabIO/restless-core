@@ -43,6 +43,7 @@ pub mod document_commands;
 pub mod documents_service;
 pub mod effect;
 pub mod email;
+pub mod email_approval;
 pub mod entry;
 pub mod exec;
 pub mod finance;

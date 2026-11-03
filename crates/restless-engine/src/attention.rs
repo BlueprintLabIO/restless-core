@@ -3761,6 +3761,93 @@ async fn project_queue(
             ], can_continue: false, preparing: false, created_at: record.created_at,
         });
     }
+    // One exact email an agent asked to send without a mandate (S109 H2). Only the owner sends it.
+    if assignee.is_none() {
+        match crate::email_approval::waiting(authority, &config.name).await {
+            Ok(emails) => {
+                for (stored, email) in emails {
+                    let who = stored
+                        .actor_id
+                        .as_deref()
+                        .and_then(|actor| actors.get(actor))
+                        .map(|brief| brief.display.trim_start_matches("The ").to_string())
+                        .or_else(|| stored.actor_id.clone())
+                        .unwrap_or_else(|| "An agent".into());
+                    items.push(AttentionItem {
+                        id: format!("authority:email_send:{}", email.id),
+                        work_id: email.work_id,
+                        source: AttentionSource {
+                            plane: "authority",
+                            kind: crate::email_approval::REQUEST_KIND.into(),
+                            reference: email.id.to_string(),
+                            party: None,
+                            call_key: None,
+                        },
+                        category: "approval".into(),
+                        title: format!("Send this email to {}?", email.recipient),
+                        what_happened: format!(
+                            "{who} wrote this email and stopped before sending it."
+                        ),
+                        why_it_matters: format!(
+                            "It goes out from {} under the company's name.",
+                            email.sender
+                        ),
+                        recommendation: "Read it as the recipient will. Send it, decline it, or ask for changes.".into(),
+                        requested_action: format!("Send or decline this email to {}.", email.recipient),
+                        if_no_action: "Nothing is sent. The company may continue work that does not depend on it.".into(),
+                        uncertainty: None,
+                        deadline: None,
+                        brief_status: "source-authored",
+                        brief_author: stored
+                            .actor_id
+                            .as_deref()
+                            .and_then(|actor| actors.get(actor))
+                            .cloned(),
+                        briefed_at: Some(stored.created_at),
+                        evidence: vec![AttentionEvidence {
+                            label: "The email".into(),
+                            uri: None,
+                            content: Some(email.readable()),
+                            kind: "authority-email",
+                        }],
+                        review_sources: Vec::new(),
+                        responsible_actor: None,
+                        runtime_attach: None,
+                        review_target: None,
+                        review_version: None,
+                        native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+                        actions: vec![
+                            AttentionAction {
+                                id: "grant".into(),
+                                label: "Send email".into(),
+                                role: "decision",
+                                consequence: "Sends exactly this email once.".into(),
+                                next_state: format!("{who} sends it as shown. A changed email asks you again."),
+                                href: None,
+                            },
+                            AttentionAction {
+                                id: "decline".into(),
+                                label: "Decline".into(),
+                                role: "decision",
+                                consequence: "This email is never sent.".into(),
+                                next_state: format!("{who} is told and finds another route or stops."),
+                                href: None,
+                            },
+                        ],
+                        preparing: false,
+                        can_continue: true,
+                        created_at: stored.created_at,
+                    });
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    company = config.name,
+                    "emails waiting for the owner unavailable: {error:#}"
+                )
+            }
+        }
+    }
     // Only the owner authorises what the company puts online.
     if assignee.is_none() {
         match publication_items(config, authority).await {

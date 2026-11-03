@@ -648,6 +648,30 @@ impl AuthorityStore {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub async fn reserve_owner_approved_email_send(
+        &self,
+        company: &str,
+        request_id: Uuid,
+        actual_sender: &str,
+        actual_sender_name: Option<&str>,
+        recipient: &str,
+        payload_sha256: &str,
+        effect_key: &str,
+    ) -> Result<EmailReservation> {
+        mandate::reserve_owner_approved(
+            &self.pool,
+            company,
+            request_id,
+            actual_sender,
+            actual_sender_name,
+            recipient,
+            payload_sha256,
+            effect_key,
+        )
+        .await
+    }
+
     pub async fn record_email_send_status(
         &self,
         company: &str,

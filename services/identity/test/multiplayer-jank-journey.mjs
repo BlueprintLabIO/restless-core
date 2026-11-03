@@ -38,6 +38,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import pg from "pg";
 import {
   base,
   boot,
@@ -54,6 +55,7 @@ import {
   pass,
   pause,
   person,
+  root,
   run,
   until,
 } from "./multiplayer-harness.mjs";
@@ -685,6 +687,29 @@ async function seed(owner, alice) {
       expected: 201,
       body: { block_id: block.attrs.block_id, quote, content_json: { type: "doc", content: [paragraph(text)] } },
     });
+  /* An email Exec asks the owner to send (S109 H2), with a long sender, subject and body: the
+   * record Exec's `restless email send` writes (the send itself needs a Runtime's capability). */
+  const plane = new pg.Client({ connectionString: (await readFile(join(root, "orgintel.toml"), "utf8")).match(/database_url = "(.*)"/)[1] });
+  await plane.connect();
+  const emailId = randomUUID();
+  await plane.query("INSERT INTO restless_authority.records (company, kind, actor_id, body) VALUES ($1, 'email_send_request', 'exec', $2)", [
+    company,
+    {
+      id: emailId,
+      effect_key: `jank-email-${emailId}`,
+      payload_sha256: "b".repeat(64),
+      sender: "hello@harbour-street-cafe-renovations.example.com",
+      sender_name: "Harbour Street Café",
+      recipient: "the.supplier.with.a.long.address@spring-joinery-and-fitouts.example.net",
+      subject: "Harbour Street café renovation: confirming the joinery quote, the delivery window and the site access for the first week of spring",
+      body: Array.from({ length: 12 }, (_, line) => `Line ${line + 1}: the counters, the shelving and the bench seat, delivered to the lane behind the café before nine.`).join("\n"),
+      body_truncated: false,
+      attachments: ["joinery-quote-harbour-street.pdf"],
+      in_reply_to: null,
+      work_id: null,
+    },
+  ]);
+  await plane.end();
   await until(async () => (await coreApi(owner, `${base}/attention`)).items.length >= 2, "seeded Inbox items", 30);
   /* The Library redesign (3 November): Work files in folders, a client's versions with its
    * screenshots and an agent's notes beside them, so the explorer, a folder visit and "Show in
@@ -712,7 +737,7 @@ async function seed(owner, alice) {
       [id, kind, uri, siteWork, label],
     );
   }
-  pass("seeded documents, a sheet, goals, a team, a room with a mention, direction requests, a charter draft, a review, margin comments and Library folders");
+  pass("seeded documents, a sheet, goals, a team, a room with a mention, direction requests, a charter draft, a review, margin comments, an email to approve and Library folders");
   return {
     documentView: { path: `/${company}/library/documents?document=${plan}`, name: "document" },
     libraryViews: [

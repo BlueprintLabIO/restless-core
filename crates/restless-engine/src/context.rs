@@ -677,6 +677,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          and optional declared attachments. A mandate covers one first email per recipient; once \
          they write back, each message they send allows one reply in that thread. The permit JSON names sender, recipient, \
          payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
+         Without a mandate, or for a recipient outside it, run restless email send with no permit_id: \
+         nothing is sent, and the owner approves or declines that exact email in their Inbox (never \
+         ask for it in chat). When told it was approved, run the same send again unchanged and it \
+         goes out once; a changed draft asks the owner again. \
          To pay a supplier who is not yet a payee of a payment allowance, ask the owner with \
          `restless finance propose-payee --currency <c> --beneficiary <provider ref> --reason <why> --work <id>`; \
          they answer in the Inbox. \

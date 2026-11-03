@@ -17,7 +17,8 @@ export type ApprovalDecisionReceipt = HumanDecisionReceipt & {
 		| 'fine'
 		| 'freeze'
 		| 'deny'
-		| 'authorize';
+		| 'authorize'
+		| 'send';
 };
 type Clock = { server_now: string; startedAt: number };
 export type ApprovalDecisionRead = Clock & { items: ApprovalDecisionReceipt[] };

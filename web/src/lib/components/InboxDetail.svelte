@@ -61,6 +61,7 @@
 	import InlineBrandDrift from './inbox/InlineBrandDrift.svelte';
 	import InlineBrandProposal from './inbox/InlineBrandProposal.svelte';
 	import InlineSkillCandidate from './inbox/InlineSkillCandidate.svelte';
+	import EmailDraft from './inbox/EmailDraft.svelte';
 	import InlineMachine from './inbox/InlineMachine.svelte';
 	import InlineReconnect from './inbox/InlineReconnect.svelte';
 	import InlineStartComputer from './inbox/InlineStartComputer.svelte';
@@ -174,7 +175,7 @@
 	const approval = $derived(item.category === 'approval');
 	/* The exact thing an approval asks about (a command's draft, the build and limits put online,
 	 * a payment's amount and payee), shown under the ask rather than folded away. */
-	const EXACT_KINDS = ['command', 'authority-publication', 'authority-payment'];
+	const EXACT_KINDS = ['command', 'authority-publication', 'authority-payment', 'authority-email'];
 	const drafts = $derived(
 		approval || item.evidence.some((entry) => entry.kind === 'authority-payment')
 			? item.evidence.filter((entry) => EXACT_KINDS.includes(entry.kind) && entry.content)
@@ -821,12 +822,14 @@
 							</p>
 						{/if}
 						{#each drafts as draft, index (index)}
-							<pre
-								class="draft"
-								aria-label={draft.label}
-								title={draft.kind === 'command'
-									? 'The exact draft. Allowing it lets exactly this run.'
-									: `${draft.label}: exactly what your answer covers.`}>{draft.content}</pre>
+							{#if draft.kind === 'authority-email'}<EmailDraft
+									content={draft.content ?? ''}
+								/>{:else}<pre
+									class="draft"
+									aria-label={draft.label}
+									title={draft.kind === 'command'
+										? 'The exact draft. Allowing it lets exactly this run.'
+										: `${draft.label}: exactly what your answer covers.`}>{draft.content}</pre>{/if}
 						{/each}
 						{#if files.length}
 							<div class="attach-list files">
