@@ -15,7 +15,7 @@
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { modelJobsQuery } from '$lib/model/model-jobs.svelte';
-	import { decisionDetail, decisionLine, everydayLine } from '$lib/model/model-jobs';
+	import { decisionDetail, decisionFix, decisionLine, everydayLine } from '$lib/model/model-jobs';
 	import { watchIntelligenceChanges, affectsCompany } from '$lib/model/intelligence-events';
 	import { onMount, untrack } from 'svelte';
 	import EditorForm from './editors/EditorForm.svelte';
@@ -133,10 +133,20 @@
 			{#snippet trailing()}
 				{#if !view}<span class="hold" aria-hidden="true"></span>{:else}
 					<InfoTip text={decisionDetail(view)} />
-					{#if editing !== 'decisions'}<button
+					<!-- Decisions that cannot run offer the way to make them run (S110). Without an
+					     OpenRouter key every other choice is closed here, so that is the one action. -->
+					{#if decisionFix(view) === 'add_openrouter' && editing !== 'decisions'}<a
 							class="btn small"
-							aria-label="Change the decision model"
-							onclick={() => (editing = 'decisions')}>Change</button
+							href="/account/settings/accounts"
+							title="Add an OpenRouter key in your account and give this company access, then choose a decision model here"
+							>Add OpenRouter</a
+						>{:else if editing !== 'decisions'}<button
+							class="btn small"
+							aria-label={decisionFix(view) === 'use_openrouter'
+								? 'Use an OpenRouter model for decisions'
+								: 'Change the decision model'}
+							onclick={() => (editing = 'decisions')}
+							>{decisionFix(view) === 'use_openrouter' ? 'Use OpenRouter' : 'Change'}</button
 						>{/if}
 				{/if}
 			{/snippet}

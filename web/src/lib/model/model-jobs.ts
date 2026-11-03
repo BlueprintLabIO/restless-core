@@ -90,8 +90,8 @@ export function decisionState(jobs: ModelJobs): string {
 			return 'Off';
 		default:
 			return jobs.decision_model && jobs.decision_model !== INCLUDED_DECISIONS
-				? 'Needs an OpenRouter account'
-				: 'Not on this computer';
+				? 'Off until this company has an OpenRouter account'
+				: 'Off here';
 	}
 }
 
@@ -107,8 +107,25 @@ export function decisionRecord(jobs: ModelJobs, relative: (at: string) => string
 	return `${record} · ran ${relative(summary.last_ran_at)}`;
 }
 
+/** Whether decisions want the included model where there is none: it runs behind the hosted
+ * model relay, which a computer of the owner's own does not have. */
+export function includedMissing(jobs: ModelJobs): boolean {
+	return (
+		jobs.decision_mode === 'unavailable' &&
+		(!jobs.decision_model || jobs.decision_model === INCLUDED_DECISIONS)
+	);
+}
+
+/** What the owner can do about decisions that cannot run, or null when they run. */
+export function decisionFix(jobs: ModelJobs): 'use_openrouter' | 'add_openrouter' | null {
+	if (jobs.decision_mode !== 'unavailable') return null;
+	return jobs.openrouter_connected ? 'use_openrouter' : 'add_openrouter';
+}
+
 /** The Decisions row's line: which model, its state, its record; never the same words twice. */
 export function decisionLine(jobs: ModelJobs, relative: (at: string) => string): string {
+	/* Not "Included · Not on this computer": say that nothing runs, and why (S110). */
+	if (includedMissing(jobs)) return 'Off here · included model is hosted only';
 	const which =
 		jobs.decision_mode === 'off'
 			? null
@@ -122,6 +139,10 @@ export function decisionLine(jobs: ModelJobs, relative: (at: string) => string):
 export function decisionDetail(jobs: ModelJobs): string {
 	const base =
 		'Decisions are advisory. A small, fast model reads each finished result and says whether the Exec needs to see it now. Results always stay in Work.';
+	if (includedMissing(jobs))
+		return `${base} The included decision model runs only on hosted Restless, so here every result wakes the Exec. To use decisions on this computer, ${jobs.openrouter_connected ? 'choose an OpenRouter model' : 'add an OpenRouter key in your account, give this company access, then choose an OpenRouter model'}.`;
+	if (jobs.decision_mode === 'unavailable')
+		return `${base} The chosen OpenRouter model needs an OpenRouter key this company can use, so for now every result wakes the Exec.`;
 	const summary = jobs.decisions;
 	if (!summary || !summary.exec_gate.decided) return `${base} It has not decided anything yet.`;
 	const gate = summary.exec_gate;
