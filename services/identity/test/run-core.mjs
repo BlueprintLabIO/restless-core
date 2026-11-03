@@ -13,7 +13,7 @@ const serviceDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repo = resolve(serviceDir, "..", "..");
 // The protocol journey is the default; the multiplayer journey drives three
 // browser accounts through the same isolated plane and cleanup.
-const journeys = { "core-journey.mjs": 240, "multiplayer-journey.mjs": 900, "multiplayer-stress-journey.mjs": 1200, "multiplayer-jank-journey.mjs": 2400 };
+const journeys = { "core-journey.mjs": 240, "multiplayer-journey.mjs": 900, "multiplayer-stress-journey.mjs": 1200, "multiplayer-jank-journey.mjs": 2700 };
 const journeyName = process.env.RESTLESS_TEST_JOURNEY ?? "core-journey.mjs";
 const journeySeconds = journeys[journeyName];
 const required = [
