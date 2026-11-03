@@ -311,6 +311,8 @@ pub const ATTENTION_KINDS: &[(&str, Raiser)] = &[
     ("account_headroom", Raiser::System),
     ("spend_warning", Raiser::System),
     ("spend_stopped", Raiser::System),
+    ("native_limit_stopped", Raiser::System),
+    ("home_helper_offline", Raiser::System),
     ("machine_offline", Raiser::System),
     ("work_stalled", Raiser::System),
 ];
