@@ -1049,18 +1049,28 @@
 	justify-content: space-between;
 	gap: 20px;
 }
+/* A value row keeps one line whatever it holds: a long Goal title ends in an ellipsis inside
+ * its trigger instead of wrapping out of the 26px box over the next row (the full title is
+ * in the menu and on hover). */
 .bridge-root .pick-cell summary {
+	display: flex;
+	align-items: center;
 	width: auto;
+	max-width: calc(100% + 8px);
+	min-width: 0;
 	height: 26px;
 	margin-left: -8px;
 	padding: 0 8px;
 	justify-content: flex-start;
+	overflow: hidden;
 }
 .bridge-root .pick-face {
-	display: inline-flex;
-	align-items: baseline;
-	gap: 6px;
+	display: block;
+	min-width: 0;
+	overflow: hidden;
 	color: var(--ink);
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .bridge-root .pick-face small {
 	color: var(--text-tertiary);
@@ -1404,11 +1414,23 @@
 	color: var(--text-tertiary);
 }
 
+/* Each property is one line (rows never grow): a long value ends in an ellipsis. A cell with a
+ * menu clips inside its trigger instead, so the trigger's hover edge is not cut off. */
 .bridge-root .work-properties dd {
 	min-width: 0;
 	margin: 0;
 	color: var(--ink);
-	overflow-wrap: anywhere;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.bridge-root .work-properties dd.pick-cell {
+	overflow: visible;
+}
+.bridge-root .work-properties dd.pick-cell > a {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .bridge-root .work-properties dd a {

@@ -3524,10 +3524,21 @@
 		padding-top: 3px;
 		padding-bottom: 3px;
 	}
+	/* The count sits on the chip's corner and takes no room: it arrives after the first paint on a
+	 * slow read, and as a word beside "Needs you" it pushed every view after it 20px right (the
+	 * zero-jank gate, owner/slow/phone/warm/library). */
+	.library-filters-views a:first-child {
+		position: relative;
+	}
 	.narrow-count {
-		margin-left: 6px;
+		position: absolute;
+		top: -5px;
+		right: -4px;
+		min-width: 16px;
 		padding: 0 5px;
 		line-height: 16px;
+		text-align: center;
+		pointer-events: none;
 		border-radius: 8px;
 		background: var(--intent-authority);
 		color: var(--on-primary);
