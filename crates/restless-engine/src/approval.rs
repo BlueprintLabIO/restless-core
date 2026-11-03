@@ -1129,7 +1129,8 @@ mod tests {
             .unwrap();
         assert_eq!(announce_decisions(&company, &authority, Some(&org)).await, 1);
         let message = org.inbox(Some("exec")).await.unwrap().remove(0);
-        assert_eq!(message.from_actor, "owner");
+        // The owner sees their decision line (already read); Exec acts on the system notice (S110).
+        assert_eq!(message.from_actor, "daemon");
         let decoded = crate::transcript::decode_body(&message.body);
         assert_eq!(decoded.body.trim(), "You approved sending: [TEST] emails to your inbox");
         assert_eq!(
