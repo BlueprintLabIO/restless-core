@@ -1627,6 +1627,8 @@ impl StaffDrive {
                 &end.transcript().last_message_text,
                 &end.transcript().tool_calls,
             );
+            // A Work turn that ends with its own decision needs no second call to ask for it.
+            let declared = exec::take_turn_marker(&end.transcript().last_message_text).1;
             let steered = turn.is_cancelled() && !self.cancellation.is_cancelled();
             // A Work turn whose whole answer is a provider or connection error did no work: it is
             // a failover to retry, not a result to ask the completion protocol about.
@@ -1720,6 +1722,11 @@ impl StaffDrive {
                 next =
                     "Continue the task. If it is done or you are stuck, stop writing.".to_string();
                 continue;
+            }
+            if let Some(decision) =
+                declared.filter(|decision| decision.termination != Termination::Continue)
+            {
+                return Ok((decision.termination, decision.reason, spent, None));
             }
 
             let admission = tokio::select! {
@@ -1901,7 +1908,11 @@ async fn run_staff(
         contract,
         match turn_kind {
             StaffTurnKind::Work =>
-                "The session ends when you stop writing; you will then be asked for a decision envelope.",
+                "The session ends when you stop writing. End your final message with your decision on one line, \
+                 `<!--restless-turn:{\"decision\":\"outcome_met|blocked|changes_requested|abandon\",\"reason\":\"<one plain line>\"}-->`: \
+                 outcome_met when your assigned task and its outputs are complete; blocked names the condition and who must act; \
+                 changes_requested only as a reviewer who found concrete changes; abandon says why. Judge only your assignment. \
+                 Without it you are asked for the decision separately.",
             StaffTurnKind::OwnerConversation =>
                 "After using any tools you need, end with the complete owner-facing reply and its required intent marker. Do not narrate private reasoning in that reply.",
             StaffTurnKind::InternalConversation =>
