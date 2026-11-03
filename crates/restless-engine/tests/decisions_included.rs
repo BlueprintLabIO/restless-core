@@ -68,6 +68,11 @@ fn included_is_the_relay_with_the_gate_active() {
     }
     assert!(DecisionRoute::Relay.active());
     assert_eq!(
+        decision_route(&company("a", Some("off"))),
+        DecisionRoute::Off
+    );
+    assert!(!DecisionRoute::Off.active());
+    assert_eq!(
         decision_route(&company("a", Some("typesafe/jev-1.14"))),
         DecisionRoute::OpenRouter("typesafe/jev-1.14")
     );

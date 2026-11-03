@@ -7,22 +7,32 @@ use super::*;
 pub(super) const PATH: &str = "/companies/{company}/model-jobs";
 
 pub(super) fn view(config: &runtime::CompanyConfig) -> serde_json::Value {
-    let route = restless_engine::decisions::decision_route(config);
-    let relay = restless_engine::decisions::DecisionClient::from_env().is_some();
-    let decision_mode = match route {
-        restless_engine::decisions::DecisionRoute::OpenRouter(_) => "active",
+    use restless_engine::decisions::{decision_route, DecisionClient, DecisionRoute};
+    let primary = config.for_agent("default");
+    let relay = DecisionClient::from_env().is_some();
+    let openrouter = config
+        .credentials
+        .contains_key("model.inference.openrouter")
+        || (config.model.starts_with("openrouter/")
+            && config.credentials.contains_key("model.inference"));
+    let decision_mode = match decision_route(config) {
+        DecisionRoute::Off => "off",
+        DecisionRoute::OpenRouter(_) if openrouter => "active",
+        DecisionRoute::OpenRouter(_) => "unavailable",
         _ if !relay => "unavailable",
-        route if route.active() => "active",
-        _ => "shadow",
+        DecisionRoute::Relay => "active",
+        DecisionRoute::RelayShadow => "shadow",
     };
     serde_json::json!({
         "revision": company_setup_view(config)["revision"],
-        "primary_model": config.for_agent("default").configured_model(),
+        "primary_model": primary.configured_model(),
         "everyday_model": config.everyday_model,
-        "everyday": config.everyday(),
+        "everyday": primary.everyday(),
+        "suggested_everyday": runtime::everyday_sibling(&primary.model),
         "decision_model": config.decision_model,
         "decision_mode": decision_mode,
         "included_decisions": relay,
+        "openrouter_connected": openrouter,
     })
 }
 
@@ -30,10 +40,18 @@ pub(super) async fn read(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
-    match runtime::CompanyConfig::load(&state.daemon.root, &company) {
-        Ok(config) => Json(view(&config)).into_response(),
-        Err(_) => api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    let mut body = view(&config);
+    // What decisions did lately; absent rather than failing the page when OrgIntel is down.
+    if let Ok(org) = state.daemon.orgintel.get(&company).await {
+        if let Ok(rows) = org.recent_decisions(None, 500).await {
+            body["decisions"] = super::decisions_api::summary(&rows);
+        }
     }
+    Json(body).into_response()
 }
 
 #[derive(Deserialize)]

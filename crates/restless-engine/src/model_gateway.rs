@@ -493,9 +493,17 @@ pub async fn with_everyday_model(
     let Some(everyday) = config.everyday() else {
         return Ok(candidates);
     };
+    let everyday: &str = &everyday;
+    // The automatic sibling only stands in for its own primary, on the connection serving it.
+    let automatic = config.everyday_model.is_none();
+    let first_provider = candidates
+        .first()
+        .and_then(|model| model.split_once('/'))
+        .map(|(provider, _)| provider);
     if has_own_model(config, actor)
         || config.native_model(harness).is_some()
         || candidates.first().map(String::as_str) == Some(everyday)
+        || (automatic && first_provider != everyday.split_once('/').map(|(provider, _)| provider))
     {
         return Ok(candidates);
     }
@@ -4892,7 +4900,7 @@ fn runtime_pinned_models(configs: &[&CompanyConfig]) -> Result<BTreeSet<String>>
     let mut required = BTreeSet::new();
     for config in configs {
         for model in config.routed_models()? {
-            let (provider, _) = split_model(model)?;
+            let (provider, _) = split_model(&model)?;
             if pins_runtime_catalogue(provider) {
                 required.insert(model.to_string());
             }

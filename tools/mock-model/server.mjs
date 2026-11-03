@@ -95,10 +95,14 @@ function scenarioFile() {
 	}
 }
 
-function chooseStep(messages) {
+/* A rule with `"scope": "all"` also reads the system prompt (ahead of the person's text), for an
+ * actor whose assignment sits there rather than in its first message. */
+function chooseStep(body) {
+	const messages = body.messages ?? [];
 	const { text, toolResults } = turnState(messages);
 	const completion = completionFor(text);
 	if (completion) return { step: completion, text };
+	const system = typeof body.system === 'string' ? body.system : textOf(body.system);
 	/* Exec's prompt carries older messages too, so the rule whose words appear latest wins: the
 	 * newest message decides, not the first rule an old one happens to match. */
 	let chosen = null;
@@ -106,11 +110,12 @@ function chooseStep(messages) {
 	let at = -1;
 	for (const rule of scenario()) {
 		const pattern = new RegExp(rule.match ?? '.*', 'gi');
+		const searched = rule.scope === 'all' ? `${system}\n${text}` : text;
 		let match;
 		let last = -1;
 		let lastGroups = [];
-		while ((match = pattern.exec(text))) {
-			last = match.index;
+		while ((match = pattern.exec(searched))) {
+			last = match.index + (rule.scope === 'all' ? 0 : system.length + 1);
 			lastGroups = [...match];
 			if (match[0] === '') pattern.lastIndex++;
 		}
@@ -143,9 +148,67 @@ function withGroups(step, groups) {
 
 const words = (text) => text.match(/\S+\s*/g) ?? [''];
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const usage = (text) => ({ input_tokens: 100, output_tokens: Math.max(1, Math.ceil(text.length / 4)) });
+const tokens = (text) => Math.ceil(String(text ?? '').length / 4);
 
-async function stream(response, model, step) {
+/* Realistic accounting, so a benchmark can count what a run would cost. Tokens are estimated at
+ * 4 characters each over the request as the provider sees it (tools, then system, then messages).
+ * Caching follows the Anthropic rules: a block marked `cache_control` ends a cacheable prefix; a
+ * later request whose prefix up to a breakpoint is byte-identical, within that breakpoint's TTL
+ * (5 minutes, or 1 hour for `ttl: "1h"`), reads it from cache; the rest of the prefix up to the
+ * last breakpoint is written. Totals are served at GET /stats and reset by DELETE /stats. */
+const cache = new Map(); // prefix hash -> expiry (ms)
+const stats = { calls: 0, input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 0 };
+function prefixBlocks(body) {
+	const blocks = [];
+	for (const tool of body.tools ?? []) blocks.push(tool);
+	const system = typeof body.system === 'string' ? [{ type: 'text', text: body.system }] : (body.system ?? []);
+	for (const block of system) blocks.push(block);
+	for (const message of body.messages ?? []) {
+		const content = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : (message.content ?? []);
+		content.forEach((block, index) => blocks.push(index === 0 ? { role: message.role, ...block } : block));
+	}
+	return blocks;
+}
+/* As the provider does, a breakpoint also finds an earlier cached prefix that ends at any of the
+ * 20 block boundaries before it, so a conversation that grows by a turn reads its old prefix. */
+function account(body) {
+	const now = Date.now();
+	const hash = createHash('sha256');
+	const boundaries = []; // { key, total } after each block
+	let total = 0;
+	let read = 0;
+	let lastBreak = 0;
+	for (const block of prefixBlocks(body)) {
+		const { cache_control: control, ...plain } = block;
+		const text = JSON.stringify(plain);
+		hash.update(text);
+		total += tokens(text);
+		boundaries.push({ key: hash.copy().digest('hex'), total });
+		if (!control) continue;
+		for (const boundary of boundaries.slice(-20).reverse()) {
+			if ((cache.get(boundary.key) ?? 0) > now) {
+				read = Math.max(read, boundary.total);
+				break;
+			}
+		}
+		const ttl = control.ttl === '1h' ? 3_600_000 : 300_000;
+		const key = boundaries.at(-1).key;
+		cache.set(key, Math.max(cache.get(key) ?? 0, now + ttl));
+		lastBreak = total;
+	}
+	const written = Math.max(0, lastBreak - read);
+	return { input_tokens: total - read - written, cache_read_input_tokens: read, cache_creation_input_tokens: written };
+}
+function record(input, outputTokens) {
+	stats.calls += 1;
+	stats.input_tokens += input.input_tokens;
+	stats.cache_read_input_tokens += input.cache_read_input_tokens;
+	stats.cache_creation_input_tokens += input.cache_creation_input_tokens;
+	stats.output_tokens += outputTokens;
+}
+const outputOf = (step) => (step.tool ? tokens(JSON.stringify(step.tool)) : Math.max(1, tokens(step.text ?? '')));
+
+async function stream(response, model, step, input) {
 	response.writeHead(200, {
 		'content-type': 'text/event-stream',
 		'cache-control': 'no-cache',
@@ -156,7 +219,7 @@ async function stream(response, model, step) {
 	const delay = step.delay_ms ?? 20;
 	send('message_start', {
 		type: 'message_start',
-		message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, usage: { input_tokens: 100, output_tokens: 0 } }
+		message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, usage: { ...input, output_tokens: 0 } }
 	});
 	if (step.tool) {
 		const input = JSON.stringify(step.tool.input ?? {});
@@ -170,7 +233,7 @@ async function stream(response, model, step) {
 			await pause(delay);
 		}
 		send('content_block_stop', { type: 'content_block_stop', index: 0 });
-		send('message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 20 } });
+		send('message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: outputOf(step) } });
 	} else {
 		const text = step.text ?? '';
 		send('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
@@ -179,13 +242,13 @@ async function stream(response, model, step) {
 			await pause(delay);
 		}
 		send('content_block_stop', { type: 'content_block_stop', index: 0 });
-		send('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: usage(text).output_tokens } });
+		send('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: outputOf(step) } });
 	}
 	send('message_stop', { type: 'message_stop' });
 	response.end();
 }
 
-function whole(response, model, step) {
+function whole(response, model, step, input) {
 	const id = `msg_mock_${randomUUID().slice(0, 12)}`;
 	const content = step.tool
 		? [{ type: 'tool_use', id: `toolu_mock_${randomUUID().slice(0, 12)}`, name: step.tool.name, input: step.tool.input ?? {} }]
@@ -198,7 +261,7 @@ function whole(response, model, step) {
 		content,
 		stop_reason: step.tool ? 'tool_use' : 'end_turn',
 		stop_sequence: null,
-		usage: usage(step.text ?? '')
+		usage: { ...input, output_tokens: outputOf(step) }
 	});
 }
 
@@ -217,7 +280,19 @@ const server = createServer(async (request, response) => {
 	const key = credential
 		? createHash('sha256').update(String(credential)).digest('hex').slice(0, 8)
 		: null;
-	if (log) appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), method: request.method, path: url.pathname, key, body }) + '\n');
+	if (url.pathname === '/stats') {
+		if (request.method === 'DELETE') for (const name of Object.keys(stats)) stats[name] = 0;
+		return json(response, 200, stats);
+	}
+	const isCall = request.method === 'POST' && url.pathname.endsWith('/messages');
+	const step = isCall ? chooseStep(body).step : null;
+	const input = isCall ? account(body) : null;
+	if (isCall && !step.error) record(input, outputOf(step));
+	if (log)
+		appendFileSync(
+			log,
+			JSON.stringify({ at: new Date().toISOString(), method: request.method, path: url.pathname, key, usage: input, step: step && (step.tool?.name ?? 'text'), body }) + '\n'
+		);
 
 	if (request.method === 'GET' && url.pathname.endsWith('/models')) {
 		return json(response, 200, {
@@ -230,15 +305,14 @@ const server = createServer(async (request, response) => {
 	if (request.method === 'POST' && url.pathname.endsWith('/messages/count_tokens')) {
 		return json(response, 200, { input_tokens: Math.ceil(raw.length / 4) });
 	}
-	if (request.method === 'POST' && url.pathname.endsWith('/messages')) {
-		const { step } = chooseStep(body.messages ?? []);
+	if (isCall) {
 		if (step.error)
 			return json(response, Number(step.error), {
 				type: 'error',
 				error: { type: 'api_error', message: step.message ?? 'Mock provider error' }
 			});
 		const model = body.model ?? MODELS[0];
-		return body.stream ? stream(response, model, step) : whole(response, model, step);
+		return body.stream ? stream(response, model, step, input) : whole(response, model, step, input);
 	}
 	json(response, 404, { type: 'error', error: { type: 'not_found_error', message: `mock: no ${request.method} ${url.pathname}` } });
 });

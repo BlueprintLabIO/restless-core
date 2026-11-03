@@ -27,6 +27,8 @@ pub fn enabled() -> bool {
 /// `decision_model = "included"`: the plane's included decision model behind the hosted relay,
 /// with the gate active. Any other value names a model on OpenRouter.
 pub const INCLUDED_DECISIONS: &str = "included";
+/// `decision_model = "off"`: no decisions for this company, not even in shadow (S107).
+pub const DECISIONS_OFF: &str = "off";
 
 /// Where a company's decisions go, read from its `decision_model` setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,12 +39,14 @@ pub enum DecisionRoute<'a> {
     Relay,
     /// A model on OpenRouter with the company's own OpenRouter key, active (S102).
     OpenRouter(&'a str),
+    /// `off`: no decisions; every result wakes the Exec and no Work is tiered.
+    Off,
 }
 
 impl DecisionRoute<'_> {
     /// Whether a confident double no may consume a result without an Exec wake.
     pub fn active(self) -> bool {
-        !matches!(self, Self::RelayShadow)
+        !matches!(self, Self::RelayShadow | Self::Off)
     }
 }
 
@@ -55,6 +59,7 @@ pub fn decision_route(config: &crate::runtime::CompanyConfig) -> DecisionRoute<'
     {
         None => DecisionRoute::RelayShadow,
         Some(model) if model.eq_ignore_ascii_case(INCLUDED_DECISIONS) => DecisionRoute::Relay,
+        Some(model) if model.eq_ignore_ascii_case(DECISIONS_OFF) => DecisionRoute::Off,
         Some(model) => DecisionRoute::OpenRouter(model),
     }
 }
@@ -94,8 +99,10 @@ impl DecisionClient {
     /// holds an OpenRouter inference credential, else the hosted relay when this plane has one
     /// (unset or `included`).
     pub async fn for_company(config: &crate::runtime::CompanyConfig) -> Option<Self> {
-        let DecisionRoute::OpenRouter(model) = decision_route(config) else {
-            return Self::from_env();
+        let model = match decision_route(config) {
+            DecisionRoute::OpenRouter(model) => model,
+            DecisionRoute::Off => return None,
+            DecisionRoute::Relay | DecisionRoute::RelayShadow => return Self::from_env(),
         };
         let reference = config
             .credentials

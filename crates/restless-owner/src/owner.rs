@@ -75,6 +75,8 @@ mod preferences_api;
 mod presence_api;
 #[path = "owner_model_jobs.rs"]
 mod model_jobs_api;
+#[path = "owner_decisions.rs"]
+mod decisions_api;
 #[path = "owner_new_company_defaults.rs"]
 mod new_company_defaults;
 #[path = "owner_publications.rs"]
@@ -1549,6 +1551,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/provider/failover",
             axum::routing::put(update_model_failover),
         )
+        .route("/companies/{company}/decisions", get(decisions_api::list))
         .route(
             model_jobs_api::PATH,
             get(model_jobs_api::read).put(model_jobs_api::update),

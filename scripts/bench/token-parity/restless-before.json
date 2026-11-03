@@ -1,0 +1,49 @@
+{
+	"_about": "The same tasks as restless.json, scripted as the prompts before the token diet (origin/main 0d632e39) told the actors to do them: email as mandate list, preview, permit, send and observe; people and teams read before delegating and before saying who is doing what.",
+	"rules": [
+		{
+			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-EMAIL to ([a-z0-9.]+@[a-z0-9.]+[a-z])",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "restless mandate list" } } },
+				{ "tool": { "name": "bash", "input": { "command": "cat > /tmp/bench-email.json <<'J'\n{\"from\":\"hello@bench.example\",\"to\":\"{{1}}\",\"subject\":\"Welcome to Bench Bakery\",\"text\":\"Hi, thanks for signing up. Your first loaf is on us this week.\",\"effect_key\":\"bench-welcome-{{1}}\"}\nJ\nrestless email preview --request-file /tmp/bench-email.json" } } },
+				{ "tool": { "name": "bash", "input": { "command": "cat > /tmp/bench-permit.json <<'J'\n{\"sender\":\"hello@bench.example\",\"recipient\":\"{{1}}\",\"payload_sha256\":\"0000\",\"effect_key\":\"bench-welcome-{{1}}\",\"rationale\":\"They signed up on the site today and asked for the welcome note.\",\"evidence_refs\":[\"owner message\"],\"expires_at\":\"2030-01-01T00:00:00Z\"}\nJ\nrestless mandate permit --mandate 00000000-0000-0000-0000-000000000000 --proposal-file /tmp/bench-permit.json" } } },
+				{ "tool": { "name": "bash", "input": { "command": "restless email send --request-file /tmp/bench-email.json" } } },
+				{ "tool": { "name": "bash", "input": { "command": "restless email observe --list outbound" } } },
+				{ "text": "Sent the welcome email to {{1}}.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"I sent the welcome email.\"}-->" }
+			]
+		},
+		{
+			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-DOC",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "restless people" } } },
+				{ "tool": { "name": "bash", "input": { "command": "restless teams list" } } },
+				{ "tool": { "name": "bash", "input": { "command": "restless commission --lead docs-writer --role writer --team Docs --charter 'Short owner documents.' --title 'One-page delivery policy' --outcome 'BENCH-WORK write /company/outputs/delivery-policy.md: one page, plain words, covering zones, fees and cut-off times.' --expected-artifact /company/outputs/delivery-policy.md" } } },
+				{ "text": "I asked the docs lead to write the one-page delivery policy; it will come to your Inbox to review.\n\n<!--restless-intent:{\"kind\":\"direction\",\"summary\":\"The docs lead is writing the delivery policy.\"}-->" }
+			]
+		},
+		{
+			"match": "BENCH-WORK",
+			"scope": "all",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "mkdir -p /company/outputs && cat > /company/outputs/delivery-policy.md <<'D'\n# Delivery policy\n\nWe deliver within 10 km of the bakery. Orders placed by 8 pm arrive the next morning. Delivery is $5, free over $40.\nD" } } },
+				{ "tool": { "name": "bash", "input": { "command": "cat /company/outputs/delivery-policy.md" } } },
+				{ "tool": { "name": "bash", "input": { "command": "restless work artifact --work \"$RESTLESS_WORK_ID\" --path /company/outputs/delivery-policy.md" } } },
+				{ "text": "Wrote and reviewed the one-page delivery policy at /company/outputs/delivery-policy.md." }
+			]
+		},
+		{
+			"match": "Completed Work result for Exec delivery consideration",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "cat /company/outputs/delivery-policy.md" } } },
+				{ "text": "The delivery policy is ready for you to look at.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"The delivery policy is ready.\",\"ownerReview\":\"Delivery policy\"}-->" }
+			]
+		},
+		{
+			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-QA",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "restless people" } } },
+				{ "text": "One piece of work is open: the delivery policy, with the docs lead.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"One piece of work is open.\"}-->" }
+			]
+		}
+	]
+}
