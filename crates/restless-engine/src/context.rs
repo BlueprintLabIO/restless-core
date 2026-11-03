@@ -677,7 +677,11 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          the exact human recipient>'`; never ask the human to repair internal access or abandon their \
          request. For another edit failure, state the \
          concrete blocker instead of describing it as pending. \
-         Every request that requires productive execution is always dispatched to exactly one \
+         Small owner-facing work you can finish and check in this turn in a few file steps (a page \
+         of text, a short document, a message draft; no repository, research, outside effect or \
+         Company Identity design) is yours: write it under /company/outputs, read it back once and \
+         name it in `ownerReview` with its path; a lead and a second turn would cost more than the \
+         work. Every other request that requires productive execution goes to exactly one \
          accountable team lead, whether the work is small or large. Reuse a standing lead or appoint \
          a temporary outcome lead and make the exact outcome charter durable. Ask any owner question \
          the brief depends on before appointing, because the appointment wakes the lead. The lead produces the \
@@ -1002,15 +1006,12 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          For production assignments, inspect company state and repositories only to frame \
          and dispatch the outcome; use ordinary Restless CLI to update the factual actor, team, \
          and Work graph, and update only Exec continuity files under /company/org/exec when \
-         needed. Do not edit application or repository files, create a candidate artifact or test \
-         output, run a productive repair, or claim a produced outcome in this wake. If the owner \
-         input requires productive execution, first inspect the current standing team leads and \
-         reuse a lead whose charter already covers the outcome; commission new capacity only when \
-         no such role exists. Make exactly one accountable lead own the charter with the required \
-         repository coordinates and expected proof, and record that lead's own Work in this turn \
-         unless partitioning or identity judgement needs the lead first. When the owner names a concrete output path or URL, preserve that exact locator \
+         needed. Apart from small owner-facing work under Work and teams, do not edit application \
+         or repository files, create a candidate artifact or test output, run a productive repair, \
+         or claim a produced outcome in this wake; dispatch it to one accountable lead as described \
+         there. When the owner names a concrete output path or URL, preserve that exact locator \
          in the charter rather than combining it with prose. Then \
-         quiesce. Any product file, screenshot, \
+         quiesce. Other than that small work, any product file, screenshot, \
          test result, or output created directly by this Exec wake is not an attributable outcome \
          and must not be presented as one.\n\n\
          # Recent conversation in this focus [historical context; owner lines are owner-authored, your lines are prior claims]\n{}\n\n\
@@ -1761,10 +1762,7 @@ mod tests {
         let package = assemble(&snapshot());
         assert!(package
             .system_prompt
-            .contains("Every request that requires productive execution is always dispatched"));
-        assert!(package
-            .system_prompt
-            .contains("exactly one accountable team lead"));
+            .contains("Every other request that requires productive execution goes to exactly one"));
         assert!(package
             .system_prompt
             .contains("whether the work is small or large"));
@@ -1806,10 +1804,16 @@ mod tests {
             .contains("frame and dispatch the outcome"));
         assert!(package
             .user_prompt
-            .contains("Do not edit application or repository files"));
+            .contains("do not edit application \
+         or repository files"));
         assert!(package
-            .user_prompt
-            .contains("Make exactly one accountable lead own the charter"));
+            .system_prompt
+            .contains("goes to exactly one \
+         accountable team lead"));
+        // Token parity (4 November 2026): small owner-facing work is Exec's own, in this turn.
+        assert!(package
+            .system_prompt
+            .contains("Company Identity design) is yours"));
         assert!(package
             .system_prompt
             .contains("so no second paid lead turn restates your brief"));
@@ -1820,8 +1824,8 @@ mod tests {
             .system_prompt
             .contains("select any relevant Voice, Visual, or Culture situation atomically"));
         assert!(package
-            .user_prompt
-            .contains("reuse a lead whose charter already covers the outcome"));
+            .system_prompt
+            .contains("Reuse a standing lead"));
         assert!(package
             .user_prompt
             .contains("preserve that exact locator in the charter"));
