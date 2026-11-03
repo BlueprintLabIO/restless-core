@@ -615,17 +615,8 @@ impl OrgIntel {
         answer: OwnerChatAnswer,
         note: &str,
     ) -> Result<()> {
-        let owner_words: Option<String> = sqlx::query_scalar(
-            "SELECT body FROM messages WHERE id=$1 AND from_actor='owner' AND to_actor='exec'",
-        )
-        .bind(message_id)
-        .fetch_optional(&self.pool)
-        .await?;
-        let Some(owner_words) = owner_words else {
-            return Err(OrgIntelError::InvalidWork(
-                "the cited message is not the owner's message to Exec".into(),
-            ));
-        };
+        // The owner's own message to Exec: never a member's, an admin's or an agent's.
+        let owner_words = self.owner_message_to_exec(message_id).await?;
         let row = sqlx::query(
             "SELECT h.category,h.assigned_to,h.owner_brief, \
                     (w.owner_review_required AND EXISTS(SELECT 1 FROM work_attempts a \

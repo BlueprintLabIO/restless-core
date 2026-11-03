@@ -820,7 +820,8 @@ deployment remain open. This is not A0 completion or a new production release.
   already records decisions itself: `restless work resolve-handoff --as exec --source-message <id>`
   (since 20 October). Open question for the owner: `converse-with-owner.md` says conversational
   agreement never approves a review, while Exec's context lets that command accept an outcome
-  review from the owner's chat answer.
+  review from the owner's chat answer. Settled the same day in Exec's favour; see "Owner
+  decision: Exec manages the Inbox from chat" below.
 - A4 (#571, supersedes #541): an outcome review with no linked preview goes back to its author at
   escalation; accepting checks the outcome still opens (at the click, after the Undo window, and
   for Exec's chat answer), so a preview deleted after it was shown is refused; opening a company
@@ -841,3 +842,61 @@ deployment remain open. This is not A0 completion or a new production release.
   `people_own_teams` pass; a local Reno-scale stack, driven headless at 1440 and 390 in light and
   dark, passed every check above, and live refusals were observed for a previewless escalation
   and for accepting a review whose file was removed.
+
+### Owner decision: Exec manages the Inbox from chat, 3 November
+
+The owner, verbatim: "exec should be able to accept or reject or manipulate inbox items based on its
+chat with me. it's like a real life assistant. the inbox is a live thing that's the top priorities
+for my attention that can change based on my discussion with my assistant."
+
+This settles the open question above in Exec's favour. `converse-with-owner.md` and Exec's
+instructions now say one thing: Exec is the owner's assistant and manages the Inbox from the
+conversation, on the owner's own words only.
+
+- Exec acts with `restless attention accept|decline|answer|snooze|dismiss|move|add`, each citing
+  the owner's message (`--source-message`). Accept and decline cover owner handoffs (questions,
+  decisions, human steps, outcome reviews), every Authority approval (first contact, held calls,
+  email mandates, payees, account notices and requests, publications, email sends), know-how candidates, brand
+  proposals and direction requests; a setting proposal and a charter draft can be declined (a
+  setting is applied in its card, where the value can be adjusted; Exec already publishes a charter
+  the owner agreed with `restless charter apply`). Snooze, move (top, bottom or a place) and
+  dismiss apply to every item; `add` raises a new item from the conversation. Each Inbox line Exec
+  reads carries the item's id.
+- Grounding: only the company owner's own message to Exec counts (the local owner, or a human
+  Actor bound with the owner role). A member's or an admin's chat cannot decide for the owner, and
+  an agent's message never stands in for the owner; OrgIntel refuses the action when it is saved.
+  This is the boundary chat answers already had; admins act in the cockpit as before.
+- One canon: `restless work resolve-handoff --source-message` now points to `restless attention`,
+  so an answer from chat always shows in the Inbox with Undo instead of resolving silently.
+- Visible and reversible: each action is a row in `exec_inbox_actions` (migration 0117) with the
+  same five-second database-clock Undo window as the owner's own Inbox actions. The owner gateway's
+  decision worker applies it when the window ends, through the same route the owner's click takes,
+  as the owner, so every check that route makes still holds: A4's "the outcome still opens" is
+  checked when Exec saves an accept and again when it applies. A decline goes back to the author
+  with the owner's reason (in the handoff resolution, the review feedback, the request decision, or
+  a daemon message where the item's own path has no note). The card shows "Exec accepted this from
+  your chat · Undo" (the owner's words on hover, the chat opened at that message on click), and a
+  notice says the same on any page. A refused action says why on the card and in Exec's next turn;
+  an undone one is not redone unless the owner asks again.
+- Delivery: the full Inbox read is slow while an Exec turn is running (0.7 to 2 s, repeated
+  hints), so on the first live run the note arrived after its window had closed. Exec's recent
+  changes now have their own small read on the same change hint; live, the note and the notice
+  with Undo showed 2.9 to 3.3 s after Exec saved the action, inside the five-second window.
+- Accepted risk: the window is the owner's five seconds, counted from when Exec saves the change
+  mid-turn, not from when the owner reads Exec's reply. A decision Exec applied can still be
+  reversed afterwards only by the item's ordinary paths (wake a snooze, restore a skipped item).
+- Not done: applying a setting proposal from chat (needs each setting's own save route) and
+  answering a teammate's message for the owner (Exec does not speak to a person as the owner).
+
+Evidence: engine `exec_inbox` unit tests (admission, every kind's decision path, bounds); live
+PostgreSQL `exec_inbox` scenarios (owner, membership owner, member, admin and agent messages;
+Undo before and after the window; one claim per due action; moves; added items; decisions on
+questions and reviews reaching the author), with `escalation`, `outcome_review`, `handoff_undo`
+and `people_own_teams` still passing. A local Reno-scale stack with the scripted model, driven
+headless: "yes ship it" accepted a review (note and notice with Undo on screen inside the window,
+applied at 5 s, Work completed with the owner's words), "no, drop that" declined a question (Undo
+from the card left it waiting; the second decline reached the lead with the reason), "remind me
+tomorrow" snoozed a request off the list with its note, "the model request comes first" moved an
+item to the top, "remind me to call the printer" added an item, and accepting a review whose
+preview file was missing was refused before anything was saved. The note fits at 1440 and 390,
+light and dark.

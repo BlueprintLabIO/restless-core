@@ -2452,6 +2452,16 @@ html[data-pane-resizing] .attention-screen,
 html[data-pane-resizing] .bridge-exrail {
 	transition: none;
 }
+/* The cockpit is a fixed viewport (.bridge-root is 100vh, overflow hidden), so the document itself
+ * never scrolls. Anything that briefly lengthens the page, such as a page's content before its
+ * pane constrains it, would otherwise show a document scrollbar for a frame and push every
+ * right-anchored pane (the Exec rail) 15px left and back (S109 jank gate, Apps on arrival).
+ * Desktop widths only: a phone keeps its document scrolling for the browser's own chrome. */
+@media (min-width: 981px) {
+	html:has(.bridge-root) {
+		overflow: hidden;
+	}
+}
 .bridge-root .exr-msgs,
 .bridge-root .hc-messages {
 	overflow-x: hidden;

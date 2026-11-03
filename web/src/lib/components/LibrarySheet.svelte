@@ -865,6 +865,10 @@
 							>{follow.following ? 'Unfollow' : 'Follow'}</button
 						>
 					{/if}
+					<a
+						href={`/${encodeURIComponent(company)}/library?highlight=${encodeURIComponent(`sheet:${row.id}`)}`}
+						title="All files, with this sheet highlighted">Show in folder</a
+					>
 					<button type="button" onclick={copyLink}>Copy link</button>
 					<button
 						type="button"

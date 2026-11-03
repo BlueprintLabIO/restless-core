@@ -328,34 +328,44 @@
 		}
 	}
 
-	/* The owner's bubble sits right; its actions wait beside it rather than
-	 * reserving a row beneath, so a run of bubbles stays tight. Their column is
-	 * never narrower than the actions: a wide bubble gives way instead of
-	 * pushing them past the rail's edge. */
+	/* The owner's bubble sits right and may use the whole message column: nothing sits beside it,
+	 * so a narrow rail never squeezes it into a thin strip. */
 	.conversation-message.owner {
-		grid-template-columns: minmax(max-content, 1fr) minmax(0, auto);
-		column-gap: 6px;
+		grid-template-columns: minmax(0, 1fr);
 	}
 
 	.conversation-message.owner .message-meta {
-		grid-row: 1;
-		grid-column: 1 / -1;
+		grid-area: 1 / 1;
 		justify-self: end;
 	}
 
 	.conversation-message.owner .message-body {
-		grid-row: 2;
-		grid-column: 2;
+		grid-area: 2 / 1;
+		justify-self: end;
 	}
 
-	/* The owner's toolbar waits beside the bubble's top corner, clear of its time above. */
+	/* The owner's toolbar floats on the bubble's top edge, on every input, dipping only into the
+	 * bubble's padding so even a one-word bubble stays readable under it. It shares the bubble's
+	 * row at no height and hangs over the gap above, so it takes no width beside the bubble and no
+	 * row beneath: showing it moves nothing. */
 	.conversation-message.owner .message-footer {
-		grid-row: 2;
-		grid-column: 1;
+		position: relative;
+		z-index: 2;
+		grid-area: 2 / 1;
 		align-self: start;
 		justify-self: end;
+		height: 0;
 		min-height: 0;
-		margin: 0;
+		margin: 0 6px 0 0;
+		align-items: flex-start;
+	}
+	.conversation-message.owner .message-actions {
+		margin-top: -24px;
+	}
+	/* A room clips each row to itself (content-visibility), and a continued bubble starts at the
+	 * row's top edge: there the toolbar sits just inside the bubble's corner instead. */
+	.conversation-message.owner.embedded.continued .message-actions {
+		margin-top: 2px;
 	}
 
 	/* Your own bubble shows no name or avatar, but a screen reader still hears whose words they are. */

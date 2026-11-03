@@ -871,7 +871,13 @@ pub(super) async fn settle_request(
     )
     .await
     {
-        Ok(Some(request)) => Json(request).into_response(),
+        Ok(Some(request)) => {
+            // The agent that asked waits on this answer (S109 blockers audit).
+            if let Ok(org) = state.daemon.orgintel.get(&request.company).await {
+                restless_engine::account_broker::tell_requester(&org, &request).await;
+            }
+            Json(request).into_response()
+        }
         Ok(None) => api_error(
             StatusCode::NOT_FOUND,
             "accounts",

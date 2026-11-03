@@ -436,6 +436,23 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 }))
             }
         }
+        "attention-act" => {
+            let Some(action) = request.attention_action.as_ref() else {
+                return Response::err("missing the Inbox action");
+            };
+            match crate::exec_inbox::queue(
+                daemon,
+                company,
+                request.common.as_actor.as_deref(),
+                request.orgintel.source_message_id,
+                action,
+            )
+            .await
+            {
+                Ok(saved) => Response::ok(saved),
+                Err(refusal) => Response::err(refusal),
+            }
+        }
         "direction-operation" => {
             // Exec acts on a person's direction; nobody else names a requester.
             let actor = request.orgintel.actor.as_deref().unwrap_or("");
@@ -3004,50 +3021,13 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 let Ok(id) = uuid::Uuid::parse_str(id) else {
                     return Response::err("bad handoff id");
                 };
-                // The owner answered in conversation: Exec records it citing that message.
-                if let Some(message_id) = request.orgintel.source_message_id {
-                    if resolved_by != "exec" {
-                        return Response::err(
-                            "only Exec records an owner's conversation answer with --source-message",
-                        );
-                    }
-                    let answer = match state {
-                        "resolved" => restless_orgintel::OwnerChatAnswer::Yes,
-                        "declined" => restless_orgintel::OwnerChatAnswer::No,
-                        "request_changes" => restless_orgintel::OwnerChatAnswer::Changes,
-                        other => {
-                            return Response::err(format!(
-                                "with --source-message, state must be resolved|declined|request_changes, got {other:?}"
-                            ))
-                        }
-                    };
-                    return match daemon.orgintel.get(company).await {
-                        Ok(org) => {
-                            // A go-ahead in conversation accepts only an outcome that still opens.
-                            if answer == restless_orgintel::OwnerChatAnswer::Yes {
-                                let refusal = match runtime::CompanyConfig::load(&daemon.root, company) {
-                                    Ok(config) => crate::attention::unavailable_review_outcome(
-                                        &config, &daemon.authority, &org, id, "owner",
-                                    )
-                                    .await
-                                    .map_err(|error| format!("{error:#}"))
-                                    .and_then(|refusal| refusal.map_or(Ok(()), |(_, reason)| Err(reason))),
-                                    Err(error) => Err(format!("{error:#}")),
-                                };
-                                if let Err(reason) = refusal {
-                                    return Response::err(reason);
-                                }
-                            }
-                            match org
-                            .answer_handoff_from_owner_message(id, message_id, answer, resolution)
-                            .await
-                        {
-                            Ok(()) => Response::ok("recorded as the owner's answer"),
-                            Err(error) => Response::err(format!("{error:#}")),
-                        }
-                        }
-                        Err(error) => Response::err(format!("{error:#}")),
-                    };
+                // The owner answered in conversation: that goes through their Inbox, where it
+                // shows with Undo (3 November owner decision), never straight to the handoff.
+                if request.orgintel.source_message_id.is_some() {
+                    return Response::err(
+                        "record the owner's answer from their Inbox, so they see it and can undo it: \
+                         `restless attention accept|decline|answer --item <id> --source-message <their message id>`",
+                    );
                 }
                 let state = match state {
                     "resolved" => restless_orgintel::OwnerHandoffState::Resolved,
@@ -4543,6 +4523,54 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Err(error) => Response::err(format!("record Resend observation: {error:#}")),
             }
         }
+        // Exec asks the owner for standing permission to send email (S109 H2): the proposal is
+        // the owner's Inbox card, approved with Undo. Exec then still permits each email.
+        "mandate-propose" => {
+            let Some(value) = request.authority.mandate_proposal else {
+                return Response::err("mandate propose needs a proposal");
+            };
+            let proposal: crate::authority::NewEmailMandate = match serde_json::from_value(value) {
+                Ok(proposal) => proposal,
+                Err(error) => return Response::err(format!("invalid mandate proposal: {error}")),
+            };
+            let note = request.authority.purpose.as_deref().map(str::trim).filter(|note| !note.is_empty());
+            if note.is_some_and(|note| note.len() > 2_000) {
+                return Response::err("the reason is longer than 2,000 characters");
+            }
+            let actor = request.orgintel.actor.as_deref().unwrap_or("exec");
+            match daemon.authority.pending_email_mandate_proposals(company).await {
+                Ok(pending) => {
+                    if let Some(waiting) = pending.last().and_then(|record| record.body["id"].as_str().map(str::to_string)) {
+                        return Response::ok(serde_json::json!({
+                            "proposal_id": waiting,
+                            "status": "waiting_for_owner",
+                            "note": "A proposal is already waiting in the owner's Inbox. Do not propose again; you are told when they answer.",
+                        }));
+                    }
+                }
+                Err(error) => return Response::err(format!("{error:#}")),
+            }
+            // A change to the current mandate names it, so approving replaces it.
+            let replaces = match daemon.authority.list_email_mandates(company).await {
+                Ok(mandates) => mandates
+                    .into_iter()
+                    .find(|mandate| mandate.expires_at > chrono::Utc::now())
+                    .map(|mandate| mandate.id),
+                Err(error) => return Response::err(format!("{error:#}")),
+            };
+            match daemon
+                .authority
+                .propose_email_mandate(company, actor, proposal, note, replaces)
+                .await
+            {
+                Ok(id) => Response::ok(serde_json::json!({
+                    "proposal_id": id,
+                    "status": "waiting_for_owner",
+                    "note": "Nothing can be sent under it yet. The owner approves or declines this exact permission in their Inbox; you are told when they answer.",
+                })),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "mandate-permit" => {
             let Some(mandate_id) = request.authority.mandate_id.as_deref() else {
                 return Response::err("mandate permit needs a mandate id");
@@ -4733,6 +4761,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "effect"
         | "effect-reconcile"
         | "mandate-permit"
+        | "mandate-propose"
         | "email-preview"
         | "email-send"
         | "email-observe"
@@ -6102,6 +6131,17 @@ mod tests {
                 "{cmd} must stay open to the company"
             );
         }
+    }
+
+    /// S109 H2: Exec asks for standing email permission; the owner cannot propose to themselves
+    /// through Exec's channel, and grants it only in the Inbox.
+    #[test]
+    fn only_exec_proposes_an_email_mandate_over_the_coordination_channel() {
+        assert_eq!(
+            authorize(Principal::CompanyExec, "mandate-propose").unwrap(),
+            Principal::CompanyExec
+        );
+        assert!(authorize(Principal::Owner, "mandate-propose").is_err());
     }
 
     /// TCP has no principal fallback. Local Unix derives owner identity from

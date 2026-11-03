@@ -277,6 +277,147 @@ pub fn decide(
     }
 }
 
+/// The grant an owner's yes would leave, when the only thing in the way is this tier's ability
+/// being off or set to ask. Approving an `account_request` that names the account saves exactly
+/// these abilities (`settle_request`), so the call then runs. Anything else in the way (a freeze,
+/// an expiry, the scope, the named people, quiet hours, a daily cap) is not lifted by that card,
+/// so this is `None` and the refusal stands as it is.
+#[allow(clippy::too_many_arguments)]
+pub fn lift_for(
+    account: &Account,
+    grant: &Grant,
+    actor: &str,
+    tier: &str,
+    in_scope: bool,
+    actions_today: i64,
+    now: DateTime<Utc>,
+) -> Option<crate::accounts::Abilities> {
+    if account.frozen
+        || grant.frozen
+        || !in_scope
+        || grant.limits.expires_at.is_some_and(|expiry| expiry <= now)
+        || matches!(&grant.who, Who::Actors { actors } if !actors.iter().any(|named| named == actor))
+        || (tier != "read"
+            && grant
+                .limits
+                .quiet_hours
+                .as_ref()
+                .is_some_and(|quiet| in_quiet_hours(quiet, now)))
+        || (tier != "read"
+            && grant
+                .limits
+                .actions_per_day
+                .is_some_and(|cap| actions_today >= cap))
+    {
+        return None;
+    }
+    let mut abilities = grant.abilities.clone();
+    let mode = match tier {
+        "read" => &mut abilities.read,
+        "draft" => &mut abilities.draft,
+        "act" => &mut abilities.act,
+        "spend" => return None, // spend has its own caps; an ask there is a per-spend answer.
+        _ => &mut abilities.admin,
+    };
+    if mode != "off" && mode != "ask" {
+        return None;
+    }
+    *mode = "tell".into();
+    Some(abilities)
+}
+
+/// A grant said no in a way the owner can lift: put "asks for more on an account" in their Inbox
+/// and tell the agent so. Before this, the refusal said "ask the owner", and no command could
+/// (S109 blockers audit): `restless apps ask-account` never names an account.
+pub async fn ask_owner_to_lift(
+    pool: &PgPool,
+    usable: &Usable,
+    actor: &str,
+    abilities: crate::accounts::Abilities,
+    why: &str,
+) -> String {
+    let account = &usable.account;
+    let company = &usable.grant.company;
+    if let Ok(open) = open_requests(pool, company).await {
+        if let Some(same) = open
+            .iter()
+            .find(|open| open.account_id.as_deref() == Some(account.id.as_str()))
+        {
+            return format!(
+                "{why} The owner already has a request for more on {} in their Inbox (asked by {}); \
+                 you get a message when they answer. Carry on with other work and don't retry until then.",
+                account.label, same.requested_by
+            );
+        }
+    }
+    let reason = format!(
+        "{}: {}",
+        account.label,
+        why.chars().take(800).collect::<String>()
+    );
+    match create_request(
+        pool,
+        company,
+        Some(&account.id),
+        None,
+        Some(abilities),
+        &reason,
+        actor,
+    )
+    .await
+    {
+        Ok(_) => format!(
+            "{why} Asked the owner: allowing it is in their Inbox, and you get a message when they \
+             answer. Carry on with other work and don't retry until then."
+        ),
+        Err(error) => {
+            tracing::warn!(company = %company, account = %account.id, "could not ask the owner to widen a grant: {error:#}");
+            format!(
+                "{why} Asking the owner failed ({error:#}). Exec: ask them in your reply and put the \
+                 exact ask in `ownerNeed`. Staff: tell Exec with `restless message --to exec`."
+            )
+        }
+    }
+}
+
+/// Tell the agent that asked for an account what the owner answered (S109 blockers audit). The
+/// Deny action promises "the company is told", and an approval is what the agent waits on.
+pub async fn tell_requester(org: &restless_orgintel::OrgIntel, request: &AccountRequest) {
+    let asker_is_agent = org.list_actors().await.is_ok_and(|actors| {
+        actors
+            .iter()
+            .any(|actor| actor.id == request.requested_by && actor.actor_class == "agent")
+    });
+    if !asker_is_agent {
+        return;
+    }
+    let what = requested_site(request).unwrap_or("the account");
+    let body = match request.state.as_str() {
+        "approved" => format!(
+            "The owner approved your request for {what}. Retry what was waiting on it now. A tool \
+             that is new to you appears in your next session's tool list."
+        ),
+        "denied" => format!(
+            "The owner declined your request for {what}. Nothing was granted: don't retry it. Find \
+             another route, or carry on without it."
+        ),
+        _ => return,
+    };
+    if let Err(error) = org
+        .ensure_actor("daemon", "system", "system-sender", "The daemon")
+        .await
+    {
+        tracing::warn!("could not tell an account requester: {error:#}");
+        return;
+    }
+    if let Err(error) = org
+        .send_message("daemon", Some(&request.requested_by), &body)
+        .await
+    {
+        tracing::warn!("could not tell an account requester: {error:#}");
+    }
+}
+
 fn in_quiet_hours(quiet: &crate::accounts::QuietHours, now: DateTime<Utc>) -> bool {
     let parse = |value: &str| chrono::NaiveTime::parse_from_str(value.trim(), "%H:%M").ok();
     let (Some(start), Some(end)) = (parse(&quiet.start), parse(&quiet.end)) else {
@@ -1484,6 +1625,56 @@ mod tests {
         ));
         assert!(in_scope("github", &scope, None, "read"));
         assert!(!in_scope("github", &scope, None, "act"));
+    }
+
+    /// "Ask the owner for more" used to have no command behind it. When the owner's one tap on
+    /// an account request would let the call run, the gate raises it; when that tap would not
+    /// help (a freeze, the scope, a daily cap), it does not pretend.
+    #[test]
+    fn a_refusal_the_owner_can_lift_becomes_an_ask() {
+        let now = Utc::now();
+        let lift = |grant: &Grant, tier: &str, in_scope: bool, today: i64| {
+            lift_for(
+                &account("github"),
+                grant,
+                "exec",
+                tier,
+                in_scope,
+                today,
+                now,
+            )
+        };
+        let mut grant = grant();
+        let admin = lift(&grant, "admin", true, 0).expect("admin off lifts");
+        assert_eq!(admin.admin, "tell");
+        assert_eq!(
+            admin.act, grant.abilities.act,
+            "only the refused tier changes"
+        );
+        grant.abilities.act = "ask".into();
+        assert_eq!(lift(&grant, "act", true, 0).unwrap().act, "tell");
+        // The lifted grant runs the call.
+        grant.abilities = lift(&grant, "act", true, 0).unwrap();
+        assert_eq!(run(&grant, "act"), Decision::RunAndTell);
+        assert_eq!(lift(&grant, "act", true, 0), None, "nothing to lift");
+        assert_eq!(lift(&grant, "admin", false, 0), None, "scope is not lifted");
+        assert_eq!(lift(&grant, "spend", true, 0), None, "spend asks per spend");
+        let mut capped = grant.clone();
+        capped.abilities.admin = "off".into();
+        capped.limits.actions_per_day = Some(1);
+        assert_eq!(
+            lift(&capped, "admin", true, 1),
+            None,
+            "a daily cap is not lifted"
+        );
+        let mut frozen = grant.clone();
+        frozen.frozen = true;
+        frozen.abilities.admin = "off".into();
+        assert_eq!(
+            lift(&frozen, "admin", true, 0),
+            None,
+            "a freeze is the owner's"
+        );
     }
 
     #[test]
