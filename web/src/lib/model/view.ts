@@ -165,8 +165,26 @@ export interface DecisionContinuation {
 	observedAt: Date | string;
 	/** The Inbox item this answered, so an old link to it can say what happened. */
 	itemId?: string;
-	/** Who decided, when the record names them. */
+	/** Who decided, by display name, when it was someone other than the owner. */
 	decidedBy?: string;
+	/** How it ended; owner-facing copy is chosen from this, never from `details`. */
+	outcome?:
+		| 'approved'
+		| 'declined'
+		| 'changes_requested'
+		| 'completed'
+		| 'revoked'
+		| 'withdrawn'
+		| 'replaced'
+		| 'expired';
+	/** The owner decided this themselves. */
+	byOwner?: boolean;
+	/** The owner answered in their chat and Exec recorded it. */
+	viaChat?: boolean;
+	/** The Inbox item that replaced this one, while it waits there. */
+	replacementItemId?: string;
+	/** The record's own words (an agent's reason). Shown only in Activity's details. */
+	details?: string;
 }
 
 export type NeedsYouItem = AttentionItem;

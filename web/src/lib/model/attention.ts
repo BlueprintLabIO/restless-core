@@ -144,6 +144,11 @@ type WireContinuation = {
 	observed_at: string;
 	item_id?: string;
 	decided_by?: string;
+	outcome?: DecisionContinuation['outcome'];
+	by_owner?: boolean;
+	via_chat?: boolean;
+	replacement_item_id?: string;
+	details?: string;
 };
 
 export type WorkContext = Pick<WorkGraphSnapshot, 'work' | 'artifacts'>;
@@ -312,7 +317,12 @@ export async function fetchDecisionHistory(
 			responsibleActor: continuation.responsible_actor,
 			observedAt: continuation.observed_at,
 			itemId: continuation.item_id,
-			decidedBy: continuation.decided_by
+			decidedBy: continuation.decided_by,
+			outcome: continuation.outcome,
+			byOwner: continuation.by_owner,
+			viaChat: continuation.via_chat,
+			replacementItemId: continuation.replacement_item_id,
+			details: continuation.details
 		})),
 		nextBefore: wire.next_before
 	};
