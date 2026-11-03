@@ -38,6 +38,7 @@
 		'accounts',
 		'computers',
 		'appearance',
+		'voice',
 		...(status && !status.hosted ? (['this-computer'] as const) : [])
 	]);
 
@@ -80,7 +81,7 @@
 					label: 'Settings',
 					href: ACCOUNT_SECTIONS.accounts.href,
 					active: path.startsWith('/account/settings'),
-					tooltip: 'Accounts, computers and appearance',
+					tooltip: 'Accounts, computers, appearance and voice',
 					icon: Settings
 				}
 			]
@@ -111,7 +112,7 @@
 	]);
 	/* Settings' own list, shown in the page beside the section. */
 	const settingsNav = $derived<AccountGroup[]>([
-		{ label: 'Account', items: [own('appearance')] },
+		{ label: 'Account', items: [own('appearance'), own('voice')] },
 		{ label: 'Integrations', items: [own('accounts'), own('computers')] },
 		...(sectionIds.includes('this-computer')
 			? [{ label: 'This computer', items: [own('this-computer')] }]

@@ -9,6 +9,7 @@
 	import AccountUsage from '$lib/components/AccountUsage.svelte';
 	import AccountAppearance from '$lib/components/AccountAppearance.svelte';
 	import AccountAppliance from '$lib/components/AccountAppliance.svelte';
+	import AccountVoice from '$lib/components/AccountVoice.svelte';
 	import AccountComputers from '$lib/components/AccountComputers.svelte';
 	import { ownerAccounts } from '$lib/model/owner-accounts-client';
 	import { activityView } from '$lib/model/account-activity-view.svelte';
@@ -34,7 +35,8 @@
 			companies={grantable}
 		/>{:else if id === 'computers'}<AccountComputers
 			companies={grantable}
-		/>{:else if id === 'this-computer'}<AccountAppliance />{:else}<AccountAppearance />{/if}
+		/>{:else if id === 'this-computer'}<AccountAppliance />{:else if id === 'voice'}<AccountVoice
+		/>{:else}<AccountAppearance />{/if}
 </div>
 
 <style>
