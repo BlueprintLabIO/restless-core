@@ -533,6 +533,13 @@
 	 * redone this many times (G3; one pass reached revision 15 before anyone asked why). */
 	const BUSY_OWNER = 3;
 	const CHURN_REVISION = 4;
+	const EMPTY_COLUMN = {
+		proposed: 'Nothing queued',
+		active: 'Nothing running',
+		blocked: 'Nothing blocked',
+		completed: 'Nothing done yet',
+		abandoned: 'Nothing stopped'
+	} as const;
 	const inMotion = $derived(
 		(graph?.work ?? []).reduce((counts, item) => {
 			if (item.status === 'active') counts.set(item.owner_id, (counts.get(item.owner_id) ?? 0) + 1);
@@ -548,6 +555,8 @@
 		).map((status) => ({
 			key: status,
 			label: WORK_STATUS_LABEL[status],
+			/* An empty column says so in one quiet line, not a bare "0" over a blank box (S110). */
+			emptyNote: EMPTY_COLUMN[status],
 			/* Stacked on a narrow pane, blocked Work comes first rather than below every card. */
 			lead: status === 'blocked',
 			items: goalWork

@@ -1981,6 +1981,11 @@ function blockHandleExtension(hooks: DocumentEditorHooks) {
 			const mod = /Mac|iPhone|iPad/u.test(window.navigator.platform) ? '⌘' : 'Ctrl+';
 			element.title = `Drag to move, or press Alt+Shift+↑/↓. Click, or press ${mod}/, for more`;
 			element.innerHTML = GRIP;
+			/* Hidden until a block is pointed at. The plugin shows it on hover and hides it again,
+			 * but it starts visible at the editor's corner: beside the first block before any
+			 * hover (S110). */
+			element.style.visibility = 'hidden';
+			element.style.pointerEvents = 'none';
 			let current = -1;
 			let hovered = -1;
 			/* The grip reports its block from inside ProseMirror's own update, so the wash follows a
@@ -2003,11 +2008,20 @@ function blockHandleExtension(hooks: DocumentEditorHooks) {
 				DragHandlePlugin({
 					editor: this.editor,
 					element,
-					/* List items are their own targets. Edge detection stays off: it would hand the
-					 * grip to the whole list as the pointer crossed an item's left edge on its way to
-					 * the grip, so a later item's grip could never be reached. */
+					/* Every top-level block is a target, and list items are their own targets. Edge
+					 * detection stays off: it would hand the grip to the whole list as the pointer
+					 * crossed an item's left edge on its way to the grip, so a later item's grip could
+					 * never be reached. `allowedContainers` was a list of the lists: it also refused
+					 * every block outside one, so hovering a paragraph never brought its grip (S110).
+					 * The default rules already pass over a list's wrapper and a table's cells. */
 					nestedOptions: normalizeNestedOptions({
-						allowedContainers: ['bulletList', 'orderedList', 'taskList'],
+						rules: [
+							{
+								id: 'topLevelOrListItem',
+								evaluate: ({ depth, node }) =>
+									depth > 1 && !['listItem', 'taskItem'].includes(node.type.name) ? 1000 : 0
+							}
+						],
 						edgeDetection: 'none'
 					}),
 					computePositionConfig: { placement: 'left-start', strategy: 'absolute' },
