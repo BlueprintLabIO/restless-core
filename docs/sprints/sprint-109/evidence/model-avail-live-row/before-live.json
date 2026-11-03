@@ -1,0 +1,46 @@
+[
+  {
+    "name": "before-live-1440-light",
+    "checkButton": true,
+    "cantReply": true,
+    "modelUnavailable": true,
+    "waitingOnModel": true,
+    "docks": [],
+    "lateShift": 0,
+    "late": [],
+    "errors": []
+  },
+  {
+    "name": "before-live-390-light",
+    "checkButton": true,
+    "cantReply": true,
+    "modelUnavailable": true,
+    "waitingOnModel": false,
+    "docks": [],
+    "lateShift": 0,
+    "late": [],
+    "errors": []
+  },
+  {
+    "name": "before-live-1440-dark",
+    "checkButton": true,
+    "cantReply": true,
+    "modelUnavailable": true,
+    "waitingOnModel": true,
+    "docks": [],
+    "lateShift": 0,
+    "late": [],
+    "errors": []
+  },
+  {
+    "name": "before-live-390-dark",
+    "checkButton": true,
+    "cantReply": true,
+    "modelUnavailable": true,
+    "waitingOnModel": false,
+    "docks": [],
+    "lateShift": 0,
+    "late": [],
+    "errors": []
+  }
+]

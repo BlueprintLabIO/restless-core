@@ -1032,6 +1032,38 @@ pub struct WorkGraphSnapshot {
     pub gates: Vec<WorkGateRow>,
     pub gate_runs: Vec<WorkGateRunRow>,
     pub handoffs: Vec<OwnerHandoffRow>,
+    /// Each Work's recent progress estimates, oldest first; the newest is current.
+    pub progress: Vec<WorkProgressRow>,
+}
+
+/// One rough estimate of how far a Work has come, recorded by its creator (or Exec) at a
+/// checkpoint. `state` is `estimate`, `blocked` (no number, `next` says why) or `done` (100).
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct WorkProgressRow {
+    pub id: i64,
+    pub work_id: Uuid,
+    pub state: String,
+    pub percent: Option<i16>,
+    pub next: String,
+    pub estimated_by: String,
+    pub recorded_at: DateTime<Utc>,
+}
+
+/// A Work its creator has not estimated since its last checkpoint.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct WorkProgressOwed {
+    pub work_id: Uuid,
+    pub title: String,
+    pub status: WorkStatus,
+    pub last_percent: Option<i16>,
+    pub last_state: Option<String>,
+}
+
+/// What recording an estimate did: the row, and the chat line it posted, if it moved enough.
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkProgressRecorded {
+    pub progress: WorkProgressRow,
+    pub posted_message_id: Option<i64>,
 }
 
 /// The reactions a message may carry. A short fixed set keeps them meaningful

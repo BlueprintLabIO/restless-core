@@ -61,6 +61,8 @@
 	} from '$lib/model/attention-presentation';
 	import { emptyWorkTitle, matchesSearch, goalsWithFinishedWork } from '$lib/model/work-views';
 	import { dueLabel, finishLine, type Goal } from '$lib/work/goal';
+	import { goalRollup, partsDone, workEstimate } from '$lib/work/progress';
+	import Estimate from '$lib/ui/data/Estimate.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import Ban from '@lucide/svelte/icons/ban';
 	import {
@@ -332,7 +334,12 @@
 		const waiting = rows.filter(
 			(item) => item.status !== 'completed' && waitingOnOwner.has(item.id)
 		).length;
-		const parts = [`${done} of ${rows.length} done`];
+		/* The creators' estimates rolled up, when anyone has estimated; the parts count either way. */
+		const rollup = goalProgress(goalId);
+		const parts = [
+			...(rollup.percent === null ? [] : [`~${rollup.percent}%`]),
+			partsDone({ ...rollup, done, total: rows.length })
+		];
 		if (waiting) parts.push(`${waiting} needs you`);
 		if (blocked) parts.push(`${blocked} blocked`);
 		return {
@@ -396,7 +403,15 @@
 				edges: graph?.edges ?? [],
 				work: graph?.work ?? [],
 				attempts: graph?.attempts ?? [],
-				route: intelligence.view ? (actor) => agentRouteState(intelligence.view, actor) : undefined
+				/* Someone at work now has a model that answers (3 Nov 2026). */
+				route: intelligence.view
+					? (actor) =>
+							agentRouteState(
+								intelligence.view,
+								actor,
+								people.some((person) => person.actor_id === actor && person.session_running)
+							)
+					: undefined
 			}) ?? ''
 		);
 	}
@@ -461,11 +476,13 @@
 	function outputs(work: WorkItem): number {
 		return graph?.artifacts.filter((artifact) => artifact.work_id === work.id).length ?? 0;
 	}
-	function goalProgress(goalId: string): { done: number; total: number } {
-		const rows = (graph?.work ?? []).filter(
-			(item) => item.goal_id === goalId && item.status !== 'abandoned'
-		);
-		return { done: rows.filter((item) => item.status === 'completed').length, total: rows.length };
+	/* A goal across its Work: the creators' estimates averaged, each part equal, and parts done. */
+	function goalProgress(goalId: string) {
+		return goalRollup(goalId, graph?.work ?? [], graph?.progress);
+	}
+	/* The creator's rough estimate for one Work, as the bar and line every surface draws. */
+	function estimateOf(work: WorkItem) {
+		return workEstimate(work, graph?.progress, ownerName);
 	}
 	function ownerName(actorId: string): string {
 		return (
@@ -551,7 +568,9 @@
 						row.status === 'proposed' && (inMotion.get(row.owner_id) ?? 0) >= BUSY_OWNER
 							? inMotion.get(row.owner_id)
 							: undefined,
-					churning: row.status !== 'completed' && row.revision >= CHURN_REVISION
+					churning: row.status !== 'completed' && row.revision >= CHURN_REVISION,
+					/* Every card holds the estimate's line, so one landing never grows a card. */
+					progress: estimateOf(row)
 				}))
 		}))
 	);
@@ -820,20 +839,23 @@
 
 {#snippet clearDone()}
 	<button
-		class="btn small"
 		type="button"
 		disabled={clearingDone}
 		title="Clear completed work from the current view. You can also archive goals whose tasks are all complete."
-		onclick={(event) => void clearCompleted(event.currentTarget)}
+		onclick={(event) =>
+			void clearCompleted(
+				event.currentTarget.closest('details')?.querySelector('summary') ?? event.currentTarget
+			)}
+		><span
+			>{clearingDone
+				? 'Clearing…'
+				: done.length
+					? 'Clear done'
+					: archiveCandidates.length === 1
+						? 'Archive goal'
+						: 'Archive finished goals'}</span
+		></button
 	>
-		{clearingDone
-			? 'Clearing…'
-			: done.length
-				? 'Clear done'
-				: archiveCandidates.length === 1
-					? 'Archive goal'
-					: 'Archive finished goals'}
-	</button>
 {/snippet}
 
 {#snippet goalRow(goal: Goal, indent = false)}
@@ -851,22 +873,29 @@
 			finishLine(goal)
 				? `Done when ${finishLine(goal)}`
 				: 'No finish line yet: Exec will agree one with you',
-			`${progress.done} of ${progress.total} done`,
+			progress.percent === null
+				? ''
+				: `About ${progress.percent}% by the creators' rough estimates`,
+			partsDone(progress),
 			dueLabel(goal) ? `due ${dueLabel(goal)}` : ''
 		]
 			.filter(Boolean)
 			.join(' · ')}
 	>
+		<!-- The ring fills with the estimate roll-up once anyone has estimated, else with parts done. -->
 		{#snippet leading()}<span
 				class="ring"
-				style:--done={`${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%`}
-				aria-label={`${progress.done} of ${progress.total} done`}
+				style:--done={`${progress.percent ?? (progress.total ? Math.round((progress.done / progress.total) * 100) : 0)}%`}
+				aria-label={progress.percent === null
+					? partsDone(progress)
+					: `About ${progress.percent}%, ${partsDone(progress)}`}
 				role="img"
 			></span>{/snippet}
 	</SidebarRow>
 {/snippet}
 
 {#snippet row(work: WorkItem, tone: 'warning' | 'danger' | 'progress' | 'muted' | 'success')}
+	{@const estimate = work.status === 'completed' ? null : estimateOf(work)}
 	<Item
 		title={work.title}
 		meta={meta(work)}
@@ -874,6 +903,12 @@
 		href={workHref(work.id)}
 		dim={work.status === 'completed'}
 	>
+		{#snippet noteLeading()}{#if estimate}<Estimate
+					fill={estimate.fill}
+					text={estimate.text}
+					title={estimate.title}
+					tone={estimate.tone}
+				/>{/if}{/snippet}
 		{#snippet leading()}<Dot
 				{tone}
 				label={waitingOnOwner.has(work.id)
@@ -1152,20 +1187,20 @@
 					</div>
 				</div>
 				<div class="secondary-actions">
-					{#if done.length || archiveCandidates.length}
-						<div class="completed-actions" aria-label="Completed work actions">
-							{#if view === 'board' && done.length > RECENT_DONE}
-								<button
-									class="btn small"
-									type="button"
-									onclick={() => (showAllDone = !showAllDone)}
-								>
-									{showAllDone ? 'Show recent only' : 'Show all ' + done.length}
-								</button>
-							{/if}
-							{#if !archivedOpen}{@render clearDone()}{/if}
-						</div>
-					{/if}
+					<!-- Completed work's actions sit in one fixed menu: the toolbar is the same width
+					     whether or not anything is done, so Work finishing never wraps or moves it. -->
+					<ActionMenu label="Completed work actions">
+						{#if view === 'board' && done.length > RECENT_DONE}
+							<button type="button" onclick={() => (showAllDone = !showAllDone)}
+								><span>{showAllDone ? 'Show recent only' : 'Show all ' + done.length}</span></button
+							>
+						{/if}
+						{#if !archivedOpen && (done.length || archiveCandidates.length)}
+							{@render clearDone()}
+						{:else if !(view === 'board' && done.length > RECENT_DONE)}
+							<button type="button" disabled><span>Nothing done to clear</span></button>
+						{/if}
+					</ActionMenu>
 					<div class="view-switch">
 						<Segmented
 							label="View"
@@ -1199,7 +1234,15 @@
 							</details>
 						{/if}
 						<p class="goal-facts">
-							<span>{progress.done} of {progress.total} done</span>
+							{#if progress.percent !== null}<span
+									title="Each part counts equally: done is 100%, the rest as their creators estimate"
+									><Estimate
+										fill={progress.percent}
+										text={`~${progress.percent}% by estimate`}
+										label="Goal progress, estimated"
+									/></span
+								>{/if}
+							<span>{partsDone(progress)}</span>
 							{#if dueLabel(selectedGoalRow)}<span>Due {dueLabel(selectedGoalRow)}</span>{/if}
 							{#if goalTeam(selectedGoalRow)}<span>{goalTeam(selectedGoalRow)}</span>{/if}
 							<!-- The facts a goal row's hover title carries, readable on touch once it is chosen. -->
@@ -1378,10 +1421,11 @@
 		width: 100%;
 		min-height: 0;
 	}
-	/* On a narrow pane the controls wrap under the title rather than off the edge. */
+	/* One line, ending where the sidebar's and the Exec rail's headers end: the title gives way
+	 * (a long goal title is cut) and the controls keep their size. Only a narrow pane (below)
+	 * wraps the controls under the title rather than off the edge. */
 	.head {
 		display: flex;
-		flex-wrap: wrap;
 		align-items: center;
 		gap: 8px;
 		min-height: var(--pane-head-h);
@@ -1439,24 +1483,30 @@
 		display: flex;
 		flex: none;
 		margin-left: auto;
-		flex-wrap: wrap;
 		justify-content: flex-end;
 		align-items: center;
 		gap: 8px;
 	}
-	.completed-actions {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-		gap: 8px;
-	}
 	.filters {
 		display: flex;
-		flex-wrap: wrap;
 		gap: 6px;
 		margin-left: auto;
 	}
+	/* A picker keeps its size: one line, its value (a person's name) never wider than a short
+	 * name. Squeezed, "Goal actions" broke over two lines and grew the header by a pixel. */
+	.head .goal-picker {
+		flex: none;
+	}
+	.head .goal-picker :global(summary > span) {
+		max-width: 14ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	@container page (max-width: 560px) {
+		.head {
+			flex-wrap: wrap;
+		}
 		.head .title {
 			flex: 1 1 0;
 		}
@@ -1532,11 +1582,6 @@
 		border-radius: 50%;
 		background: conic-gradient(var(--state-success) var(--done), var(--border-strong) 0);
 		mask: radial-gradient(circle, transparent 3.5px, #000 4px);
-	}
-	.completed-actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
 	}
 	.goal-description summary {
 		color: var(--text-secondary);

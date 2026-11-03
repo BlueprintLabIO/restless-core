@@ -101,7 +101,7 @@
 	<div class="body" class:framed={!!frame && !text}>
 		{#if loading}<p class="quiet">Opening…</p>
 		{:else if failure}<p class="failure" role="alert">{failure}</p>
-		{:else if text}<TextPreview text={text.body} format={text.format} />
+		{:else if text}<TextPreview text={text.body} format={text.format} source={path} />
 		{:else if frame && office}
 			<OfficePreview
 				format={office}

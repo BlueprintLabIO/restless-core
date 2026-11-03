@@ -357,7 +357,12 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
                 runtime_bridges: run.runtime_bridges.clone(),
                 hosted_identity: hosted_identity.clone(),
                 mcp_servers: mcp_servers.clone(),
-                observer: run.observer.clone(),
+                observer: crate::model_gateway::clearing_cooldown_on_output(
+                    run.observer.clone(),
+                    &run.authority,
+                    &run.company,
+                    model,
+                ),
                 cancellation: run.cancellation.clone(),
                 productive_invocation_id: admission.id(),
             },

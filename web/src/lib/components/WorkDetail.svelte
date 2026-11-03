@@ -19,6 +19,7 @@
 		cockpitQuery,
 		collaborationBootstrapQuery,
 		companyPrincipalQuery,
+		turnProgressing,
 		workActivityStream
 	} from '$lib/model/queries.svelte';
 	import type { ArtifactRefRow, WorkGateRow, WorkRow } from '$lib/model/generated/orgintel';
@@ -33,9 +34,13 @@
 	import { fileLabel, LIBRARY_KIND_LABEL, libraryKind } from '$lib/model/library-files';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import { goalAbout } from '$lib/work/goal';
+	import { workEstimate } from '$lib/work/progress';
+	import Estimate from '$lib/ui/data/Estimate.svelte';
+	import Trend from '$lib/ui/data/Trend.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { attentionTitle, isOutcomeReview } from '$lib/model/attention-presentation';
 	import type { AttentionItem } from '$lib/model/view';
+	import { ownerLine } from '$lib/model/owner-copy';
 	import {
 		PRIORITIES,
 		blockerSentence,
@@ -136,6 +141,8 @@
 		ownerAccess ? (cockpit?.company.name ?? companyId) : (collaboration?.company.name ?? companyId)
 	);
 	const goal = $derived(goals.find((item) => item.id === work?.goal_id) ?? null);
+	/* The creator's rough estimate and its short history (owner decision, 3 November). */
+	const estimate = $derived(work ? workEstimate(work, graph?.progress, ownerName) : null);
 	/* The owner, and the person who owns this Work's team, may resume it or stop it; the server
 	 * checks the team. It used to live only in a team owner's Inbox. */
 	const workTeam = $derived(
@@ -338,7 +345,13 @@
 	);
 	const latestAttempt = $derived(attempts.at(-1) ?? null);
 	const blocker = $derived(
-		work?.status === 'blocked' ? blockerSentence(work.resolution, latestAttempt?.summary) : ''
+		work?.status === 'blocked'
+			? blockerSentence(
+					work.resolution,
+					latestAttempt?.summary,
+					'Blocked. The run history below has the details.'
+				)
+			: ''
 	);
 	/* Why this Work waits and on whom, under its title (S109 A1). The blocker's reason has its own
 	 * line below, so it is left out here. Empty until the model routes are read, so the line never
@@ -358,8 +371,15 @@
 					edges: graph?.edges ?? [],
 					work: graph?.work ?? [],
 					attempts: graph?.attempts ?? [],
+					/* The run streaming below is proof its actor's model answers: no "Waiting on a
+					 * model" over a run in motion (3 Nov 2026). */
 					route: intelligence.view
-						? (actor) => agentRouteState(intelligence.view, actor)
+						? (actor) =>
+								agentRouteState(
+									intelligence.view,
+									actor,
+									actor === latestAttempt?.actor_id && turnProgressing(workTurn)
+								)
 						: undefined
 				},
 				{ reason: false }
@@ -387,7 +407,7 @@
 	);
 	const activity = $derived(
 		ownerAccess && work && latestAttempt?.state === 'running'
-			? workActivityStream(companyId, work.owner_id, workId)
+			? workActivityStream(companyId, latestAttempt.actor_id, workId)
 			: null
 	);
 	$effect(() => activity?.attach());
@@ -415,10 +435,14 @@
 	);
 	const outcomeParts = $derived(splitOutcome(work?.outcome ?? ''));
 	/* A settled Work says what happened; unsettled Work keeps its outcome, and a
-	 * pause or resume note shows once, as the blocker line under the title. */
+	 * pause or resume note shows once, as the blocker line under the title. A recorded reason
+	 * with ids, hashes or agent handles is said in the platform's words instead (owner-copy.ts). */
 	const settledResolution = $derived(
-		work && (work.status === 'completed' || work.status === 'abandoned')
-			? steerResolution(work.resolution)
+		work && (work.status === 'completed' || work.status === 'abandoned') && work.resolution.trim()
+			? ownerLine(
+					steerResolution(work.resolution),
+					work.status === 'abandoned' ? 'Stopped: no longer needed.' : 'Finished.'
+				)
 			: ''
 	);
 	const readerSummary = $derived((settledResolution || outcomeParts.opening).trim());
@@ -747,6 +771,22 @@
 				>
 					{waitingLine}
 				</p>{/if}
+			<!-- Held for open Work whether or not an estimate has landed, so one arriving never moves
+			     the page; settled Work shows it only when there is one. -->
+			{#if estimate || (work.status !== 'completed' && work.status !== 'abandoned')}<div
+					class="work-progress"
+				>
+					{#if estimate}<span class="work-progress-label">Estimate</span><Estimate
+							wide
+							fill={estimate.fill}
+							text={estimate.text}
+							title={estimate.title}
+							tone={estimate.tone}
+						/><Trend
+							values={estimate.trend}
+							label={`Estimates so far: ${estimate.trend.map((value) => `${value}%`).join(', ')}`}
+						/>{/if}
+				</div>{/if}
 			{#if blocker}<p class="work-blocker">{blocker}</p>{/if}
 
 			{#if pending.length}
@@ -833,10 +873,13 @@
 			{/if}
 
 			{#if workTurn}
+				<!-- The run's actor is who the line names: their chat shows the same run in full,
+				     where their next reply will appear. Ebenezer's run read "Eames is thinking". -->
 				<section class="work-live-activity" aria-label="Live Work activity">
 					<ConversationTurnDock
-						participantName={accountableLead?.display ?? ownerName(work.owner_id)}
+						participantName={ownerName(latestAttempt?.actor_id ?? work.owner_id)}
 						turn={workTurn}
+						preview={false}
 					/>
 				</section>
 			{/if}
@@ -1345,6 +1388,26 @@
 		line-height: 1.45;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	/* The estimate: a labelled value on one held line, with its trend and who said it when. */
+	.work-progress {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		height: 22px;
+		margin: 6px 0 0;
+		min-width: 0;
+		overflow: hidden;
+		font-size: var(--t-label);
+	}
+	.work-progress-label {
+		flex: none;
+		color: var(--text-tertiary);
+	}
+	/* The words keep the room; who and when are on hover, the trend stays small. */
+	.work-progress :global(.estimate) {
+		flex: 0 1 auto;
+		min-width: 0;
 	}
 	.work-blocker {
 		margin: 4px 0 0;

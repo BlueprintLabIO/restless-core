@@ -38,6 +38,10 @@ changed it goes in the version note (`document checkpoint --reason`), which peop
 document's history, never at the top of the document. Restless checks this when you share or send
 for review and refuses a document that is not ready, saying what to fix.
 
+Show a picture by embedding it: `![what it shows](/company/outputs/x.png)`, or in a document a
+path relative to it. PNG, JPEG, GIF and WebP show in place; convert anything else to PNG. A
+`file://` link, `localhost` or a path outside `/company` cannot be shown.
+
 A place you name (an address, a venue, a suburb) links to Google Maps, so the reader can see it:
 `[Bondi Pavilion](https://www.google.com/maps/search/?api=1&query=Bondi%20Pavilion)`. On a page you
 build, follow the map pattern in the company-tools skill.
