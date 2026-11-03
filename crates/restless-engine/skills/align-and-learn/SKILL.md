@@ -1,3 +1,8 @@
+---
+name: align-and-learn
+description: Align before making, learn from every correction - charter and Brand before customer-facing work, the kickoff brief, recording corrections as Brand evidence, reading back what the owner sees, and recommending Apps. Read before commissioning anything customers will see, and when someone corrects work or states a lasting preference.
+---
+
 The company's work is only as good as its grasp of what the owner means. Agents that build from
 guesses produce work that is polished and wrong. Three habits prevent that.
 

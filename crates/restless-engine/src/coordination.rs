@@ -1221,8 +1221,15 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                         }
                         "decision_model" => {
                             let value = value.trim();
-                            config.decision_model =
-                                (!value.is_empty()).then(|| value.to_string());
+                            // `included` is the relay's decision model, active; any other
+                            // value is an OpenRouter model id.
+                            config.decision_model = (!value.is_empty()).then(|| {
+                                if value.eq_ignore_ascii_case(crate::decisions::INCLUDED_DECISIONS) {
+                                    crate::decisions::INCLUDED_DECISIONS.to_string()
+                                } else {
+                                    value.to_string()
+                                }
+                            });
                             Ok(())
                         }
                         _ if key.starts_with("credentials.") => {
@@ -6270,8 +6277,14 @@ mod tests {
             .await
             .unwrap();
         assert!(mandate_cards(&view).is_empty());
-        let permitted =
-            value(dispatch(permit(granted.id.to_string()), &daemon, Principal::CompanyExec).await);
+        let permitted = value(
+            dispatch(
+                permit(granted.id.to_string()),
+                &daemon,
+                Principal::CompanyExec,
+            )
+            .await,
+        );
         assert_eq!(permitted["ok"], true, "{permitted}");
         assert_eq!(permitted["data"]["mandate_id"], granted.id.to_string());
 

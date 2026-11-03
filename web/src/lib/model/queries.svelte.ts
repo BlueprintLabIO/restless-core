@@ -554,17 +554,25 @@ export function browserStatusQuery(companyId: string) {
 	};
 }
 
+/** The receipt Core puts on an owner decision line (see transcript::owner_decision_message). */
+export function isOwnerDecision(intent: { kind?: string | null } | null | undefined): boolean {
+	return intent?.kind === 'authority';
+}
+
 function threadMessage(
 	message: ActorConversation['messages'][number],
 	actorDisplay: string,
 	viewerActorId: string
 ): ThreadMessage {
 	const fromViewer = message.from_actor === viewerActorId;
+	/* An owner decision told to the agent (approve, decline): Core stores it under the owner, but
+	 * it is the platform's line, never something they typed. Show its one plain sentence. */
+	const decision = fromViewer && isOwnerDecision(message.intent);
 	return {
 		id: String(message.id),
-		from: fromViewer ? 'you' : 'agent',
-		author: fromViewer ? 'You' : actorDisplay,
-		text: message.body,
+		from: decision ? 'system' : fromViewer ? 'you' : 'agent',
+		author: decision ? '' : fromViewer ? 'You' : actorDisplay,
+		text: decision ? (message.intent?.summary ?? message.body).trim() : message.body,
 		createdAt: message.created_at,
 		replyToMessageId: null,
 		assetId: null,
@@ -1278,7 +1286,9 @@ export function companyChangeStream(companyId: () => string, enabled: QueryEnabl
 					predicate: (query) => touched(query) && !first(query),
 					refetchType
 				});
-				for (const query of client.getQueryCache().findAll({ predicate: (query) => touched(query) && first(query) }))
+				for (const query of client
+					.getQueryCache()
+					.findAll({ predicate: (query) => touched(query) && first(query) }))
 					void query.promise
 						?.catch(() => undefined)
 						.then(() =>

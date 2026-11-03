@@ -80,7 +80,7 @@ fn team_task_prompt(
          A focused collaboration mention names its exact mention, Room, Thread and triggering Message. When one is present, answer that bounded question in your final assistant response; the Runtime persists it automatically as the exact same-Thread reply and resolves only that mention. Do not use `restless message` for the Room reply. Small judgment stays a reply; sustained contribution becomes attributable Work.\n\n\
          Resolve local blockers by changing the smallest relevant mechanism: roster, brief, context, skill, model, tool, dependency, or Work graph. The scheduler starts ready Work; do not narrate handoffs manually.\n\n\
          The roster is available capacity, not a headcount target. Inspect `restless people` before adding anyone. New Staff is one possible sourcing posture, not the automatic answer to a missing capability. If evidence calls for new internal capacity, use `restless people create --id <durable-domain>-<craft> --role <role> --display auto [--model <model>] --reason <difference>`; then `restless teams assign --actor <id> --team <this team> --reason <difference or repair>`. Names are assigned automatically as fictional characters: new unassigned colleagues follow company-wide A–Z order, and team members share their lead’s initial; read `restless people` after creation for the actual name. Reuse those actors across Work and revisions; never encode Staff, team position, environment, stage, implementation or retry in the id.\n\n\
-         # Sourcing a missing capability [company doctrine]\n{}\n\n\
+         {}\n\n\
          {}\n\n\
          When creating dependent Work, declare every initial dependency in the same `restless work add` with repeatable `--requires <prerequisite-work-id>` and `--revises <producer-work-id>` flags. Those commit atomically. If the charter is incomplete and the next responsibility is already knowable, commission that successor and its dependency now; never leave a research, inventory, reference or preparation node as a dead end that clean completion cannot advance. Repository and worktree coordinates are observed inputs, never placeholders: for ordinary files under `/company` with no real repository, omit them; never invent `company` as a repository or worktree name. Use `restless work edge` only to repair an existing graph: for requires, `--from` is the prerequisite and `--to` is the dependent; revises runs reviewer to producer. Remove a mistaken local edge with `--remove --as {actor} --reason <evidence>`. Adding edges after node creation can let the scheduler start a half-built node.\n\n\
          # Company Constitution at commissioning [source-backed context]\nInspect `restless identity show` before commissioning identity-bearing communication, design or behaviour-shaping Work. Make an explicit relevance decision for Voice, Visual and Culture from the concrete outcome: bind every relevant pillar and omit only a pillar that genuinely cannot affect the accepted result. If an owner-released identity exists, commit the selected situation-specific contracts in the same `restless work add` as `--constitution-contracts '{{\"voice\":{{...}},\"visual\":{{...}},\"culture\":{{...}}}}'`. Voice needs `channel`, `author`, `audience`, `reader_situation`, `desired_understanding`, `desired_action`, `proof`, `consequence`. Visual needs `channel`, `audience`, `outcome`, `information_hierarchy`, `proof`, `density`, `imagery_role`, `motion_role`, `product_representation`, plus `product_truth_locator` for `exact_product`. Culture needs `case_kind`, `actor`, `actor_role`, `team`, `consequence`, `decision_boundary`. Use the enum spellings shown by each `restless identity *-bind --help`. A missing or incompatible identity command is a Runtime defect: repair or escalate it before commissioning; never convert that defect into unbound identity-bearing Work. Do not add a generic contract merely because a pillar exists, do not encode aesthetic taste as company truth, and do not bind after Work creation: Work, released identity, and every selected contract cross the scheduler boundary atomically.\n\n\
@@ -93,16 +93,14 @@ fn team_task_prompt(
          # The person who owns this team [owner policy]\nPeople are above every agent. Your team may have a person who owns it: `restless teams list` shows its `owner_person`, and null means the owner. That person directs the team and decides what you escalate; their messages are the team's direction within company authority. You run the team for them: never assign them work, ask instead.\n\n\
          For a pending judgement you can settle, use `restless work resolve-handoff --handoff <id> --state resolved --resolution <answer>`. If it is genuinely outside the charter, use `restless work escalate-handoff --handoff <id> --as {actor} --reason <evidence and smallest decision>`; it goes to the Exec, who prepares it for the person who owns the team, or the owner when nobody does. Resume repaired failed Work with `restless work resume --work <id> --as {actor} --reason <what changed>`. A successor Attempt automatically receives all existing Work-linked feedback. If it needs one genuinely new fact, send that Work-linked message while the Work is still blocked and resume last. Never resume and then send kickoff feedback: the successor may already be live and would correctly be interrupted.\n\n\
          If the owner wrote, your final assistant response is the reply the owner will receive. Do not use `restless message` to reply to the owner. Speak for the whole team. If the owner directed a change, make the Work graph change before claiming it did. Follow the shared conversation contract below and end with exactly one intent marker: `<!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"your one-line takeaway, said to the owner as you: address them as you, never as the owner in the third person, and do not grade your own work\",\"outcome\":\"optional concrete result\",\"nextStep\":\"optional next owner and action\",\"ownerNeed\":\"optional exact owner input\"}}-->` using one real kind. When the question refers to an existing prepared owner handoff, include its exact UUID as `ownerNeedHandoff` so the handoff owns the single decision and this reply supplies context. A genuinely independent conversational question omits that field. Omit each optional reader field when it is not genuinely present; do not manufacture status scaffolding for an ordinary conversation.\n\n\
-         Ask the Exec only for cross-team resources, company priority, strategy, or charter guidance. Authority and irreducible human last miles remain owner boundaries.\n\n# Writing what the owner reads [company doctrine]\n{}\n\n# Presenting to the owner [company doctrine]\n{}\n\n# Conversing with the owner [shared contract]\n{}",
+         Ask the Exec only for cross-team resources, company priority, strategy, or charter guidance. Authority and irreducible human last miles remain owner boundaries.\n\n# Conversing with the owner [shared contract]\n{}",
         brief,
         members,
         team_work,
         team_edges,
-        crate::capability_sourcing::SOURCE_CAPABILITY.trim(),
+        crate::owner_brief::lead_doctrine(),
         crate::skills::contract_section(),
         super::context::ACCOUNTABLE_QUALITY_ENFORCEMENT.trim(),
-        crate::owner_brief::WRITING_WHAT_THE_OWNER_READS.trim(),
-        crate::owner_brief::PRESENT_TO_OWNER.trim(),
         crate::owner_brief::CONVERSE_WITH_OWNER.trim(),
     )
 }
@@ -1431,6 +1429,21 @@ mod tests {
     /// Work titles, outcomes and resolutions written by a lead are rendered to
     /// the owner exactly as written (S19-T4). The lead surface must carry the
     /// same writing rule as the Exec, at the point the field is authored.
+    /// A lead's standing task contract is resent on every call of every lead wake, and lead
+    /// conversation wakes are most of a company's calls (S101: 373 of 586). Raise the ceiling only
+    /// for doctrine that prevents an observed failure; situational doctrine belongs in a skill.
+    #[test]
+    fn lead_fixed_prompt_stays_within_its_token_budget() {
+        // 32,983 bytes before the situational doctrine moved into skills (4 November); 21,366 after.
+        let task = team_task_prompt("offer-strategy", "", "", "", "");
+        eprintln!("lead fixed task contract: {} bytes", task.len());
+        assert!(
+            task.len() <= 22_000,
+            "lead task contract grew to {} bytes",
+            task.len()
+        );
+    }
+
     #[test]
     fn a_lead_is_told_that_owner_facing_records_are_writing() {
         let task = team_task_prompt(
@@ -1440,16 +1453,28 @@ mod tests {
             "(none)",
             "(none)",
         );
-        assert!(task.contains("# Writing what the owner reads [company doctrine]"));
+        assert!(task.contains("`writing-for-the-owner`: before writing a Work title or outcome"));
+        assert!(task.contains("`owner-briefs`: before raising anything to the owner"));
         assert!(task.contains("# Company skills [shared contract]"));
+        assert!(task.contains("then the exact contract unchanged"));
+        let skill = crate::owner_brief::DOCTRINE_SKILLS
+            .iter()
+            .find(|(skill, _)| *skill == "writing-for-the-owner")
+            .unwrap()
+            .1;
         assert!(
-            task.contains("Open with one or two plain sentences a non-technical owner can read")
+            skill.contains("Open with one or two plain sentences a non-technical owner can read")
         );
         assert!(
-            task.contains("Then the exact contract, unchanged"),
+            skill.contains("Then the exact contract, unchanged"),
             "the readable opening must never be presented as a replacement for the contract"
         );
-        assert!(task.contains("Assume the reader has no technical context"));
+        assert!(crate::owner_brief::DOCTRINE_SKILLS
+            .iter()
+            .find(|(skill, _)| *skill == "owner-briefs")
+            .unwrap()
+            .1
+            .contains("Assume the reader has no technical context"));
         assert!(task.contains("optional exact owner input"));
         assert!(
             task.contains(
