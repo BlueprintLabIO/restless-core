@@ -56,7 +56,6 @@
 	import FileType from '@lucide/svelte/icons/file-type';
 	import Film from '@lucide/svelte/icons/film';
 	import NotebookText from '@lucide/svelte/icons/notebook-text';
-	import NotebookPen from '@lucide/svelte/icons/notebook-pen';
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import Upload from '@lucide/svelte/icons/upload';
 	import FolderUp from '@lucide/svelte/icons/folder-up';
@@ -913,9 +912,6 @@
 	let outputRevision: string | null = null;
 	let outputEpoch = 0;
 	let outputSkippedReported = false;
-	const outputIncomplete = $derived(
-		outputFilesTruncated || outputSkippedNames > 0 || outputStale || outputReadFailed
-	);
 	const folderListingHint = $derived(
 		outputReadFailed
 			? 'Files could not be read. Try again.'
