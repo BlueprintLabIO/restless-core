@@ -19,6 +19,7 @@ const ANSWERED_INLINE: Record<string, string> = {
 	'open-external-human-step': 'InlineDesktop opens the page on the company computer',
 	'top-up-ai-credit': 'InlineModel opens the plan in a small window',
 	'open-spend-limit': 'InlineSpendLimit',
+	'open-native-limit': 'InlineNativeLimit',
 	'open-provider-approval': 'The provider approves on its own page, in the owner’s own browser'
 };
 
