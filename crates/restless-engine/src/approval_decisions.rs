@@ -691,7 +691,28 @@ pub async fn cancel(
     principal: &HumanDecisionPrincipal,
 ) -> Result<PendingApprovalDecision> {
     let mut tx = authority.pool().begin().await?;
-    let saved = read(&mut tx, id, true)
+    match cancel_locked(&mut tx, company, id, principal).await {
+        Ok(saved) => {
+            tx.commit().await?;
+            Ok(saved)
+        }
+        // Roll back now. A dropped transaction only queues its ROLLBACK, so the row stayed
+        // locked for a moment after a refused Undo, and the settle worker, which skips locked
+        // rows, could pass over a decision that was due.
+        Err(error) => {
+            tx.rollback().await?;
+            Err(error)
+        }
+    }
+}
+
+async fn cancel_locked(
+    tx: &mut Transaction<'_, Postgres>,
+    company: &str,
+    id: Uuid,
+    principal: &HumanDecisionPrincipal,
+) -> Result<PendingApprovalDecision> {
+    let saved = read(tx, id, true)
         .await?
         .filter(|saved| saved.company == company)
         .context("This decision was not found.")?;
@@ -699,7 +720,6 @@ pub async fn cancel(
         bail!("This decision belongs to someone else or an older membership.");
     }
     if saved.state == "canceled" {
-        tx.commit().await?;
         return Ok(saved);
     }
     let row: Option<Row> = sqlx::query_as(&format!(
@@ -707,11 +727,9 @@ pub async fn cancel(
          WHERE id=$1 AND state='pending' AND undo_until>clock_timestamp() RETURNING {COLUMNS}"
     ))
     .bind(id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await?;
-    let saved = row.context("The Undo window has ended.")?.try_into()?;
-    tx.commit().await?;
-    Ok(saved)
+    Ok(row.context("The Undo window has ended.")?.try_into()?)
 }
 
 /// This person's waiting decisions and unread results in one company.
@@ -1202,6 +1220,19 @@ mod tests {
             id: Uuid,
             org: Option<&restless_orgintel::OrgIntel>,
         ) -> Option<&'static str> {
+            // A "crashed" worker's lock goes when PostgreSQL notices its closed connection, not
+            // when the test moves on, and `claim` skips locked rows: wait that lock out first.
+            let mut wait = self.authority.pool().begin().await.unwrap();
+            sqlx::query("SET LOCAL lock_timeout = '30s'")
+                .execute(&mut *wait)
+                .await
+                .unwrap();
+            sqlx::query(&format!("SELECT 1 FROM {TABLE} WHERE id=$1 FOR UPDATE"))
+                .bind(id)
+                .fetch_optional(&mut *wait)
+                .await
+                .unwrap();
+            wait.commit().await.unwrap();
             let claim = claim(&self.authority, id).await.unwrap()?;
             let effects = Effects {
                 root: &self.root,

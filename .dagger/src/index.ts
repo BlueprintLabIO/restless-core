@@ -24,7 +24,7 @@ const RUST_INPUTS = ['infra/rust-binaries/Dockerfile', 'Cargo.toml', 'Cargo.lock
 // (rustBinaries) instead of two image builds sharing the machine. arm64 keeps the old bound.
 const cargoJobs = (platform: string = 'linux/amd64') => platform === 'linux/amd64' ? String(availableParallelism()) : '2';
 
-const QUALIFY_GROUPS = ['rust', 'web', 'documents', 'sheets', 'issuer', 'release'];
+const QUALIFY_GROUPS = ['rust', 'engine', 'web', 'documents', 'sheets', 'issuer', 'release'];
 
 function project(source: Directory, path: string, base: Container = dag.container().from(NODE_IMAGE)): Container {
   const files = source.directory(path);
@@ -52,6 +52,51 @@ function rust(source: Directory): Container {
       'docs/sprints/sprint-36/contract/v1/*.json',
       'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py'], exclude: EXCLUDES })
     .withWorkdir('/src');
+}
+
+const POSTGRES_IMAGE = 'postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24';
+const NEXTEST_VERSION = '0.9.149';
+const NEXTEST_SHA256 = '32d1d8c0567b7a80bee2bad8bb09125c846da96bc009b2de11ec08557290c770';
+
+/**
+ * The engine and orgintel suites against a throwaway Postgres, through cargo-nextest's `qualify`
+ * profile (.config/nextest.toml): each test runs in its own process and its own new database, so
+ * tests neither queue on SQLx's per-database migration lock nor race on shared schemas. The suites
+ * hold their own Cargo volumes, so they compile beside the `rust` group instead of waiting on its
+ * locked registry, and keep a warm test-profile build between PRs. Tests that need Docker, a
+ * company image or a model key skip on their own.
+ */
+function engineTests(source: Directory): Container {
+  const database = dag.container().from(POSTGRES_IMAGE)
+    .withEnvVariable('POSTGRES_USER', 'restless').withEnvVariable('POSTGRES_PASSWORD', 'restless')
+    .withEnvVariable('POSTGRES_DB', 'restless_test')
+    // A new cluster in memory for every run: nothing survives from a previous check.
+    .withMountedTemp('/var/lib/postgresql/data')
+    .withExposedPort(5432)
+    .asService({ useEntrypoint: true, args: ['postgres', '-c', 'max_locks_per_transaction=256',
+      '-c', 'max_connections=1000', '-c', 'shared_buffers=512MB',
+      // Disposable: durability buys nothing here, and fsync dominates schema-heavy tests.
+      '-c', 'fsync=off', '-c', 'synchronous_commit=off', '-c', 'full_page_writes=off'] });
+  return dag.container().from(RUST_IMAGE)
+    .withEnvVariable('CARGO_BUILD_JOBS', cargoJobs()).withEnvVariable('CARGO_INCREMENTAL', '0')
+    .withExec(['/bin/sh', '-ec', 'apt-get update -qq && apt-get install -y -qq --no-install-recommends postgresql-client >/dev/null'
+      + ` && curl -fsSL --retry 3 -o /tmp/nextest.tgz https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${NEXTEST_VERSION}/cargo-nextest-${NEXTEST_VERSION}-x86_64-unknown-linux-gnu.tar.gz`
+      + ` && echo "${NEXTEST_SHA256}  /tmp/nextest.tgz" | sha256sum -c - && tar -xzf /tmp/nextest.tgz -C /usr/local/cargo/bin && rm /tmp/nextest.tgz`])
+    .withMountedCache('/usr/local/cargo/registry', dag.cacheVolume('restless-core-cargo-registry-engine-v1'), { sharing: CacheSharingMode.Locked })
+    .withMountedCache('/usr/local/cargo/git', dag.cacheVolume('restless-core-cargo-git-engine-v1'), { sharing: CacheSharingMode.Locked })
+    .withMountedCache('/src/target', dag.cacheVolume('restless-core-cargo-engine-test-v1'))
+    .withDirectory('/src', source, { include: ['Cargo.toml', 'Cargo.lock', 'crates/**', 'contracts/**', 'docs/COMPANY_OPERATING_RULES.md',
+      'docs/sprints/sprint-36/contract/v1/*.json', 'docs/dogfood/company-identity/*.json', '.config/nextest.toml', '.config/nextest/**',
+      'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py',
+      // Read by tests at run time: the generated web contract and its fixtures, the credential helper.
+      'web/src/lib/model/generated/**', 'web/src/lib/model/fixtures/**', 'infra/company-image/git-credential-restless'], exclude: EXCLUDES })
+    .withWorkdir('/src')
+    .withServiceBinding('postgres', database)
+    .withEnvVariable('RESTLESS_TEST_ADMIN_URL', 'postgres://restless:restless@postgres:5432/restless_test')
+    .withEnvVariable('RESTLESS_NATIVE_TEST_ROOT', '/tmp/restless-native-tests')
+    .withEnvVariable('RUST_MIN_STACK', '16777216')
+    .withExec(['/bin/sh', '-ec', 'mkdir -p "$RESTLESS_NATIVE_TEST_ROOT"'
+      + ' && exec cargo nextest run --locked --profile qualify -p restless-engine -p restless-orgintel']);
 }
 
 function checkPlatform(platform: string): asserts platform is Platform {
@@ -280,7 +325,7 @@ export class RestlessCore {
   async qualify(
     @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
     source: Directory,
-    /** Comma list of check groups to run (rust, web, documents, sheets, issuer, release); empty runs all.
+    /** Comma list of check groups to run (rust, engine, web, documents, sheets, issuer, release); empty runs all.
      * PR checks pass only the groups a change can affect; a release always runs all of them. */
     only: string = '',
   ): Promise<string> {
@@ -296,6 +341,7 @@ export class RestlessCore {
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync()],
       ['rust', 'paired machine isolation tests', () => rust(source)
         .withExec(['cargo', 'test', '--locked', '-p', 'restless-machine']).sync()],
+      ['engine', 'engine and orgintel tests', () => engineTests(source).sync()],
       ['web', 'cockpit check and build', () => cockpit(source).sync()],
       ['web', 'cockpit unit tests', () => project(source, 'web').withExec(['npm', 'test']).sync()],
       ['web', 'browser overlays', () => this.verifyOverlays(source).sync()],
@@ -314,14 +360,14 @@ export class RestlessCore {
 `
         + `timings ${JSON.stringify(timings)}`;
     }
-    return 'Core qualification passed: schema version, Rust workspace, projection contract and public-key boundary tests, cockpit check/build, browser overlays and chat warning motion, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports and versioned release contracts\n'
+    return 'Core qualification passed: schema version, Rust workspace, projection contract and public-key boundary tests, engine and orgintel suites, cockpit check/build, browser overlays and chat warning motion, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports and versioned release contracts\n'
       + `timings ${JSON.stringify(timings)}`;
   }
 
   /**
    * The release identity's SCHEMA_VERSION must be the highest migration on disk. The engine's own
-   * test says so too, but qualification never runs the engine tests, and twice on 3 November 2026 a
-   * migration merged without the bump. This script check needs no compile.
+   * test says so too, but qualification did not run the engine tests then, and twice on 3 November
+   * 2026 a migration merged without the bump. This script check needs no compile, so it stays.
    */
   @func()
   verifySchemaVersion(

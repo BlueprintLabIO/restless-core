@@ -995,12 +995,9 @@ mod tests {
         let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
             return;
         };
-        let pool = PgPool::connect(&url).await.unwrap();
-        sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority")
-            .execute(&pool)
+        let pool = crate::authority::AuthorityStore::test_pool(&url)
             .await
             .unwrap();
-        ensure_schema(&pool).await.unwrap();
         // Rows straight in: the vault write is the credential module's own concern.
         let account = new_id();
         sqlx::query(
