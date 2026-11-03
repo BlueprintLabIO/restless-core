@@ -1,7 +1,8 @@
 /* Exec manages the owner's Inbox from their chat (owner decision, 3 November 2026): it accepts,
  * declines, answers, snoozes, skips, moves and adds items on the owner's word. Each change names
- * the owner's message, shows beside its item, and can be undone for the same five seconds as the
- * owner's own clicks. */
+ * the owner's message, shows beside its item once Exec's reply has finished, and can be undone
+ * until the owner sends their next message: at least 30 seconds, at most two minutes. The owner's
+ * own clicks keep their five seconds. */
 import { ownerRequest } from './setting.svelte';
 import { formatMoment } from '$lib/ui/time';
 
@@ -15,7 +16,9 @@ export interface ExecInboxNote {
 	note: string;
 	owner_words: string;
 	source_message_id: number;
-	undo_until: string;
+	/** When the Undo window ends: from the end of Exec's reply until the owner's next message,
+	 * 30 s to 2 min. A change still in a streaming reply is not shown, so this is set. */
+	undo_until: string | null;
 	problem: string | null;
 	snooze_until: string | null;
 	position: number | null;

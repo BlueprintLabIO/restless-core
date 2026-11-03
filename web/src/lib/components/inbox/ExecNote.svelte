@@ -6,11 +6,13 @@
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { pollEvery } from '$lib/model/connection.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import TimeLeft from '$lib/ui/feedback/TimeLeft.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
 	import {
 		execActionsKey,
 		execNoteLead,
+		localDeadline,
 		ownerSaid,
 		readExecActions,
 		showChatMessage,
@@ -56,6 +58,16 @@
 		/* A decision that has landed leaves the card with the item; until then it says what Exec did. */
 		return carried;
 	});
+	/* When Undo closes on this browser's clock: the small read's deadline is the current one (the
+	 * owner's next message shortens it), corrected for clock skew; what came with the item is the
+	 * fallback. */
+	const deadline = $derived.by((): number | undefined => {
+		if (note?.state !== 'pending') return undefined;
+		const read = recent.data;
+		const current = read?.items.find((action) => action.id === note.id);
+		if (read && current?.undo_until) return localDeadline(current.undo_until, read);
+		return note.undo_until ? Date.parse(note.undo_until) : undefined;
+	});
 	let undoing = $state(false);
 
 	async function undo(id: string) {
@@ -89,7 +101,9 @@
 				class="link"
 				disabled={undoing}
 				onclick={() => undo(note.id)}>Undo</button
-			>{/if}
+			>{#if deadline !== undefined}<span aria-hidden="true">·</span><TimeLeft
+					until={deadline}
+				/>{/if}{/if}
 	</p>{/if}
 
 <style>

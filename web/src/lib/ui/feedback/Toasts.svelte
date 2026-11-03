@@ -5,6 +5,7 @@
 	 * dock. */
 	import type { Snippet } from 'svelte';
 	import X from '@lucide/svelte/icons/x';
+	import TimeLeft from './TimeLeft.svelte';
 	import {
 		dismissToast,
 		closeToast,
@@ -61,6 +62,9 @@
 				onfocusout={() => holdToast(item.id, false)}
 			>
 				<span>{item.text}</span>
+				{#if item.showTimeLeft && item.expiresAt !== undefined}<TimeLeft
+						until={item.expiresAt}
+					/>{/if}
 				{#if item.undo}<button
 						type="button"
 						class="undo"

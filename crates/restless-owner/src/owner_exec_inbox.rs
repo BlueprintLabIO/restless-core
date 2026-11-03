@@ -15,7 +15,8 @@ pub(super) fn routes() -> Router<OwnerState> {
         )
 }
 
-/// Exec's changes in the last few minutes, each with its item, state and Undo deadline: what the
+/// Exec's changes in the last few minutes, once the reply carrying each was complete, each with its
+/// item, state and Undo deadline: what the
 /// cockpit's notice and an open card's note read. One small read, so the owner hears of a change
 /// within its window even while the full Inbox read is busy.
 async fn recent(
@@ -53,6 +54,9 @@ async fn recent(
     let items = actions
         .into_iter()
         .filter(|action| action.created_at > Utc::now() - ChronoDuration::minutes(15))
+        // Still in a reply that is streaming: the owner hears of it when the reply is complete,
+        // and its Undo window opens then.
+        .filter(|action| !action.held())
         .map(|action| {
             serde_json::json!({
                 "id": action.id,
