@@ -1,13 +1,18 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
 	import { pollEvery } from '$lib/model/connection.svelte';
 	/* The Library: everything the company has written and made, in one place (S64). Native
 	 * documents and sheets open in their editors; the sites, images, PDFs, decks and recordings Work
 	 * produced on the company computer open in place, a deck as a slideshow. Files the owner adds or
-	 * sends in a conversation are kept here under From you. One table, filtered from the side,
-	 * sorted from its head. A new document or sheet is made untitled and opens straight into its
-	 * editor; a dropped file is added as it is. */
+	 * sends in a conversation are kept here too. A new document or sheet is made untitled and opens
+	 * straight into its editor; a dropped file is added as it is.
+	 *
+	 * The sidebar (owner redesign, 3 November) has a fixed spine (Search, Needs you, Recent, All
+	 * files), the owner's Pinned, Live now (collections that mirror open goals and the clients Work
+	 * is busy with, refreshed only between visits and on navigation) and Archive at its foot. All
+	 * files is an explorer: folders as rows above files, a breadcrumb back up, human names, and
+	 * agents' working notes hidden unless the Filter asks for them. Nothing is moved or renamed. */
 	import {
 		readArchivedLibrary,
 		readLibraryModified,
@@ -51,7 +56,6 @@
 	import FileType from '@lucide/svelte/icons/file-type';
 	import Film from '@lucide/svelte/icons/film';
 	import NotebookText from '@lucide/svelte/icons/notebook-text';
-	import NotebookPen from '@lucide/svelte/icons/notebook-pen';
 	import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 	import Upload from '@lucide/svelte/icons/upload';
 	import FolderUp from '@lucide/svelte/icons/folder-up';
@@ -61,6 +65,7 @@
 	import Lock from '@lucide/svelte/icons/lock';
 	import { PRIVATE_HINT } from '$lib/model/general-access';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import Popover from '$lib/ui/controls/Popover.svelte';
 	import { dismissToast, toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import WarningMark from '$lib/ui/feedback/WarningMark.svelte';
 	import {
@@ -68,6 +73,8 @@
 		LibraryOpenError,
 		downloadHref,
 		fileAtPath,
+		fileLabel,
+		pathName,
 		isWorkingNote,
 		libraryFileHref,
 		libraryFileById,
@@ -96,6 +103,29 @@
 		type LibraryItem
 	} from '$lib/model/library-items';
 	import Folder from '@lucide/svelte/icons/folder';
+	import Clock from '@lucide/svelte/icons/clock';
+	import ListFilter from '@lucide/svelte/icons/list-filter';
+	import Target from '@lucide/svelte/icons/target';
+	import X from '@lucide/svelte/icons/x';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import {
+		allFolders,
+		crumbs,
+		decodePin,
+		explore,
+		filterPin,
+		folderOf,
+		folderPin,
+		folderTitle,
+		humanName,
+		inCollection,
+		liveCollections,
+		within,
+		worksIn,
+		type ExplorerFolder,
+		type LiveCollection,
+		type LiveItem
+	} from '$lib/model/library-explorer';
 	import Square from '@lucide/svelte/icons/square';
 	import SquareCheck from '@lucide/svelte/icons/square-check';
 	import { documentSearch } from '$lib/model/document-search.svelte';
@@ -345,18 +375,58 @@
 		}
 	}
 
-	type Filter =
-		| 'all'
-		| 'docs'
-		| 'sheets'
-		| 'review'
-		| 'pinned'
-		| 'archived'
-		| 'yours'
-		| 'folders'
-		| 'notes'
-		| LibraryFileKind;
-	const filter = $derived((page.url.searchParams.get('show') as Filter) || 'all');
+	/* The views the sidebar's spine and foot open. Older addresses still open: a kind, Documents or
+	 * Sheets is All files filtered to that type, Folders is All files, and Working notes is All files
+	 * with working notes shown. */
+	type Filter = 'all' | 'recent' | 'review' | 'archived' | 'yours';
+	const VIEWS: Filter[] = ['all', 'recent', 'review', 'archived', 'yours'];
+	const showParam = $derived(page.url.searchParams.get('show') ?? '');
+	const filter = $derived<Filter>(
+		VIEWS.includes(showParam as Filter) ? (showParam as Filter) : 'all'
+	);
+	/* The Filter's types: what an entry's kind is filtered as. */
+	type TypeKey = 'doc' | 'sheet' | 'upload' | LibraryFileKind;
+	const TYPE_LABEL: Record<TypeKey, string> = {
+		doc: 'Docs',
+		sheet: 'Sheets',
+		site: 'Sites',
+		image: 'Images',
+		deck: 'Decks',
+		pdf: 'PDFs',
+		media: 'Media',
+		text: 'Notes',
+		office: 'Office files',
+		other: 'Other files',
+		upload: 'From you'
+	};
+	const legacyType = $derived(
+		showParam === 'docs'
+			? 'doc'
+			: showParam === 'sheets'
+				? 'sheet'
+				: Object.hasOwn(TYPE_LABEL, showParam) && showParam !== 'upload'
+					? showParam
+					: ''
+	);
+	const types = $derived(
+		new Set(
+			[...(page.url.searchParams.get('type') ?? '').split(','), legacyType].filter(
+				(key): key is TypeKey => Object.hasOwn(TYPE_LABEL, key)
+			)
+		)
+	);
+	/* Agents' working notes are hidden unless the Filter includes them. */
+	const notesShown = $derived(page.url.searchParams.get('notes') === '1' || showParam === 'notes');
+	/* Where the explorer is: a folder in the company home, '' for the top of All files. */
+	const folderParam = $derived(
+		(page.url.searchParams.get('folder') ?? '').startsWith('/company/')
+			? (page.url.searchParams.get('folder') ?? '').replace(/\/+$/, '')
+			: ''
+	);
+	/* A Live now collection: `goal:<id>`, `folder:<path>` or `collection:<name>`. */
+	const liveParam = $derived(page.url.searchParams.get('live') ?? '');
+	/* The row "Show in folder" lands on. */
+	const highlightParam = $derived(page.url.searchParams.get('highlight') ?? '');
 	const openFileId = $derived(page.url.searchParams.get('file') ?? '');
 	const openUploadId = $derived(page.url.searchParams.get('upload') ?? '');
 	/* A link to a company file by its path (from a message, a note or a document) opens here too. */
@@ -474,7 +544,16 @@
 				)
 			: null;
 	const convertFile = (id: string, title: string) =>
-		convert({ id, title, kind: 'other', updatedAt: '', owner: '', status: '', review: false });
+		convert({
+			id,
+			title,
+			kind: 'other',
+			updatedAt: '',
+			owner: '',
+			status: '',
+			review: false,
+			dir: ''
+		});
 	async function convert(entry: Entry) {
 		try {
 			let bytes: ArrayBuffer;
@@ -757,6 +836,14 @@
 		collection?: string;
 		/** A document's kind, such as Decision note, when it is not freeform. */
 		docKind?: string;
+		/** The folder it sits in, '' for the top of All files. */
+		dir: string;
+		/** An agent's working note, hidden unless the Filter shows them. */
+		note?: boolean;
+		/** The Work that made it. */
+		workId?: string | null;
+		/** A site served live from the company computer. */
+		live?: boolean;
 	};
 	const pinKey = (entry: Pick<Entry, 'kind' | 'id'>) => `${entry.kind}:${entry.id}`;
 	const isNative = (entry: Pick<Entry, 'kind'>) => entry.kind === 'doc' || entry.kind === 'sheet';
@@ -794,7 +881,8 @@
 		private: summary.document.general_access === 'private',
 		status: archived ? '' : summary.document.status,
 		review:
-			!archived && (summary.document.status === 'in_review' || requested.has(summary.document.id))
+			!archived && (summary.document.status === 'in_review' || requested.has(summary.document.id)),
+		dir: ''
 	});
 	const sheetEntry = (sheet: SheetRow): Entry => ({
 		id: sheet.id,
@@ -807,7 +895,8 @@
 		manage: owner || !!sheet.may_manage,
 		private: sheet.general_access === 'private',
 		status: '',
-		review: false
+		review: false,
+		dir: ''
 	});
 	/* When each file last changed on the computer: an agent that edits a site in place records no
 	 * new output, so "Updated" otherwise kept the day it was first made (20 October). */
@@ -823,9 +912,6 @@
 	let outputRevision: string | null = null;
 	let outputEpoch = 0;
 	let outputSkippedReported = false;
-	const outputIncomplete = $derived(
-		outputFilesTruncated || outputSkippedNames > 0 || outputStale || outputReadFailed
-	);
 	const folderListingHint = $derived(
 		outputReadFailed
 			? 'Files could not be read. Try again.'
@@ -989,13 +1075,19 @@
 	const fileEntry = (file: LibraryFile, archived = false): Entry => ({
 		id: file.id,
 		kind: file.kind,
-		title: file.label,
+		/* A human title, never a slug: the recorder's name without its extension, or the file's
+		 * own name made readable. The file name is still searched. */
+		title: humanName(file.label),
 		href: fileHref(file.id),
 		updatedAt: latestTime(file.createdAt, fileModified[file.uri]),
 		owner: name(file.createdBy),
 		status: '',
 		review: !archived && !!file.workId && workWaitingOnOwner.has(file.workId),
-		also: file.name
+		also: `${file.label} ${file.name}`,
+		dir: folderOf(file.uri),
+		note: isWorkingNote(file),
+		workId: file.workId,
+		live: /^https?:\/\//.test(file.uri)
 	});
 	const keptEntries = $derived<Entry[]>(
 		distinctKept(keptRows).map((row) => ({
@@ -1008,7 +1100,8 @@
 			status: '',
 			review: false,
 			meta: fileSize(row.size_bytes),
-			sent: row.message_id !== null
+			sent: row.message_id !== null,
+			dir: ''
 		}))
 	);
 	/* Each row carries its collection, and a kept file the name the owner gave it. */
@@ -1053,29 +1146,53 @@
 		bytes >= 1024 * 1024
 			? `${(bytes / 1024 / 1024).toFixed(1)} MB`
 			: `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
-	/* Folders: every output file by its path, newest first; one already in the Library opens as
-	 * that entry, the rest by their path. */
-	const folderEntries = $derived<Entry[]>(
-		outputFiles.map((file) => {
-			const known = files.find((entry) => entry.uri === file.path);
-			return {
-				id: known?.id ?? `path:${file.path}`,
-				kind: known?.kind ?? libraryKind({ kind: '', uri: file.path, label: '' }) ?? 'other',
-				title: file.path
-					.replace(/^\/company\/outputs\//, '')
-					.replace(/^\/company\/downloads\//, 'Downloads/'),
-				href: known ? fileHref(known.id) : `${root}/library?path=${encodeURIComponent(file.path)}`,
-				updatedAt: file.modified ?? '',
-				owner: known
-					? name(known.createdBy)
-					: file.path.startsWith('/company/downloads/')
-						? 'Browser'
-						: 'Agents',
-				status: '',
-				review: false,
-				meta: outputSize(file.bytes)
-			} satisfies Entry;
-		})
+	/* Files on the company computer that no Work recorded (Calcifer's card site, 21 October): they
+	 * sit in their folders in All files and open by their path. A recorded file is listed once, as
+	 * its record, and a replaced or archived version stays out. Owner only: the listing is. */
+	const recordedPaths = $derived(
+		new Set([...artifacts, ...archivedArtifacts].map((artifact) => artifact.uri.split(/[?#]/)[0]))
+	);
+	const listingEntries = $derived<Entry[]>(
+		outputFiles
+			.filter((file) => !recordedPaths.has(file.path))
+			.map((file) => {
+				const kind = libraryKind({ kind: '', uri: file.path, label: '' }) ?? 'other';
+				return {
+					id: `path:${file.path}`,
+					kind,
+					title: humanName(fileLabel('', file.path)),
+					href: `${root}/library?path=${encodeURIComponent(file.path)}`,
+					updatedAt: file.modified ?? '',
+					owner: file.path.startsWith('/company/downloads/') ? 'Browser' : 'Agents',
+					status: '',
+					review: false,
+					also: pathName(file.path),
+					meta: outputSize(file.bytes),
+					dir: folderOf(file.path),
+					note: isWorkingNote({ kind, uri: file.path })
+				} satisfies Entry;
+			})
+	);
+	/* What All files holds: everything made for the owner, and the working notes when the Filter
+	 * asks for them. */
+	const explorerPool = $derived<Entry[]>([
+		...entries,
+		...listingEntries.filter((entry) => !entry.note),
+		...(notesShown ? [...noteEntries, ...listingEntries.filter((entry) => entry.note)] : [])
+	]);
+	/* A folder holding a site is called by the site's title, when its page was given one. */
+	const folderTitles = $derived(
+		new Map(
+			files
+				.filter(
+					(file) =>
+						file.named &&
+						(file.kind === 'site' || file.kind === 'deck') &&
+						/\/index\.html?$/i.test(file.uri.split(/[?#]/)[0])
+				)
+				.map((file) => [folderOf(file.uri), humanName(file.label)] as const)
+				.filter(([folder]) => !!folder)
+		)
 	);
 	const FILE_KINDS: LibraryFileKind[] = [
 		'site',
@@ -1112,26 +1229,45 @@
 	/* Documents arrive a page at a time; the server says how many there are in all, so the
 	 * counts never stop at the pages loaded so far. */
 	const docTotal = $derived(Math.max(documents.total ?? 0, count('doc')));
+	/* All files counts what was made for the owner: documents, sheets, kept files and the files
+	 * Work recorded, never agents' working notes. Files on the computer that nothing recorded are
+	 * browsable in their folders but not counted, so the count never jumps as the listing pages in. */
 	const counts = $derived({
 		all: entries.length - count('doc') + docTotal,
-		docs: docTotal,
-		sheets: count('sheet'),
 		yours: keptEntries.length,
 		review: [...entries, ...noteEntries].filter((entry) => entry.review).length,
 		archived: archivedEntries.length,
-		notes: noteEntries.length
+		notes: noteEntries.length + listingEntries.filter((entry) => entry.note).length
 	});
-	/* Documents and Sheets are always places; a file kind appears once Work has made one. */
-	const fileKinds = $derived(
-		FILE_KINDS.map((kind) => ({ kind, total: count(kind) })).filter((row) => row.total > 0)
+	/* The Filter's types: the four the owner reaches for, then any other kind present. */
+	const typeChoices = $derived(
+		(
+			[
+				'doc',
+				'sheet',
+				'site',
+				'image',
+				...FILE_KINDS.filter((kind) => kind !== 'site' && kind !== 'image'),
+				'upload'
+			] as TypeKey[]
+		).filter(
+			(key) =>
+				key === 'doc' ||
+				key === 'sheet' ||
+				key === 'site' ||
+				key === 'image' ||
+				types.has(key) ||
+				(key === 'upload' ? keptEntries.length > 0 : count(key) > 0)
+		)
 	);
 
-	/* A pinned document older than the loaded pages is read once by id, so a pin never vanishes. */
+	/* A pinned document older than the loaded pages is read once by id, so a pin never vanishes;
+	 * so is a document "Show in folder" lands on. */
 	let pinnedExtra = $state<Record<string, Entry>>({});
 	const pinLookups = new Set<string>();
 	$effect(() => {
 		const target = companyId;
-		for (const key of pins) {
+		for (const key of [...pins, highlightParam]) {
 			if (!key.startsWith('doc:') || pinLookups.has(`${target}|${key}`)) continue;
 			if (documents.status === 'unknown' || entries.some((entry) => pinKey(entry) === key))
 				continue;
@@ -1159,7 +1295,9 @@
 
 	/* Searching reads inside documents on the server, past the loaded pages; sheets and files match
 	 * by title and file name here. Archived and pinned views filter what they already hold. */
-	const searchesDocuments = $derived(!!query && (filter === 'all' || filter === 'docs'));
+	const searchesDocuments = $derived(
+		!!query && filter === 'all' && !liveParam && (types.size === 0 || types.has('doc'))
+	);
 	const docSearch = documentSearch({
 		company: () => companyId,
 		partition: () => principal.view?.cache_partition ?? '',
@@ -1233,16 +1371,18 @@
 		comments: CommentSearchHit[];
 	}>({ query: '', sheets: null, comments: [] });
 	$effect(() => {
-		const text = filter === 'all' || filter === 'sheets' || filter === 'docs' ? query : '';
+		const text = filter === 'all' ? query : '';
+		const sheetsWanted = types.size === 0 || types.has('sheet');
+		const docsWanted = types.size === 0 || types.has('doc');
 		const target = companyId;
 		if (text.length < 2) return;
 		const controller = new AbortController();
 		const timer = setTimeout(() => {
 			void Promise.all([
-				filter === 'docs'
+				!sheetsWanted
 					? Promise.resolve(null)
 					: searchSheets(target, text, controller.signal).catch(() => null),
-				filter === 'sheets'
+				!docsWanted
 					? Promise.resolve([])
 					: searchComments(target, text, 20, controller.signal).catch(() => [])
 			]).then(([sheets, comments]) => {
@@ -1301,34 +1441,96 @@
 		else url.searchParams.delete(name);
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
-	const inView = (entry: Entry) =>
-		filter === 'folders' ||
-		filter === 'all' ||
-		filter === 'archived' ||
-		filter === 'pinned' ||
-		filter === 'notes' ||
-		(filter === 'docs' && entry.kind === 'doc') ||
-		(filter === 'sheets' && entry.kind === 'sheet') ||
-		(filter === 'yours' && entry.kind === 'upload') ||
-		(filter === 'review' && entry.review) ||
-		entry.kind === filter;
+	/* Several filters at once: the type list is comma separated. Choosing a type replaces an old
+	 * `show=<kind>` address's type rather than adding to it. */
+	function setTypes(next: Set<TypeKey>) {
+		const url = new URL(page.url);
+		if (legacyType || showParam === 'notes') url.searchParams.delete('show');
+		if (showParam === 'notes') url.searchParams.set('notes', '1');
+		if (next.size) url.searchParams.set('type', [...next].join(','));
+		else url.searchParams.delete('type');
+		url.searchParams.delete('highlight');
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
+	function toggleType(key: TypeKey) {
+		const next = new Set(types);
+		if (next.has(key)) next.delete(key);
+		else next.add(key);
+		setTypes(next);
+	}
+	function setNotes(shown: boolean) {
+		const url = new URL(page.url);
+		if (showParam === 'notes') url.searchParams.delete('show');
+		if (shown) url.searchParams.set('notes', '1');
+		else url.searchParams.delete('notes');
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
+	const typeMatches = (entry: Entry) => !types.size || types.has(entry.kind as TypeKey);
+
+	/* Collections are saved queries over the files: membership is read, never filed. */
+	const liveItemOf = (entry: Entry): LiveItem => ({
+		key: pinKey(entry),
+		kind: entry.kind,
+		dir: entry.dir,
+		updatedAt: entry.updatedAt,
+		workId: entry.workId ?? null,
+		review: entry.review,
+		inReview: entry.status === 'in_review',
+		live: !!entry.live,
+		collection: entry.collection
+	});
+	const goalWorks = $derived(
+		(libraryWorks as { id: string; goal_id?: string | null }[]).map((work) => ({
+			id: work.id,
+			goal_id: work.goal_id ?? null
+		}))
+	);
+	const liveFolderWorks = $derived(
+		liveParam.startsWith('folder:')
+			? worksIn(explorerPool.map(liveItemOf), liveParam.slice(7))
+			: undefined
+	);
+	const inLive = (entry: Entry) =>
+		!liveParam || inCollection(liveParam, liveItemOf(entry), goalWorks, liveFolderWorks);
+
+	/* All files browses folder by folder until a search, a filter or a collection asks across them;
+	 * then it lists every match in this folder and the folders below it, without folder rows. */
+	const filtering = $derived(types.size > 0 || !!byParam || !!sinceParam);
+	const browsing = $derived(
+		filter === 'all' && !query && !filtering && !liveParam && !collectionParam
+	);
+	/* A document "Show in folder" lands on that is older than the loaded pages is read by id. */
+	const highlightExtra = $derived(
+		highlightParam &&
+			pinnedExtra[highlightParam] &&
+			!entries.some((entry) => pinKey(entry) === highlightParam)
+			? [pinnedExtra[highlightParam]]
+			: []
+	);
+	const explored = $derived(
+		browsing ? explore([...explorerPool, ...highlightExtra], folderParam, folderTitles) : null
+	);
 	const listed = $derived.by(() => {
 		const pool =
 			filter === 'archived'
 				? archivedEntries
-				: filter === 'pinned'
-					? pinned
-					: filter === 'folders'
-						? folderEntries
-						: filter === 'notes'
-							? noteEntries
-							: filter === 'review'
-								? [...entries, ...noteEntries]
-								: entries;
+				: filter === 'review'
+					? [...entries, ...noteEntries].filter((entry) => entry.review)
+					: filter === 'yours'
+						? keptEntries.map(organised)
+						: filter === 'recent'
+							? entries
+							: explored
+								? explored.items
+								: explorerPool.filter(
+										(entry) =>
+											!!query || !!liveParam || !!collectionParam || within(entry.dir, folderParam)
+									);
 		const local = pool
 			.filter(
 				(entry) =>
-					inView(entry) &&
+					typeMatches(entry) &&
+					inLive(entry) &&
 					matches(entry) &&
 					byMatches(entry) &&
 					sinceMatches(entry) &&
@@ -1356,7 +1558,8 @@
 							owner: '',
 							manage: owner,
 							status: '',
-							review: false
+							review: false,
+							dir: ''
 						}),
 				meta: hit.snippet ? excerpt(hit.snippet, query) : undefined,
 				rank
@@ -1366,6 +1569,7 @@
 		return [
 			...hits.filter(
 				(hit) =>
+					inLive(hit) &&
 					byMatches(hit) &&
 					sinceMatches(hit) &&
 					(!collectionParam || itemOf.get(pinKey(hit))?.collection === collectionParam)
@@ -1390,19 +1594,28 @@
 					(a.rank ?? Infinity) - (b.rank ?? Infinity) ||
 					Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
 			);
-		return listed.toSorted((a, b) => {
+		const sorted = listed.toSorted((a, b) => {
 			if (sort === 'name') return byName.compare(a.title, b.title);
 			if (sort === 'name-desc') return byName.compare(b.title, a.title);
 			const age = Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
 			return sort === 'oldest' ? -age : age;
 		});
+		/* Recent is the newest fifty, whatever order they are then read in. */
+		if (filter !== 'recent') return sorted;
+		const newest = new Set(
+			listed
+				.toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+				.slice(0, RECENT_LIMIT)
+		);
+		return sorted.filter((entry) => newest.has(entry));
 	});
+	const RECENT_LIMIT = 50;
 	/* Sorting by anything but the newest edit reads every document first, so "A to Z" never
 	 * misses one on a later page. Bounded, as a company's Library is. */
 	$effect(() => {
 		if (
 			sort !== 'updated' &&
-			(filter === 'all' || filter === 'docs' || filter === 'review') &&
+			(filter === 'all' || filter === 'review') &&
 			documents.hasMore &&
 			!documents.loadingMore &&
 			!documents.failure &&
@@ -1456,29 +1669,40 @@
 			? Boolean(attention.view || attention.failure)
 			: Boolean(collaboration.view || collaboration.failure)
 	);
-	const loading = $derived(documents.status === 'unknown' || !sheetsLoaded || !filesLoaded);
-	const FILTERS: { key: Filter; label: string }[] = [
-		{ key: 'all', label: 'All files' },
-		{ key: 'review', label: 'Needs your review' },
-		{ key: 'docs', label: 'Documents' },
-		{ key: 'sheets', label: 'Sheets' },
-		{ key: 'archived', label: 'Archived' }
-	];
+	/* Goals name Live now; the list, Pinned and Live now are drawn together once all have answered. */
+	const goalsLoaded = $derived(
+		owner
+			? Boolean(cockpit.view || cockpit.failure)
+			: Boolean(collaboration.view || collaboration.failure)
+	);
+	const loading = $derived(
+		documents.status === 'unknown' || !sheetsLoaded || !filesLoaded || !goalsLoaded
+	);
+	const VIEW_LABEL: Record<Filter, string> = {
+		all: 'All files',
+		recent: 'Recent',
+		review: 'Needs you',
+		archived: 'Archive',
+		yours: 'From you'
+	};
+	const goals = $derived<{ id: string; title: string; closed_at: string | null }[]>(
+		owner ? (cockpit.view?.goals ?? []) : (collaboration.view?.goals ?? [])
+	);
+	/* What a collection is called, whether or not it is in Live now: a closed goal's is still
+	 * reachable from Archive. */
+	const liveTitle = (key: string) =>
+		liveNow?.rows.find((row) => row.key === key)?.title ??
+		(key.startsWith('goal:')
+			? (goals.find((goal) => goal.id === key.slice(5))?.title ?? 'Goal')
+			: key.startsWith('folder:')
+				? folderTitle(key.slice(7), folderTitles)
+				: key.slice(key.indexOf(':') + 1));
 	const filterLabel = (key: Filter) =>
-		collectionParam && key === 'all'
-			? collectionParam
-			: key === 'folders'
-				? 'Folders'
-				: key === 'notes'
-					? 'Working notes'
-					: key === 'pinned'
-						? 'Pinned'
-						: key === 'yours'
-							? 'From you'
-							: (FILTERS.find((item) => item.key === key)?.label ??
-								(FILE_KINDS.includes(key as LibraryFileKind)
-									? LIBRARY_KIND_LABEL[key as LibraryFileKind]
-									: 'All files'));
+		key === 'all' && liveParam
+			? liveTitle(liveParam)
+			: key === 'all' && collectionParam
+				? collectionParam
+				: VIEW_LABEL[key];
 
 	const filterHref = (key: Filter, collection = '') => {
 		const url = new URLSearchParams();
@@ -1488,16 +1712,297 @@
 		const query = url.toString();
 		return query ? `${root}/library?${query}` : `${root}/library`;
 	};
-	const backHref = $derived(filterHref(filter, collectionParam));
+	const liveHref = (key: string) => `${root}/library?live=${encodeURIComponent(key)}`;
+	/* A folder in All files, keeping whether working notes are shown and the order. */
+	const folderHref = (folder: string, highlight = '', notes = notesShown) => {
+		const url = new URLSearchParams();
+		if (folder) url.set('folder', folder);
+		if (notes) url.set('notes', '1');
+		if (sortParam) url.set('sort', sortParam);
+		if (highlight) url.set('highlight', highlight);
+		const query = url.toString();
+		return query ? `${root}/library?${query}` : `${root}/library`;
+	};
+	/* "Show in folder": All files at the folder the file sits in, with its row highlighted. */
+	const showInFolderHref = (entry: Pick<Entry, 'kind' | 'id' | 'dir' | 'note'>) =>
+		folderHref(entry.dir, pinKey(entry), !!entry.note || notesShown);
+	/* The way back from an open file: the view it was opened from, without the opened file. */
+	const backHref = $derived.by(() => {
+		const url = new URL(page.url);
+		for (const key of ['file', 'upload', 'path', 'highlight']) url.searchParams.delete(key);
+		return `${url.pathname}${url.search}`;
+	});
 	/* An editor opened from here returns to this view, as it was. */
 	$effect(() => rememberLibraryView(companyId, page.url.search));
-	/* Collections in use, among the items this person can see. */
+	/* Collections in use, among the items this person can see, for the collection dialog. */
 	const collections = $derived(
 		collectionCounts(
 			libraryItems?.company === companyId ? libraryItems.items : [],
 			new Set(entries.map(pinKey))
 		)
 	);
+
+	/* Live now. Read when the Library opens and again on each navigation, never while the owner is
+	 * looking: a poll that brings new files changes nothing in it until they move. "New" counts what
+	 * changed since the owner's previous visit to this company's Library. */
+	let liveNow = $state<{ company: string; rows: LiveCollection[] } | null>(null);
+	let visitSince = $state<{ company: string; at: number }>({ company: '', at: 0 });
+	$effect(() => {
+		const company = companyId;
+		if (visitSince.company === company) return;
+		const key = `restless:${company}:library-visit`;
+		let at = 0;
+		try {
+			at = Number(localStorage.getItem(key)) || 0;
+			localStorage.setItem(key, String(Date.now()));
+		} catch {
+			/* Without storage nothing is called new; the collections still show. */
+		}
+		visitSince = { company, at };
+	});
+	/* Goals can close behind the page's back (Exec closes one; the shell's copy waits for its
+	 * next poll), so each navigation reads them again and Live now is redrawn with the answer, as
+	 * part of that navigation. The first visit draws at once from what has loaded. */
+	let liveRead = 0;
+	$effect(() => {
+		void page.url.pathname;
+		void page.url.search;
+		if (loading || visitSince.company !== companyId) return;
+		const read = ++liveRead;
+		const company = companyId;
+		const draw = () =>
+			untrack(() => {
+				if (read !== liveRead || company !== companyId) return;
+				liveNow = {
+					company,
+					rows: liveCollections({
+						goals,
+						works: goalWorks,
+						items: [...entries, ...noteEntries.filter((entry) => entry.review)].map(liveItemOf),
+						titles: folderTitles,
+						since: visitSince.at,
+						now: Date.now()
+					})
+				};
+			});
+		if (untrack(() => liveNow?.company !== company)) draw();
+		/* At most one fresh read of the goals every few seconds, however fast the clicks. */
+		if (Date.now() - goalsReadAt < 4_000) return draw();
+		goalsReadAt = Date.now();
+		void untrack(() => (owner ? cockpit : collaboration).refresh()).then(draw, draw);
+	});
+	let goalsReadAt = 0;
+	const liveRows = $derived(liveNow?.company === companyId ? liveNow.rows : []);
+	const LIVE_ICON = (key: string) =>
+		key.startsWith('goal:') ? Target : key.startsWith('folder:') ? FolderOpen : Folder;
+
+	/* Rows that open a place rather than a file: folders in All files, matching folders and goals in
+	 * a search, finished goals in Archive. Above the files, as Drive and Files list them. */
+	type PlaceRow = {
+		key: string;
+		title: string;
+		href: string;
+		updatedAt: string;
+		icon: typeof Library;
+		/** A folder it opens, which can be pinned. */
+		folder?: string;
+	};
+	const goalActivity = (goalId: string) => {
+		const members = entries.filter((entry) =>
+			inCollection(`goal:${goalId}`, liveItemOf(entry), goalWorks)
+		);
+		return members.length
+			? new Date(
+					Math.max(...members.map((entry) => Date.parse(entry.updatedAt) || 0))
+				).toISOString()
+			: '';
+	};
+	const placeRows = $derived.by((): PlaceRow[] => {
+		const folderRow = (row: ExplorerFolder): PlaceRow => ({
+			key: `folder:${row.folder}`,
+			title: row.title,
+			href: folderHref(row.folder),
+			updatedAt: row.updatedAt,
+			icon: Folder,
+			folder: row.folder
+		});
+		let rows: PlaceRow[] = [];
+		if (explored) rows = explored.folders.map(folderRow);
+		else if (filter === 'all' && query && !liveParam && !collectionParam) {
+			const needle = query.toLowerCase();
+			const goalRows = goals
+				.filter((goal) => goal.title.toLowerCase().includes(needle))
+				.flatMap((goal) => {
+					const updatedAt = goalActivity(goal.id);
+					return updatedAt
+						? [
+								{
+									key: `goal:${goal.id}`,
+									title: goal.title,
+									href: liveHref(`goal:${goal.id}`),
+									updatedAt,
+									icon: Target
+								}
+							]
+						: [];
+				});
+			rows = [
+				...goalRows,
+				...allFolders(explorerPool, folderTitles)
+					.filter((row) => row.title.toLowerCase().includes(needle))
+					.map(folderRow)
+			].slice(0, 8);
+		} else if (filter === 'archived' && !query) {
+			rows = goals
+				.filter((goal) => goal.closed_at)
+				.flatMap((goal) => {
+					const updatedAt = goalActivity(goal.id);
+					return updatedAt
+						? [
+								{
+									key: `goal:${goal.id}`,
+									title: goal.title,
+									href: liveHref(`goal:${goal.id}`),
+									updatedAt,
+									icon: Target
+								}
+							]
+						: [];
+				});
+		}
+		return rows.toSorted((a, b) =>
+			sort === 'name'
+				? byName.compare(a.title, b.title)
+				: sort === 'name-desc'
+					? byName.compare(b.title, a.title)
+					: sort === 'oldest'
+						? Date.parse(a.updatedAt || '0') - Date.parse(b.updatedAt || '0')
+						: Date.parse(b.updatedAt || '0') - Date.parse(a.updatedAt || '0')
+		);
+	});
+	const breadcrumb = $derived(browsing && folderParam ? crumbs(folderParam, folderTitles) : []);
+	/* "Show in folder" lands with the row in view, once per arrival: a poll never scrolls again. */
+	let scrolledTo = '';
+	$effect(() => {
+		const key = highlightParam;
+		if (!key || loading || key === scrolledTo) return;
+		if (!shown.some((entry) => pinKey(entry) === key)) return;
+		scrolledTo = key;
+		void tick().then(() =>
+			document
+				.querySelector(`.table [data-row="${CSS.escape(key)}"]`)
+				?.scrollIntoView({ block: 'center' })
+		);
+	});
+	/* The breadcrumb keeps its end in view: scrolled to the folder you are in before it is
+	 * painted, and again whenever it or its room changes; `clipped` fades the cut edge. */
+	function keepEnd(node: HTMLElement) {
+		const fit = () => {
+			node.scrollLeft = node.scrollWidth;
+			node.classList.toggle('clipped', node.scrollLeft > 0);
+		};
+		const resized = new ResizeObserver(fit);
+		resized.observe(node);
+		const changed = new MutationObserver(fit);
+		changed.observe(node, { childList: true, subtree: true, characterData: true });
+		fit();
+		return {
+			destroy() {
+				resized.disconnect();
+				changed.disconnect();
+			}
+		};
+	}
+
+	/* Pinned: files, folders and saved filters, in the order the owner pinned them. */
+	type PinnedRow = {
+		key: string;
+		label: string;
+		href: string;
+		icon: typeof Library;
+		active: boolean;
+	};
+	const currentSearch = $derived.by(() => {
+		const url = new URLSearchParams(page.url.search);
+		for (const key of ['file', 'upload', 'path', 'highlight', 'create']) url.delete(key);
+		return url.toString();
+	});
+	const pinnedRows = $derived(
+		pins.flatMap((key): PinnedRow[] => {
+			const pin = decodePin(key);
+			if (!pin) return [];
+			if (pin.kind === 'folder')
+				return [
+					{
+						key,
+						label: folderTitle(pin.folder, folderTitles),
+						href: folderHref(pin.folder, '', false),
+						icon: Folder,
+						active: browsing && folderParam === pin.folder && !fileOpen && !uploadFile
+					}
+				];
+			if (pin.kind === 'filter')
+				return [
+					{
+						key,
+						label: pin.name,
+						href: `${root}/library${pin.search ? `?${pin.search}` : ''}`,
+						icon: ListFilter,
+						active: currentSearch === pin.search && !fileOpen && !uploadFile
+					}
+				];
+			const entry = pinned.find((candidate) => pinKey(candidate) === key);
+			return entry
+				? [
+						{
+							key,
+							label: entry.title,
+							href: entry.href ?? '',
+							icon: KIND_ICON[entry.kind],
+							active:
+								(isFile(entry) && entry.id === fileOpen?.id) ||
+								(entry.kind === 'upload' && entry.id === openUploadId)
+						}
+					]
+				: [];
+		})
+	);
+	const folderPinKey = $derived(folderParam ? folderPin(folderParam) : null);
+
+	/* "Save current filter": the view as it is now becomes a collection in Pinned. */
+	const filterActive = $derived(filtering || notesShown);
+	let saveDialog: HTMLDialogElement | undefined = $state();
+	let saveName = $state('');
+	let saveFailure = $state('');
+	function askSaveFilter() {
+		const parts = [
+			...[...types].map((key) => TYPE_LABEL[key]),
+			byParam
+				? byParam === 'you'
+					? 'by you'
+					: byParam === 'others'
+						? 'shared with you'
+						: `by ${byParam}`
+				: '',
+			sinceParam ? ({ '1': 'today', '7': 'this week', '30': 'this month' }[sinceParam] ?? '') : '',
+			notesShown ? 'with working notes' : ''
+		].filter(Boolean);
+		saveName = parts.join(', ').replace(/^./, (letter) => letter.toUpperCase());
+		saveFailure = '';
+		saveDialog?.showModal();
+	}
+	async function saveFilter() {
+		const name = saveName.trim();
+		if (!name) return;
+		const key = filterPin(name, currentSearch);
+		if (!key) {
+			saveFailure = 'That name is too long to keep. Try a shorter one.';
+			return;
+		}
+		saveDialog?.close();
+		if (!pins.includes(key)) await togglePin(key);
+		toast(`Saved “${name}” to Pinned`);
+	}
 	/* People who made something here, for the "made by" filter. */
 	const makers = $derived(
 		[...new Set(entries.map((entry) => entry.owner))]
@@ -1670,7 +2175,9 @@
 
 <CompanyTitle title="Library" {companyId} />
 
-<!-- The same sidebar as every area: a title, search, views, then the kinds of thing kept here. -->
+<!-- The same sidebar as every area. A fixed spine that never moves or relabels (search, Needs you,
+     Recent, All files), the owner's Pinned and Live now in the middle, Archive at the foot. Team
+     working notes are behind the Filter, not a row of their own. -->
 <ResizableSidebar area="library" label="Resize the Library sidebar">
 	<SidebarShell label="Library" title="Library">
 		{#snippet top()}
@@ -1678,101 +2185,56 @@
 		{/snippet}
 		{#snippet nav()}
 			<SidebarRow
-				href={filterHref('all')}
-				label="All files"
-				icon={Library}
-				active={filter === 'all' && !collectionParam && !fileOpen && !uploadFile}
-				count={counts.all || null}
-			/>
-			<SidebarRow
 				href={filterHref('review')}
-				label="Needs your review"
+				label="Needs you"
 				icon={Eye}
 				active={filter === 'review' && !fileOpen && !uploadFile}
 				count={counts.review || null}
 				todo
 				title="Documents and outcomes waiting on your judgement"
 			/>
-			<SidebarGroup label="Kinds">
-				<SidebarRow
-					href={filterHref('docs')}
-					label="Documents"
-					icon={FileText}
-					active={filter === 'docs' && !fileOpen && !uploadFile}
-					count={counts.docs || null}
-				/>
-				<SidebarRow
-					href={filterHref('sheets')}
-					label="Sheets"
-					icon={Sheet}
-					active={filter === 'sheets' && !fileOpen && !uploadFile}
-					count={counts.sheets || null}
-				/>
-				{#each fileKinds as row (row.kind)}
-					<SidebarRow
-						href={filterHref(row.kind)}
-						label={LIBRARY_KIND_LABEL[row.kind]}
-						icon={KIND_ICON[row.kind]}
-						active={filter === row.kind && !fileOpen && !uploadFile}
-						count={row.total}
-					/>
-				{/each}
-				{#if owner && (folderEntries.length || outputSkippedNames || outputReadFailed)}<SidebarRow
-						href={filterHref('folders')}
-						label="Folders"
-						icon={FolderOpen}
-						active={filter === 'folders' && !fileOpen && !uploadFile}
-						count={outputIncomplete ? null : folderEntries.length}
-						reading={outputReadFailed
-							? '—'
-							: outputIncomplete
-								? `${folderEntries.length}+`
-								: undefined}
-						readingTitle={outputIncomplete ? folderListingHint : undefined}
-						title={outputIncomplete
-							? folderListingHint
-							: 'Every file agents wrote to the outputs folder, linked or not'}
-					/>{/if}
-				<SidebarRow
-					href={filterHref('yours')}
-					label="From you"
-					icon={Upload}
-					active={filter === 'yours' && !fileOpen && !uploadFile}
-					count={counts.yours || null}
-					title={YOURS_HINT}
-				/>
-				{#if counts.notes || filter === 'notes'}<SidebarRow
-						href={filterHref('notes')}
-						label="Working notes"
-						icon={NotebookPen}
-						active={filter === 'notes' && !fileOpen && !uploadFile}
-						count={counts.notes || null}
-						title={NOTES_HINT}
-					/>{/if}
-			</SidebarGroup>
-			{#if collections.length}
-				<SidebarGroup label="Collections">
-					{#each collections as row (row.name)}
-						<SidebarRow
-							href={filterHref('all', row.name)}
-							label={row.name}
-							icon={Folder}
-							active={collectionParam === row.name && !fileOpen && !uploadFile}
-							count={row.total}
-						/>
+			<SidebarRow
+				href={filterHref('recent')}
+				label="Recent"
+				icon={Clock}
+				active={filter === 'recent' && !fileOpen && !uploadFile}
+				title="The newest changes, wherever they are"
+			/>
+			<SidebarRow
+				href={folderHref('', '', false)}
+				label="All files"
+				icon={Library}
+				active={filter === 'all' &&
+					!collectionParam &&
+					!liveParam &&
+					!pinnedRows.some((row) => row.active) &&
+					!fileOpen &&
+					!uploadFile}
+				count={loading ? null : counts.all || null}
+				title="Everything made for you, folder by folder; agents' working notes are behind the Filter"
+			/>
+			<!-- Pinned and Live now arrive with the list, in one frame, never one before the other. -->
+			{#if pinnedRows.length && !loading}
+				<SidebarGroup label="Pinned">
+					{#each pinnedRows as row (row.key)}
+						<SidebarRow href={row.href} label={row.label} icon={row.icon} active={row.active} />
 					{/each}
 				</SidebarGroup>
 			{/if}
-			{#if pinned.length}
-				<SidebarGroup label="Pinned" count={pinned.length}>
-					{#each pinned as entry (pinKey(entry))}
+			{#if liveRows.length}
+				<SidebarGroup
+					label="Live now"
+					help="Collections that follow your open goals and the clients the team is busy with. A file can be in several; nothing is moved. They change between visits, never while you look."
+				>
+					{#each liveRows as row (row.key)}
 						<SidebarRow
-							href={entry.href}
-							label={entry.title}
-							icon={Pin}
-							active={(isFile(entry) && entry.id === fileOpen?.id) ||
-								(entry.kind === 'upload' && entry.id === openUploadId)}
-							title={`${entry.title} · ${entry.owner}`}
+							href={liveHref(row.key)}
+							label={row.title}
+							icon={LIVE_ICON(row.key)}
+							active={liveParam === row.key && !fileOpen && !uploadFile}
+							reading={row.reason}
+							readingTone={row.tone}
+							title={`${row.title} · ${row.reason}`}
 						/>
 					{/each}
 				</SidebarGroup>
@@ -1781,11 +2243,11 @@
 		{#snippet foot()}
 			<SidebarRow
 				href={filterHref('archived')}
-				label="Archived"
+				label="Archive"
 				icon={ArchiveIcon}
-				active={filter === 'archived'}
+				active={filter === 'archived' && !liveParam}
 				count={counts.archived || null}
-				title="Taken out of every list. Restore anything here, or delete it for good."
+				title="Taken out of every list, and finished goals. Restore anything here, or delete it for good."
 			/>
 		{/snippet}
 		{#snippet narrow()}
@@ -1798,31 +2260,50 @@
 				aria-label="Library"
 				hidden={!!(openFileId || openUploadId || openPath)}
 			>
-				<!-- The views scroll; Archived stays pinned at the end, as it is at the foot of the
-				sidebar, so it is never the one cut off. -->
+				<!-- The sidebar in one row: the spine, Pinned and Live now scroll; Archive stays at the
+				end, as it is at the foot of the sidebar, so it is never the one cut off. -->
 				<div class="library-filters-views">
-					{#each [...FILTERS.slice(0, -1), ...fileKinds.map( (row) => ({ key: row.kind as Filter, label: LIBRARY_KIND_LABEL[row.kind] }) ), ...(owner && (folderEntries.length || outputSkippedNames || outputReadFailed) ? [{ key: 'folders' as Filter, label: outputReadFailed ? 'Folders —' : `Folders ${folderEntries.length}${outputIncomplete ? '+' : ''}` }] : []), ...(counts.yours ? [{ key: 'yours' as Filter, label: 'From you' }] : []), ...(counts.notes || filter === 'notes' ? [{ key: 'notes' as Filter, label: 'Working notes' }] : []), ...(pinned.length ? [{ key: 'pinned' as Filter, label: 'Pinned' }] : [])] as item (item.key)}
+					<a
+						href={filterHref('review')}
+						class:active={filter === 'review'}
+						aria-current={filter === 'review' ? 'page' : undefined}
+						>Needs you{#if counts.review}<b class="narrow-count">{counts.review}</b>{/if}</a
+					>
+					<a
+						href={filterHref('recent')}
+						class:active={filter === 'recent'}
+						aria-current={filter === 'recent' ? 'page' : undefined}>Recent</a
+					>
+					<a
+						href={folderHref('', '', false)}
+						class:active={filter === 'all' &&
+							!liveParam &&
+							!collectionParam &&
+							!pinnedRows.some((row) => row.active)}
+						aria-current={filter === 'all' && !liveParam && !collectionParam ? 'page' : undefined}
+						>All files</a
+					>
+					{#each loading ? [] : pinnedRows as row (row.key)}
 						<a
-							href={filterHref(item.key)}
-							title={item.key === 'folders' && outputIncomplete ? folderListingHint : undefined}
-							class:active={filter === item.key && !collectionParam}
-							aria-current={filter === item.key && !collectionParam ? 'page' : undefined}
-							>{item.label}</a
+							href={row.href}
+							class:active={row.active}
+							aria-current={row.active ? 'page' : undefined}>{row.label}</a
 						>
 					{/each}
-					{#each collections as row (row.name)}
+					{#each liveRows as row (row.key)}
 						<a
-							href={filterHref('all', row.name)}
-							class:active={collectionParam === row.name}
-							aria-current={collectionParam === row.name ? 'page' : undefined}>{row.name}</a
+							href={liveHref(row.key)}
+							class:active={liveParam === row.key}
+							aria-current={liveParam === row.key ? 'page' : undefined}
+							title={`${row.title} · ${row.reason}`}>{row.title}</a
 						>
 					{/each}
 				</div>
 				<a
 					href={filterHref('archived')}
 					class="library-filters-end"
-					class:active={filter === 'archived' && !collectionParam}
-					aria-current={filter === 'archived' && !collectionParam ? 'page' : undefined}>Archived</a
+					class:active={filter === 'archived' && !liveParam}
+					aria-current={filter === 'archived' && !liveParam ? 'page' : undefined}>Archive</a
 				>
 			</nav>
 		{/snippet}
@@ -1833,6 +2314,12 @@
 				file={fileOpen}
 				owner={fileOpen.createdBy ? name(fileOpen.createdBy) : ''}
 				{backHref}
+				folderHref={showInFolderHref({
+					kind: fileOpen.kind,
+					id: fileOpen.id || `path:${fileOpen.uri}`,
+					dir: folderOf(fileOpen.uri),
+					note: isWorkingNote(fileOpen)
+				})}
 				convert={opensAs && fileOpen
 					? {
 							label: opensAs === 'doc' ? 'Open as document' : 'Open as sheet',
@@ -1846,6 +2333,7 @@
 				file={uploadFile}
 				owner={name(uploadFile.createdBy)}
 				{backHref}
+				folderHref={showInFolderHref({ kind: 'upload', id: uploadFile.id, dir: '' })}
 				resolve={uploadResolver}
 				convert={installKnowHow}
 			/>
@@ -1905,26 +2393,50 @@
 				class="page"
 				class:dropping
 				role="region"
-				aria-label={filterLabel(filter)}
+				aria-label={breadcrumb.at(-1)?.title ?? filterLabel(filter)}
 				{ondragover}
 				{ondragleave}
 				{ondrop}
 			>
 				<header class="head">
-					<h1>{filterLabel(filter)}</h1>
-					<span
-						class="head-count"
-						title={filter === 'folders' && outputIncomplete ? folderListingHint : undefined}
-						>{filter === 'folders' && outputReadFailed && !query && !byParam && !sinceParam
-							? '—'
-							: filter === 'folders' && outputIncomplete && !query && !byParam && !sinceParam
-								? `${shown.length}+`
-								: (!query && !collectionParam && !byParam && !sinceParam && filter === 'docs'
-										? counts.docs
-										: !query && !collectionParam && !byParam && !sinceParam && filter === 'all'
-											? counts.all
-											: shown.length) || ''}</span
-					>
+					{#if breadcrumb.length}
+						<!-- All files / Sites / Aleon Electrical. Short of room (a phone) it keeps its end
+						     and gives way from the left, the cut edge faded. -->
+						<nav class="crumbs" aria-label="Folder" use:keepEnd>
+							{#each breadcrumb as crumb, index (crumb.folder)}
+								{#if index < breadcrumb.length - 1}<a
+										class="crumb"
+										href={folderHref(crumb.folder)}
+										title={crumb.title}>{crumb.title}</a
+									><ChevronRight
+										class="crumb-sep"
+										size={14}
+										strokeWidth={1.8}
+										aria-hidden="true"
+									/>{:else}<h1 class="crumb-here" title={crumb.title}>{crumb.title}</h1>{/if}
+							{/each}
+						</nav>
+						{#if folderPinKey}<button
+								class="btn small icon pin-folder"
+								type="button"
+								aria-pressed={pins.includes(folderPinKey)}
+								title={pins.includes(folderPinKey)
+									? 'Pinned to the sidebar; click to unpin'
+									: 'Pin this folder to the sidebar'}
+								aria-label="Pin folder"
+								onclick={() => void togglePin(folderPinKey!)}
+								><Pin size={14} strokeWidth={1.9} aria-hidden="true" /></button
+							>{/if}
+					{:else}
+						<h1>{filterLabel(filter)}</h1>
+						<span class="head-count"
+							>{loading
+								? ''
+								: filter === 'all' && !liveParam && !collectionParam && !query && !filtering
+									? counts.all || ''
+									: shown.length || ''}</span
+						>
+					{/if}
 					{#if filter === 'yours' && keptUsage}<span
 							class="usage"
 							class:full={keptUsage.full}
@@ -1952,8 +2464,11 @@
 							<button
 								class="btn small"
 								type="button"
-								disabled={!selectedEntries.length}
-								onclick={() => void pinMany(selectedEntries).then(stopSelecting)}>Pin</button
+								disabled={!selectedEntries.filter((entry) => !entry.id.startsWith('path:')).length}
+								onclick={() =>
+									void pinMany(
+										selectedEntries.filter((entry) => !entry.id.startsWith('path:'))
+									).then(stopSelecting)}>Pin</button
 							>
 							<button
 								class="btn small"
@@ -1965,25 +2480,75 @@
 						{/if}
 						<button class="btn small primary" type="button" onclick={stopSelecting}>Done</button>
 					{:else}
-						{#if shown.length}<button
-								class="btn small"
-								type="button"
-								title="Choose several items to archive, pin or file at once"
-								onclick={() => (selecting = true)}>Select</button
-							>{/if}
-						<!-- One action, the one this view is about; All offers every way to add behind one button. -->
-						{#if filter === 'docs' || filter === 'sheets'}
-							{@const kind = filter === 'docs' ? 'doc' : 'sheet'}
-							<button
-								class="btn small primary new"
-								type="button"
-								title={kind === 'doc' ? 'Start an untitled document' : 'Start an untitled sheet'}
-								onclick={() => creator?.open(kind)}
-								><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
-									>{kind === 'doc' ? 'New document' : 'New sheet'}</span
-								></button
-							>
-						{:else if filter === 'yours'}
+						<!-- One Filter: type, person, when, and whether agents' working notes show. -->
+						<div class="filter-menu">
+							<Popover label="Filter">
+								{#snippet trigger()}<span class="filter-trigger"
+										><ListFilter size={14} strokeWidth={1.9} aria-hidden="true" /><span>Filter</span
+										></span
+									>{/snippet}
+								{#snippet children()}
+									<div class="filter-panel">
+										<p class="filter-label" id="library-filter-type">Type</p>
+										<div class="filter-types" role="group" aria-labelledby="library-filter-type">
+											{#each typeChoices as key (key)}
+												{@const TypeIcon = KIND_ICON[key]}
+												<button
+													type="button"
+													class="filter-type"
+													aria-pressed={types.has(key)}
+													onclick={() => toggleType(key)}
+													><TypeIcon size={13} strokeWidth={1.8} aria-hidden="true" />{TYPE_LABEL[
+														key
+													]}</button
+												>
+											{/each}
+										</div>
+										<label class="filter-field"
+											><span>Person</span><select
+												value={byParam}
+												onchange={(event) => setParam('by', event.currentTarget.value)}
+											>
+												<option value="">Anyone</option>
+												<option value="you">You</option>
+												<option value="others">Shared with you</option>
+												{#each makers as maker (maker)}<option value={maker}>{maker}</option>{/each}
+											</select></label
+										>
+										<label class="filter-field"
+											><span>Updated</span><select
+												value={sinceParam}
+												onchange={(event) => setParam('since', event.currentTarget.value)}
+											>
+												<option value="">Any time</option>
+												<option value="1">Today</option>
+												<option value="7">Past week</option>
+												<option value="30">Past month</option>
+											</select></label
+										>
+										{#if filter === 'all'}
+											<label class="filter-notes" title={NOTES_HINT}
+												><input
+													type="checkbox"
+													checked={notesShown}
+													onchange={(event) => setNotes(event.currentTarget.checked)}
+												/><span>Include working notes</span><span class="filter-notes-count"
+													>{counts.notes || ''}</span
+												></label
+											>
+										{/if}
+									</div>
+								{/snippet}
+							</Popover>
+						</div>
+						<button
+							class="btn small"
+							type="button"
+							disabled={!shown.length}
+							title="Choose several items to archive, pin or file at once"
+							onclick={() => (selecting = true)}>Select</button
+						>
+						{#if filter === 'yours'}
 							<button
 								class="btn small"
 								type="button"
@@ -2038,14 +2603,60 @@
 					{/if}
 				</header>
 
+				<!-- Active filters, each removable; none set, no row. -->
+				{#if filterActive}
+					<div class="chips" role="toolbar" aria-label="Active filters">
+						{#each [...types] as key (key)}<button
+								type="button"
+								class="chip"
+								aria-label={`Remove filter: ${TYPE_LABEL[key]}`}
+								onclick={() => toggleType(key)}
+								>{TYPE_LABEL[key]}<X size={12} strokeWidth={2} aria-hidden="true" /></button
+							>{/each}
+						{#if byParam}<button
+								type="button"
+								class="chip"
+								aria-label="Remove filter: person"
+								onclick={() => setParam('by', '')}
+								>{byParam === 'you'
+									? 'By you'
+									: byParam === 'others'
+										? 'Shared with you'
+										: `By ${byParam}`}<X size={12} strokeWidth={2} aria-hidden="true" /></button
+							>{/if}
+						{#if sinceParam}<button
+								type="button"
+								class="chip"
+								aria-label="Remove filter: updated"
+								onclick={() => setParam('since', '')}
+								>{{ '1': 'Updated today', '7': 'Past week', '30': 'Past month' }[sinceParam] ??
+									'Updated'}<X size={12} strokeWidth={2} aria-hidden="true" /></button
+							>{/if}
+						{#if notesShown}<button
+								type="button"
+								class="chip"
+								aria-label="Remove filter: working notes"
+								onclick={() => setNotes(false)}
+								>Working notes<X size={12} strokeWidth={2} aria-hidden="true" /></button
+							>{/if}
+						<span class="spacer"></span>
+						<button
+							type="button"
+							class="btn small"
+							title="Keep this filter as a collection in Pinned"
+							onclick={askSaveFilter}>Save filter</button
+						>
+					</div>
+				{/if}
+
 				<div class="body">
 					<!-- Until every source has answered once, the list's final layout as a skeleton: a
 					     list drawn from the first source to answer grew rows in place as the others
 					     arrived (S109 C7). -->
 					{#if loading}
 						<Skeleton label="Loading the Library" variant="list" count={5} />
-					{:else if shown.length}
-						<div class="table-head" role="toolbar" aria-label="Sort and filter">
+					{:else if shown.length || placeRows.length}
+						<div class="table-head" role="toolbar" aria-label="Sort">
 							<button
 								type="button"
 								class="sort"
@@ -2062,31 +2673,7 @@
 										strokeWidth={2}
 										aria-hidden="true"
 									/>{/if}</button
-							><select
-								class="facet"
-								class:set={!!byParam}
-								aria-label="Made by"
-								title="Who made it"
-								value={byParam}
-								onchange={(event) => setParam('by', event.currentTarget.value)}
-							>
-								<option value="">Anyone</option>
-								<option value="you">You</option>
-								<option value="others">Shared with you</option>
-								{#each makers as maker (maker)}<option value={maker}>{maker}</option>{/each}
-							</select><select
-								class="facet"
-								class:set={!!sinceParam}
-								aria-label="Updated"
-								title="When it last changed"
-								value={sinceParam}
-								onchange={(event) => setParam('since', event.currentTarget.value)}
-							>
-								<option value="">Any time</option>
-								<option value="1">Today</option>
-								<option value="7">Past week</option>
-								<option value="30">Past month</option>
-							</select><button
+							><button
 								type="button"
 								class="sort"
 								class:sorted={!!sortParam && (sort === 'updated' || sort === 'oldest')}
@@ -2105,119 +2692,142 @@
 							>
 						</div>
 						<div class="table" role="list" aria-label="Files">
-							{#each shown as entry (entry.kind + entry.id)}
-								<Item
-									role="listitem"
-									selected={selecting && selected.includes(pinKey(entry))}
-									onclick={selecting ? () => toggleSelected(entry) : undefined}
-									title={entry.title}
-									meta={entry.meta ??
-										(entry.editor ? `${entry.owner} · edited by ${entry.editor}` : entry.owner)}
-									href={selecting ? undefined : entry.href}
-									unread={entry.review}
-									dim={filter === 'archived'}
-								>
-									{#snippet leading()}{@const KindIcon =
-											KIND_ICON[
-												entry.kind
-											]}{#if selecting}{#if selected.includes(pinKey(entry))}<SquareCheck
-													size={15}
-													strokeWidth={1.8}
-													aria-label="Selected"
-												/>{:else}<Square
-													size={15}
-													strokeWidth={1.8}
-													aria-label="Not selected"
-												/>{/if}{:else}<KindIcon
+							{#each placeRows as place (place.key)}
+								{@const PlaceIcon = place.icon}
+								{@const placePin = place.folder ? folderPin(place.folder) : null}
+								<div class="row" role="listitem" data-row={place.key}>
+									<Item title={place.title} href={place.href}>
+										{#snippet leading()}<PlaceIcon
 												size={15}
 												strokeWidth={1.8}
-												aria-label={entry.docKind ?? kindLabel(entry.kind)}
-											/>{/if}{/snippet}
-									{#snippet trailing()}
-										{#if entry.review}<span class="review">Needs review</span
-											>{:else if statusLabel(entry.status)}<Dot
-												show
-												tone={statusTone(entry.status)}
-												label={statusLabel(entry.status)}
-											/>{/if}
-										{#if entry.private}<span class="private" title={PRIVATE_HINT}
-												><Lock size={13} strokeWidth={1.8} aria-label="Private" /></span
-											>{/if}
-										<RelativeTime value={entry.updatedAt} />
-									{/snippet}
-									{#snippet actions()}
-										<ActionMenu label={`Actions for ${entry.title}`}>
-											{#if entry.href}<a href={entry.href}>Open</a>{/if}
-											{#if filter !== 'archived'}<button
-													onclick={() => void togglePin(pinKey(entry))}
-													>{pins.includes(pinKey(entry)) ? 'Unpin' : 'Pin to the sidebar'}</button
-												>{/if}
-											{#if isFile(entry) && filter !== 'archived' && savable(entry.id)}<button
-													onclick={() => void downloadFile(entry.id)}>Download</button
-												>{/if}
-											{#if (isFile(entry) || isNative(entry)) && filter !== 'archived'}<button
-													onclick={() => void copyLink(entry)}>Copy link</button
-												>{/if}
-											{#if filter !== 'archived' && convertsTo(entry)}<button
-													title="Make an editable copy; this file stays as it is"
-													onclick={() => void convert(entry)}
-													>{convertsTo(entry) === 'doc'
-														? 'Open as document'
-														: 'Open as sheet'}</button
-												>{/if}
-											{#if isNative(entry) && filter !== 'archived'}<button
-													title="A copy you own, with the same access"
-													onclick={() => void duplicate(entry)}>Duplicate</button
-												>{/if}
-											{#if isNative(entry) && entry.href && filter !== 'archived'}<a
-													href={`${entry.href}&inspect=share`}
-													title="Who can open it, and what they may do">Share…</a
-												>{/if}
-											{#if isNative(entry) && entry.manage && filter !== 'archived'}<a
-													href={`${entry.href}&rename=1`}
-													title="Open it with the title ready to change">Rename</a
-												>{/if}
-											{#if mayRenameFile(entry)}<button
-													title={entry.kind === 'upload'
-														? 'The name it shows in the Library; the file keeps its own'
-														: 'The name it shows everywhere; the file itself is unchanged'}
-													onclick={() => askOrganise('rename', [entry])}>Rename…</button
-												>{/if}
-											{#if mayOrganise(entry)}<button
-													title="File it in a collection in the sidebar"
-													onclick={() => askOrganise('collection', [entry])}
-													>{entry.collection ? 'Change collection…' : 'Move to collection…'}</button
-												>{/if}
-											{#if (isNative(entry) && entry.manage) || (isFile(entry) && owner)}
-												{#if filter === 'archived'}<button
-														disabled={!!archiveBusy}
-														onclick={() => void setArchived(entry, false)}>Restore</button
-													>{:else}<button
-														disabled={!!archiveBusy}
-														title="Out of the Library lists, kept under Archived; restore it any time."
-														onclick={() => void setArchived(entry, true)}>Archive</button
+												aria-label={place.folder ? 'Folder' : 'Goal'}
+											/>{/snippet}
+										{#snippet trailing()}{#if place.updatedAt}<RelativeTime
+													value={place.updatedAt}
+												/>{/if}{/snippet}
+										{#snippet actions()}
+											<ActionMenu label={`Actions for ${place.title}`}>
+												<a href={place.href}>Open</a>
+												{#if placePin}<button onclick={() => void togglePin(placePin)}
+														>{pins.includes(placePin) ? 'Unpin' : 'Pin to the sidebar'}</button
 													>{/if}
-											{/if}
-											{#if entry.kind === 'upload'}<a
-													href={attachmentHref(companyId, entry.id)}
-													download={entry.title}>Download</a
-												>{#if owner || !entry.sent}<button
+											</ActionMenu>
+										{/snippet}
+									</Item>
+								</div>
+							{/each}
+							{#each shown as entry (entry.kind + entry.id)}
+								<div class="row" role="listitem" data-row={pinKey(entry)}>
+									<Item
+										selected={(selecting && selected.includes(pinKey(entry))) ||
+											(!selecting && highlightParam === pinKey(entry))}
+										onclick={selecting ? () => toggleSelected(entry) : undefined}
+										title={entry.title}
+										meta={query ? entry.meta : undefined}
+										href={selecting ? undefined : entry.href}
+										unread={entry.review}
+										dim={filter === 'archived'}
+									>
+										{#snippet leading()}{@const KindIcon =
+												KIND_ICON[
+													entry.kind
+												]}{#if selecting}{#if selected.includes(pinKey(entry))}<SquareCheck
+														size={15}
+														strokeWidth={1.8}
+														aria-label="Selected"
+													/>{:else}<Square
+														size={15}
+														strokeWidth={1.8}
+														aria-label="Not selected"
+													/>{/if}{:else}<KindIcon
+													size={15}
+													strokeWidth={1.8}
+													aria-label={entry.review
+														? `${entry.docKind ?? kindLabel(entry.kind)}, needs your review`
+														: (entry.docKind ?? kindLabel(entry.kind))}
+												/>{/if}{/snippet}
+										{#snippet trailing()}{#if entry.updatedAt}<RelativeTime
+													value={entry.updatedAt}
+												/>{/if}{/snippet}
+										{#snippet actions()}
+											<ActionMenu label={`Actions for ${entry.title}`}>
+												{#if entry.href}<a href={entry.href}>Open</a>{/if}
+												{#if filter !== 'archived'}<a href={showInFolderHref(entry)}
+														>Show in folder</a
+													>{/if}
+												{#if filter !== 'archived' && !entry.id.startsWith('path:')}<button
+														onclick={() => void togglePin(pinKey(entry))}
+														>{pins.includes(pinKey(entry)) ? 'Unpin' : 'Pin to the sidebar'}</button
+													>{/if}
+												{#if isFile(entry) && filter !== 'archived' && savable(entry.id)}<button
+														onclick={() => void downloadFile(entry.id)}>Download</button
+													>{/if}
+												{#if (isFile(entry) || isNative(entry)) && filter !== 'archived' && !entry.id.startsWith('path:')}<button
+														onclick={() => void copyLink(entry)}>Copy link</button
+													>{/if}
+												{#if filter !== 'archived' && convertsTo(entry)}<button
+														title="Make an editable copy; this file stays as it is"
+														onclick={() => void convert(entry)}
+														>{convertsTo(entry) === 'doc'
+															? 'Open as document'
+															: 'Open as sheet'}</button
+													>{/if}
+												{#if isNative(entry) && filter !== 'archived'}<button
+														title="A copy you own, with the same access"
+														onclick={() => void duplicate(entry)}>Duplicate</button
+													>{/if}
+												{#if isNative(entry) && entry.href && filter !== 'archived'}<a
+														href={`${entry.href}&inspect=share`}
+														title="Who can open it, and what they may do">Share…</a
+													>{/if}
+												{#if isNative(entry) && entry.manage && filter !== 'archived'}<a
+														href={`${entry.href}&rename=1`}
+														title="Open it with the title ready to change">Rename</a
+													>{/if}
+												{#if mayRenameFile(entry) && !entry.id.startsWith('path:')}<button
+														title={entry.kind === 'upload'
+															? 'The name it shows in the Library; the file keeps its own'
+															: 'The name it shows everywhere; the file itself is unchanged'}
+														onclick={() => askOrganise('rename', [entry])}>Rename…</button
+													>{/if}
+												{#if mayOrganise(entry) && !entry.id.startsWith('path:')}<button
+														title="File it in a collection"
+														onclick={() => askOrganise('collection', [entry])}
+														>{entry.collection
+															? 'Change collection…'
+															: 'Move to collection…'}</button
+													>{/if}
+												{#if (isNative(entry) && entry.manage) || (isFile(entry) && owner && !entry.id.startsWith('path:'))}
+													{#if filter === 'archived'}<button
+															disabled={!!archiveBusy}
+															onclick={() => void setArchived(entry, false)}>Restore</button
+														>{:else}<button
+															disabled={!!archiveBusy}
+															title="Out of the Library lists, kept under Archive; restore it any time."
+															onclick={() => void setArchived(entry, true)}>Archive</button
+														>{/if}
+												{/if}
+												{#if entry.kind === 'upload'}<a
+														href={attachmentHref(companyId, entry.id)}
+														download={entry.title}>Download</a
+													>{#if owner || !entry.sent}<button
+															class="danger"
+															title="Frees room for new files"
+															onclick={() => askDelete(entry)}>Delete…</button
+														>{/if}{/if}
+												{#if filter === 'archived' && isNative(entry) && entry.manage}<button
 														class="danger"
-														title="Frees room for new files"
-														onclick={() => askDelete(entry)}>Delete…</button
-													>{/if}{/if}
-											{#if filter === 'archived' && isNative(entry) && entry.manage}<button
-													class="danger"
-													onclick={() => askDelete(entry)}>Delete permanently…</button
-												>{/if}
-											{#if filter === 'archived' && isFile(entry) && owner}<button
-													class="danger"
-													title="Stops listing it; the file stays on the company computer"
-													onclick={() => askDelete(entry)}>Remove from the Library…</button
-												>{/if}
-										</ActionMenu>
-									{/snippet}
-								</Item>
+														onclick={() => askDelete(entry)}>Delete permanently…</button
+													>{/if}
+												{#if filter === 'archived' && isFile(entry) && owner}<button
+														class="danger"
+														title="Stops listing it; the file stays on the company computer"
+														onclick={() => askDelete(entry)}>Remove from the Library…</button
+													>{/if}
+											</ActionMenu>
+										{/snippet}
+									</Item>
+								</div>
 							{/each}
 						</div>
 						{#if searchesDocuments && docSearch.hasMore}<button
@@ -2230,7 +2840,7 @@
 								disabled={archivedLoadingMore}
 								onclick={() => void loadMoreArchived()}
 								>{archivedLoadingMore ? 'Loading…' : 'Load more archived documents'}</button
-							>{:else if !searchesDocuments && documents.hasMore && (filter === 'all' || filter === 'docs' || filter === 'review')}<button
+							>{:else if !searchesDocuments && documents.hasMore && !folderParam && (filter === 'all' || filter === 'review')}<button
 								class="more"
 								disabled={documents.loadingMore}
 								onclick={() => documents.loadMore()}
@@ -2240,40 +2850,32 @@
 						<div class="searching"><Pending label="Searching inside documents" /></div>
 					{:else}
 						<Empty
-							title={filter === 'folders' &&
-							outputFilesTruncated &&
-							(query || byParam || sinceParam)
-								? 'No matches in loaded files'
-								: byParam || sinceParam
-									? 'Nothing matches these filters'
-									: query
-										? 'Nothing matches that search'
-										: filter === 'review'
-											? 'Nothing is waiting for your review'
+							title={byParam || sinceParam || types.size
+								? 'Nothing matches these filters'
+								: query
+									? 'Nothing matches that search'
+									: filter === 'review'
+										? 'Nothing needs you'
+										: filter === 'recent'
+											? 'Nothing has changed yet'
 											: filter === 'archived'
 												? 'Nothing is archived'
 												: filter === 'yours'
 													? 'Nothing from you yet'
-													: filter === 'notes'
-														? 'No working notes'
+													: folderParam
+														? 'This folder is empty'
 														: 'Nothing here yet'}
-							info={filter === 'folders' && outputFilesTruncated && (query || byParam || sinceParam)
-								? 'Load older files to continue searching.'
-								: filter === 'folders' && outputReadFailed
-									? 'Files could not be read. Try again.'
-									: filter === 'folders' && outputSkippedNames > 0
-										? 'Some file names cannot be displayed.'
-										: filter === 'yours'
-											? 'Files you add here or send in a conversation are kept here.'
-											: filter === 'notes'
-												? NOTES_HINT
-												: query && !searchesDocuments && filter !== 'archived'
-													? 'This view matches titles and file names. All files also searches inside documents.'
-													: 'Documents, sheets and everything the team makes, such as sites, decks and images, appear here as they work.'}
+							info={filter === 'yours'
+								? 'Files you add here or send in a conversation are kept here.'
+								: folderParam && !notesShown && counts.notes
+									? 'Agents’ working notes are hidden. Include them from the Filter.'
+									: query && !searchesDocuments && filter !== 'archived'
+										? 'This view matches titles and file names. All files also searches inside documents.'
+										: 'Documents, sheets and everything the team makes, such as sites, decks and images, appear here as they work.'}
 						>
-							{#snippet action()}{#if byParam || sinceParam}<a
+							{#snippet action()}{#if byParam || sinceParam || types.size}<a
 										class="btn small"
-										href={filterHref(filter, collectionParam)}>Clear filters</a
+										href={folderHref(folderParam)}>Clear filters</a
 									>{/if}{#if query && !searchesDocuments && filter !== 'archived'}<a
 										class="btn small"
 										href={filterHref('all')}>Search all files</a
@@ -2281,16 +2883,15 @@
 										class="btn small"
 										type="button"
 										onclick={() => creator?.pick()}>Upload files</button
-									>{:else if !query && filter !== 'review' && filter !== 'archived' && filter !== 'notes'}<button
+									>{:else if !query && filter === 'all' && !folderParam && !liveParam}<button
 										class="btn small"
 										type="button"
-										onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
-										>{filter === 'sheets' ? 'New sheet' : 'New document'}</button
+										onclick={() => creator?.open('doc')}>New document</button
 									>{/if}{#if !query && filter === 'archived' && archivedCursor}<button
 										class="btn small"
 										type="button"
 										onclick={() => void loadMoreArchived()}>Load more archived documents</button
-									>{/if}{#if !searchesDocuments && !query && documents.hasMore && (filter === 'all' || filter === 'docs' || filter === 'review')}<button
+									>{/if}{#if !searchesDocuments && !query && documents.hasMore && !folderParam && (filter === 'all' || filter === 'review')}<button
 										class="btn small"
 										type="button"
 										disabled={documents.loadingMore}
@@ -2298,24 +2899,37 @@
 									>{/if}{/snippet}
 						</Empty>
 					{/if}
-					{#if filter === 'folders' && outputReadFailed}
-						<button class="more" disabled={outputLoadingMore} onclick={() => void refreshOutputs()}>
-							{outputLoadingMore ? 'Retrying…' : 'Try reading files again'}
-						</button>
-					{:else if filter === 'folders' && outputStale}
-						<button class="more" disabled={outputLoadingMore} onclick={() => void refreshOutputs()}>
-							{outputLoadingMore ? 'Refreshing…' : 'Refresh files'}
-						</button>
-						{#if outputLoadFailure}<span role="status">{outputLoadFailure}</span>{/if}
-					{:else if filter === 'folders' && outputFilesTruncated && outputCursor}
-						<button
-							class="more"
-							disabled={outputLoadingMore}
-							onclick={() => void loadMoreOutputs()}
-						>
-							{outputLoadingMore ? 'Loading…' : 'Load older files'}
-						</button>
-						{#if outputLoadFailure}<span role="status">{outputLoadFailure}</span>{/if}
+					<!-- Files on the computer arrive a page at a time; the rest of a large company's are
+					     a button away. -->
+					{#if owner && filter === 'all' && !loading}
+						{#if outputReadFailed}
+							<button
+								class="more"
+								disabled={outputLoadingMore}
+								onclick={() => void refreshOutputs()}
+							>
+								{outputLoadingMore ? 'Retrying…' : 'Try reading files again'}
+							</button>
+						{:else if outputStale}
+							<button
+								class="more"
+								disabled={outputLoadingMore}
+								onclick={() => void refreshOutputs()}
+							>
+								{outputLoadingMore ? 'Refreshing…' : 'Refresh files'}
+							</button>
+							{#if outputLoadFailure}<span role="status">{outputLoadFailure}</span>{/if}
+						{:else if outputFilesTruncated && outputCursor}
+							<button
+								class="more"
+								disabled={outputLoadingMore}
+								title={folderListingHint}
+								onclick={() => void loadMoreOutputs()}
+							>
+								{outputLoadingMore ? 'Loading…' : 'Load older files'}
+							</button>
+							{#if outputLoadFailure}<span role="status">{outputLoadFailure}</span>{/if}
+						{/if}
 					{/if}
 				</div>
 				{#if dropping}
@@ -2435,6 +3049,30 @@
 	{/if}
 </dialog>
 
+<dialog bind:this={saveDialog} class="confirm" aria-labelledby="library-save-title">
+	<form
+		onsubmit={(event) => {
+			event.preventDefault();
+			void saveFilter();
+		}}
+	>
+		<h2 id="library-save-title">Save this filter</h2>
+		<p>It becomes a collection in Pinned. Nothing is moved; it shows whatever matches.</p>
+		<input
+			class="organise-name"
+			bind:value={saveName}
+			maxlength={60}
+			placeholder="Name"
+			aria-label="Name"
+		/>
+		{#if saveFailure}<p class="confirm-failure" role="alert">{saveFailure}</p>{/if}
+		<div class="confirm-actions">
+			<button type="button" class="btn small" onclick={() => saveDialog?.close()}>Cancel</button>
+			<button type="submit" class="btn small primary" disabled={!saveName.trim()}>Save</button>
+		</div>
+	</form>
+</dialog>
+
 <style>
 	.library-narrow-search {
 		padding: 10px 12px 4px;
@@ -2450,6 +3088,7 @@
 	.library-filters-views {
 		display: flex;
 		flex: 1 1 auto;
+		align-items: center;
 		gap: 2px;
 		min-width: 0;
 		padding: 6px 8px;
@@ -2474,6 +3113,8 @@
 		border-left: 1px solid var(--border);
 	}
 	.library-filters a {
+		display: inline-flex;
+		align-items: center;
 		flex: none;
 		white-space: nowrap;
 		padding: 5px 10px;
@@ -2499,11 +3140,13 @@
 		container: page / inline-size;
 		position: relative;
 		display: grid;
-		grid-template-rows: auto minmax(0, 1fr);
+		grid-template-rows: auto auto minmax(0, 1fr);
 		width: 100%;
 		min-height: 0;
 	}
 	.head {
+		grid-row: 1;
+		min-width: 0;
 		display: flex;
 		align-items: center;
 		gap: 8px;
@@ -2570,9 +3213,10 @@
 		gap: 8px;
 	}
 	.body {
+		grid-row: 3;
 		min-height: 0;
 		overflow: auto;
-		padding: 4px 8px 24px;
+		padding: 8px 12px 32px;
 	}
 	.body > :global(.notice) {
 		margin-bottom: 10px;
@@ -2617,14 +3261,6 @@
 	}
 	.sort.sorted {
 		color: var(--text-secondary);
-	}
-	.review {
-		color: var(--intent-authority);
-	}
-	.private {
-		display: inline-grid;
-		place-items: center;
-		color: var(--text-tertiary);
 	}
 	.more {
 		width: 100%;
@@ -2704,23 +3340,198 @@
 		color: var(--text-secondary);
 		font-variant-numeric: tabular-nums;
 	}
-	/* The filters sit in the column head, as quiet as the sort labels beside them. */
-	.facet {
-		height: 24px;
-		max-width: 150px;
-		padding: 0 4px;
-		border: 0;
+	/* The breadcrumb is the pane's title: earlier folders quiet links, the folder you are in the
+	 * heading. It never wraps. Short of room it is scrolled to its end, so it gives way from the
+	 * left, the cut edge faded; a very long name ends in an ellipsis. */
+	.crumbs {
+		display: flex;
+		flex: 0 1 auto;
+		align-items: center;
+		gap: 2px;
+		min-width: 0;
+		overflow: hidden;
+		scrollbar-width: none;
+	}
+	.crumbs:global(.clipped) {
+		mask-image: linear-gradient(to right, transparent 0, #000 28px);
+	}
+	.crumb {
+		flex: none;
+		max-width: 22ch;
+		overflow: hidden;
+		padding: 2px 4px;
 		border-radius: var(--radius-control);
+		color: var(--text-secondary);
+		font-size: var(--t-head);
+		text-decoration: none;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.crumb:hover {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	.crumbs :global(.crumb-sep) {
+		flex: none;
+		color: var(--text-tertiary);
+	}
+	.crumb-here {
+		flex: none;
+		max-width: 100%;
+		overflow: hidden;
+		padding: 2px 4px;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/* Pressed while the folder is pinned: the button keeps its size and its words. */
+	.pin-folder {
+		flex: none;
+		color: var(--text-tertiary);
+	}
+	.pin-folder[aria-pressed='true'] {
+		color: var(--ink);
+		background: var(--surface-alt);
+		box-shadow: inset 0 0 0 1px var(--border);
+	}
+	/* Filter: a quiet button beside Select, its panel only what choosing needs. */
+	.filter-menu :global(summary) {
+		display: inline-flex;
+		align-items: center;
+		width: auto;
+		height: 28px;
+		padding: 0 10px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font-size: var(--t-body);
+	}
+	.filter-trigger {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.filter-panel {
+		display: grid;
+		gap: 12px;
+		width: 280px;
+		max-width: calc(100vw - 48px);
+		padding: 6px;
+	}
+	.filter-label {
+		margin: 0 0 -4px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.filter-types {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+	.filter-type {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		height: 28px;
+		padding: 0 10px;
+		border: 1px solid var(--border);
+		border-radius: 14px;
 		background: transparent;
-		color: inherit;
+		color: var(--text-secondary);
 		font: inherit;
+		font-size: var(--t-body);
 		cursor: pointer;
 	}
-	.facet:hover {
+	.filter-type:hover {
 		background: var(--wash-hover);
 	}
-	.facet.set {
+	.filter-type[aria-pressed='true'] {
+		border-color: var(--border-strong);
+		background: var(--surface-alt);
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.filter-field {
+		display: grid;
+		grid-template-columns: 72px minmax(0, 1fr);
+		align-items: center;
+		gap: 8px;
 		color: var(--text-secondary);
+	}
+	.filter-field select {
+		height: 30px;
+		min-width: 0;
+		padding: 0 6px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: inherit;
+	}
+	.filter-notes {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding-top: 10px;
+		border-top: 1px solid var(--border);
+		color: var(--ink);
+		cursor: pointer;
+	}
+	.filter-notes-count {
+		margin-left: auto;
+		color: var(--text-tertiary);
+		font-variant-numeric: tabular-nums;
+	}
+	/* Active filters, one removable chip each, on their own line under the head. */
+	.chips {
+		grid-row: 2;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		padding: 8px 12px 8px var(--pane-pad-x);
+		border-bottom: 1px solid var(--border);
+		overflow-x: auto;
+		scrollbar-width: none;
+	}
+	.chip {
+		display: inline-flex;
+		flex: none;
+		align-items: center;
+		gap: 4px;
+		height: 26px;
+		padding: 0 8px 0 10px;
+		border: 1px solid var(--border-strong);
+		border-radius: 13px;
+		background: var(--surface-alt);
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--t-label);
+		cursor: pointer;
+	}
+	.chip:hover {
+		background: var(--wash-hover);
+	}
+	.chip :global(svg) {
+		color: var(--text-tertiary);
+	}
+	/* Rows: an icon, a name and when it changed, at one height with air around the list. */
+	.row {
+		min-width: 0;
+	}
+	.table :global(.item-row) {
+		min-height: 38px;
+		padding-top: 3px;
+		padding-bottom: 3px;
+	}
+	.narrow-count {
+		margin-left: 6px;
+		padding: 0 5px;
+		line-height: 16px;
+		border-radius: 8px;
+		background: var(--intent-authority);
+		color: var(--on-primary);
+		font-size: var(--t-label);
 		font-weight: 600;
 	}
 	.confirm-actions {
@@ -2728,9 +3539,19 @@
 		justify-content: flex-end;
 		gap: 8px;
 	}
+	/* On a phone the breadcrumb takes whatever room the head's buttons leave. */
+	@container page (max-width: 560px) {
+		.crumbs {
+			flex: 1 1 auto;
+		}
+		.crumb {
+			max-width: 14ch;
+		}
+	}
 	@media (max-width: 760px) {
 		.new span,
-		.new-trigger > span {
+		.new-trigger > span,
+		.filter-trigger > span {
 			display: none;
 		}
 		.new {

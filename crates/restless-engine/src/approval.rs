@@ -30,6 +30,7 @@
 //! receipts now share the Authority-owned governance store; no coordination
 //! projection is asked to certify whether an external act occurred.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{bail, Result};
@@ -420,6 +421,33 @@ pub async fn announce_decisions(
     }
     pending.sort_by_key(|(id, _, _)| *id);
 
+    // Who prepared each waiting party or call. Their refusal said "you get a message when they
+    // answer", so the answer goes to them as well as to Exec (S109 blockers audit): a staff
+    // member who prepared first contact used to wait for a message only Exec received.
+    let mut preparers: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    if let Ok(asked) = authority
+        .records_of_kind(company, "approval_required")
+        .await
+    {
+        for record in asked {
+            let Some(actor) = record
+                .actor_id
+                .filter(|actor| actor != "exec" && actor != "owner")
+            else {
+                continue;
+            };
+            let subject = match (
+                record.body.get("party").and_then(|value| value.as_str()),
+                record.body.get("call_key").and_then(|value| value.as_str()),
+            ) {
+                (_, Some(key)) => format!("call:{key}"),
+                (Some(party), None) => format!("party:{}", normalize_party(party)),
+                (None, None) => continue,
+            };
+            preparers.entry(subject).or_default().insert(actor);
+        }
+    }
+
     let mut announced = 0;
     for (record_id, kind, subject) in pending {
         match org
@@ -437,6 +465,11 @@ pub async fn announce_decisions(
                 return announced;
             }
         }
+        let preparers_key = match &subject {
+            DecisionSubject::Party { party, .. } => Some(format!("party:{party}")),
+            DecisionSubject::ToolCall { key, .. } => Some(format!("call:{key}")),
+            _ => None,
+        };
         let (body, event_subject) = match subject {
             DecisionSubject::Party {
                 party,
@@ -529,6 +562,19 @@ pub async fn announce_decisions(
         if let Err(error) = org.send_message("owner", Some("exec"), &body).await {
             tracing::warn!(company, "could not announce authority decision: {error:#}");
             return announced;
+        }
+        for preparer in preparers_key
+            .and_then(|key| preparers.get(&key))
+            .into_iter()
+            .flatten()
+        {
+            if let Err(error) = org.send_message("owner", Some(preparer), &body).await {
+                tracing::warn!(
+                    company,
+                    preparer = %preparer,
+                    "could not tell the preparer about an authority decision: {error:#}"
+                );
+            }
         }
         announced += 1;
     }
@@ -749,9 +795,13 @@ pub async fn approved_parties(
 fn needs_owner_reason(config: &CompanyConfig, effect_class: &str, party: &str) -> String {
     format!(
         "{} wants to perform {effect_class} for {party}, but this party does not \
-         currently have owner approval. This is materially external and irreversible: approve with \
-         `restless approve -c {} --party {party}`.",
-        config.name, config.name
+         currently have owner approval. This is materially external and irreversible, so the \
+         owner decides it. {}",
+        config.name,
+        crate::doors::Door::Raised {
+            card: "approval_required"
+        }
+        .text()
     )
 }
 

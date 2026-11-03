@@ -728,7 +728,6 @@ struct CompanyCatalogEntry {
     logo_url: Option<String>,
 }
 
-
 /// The one high-value owner read model. This remains a projection: every
 /// field is assembled from its authoritative plane immediately before the
 /// response is encoded. Naming it makes the browser contract checkable rather
@@ -8936,6 +8935,16 @@ async fn recover_company_computer(
     };
     match company_projection::recover(&state.daemon, &config, action, principal.actor_id()).await {
         Ok(outcome) => Json(outcome).into_response(),
+        // The monthly hours cap refuses a start; "Try again" can never help, the limit can
+        // (S109 blockers audit). Same words as waking the desktop.
+        Err(error) if format!("{error:#}").contains("monthly Runtime") => api_error(
+            StatusCode::CONFLICT,
+            "runtime_hours",
+            logged(
+                error,
+                "This month's computer hours are used up, so it cannot start. Raise or clear the limit in Company → Resources.",
+            ),
+        ),
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "recovery",

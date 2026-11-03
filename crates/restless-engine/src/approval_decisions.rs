@@ -959,7 +959,7 @@ async fn apply(effects: &Effects<'_>, saved: &PendingApprovalDecision) -> Result
         ApprovalTarget::AccountRequest { request } => {
             if !already_answered(authority, company, saved).await? {
                 recheck().await?;
-                crate::account_broker::settle_request(
+                let settled = crate::account_broker::settle_request(
                     authority.pool(),
                     request,
                     if grant { "approved" } else { "denied" },
@@ -968,6 +968,9 @@ async fn apply(effects: &Effects<'_>, saved: &PendingApprovalDecision) -> Result
                 )
                 .await?
                 .context("That request no longer exists.")?;
+                if let Some(org) = org {
+                    crate::account_broker::tell_requester(org, &settled).await;
+                }
             }
             return Ok(());
         }

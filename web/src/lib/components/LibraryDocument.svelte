@@ -797,6 +797,10 @@
 						onclick={() => void download('md')}>Download as Markdown</button
 					>
 					<button type="button" onclick={printDocument}>Print or save as PDF</button>
+					<a
+						href={`/${encodeURIComponent(companyId)}/library?highlight=${encodeURIComponent(`doc:${documentView.document.id}`)}`}
+						title="All files, with this document highlighted">Show in folder</a
+					>
 					<button type="button" onclick={() => void copyLink()}>Copy link</button>
 					<button
 						type="button"
