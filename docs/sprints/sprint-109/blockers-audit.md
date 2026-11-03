@@ -152,7 +152,7 @@ owner's decision.
   - Close a failed setup as `Failed` with the real cause.
   - Medium risk (git state); needs its own PR.
 
-### 9. Proposed Work requiring abandoned Work can never start
+### 9. Proposed Work requiring abandoned Work can never start (fixed, #603)
 
 - **Evidence:** Frankensurf, "Prove which agent tools actually work", stuck since 18 Oct with 0
   Attempts.
@@ -160,8 +160,9 @@ owner's decision.
   - Readiness is `upstream.status <> 'completed'` (`restless-orgintel/src/attempts.rs:72,126`).
   - Abandoning never looks at dependents.
   - `add_work_edge` accepts an abandoned upstream.
-- **Open:** on abandon, tell each dependent's lead (`work edge remove` or abandon), and refuse new
-  edges to abandoned Work.
+- **Fixed** (#603): abandoning tells each open dependent's lead (`work edge ... --remove` or
+  abandon), and new requirements on abandoned Work are refused. Already-stranded Work needs the
+  sweep in finding 10.
 
 ### 10. Blocked Work with no card and nobody asked
 
