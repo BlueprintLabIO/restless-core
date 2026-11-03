@@ -16,8 +16,9 @@
 		queryFn: ({ signal }) => readApprovalDecisions(companyId, signal),
 		enabled: Boolean(companyId && principal.view),
 		// A pending approval needs its result promptly; Authority sends no change hints.
+		// Nothing pending: only a repair. While the change stream was down this read every 5 s.
 		refetchInterval: (query) =>
-			query.state.data?.items.some((item) => item.state === 'pending') ? 1000 : pollEvery(5000)(),
+			query.state.data?.items.some((item) => item.state === 'pending') ? 1000 : pollEvery(15_000)(),
 		retry: 1
 	}));
 	$effect(() => {

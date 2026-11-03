@@ -1,5 +1,6 @@
 import { ownerRequest } from './setting.svelte';
 import { pollEvery } from './connection.svelte';
+import { untouched } from './activity.ts';
 import { ownerJson } from './failure';
 import { bootFetch } from './boot-fetch.ts';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -80,7 +81,8 @@ export function intelligenceQuery(company: string, enabled: () => boolean = () =
 			// Just after a switch the gateway loads the new connection within seconds; read it
 			// as soon as it is there rather than up to 15 seconds later (S109).
 			if (settling && changedRecently(company)) return 2_000;
-			return settling ? 15_000 : pollEvery(120_000)();
+			// Untouched, the page waits up to a minute: each read is a request through the edge.
+			return settling ? (untouched() ? 60_000 : 15_000) : pollEvery(120_000)();
 		}
 	}));
 	return {

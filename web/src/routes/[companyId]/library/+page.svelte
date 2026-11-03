@@ -2,6 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import ResizableSidebar from '$lib/components/ResizableSidebar.svelte';
 	import { pollEvery } from '$lib/model/connection.svelte';
+	import { whileSeen } from '$lib/model/activity';
 	/* The Library: everything the company has written and made, in one place (S64). Native
 	 * documents and sheets open in their editors; the sites, images, PDFs, decks and recordings Work
 	 * produced on the company computer open in place, a deck as a slideshow. Files the owner adds or
@@ -1076,13 +1077,13 @@
 					});
 		};
 		read();
-		const timer = setInterval(read, 60_000);
-		document.addEventListener('visibilitychange', read);
+		/* Files on the company computer send no change hint: read again each minute while the
+		 * page is in use, and at once when it is shown or touched after a minute away. */
+		const stop = whileSeen(read, 60_000);
 		return () => {
 			controller.abort();
 			clearTimeout(giveUp);
-			clearInterval(timer);
-			document.removeEventListener('visibilitychange', read);
+			stop();
 		};
 	});
 	const fileEntry = (file: LibraryFile, archived = false): Entry => ({
