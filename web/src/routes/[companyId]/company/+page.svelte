@@ -18,6 +18,7 @@
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
 	import { failureSentence } from '$lib/model/failure';
+	import CompanyMark from '$lib/ui/glyph/CompanyMark.svelte';
 
 	const setup = useCompanySetup();
 	const companyId = $derived(setup.companyId);
@@ -37,10 +38,10 @@
 	const spendLine = $derived.by(() => {
 		const spend = setup.spend;
 		if (!spend) return '';
-		/* A running total, or this month's spend against a monthly budget (Limits sets which). */
-		const floor = spend.status === 'metering_unknown' ? 'At least ' : '';
-		const budget = spend.period === 'monthly' ? 'this month' : 'model budget';
-		return `${floor}${money(spend.accounted_usd)} of ${money(spend.ceiling_usd)} ${budget}`;
+		/* A running total, or this month's spend against a monthly budget (Limits sets which). Spend
+		 * some calls could not price is said in the tip, not as "At least" before the figure. */
+		const budget = spend.period === 'monthly' ? 'budget this month' : 'model budget';
+		return `${money(spend.accounted_usd)} spent of ${money(spend.ceiling_usd)} ${budget}`;
 	});
 	const spendWhy = $derived.by(() => {
 		const spend = setup.spend;
@@ -49,7 +50,7 @@
 				? "Model spend this month (UTC) against the company's monthly budget."
 				: "Model spend so far against the company's total budget, a running total.";
 		return spend?.status === 'metering_unknown'
-			? `${against} Some use could not be metered, so the real figure may be higher.`
+			? `${against} A few model calls reported no price, so the real figure may be a little higher.`
 			: against;
 	});
 	const working = $derived(setup.working);
@@ -85,6 +86,12 @@
 	title={setup.entry?.name ?? 'Company'}
 	info="How this company is set up. The sections beside it show each area's current value."
 >
+	{#snippet leading()}<span
+			class="company-mark"
+			class:logo={!!setup.entry?.logo_url}
+			aria-hidden="true"
+			><CompanyMark id={companyId} logoUrl={setup.entry?.logo_url} size={12} /></span
+		>{/snippet}
 	{#snippet actions()}{#if setup.owner}<a class="btn small" href={`${setup.href('charter')}#name`}
 				>Name & logo</a
 			>{/if}{/snippet}
@@ -223,6 +230,21 @@
 </Page>
 
 <style>
+	/* The company's own mark beside its name, as on its account card and in the top bar. */
+	.company-mark {
+		display: grid;
+		flex: none;
+		place-items: center;
+		width: 28px;
+		height: 28px;
+		overflow: hidden;
+		border-radius: 7px;
+		background: var(--accent-soft);
+		color: var(--accent-strong);
+	}
+	.company-mark.logo {
+		background: var(--surface);
+	}
 	.company-purpose {
 		display: grid;
 		gap: 8px;
