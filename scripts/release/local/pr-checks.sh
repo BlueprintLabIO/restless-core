@@ -5,7 +5,9 @@
 #   Core:  dagger qualify of the exact commit (scripts/release/local/core-release.sh, step 1);
 #   Cloud: scripts/release/local/qualify.sh with an empty environment, as cloud-release.sh runs it.
 # Only branches of the BlueprintLabIO repositories are checked, never forks: a fork's code would
-# run on this computer. One commit at a time; a commit is checked once. Logs go to
+# run on this computer. Two commits at a time (two worker slots); a commit is checked once. A Core
+# PR runs only the qualify groups its changed paths can affect, and a docs-only change passes
+# without qualifying; a release still qualifies everything. Logs go to
 # ~/.local/state/restless-release/pr-checks/.
 #
 #   scripts/release/local/pr-checks.sh          (scheduled by restless-pr-checks.timer)
@@ -16,10 +18,37 @@ cloud="${RESTLESS_CLOUD_DIR:-$HOME/code/restless-cloud}"
 dagger="${DAGGER_BIN:-$HOME/.local/bin/dagger}"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/restless-release/pr-checks"
 mkdir -p "$state"
-exec 9>"$state/.lock"
-flock -n 9 || exit 0
+# Two workers: each timer tick takes a free slot, then keeps claiming unchecked commits until none
+# are left, so a new PR starts within a minute even while a long check runs in the other slot.
+slot=
+for candidate in 1 2; do
+  exec 9>"$state/.slot-$candidate.lock"
+  flock -n 9 && { slot=$candidate; break; }
+done
+[ -n "$slot" ] || exit 0
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH" CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-6}"
-log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >>"$state/pr-checks.log"; }
+log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "[$slot] $*" >>"$state/pr-checks.log"; }
+
+# Core qualify groups a set of changed paths can affect. Prints nothing when no qualified input
+# changed (docs only), and "all" when a path is unknown or touches the checks themselves.
+core_groups() {
+  local groups=() path
+  while read -r path; do
+    [ -n "$path" ] || continue
+    case "$path" in
+      .dagger/*|scripts/release/*|infra/*|contracts/*|release/*|LICENSE|docs/COMPANY_OPERATING_RULES.md) echo all; return ;;
+      crates/*|Cargo.toml|Cargo.lock|rust-toolchain*) groups+=(rust release) ;;
+      web/*) groups+=(web issuer) ;;
+      services/identity/*) groups+=(issuer web) ;;
+      services/native-documents-collaboration/*) groups+=(documents) ;;
+      services/native-sheets/*) groups+=(sheets release) ;;
+      docs/*|*.md|.github/*|.gitignore) ;;
+      *) echo all; return ;;
+    esac
+  done
+  [ ${#groups[@]} -gt 0 ] && printf '%s\n' "${groups[@]}" | sort -u | paste -sd, -
+  return 0
+}
 
 status() { # repo sha state description
   gh api -X POST "repos/$1/statuses/$2" -f state="$3" -f context=local-ci -f description="$4" >/dev/null 2>&1 \
@@ -30,7 +59,8 @@ check() { # repo checkout number sha
   local repo="$1" checkout="$2" number="$3" sha="$4" name tree result
   name="$(basename "$repo")-$sha"
   [ -f "$state/$name.result" ] && return 0
-  tree="$state/src-$(basename "$repo")"
+  mkdir "$state/$name.claim" 2>/dev/null || return 0   # the other slot has it
+  tree="$state/src-$(basename "$repo")-$slot"
   log "checking $repo#$number at ${sha:0:12}"
   status "$repo" "$sha" pending "Qualifying on the owner's computer"
   git -C "$checkout" fetch -q origin "pull/$number/head" || { log "fetch failed for $repo#$number"; return 0; }
@@ -38,7 +68,17 @@ check() { # repo checkout number sha
   git -C "$checkout" worktree add -q --detach "$tree" "$sha" || { log "worktree failed for $repo#$number"; return 0; }
   case "$repo" in
     */restless-core)
-      (cd "$tree" && timeout 3h "$dagger" --silent call qualify --source=.) >"$state/$name.log" 2>&1 ;;
+      git -C "$checkout" fetch -q origin main
+      local groups
+      groups="$(git -C "$tree" diff --name-only "$(git -C "$tree" merge-base HEAD origin/main)" HEAD | core_groups)"
+      if [ -z "$groups" ]; then
+        echo "no qualified input changed (docs only)" >"$state/$name.log"
+      elif [ "$groups" = all ]; then
+        (cd "$tree" && timeout 3h "$dagger" --silent call qualify --source=.) >"$state/$name.log" 2>&1
+      else
+        log "$repo#$number qualifying $groups"
+        (cd "$tree" && timeout 3h "$dagger" --silent call qualify --source=. --only="$groups") >"$state/$name.log" 2>&1
+      fi ;;
     */restless-cloud)
       (cd "$tree" && timeout 2h env -i HOME="$HOME" USER="${USER:-}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" \
         TERM=dumb scripts/release/local/qualify.sh) >"$state/$name.log" 2>&1 ;;
@@ -50,6 +90,7 @@ check() { # repo checkout number sha
   else
     echo "fail $result" >"$state/$name.result"; status "$repo" "$sha" failure "Qualification failed (exit $result); log on the owner's computer"
   fi
+  rmdir "$state/$name.claim" 2>/dev/null || true
   log "$repo#$number ${sha:0:12}: $(cat "$state/$name.result")"
 }
 
