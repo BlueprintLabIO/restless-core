@@ -91,18 +91,17 @@
 			class="btn small voice-try"
 			disabled={tts === 'off' || !speaks}
 			aria-pressed={playing}
-			aria-label={playing ? 'Stop the sample' : 'Hear a sample'}
 			title={tts === 'off'
 				? 'Turn on reading aloud to hear a sample'
 				: playing
 					? 'Stop the sample'
 					: 'Hear a sample'}
 			onclick={() => toggleSpeaking(sampleId, SAMPLE)}
-			>{#if playing}<Square size={13} strokeWidth={2} aria-hidden="true" />{:else}<Volume2
+			>{#if playing}<Square size={12} strokeWidth={2} aria-hidden="true" />{:else}<Volume2
 					size={14}
 					strokeWidth={1.8}
 					aria-hidden="true"
-				/>{/if}</button
+				/>{/if}<span>{playing ? 'Stop' : 'Sample'}</span></button
 		>
 	</Row>
 </Section>
@@ -111,9 +110,11 @@
 	.voice-select {
 		width: min(240px, 100%);
 	}
-	/* One square for play and stop, so pressing it moves nothing. */
+	/* Labelled, so off it still reads as a sample button and not an empty box (S110). One width
+	 * for "Sample" and "Stop", so pressing it moves nothing. */
 	.voice-try {
-		width: 30px;
+		width: 84px;
+		gap: 5px;
 		padding: 0;
 		justify-content: center;
 	}

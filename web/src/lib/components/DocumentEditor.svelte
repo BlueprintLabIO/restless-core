@@ -1621,6 +1621,16 @@
 	const touch = browser && window.matchMedia('(hover: none)').matches;
 	let touchGrip = $state<{ pos: number; top: number; left: number } | null>(null);
 	let scrolled = $state(0);
+	/* It appears once the person is in the document (a tap puts the caret in a block), not beside
+	 * the first block of a document only being read (S110). */
+	let engaged = $state(false);
+	$effect(() => {
+		const instance = editorState.editor;
+		if (!touch || !instance) return;
+		const on = () => (engaged = true);
+		instance.on('focus', on);
+		return () => void instance.off('focus', on);
+	});
 	$effect(() => {
 		const paper = paperElement;
 		if (!touch || !paper) return;
@@ -1631,7 +1641,7 @@
 	$effect(() => {
 		void scrolled;
 		const instance = editorState.editor;
-		if (!touch || !instance || !canWriteLive || !sectionElement) {
+		if (!touch || !instance || !canWriteLive || !sectionElement || !engaged) {
 			touchGrip = null;
 			return;
 		}

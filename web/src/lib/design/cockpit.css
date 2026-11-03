@@ -602,6 +602,36 @@
 	}
 }
 
+/* The same for a strip that scrolls sideways (a phone's row of views): an edge with more beyond
+ * it fades, so the strip reads as scrollable; a strip that fits, or scrolled to an end, shows no
+ * fade there. */
+@property --edge-fade-start {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+@property --edge-fade-end {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+@keyframes edge-fade-inline {
+	from {
+		--edge-fade-start: 0px;
+		--edge-fade-end: 28px;
+	}
+	10% {
+		--edge-fade-start: 28px;
+	}
+	90% {
+		--edge-fade-end: 28px;
+	}
+	to {
+		--edge-fade-start: 28px;
+		--edge-fade-end: 0px;
+	}
+}
+
 .bridge-root .attention-index {
 	display: flex;
 	flex-direction: column;

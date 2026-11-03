@@ -3122,6 +3122,21 @@
 	.library-filters-views::-webkit-scrollbar {
 		display: none;
 	}
+	/* Cut at the screen edge it did not look scrollable: the edge with more views beyond it
+	 * fades (edge-fade-inline, cockpit.css) (S110). */
+	@supports (animation-timeline: scroll()) {
+		.library-filters-views {
+			mask-image: linear-gradient(
+				to right,
+				transparent,
+				#000 var(--edge-fade-start),
+				#000 calc(100% - var(--edge-fade-end)),
+				transparent
+			);
+			animation: edge-fade-inline linear both;
+			animation-timeline: scroll(self inline);
+		}
+	}
 	/* Archived, pinned past the scrolling views behind a hairline. */
 	.library-filters a.library-filters-end {
 		position: relative;
