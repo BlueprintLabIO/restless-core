@@ -3,9 +3,10 @@
 //! `restless attention accept|decline|answer|snooze|dismiss|move|add` lands here. Exec names the
 //! item and cites the owner's message that asked for it; this module finds the item in the same
 //! projection the owner's Inbox shows, checks that the verb has a decision path for that kind of
-//! item (and, for accepting a prepared outcome, that the outcome still opens), and saves the action
-//! with its five-second Undo window. The owner gateway applies it when the window ends, through the
-//! item's own decision path.
+//! item (and, for accepting a prepared outcome, that the outcome still opens), and saves the action.
+//! Its Undo window opens when the reply carrying it has finished ([`show_after_reply`]) and lasts
+//! until the owner's next message, at least 30 seconds and at most two minutes. The owner gateway
+//! applies it when the window ends, through the item's own decision path.
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -293,9 +294,17 @@ pub async fn queue(
         "id": saved.id,
         "item": saved.item_id,
         "action": saved.verb,
-        "takes_effect_at": saved.undo_until,
-        "shown": "The owner's Inbox shows this beside the item with Undo; it takes effect when that window ends. Tell the owner in one line what you did.",
+        "shown": "When your reply finishes, the owner's Inbox shows this beside the item with Undo. It takes effect once they move on: at their next message, but not before 30 seconds, and at most two minutes after your reply. Tell the owner in one line what you did.",
     }))
+}
+
+/// The reply carrying Exec's Inbox changes has finished and the owner can see them: open their
+/// Undo windows. Called when the reply is committed and again when the turn ends, whatever its
+/// outcome, so a turn that stops early still shows what it did rather than holding it.
+pub async fn show_after_reply(org: &restless_orgintel::OrgIntel, company: &str) {
+    if let Err(error) = org.show_exec_inbox_actions().await {
+        tracing::warn!(%error, company, "Exec's Inbox changes could not be shown; the next turn shows them");
+    }
 }
 
 /// Exec's own recent Inbox actions, one line each, for its next turn: what it did, on whose word,
@@ -309,7 +318,12 @@ pub async fn recent_lines(org: &restless_orgintel::OrgIntel) -> Vec<String> {
         .filter(|action| action.created_at > Utc::now() - chrono::Duration::days(2))
         .map(|action| {
             let outcome = match action.state.as_str() {
-                "pending" => "waiting out its Undo window".to_string(),
+                "pending" if action.held() => {
+                    "shown to the owner with Undo when this reply finishes".to_string()
+                }
+                "pending" => {
+                    "the owner can still undo it; it takes effect when they move on".to_string()
+                }
                 "applied" => "done".to_string(),
                 "canceled" => {
                     "the owner undid it; do not redo it unless they ask again".to_string()
@@ -396,7 +410,8 @@ pub async fn notes(org: &restless_orgintel::OrgIntel) -> Result<ExecNotes> {
             continue;
         }
         let shown = match action.state.as_str() {
-            "pending" => true,
+            // Shown with the reply that carries it, not while that reply still streams.
+            "pending" => !action.held(),
             "failed" => action
                 .completed_at
                 .is_some_and(|at| now - at < chrono::Duration::hours(24)),
@@ -450,7 +465,8 @@ mod tests {
             position: None,
             source_message_id: 1,
             owner_words: String::new(),
-            undo_until: Utc::now(),
+            undo_until: Some(Utc::now()),
+            shown_at: Some(Utc::now()),
             state: "applied".into(),
             problem: None,
             created_at: Utc::now(),

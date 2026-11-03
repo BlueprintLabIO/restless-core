@@ -95,8 +95,9 @@ enum AppsCommand {
 }
 
 /// Exec manages the owner's Inbox from their chat: each change cites the owner's message that
-/// asked for it, shows in the Inbox beside the item with Undo, and takes effect after the same
-/// five-second window as the owner's own actions.
+/// asked for it, shows in the Inbox beside the item with Undo once Exec's reply has finished, and
+/// takes effect when the owner moves on: at their next message, at least 30 seconds and at most
+/// two minutes after the reply.
 #[derive(Subcommand)]
 enum AttentionCommand {
     /// Accept or approve an item the owner said yes to.

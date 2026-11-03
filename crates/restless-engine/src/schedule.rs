@@ -1166,6 +1166,9 @@ async fn run_exec_turn_admitted(
     resources.activate();
     let outcome =
         run_exec_turn_with_lease(daemon, config, org, reason, cancellation, &lease_guard).await;
+    // Whatever the turn's outcome, its reply is over: any Inbox change it made is shown now (a
+    // no-op when the complete reply already showed them).
+    crate::exec_inbox::show_after_reply(org, &config.name).await;
     lease_guard.finish().await;
     outcome
 }
@@ -1420,7 +1423,9 @@ async fn run_exec_turn_with_lease(
         let live_turn = live_turn.clone();
         let message_id_slot = Arc::clone(&early_reply_message_id);
         let attempted = Arc::clone(&early_reply_commit_attempted);
+        let company = config.name.clone();
         let hook: exec::CompleteReplyHook = Arc::new(move |raw_reply: String| {
+            let company = company.clone();
             let org = org.clone();
             let lease = lease.clone();
             let owner_actor_id = owner_actor_id.clone();
@@ -1450,6 +1455,9 @@ async fn run_exec_turn_with_lease(
                     .map_err(|_| anyhow::anyhow!("early reply receipt lock was poisoned"))? =
                     Some(message_id);
                 live_turn.reply_committed(message_id);
+                // The reply has finished streaming: the Inbox changes it carries are shown now,
+                // and their Undo windows start from here.
+                crate::exec_inbox::show_after_reply(&org, &company).await;
                 Ok(message_id)
             })
         });

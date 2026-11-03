@@ -11827,6 +11827,14 @@ async fn send_actor_message(
                     }
                 }
             }
+            // The owner has moved on from what Exec already showed them: each of Exec's Inbox
+            // changes is applied once it has been open 30 seconds, rather than at its two-minute
+            // ceiling. A change still in a streaming reply keeps waiting to be shown.
+            if created && actor == "exec" && principal.membership_role() == "owner" {
+                if let Err(error) = org.owner_moved_on_from_exec_inbox_actions().await {
+                    tracing::warn!(%error, %company, "Exec's Inbox changes kept their full Undo window");
+                }
+            }
             if created {
                 state
                     .daemon

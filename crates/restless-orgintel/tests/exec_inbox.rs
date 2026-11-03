@@ -1,7 +1,7 @@
 //! Exec manages the owner's Inbox from their chat (owner decision, 3 November 2026), against real
-//! PostgreSQL: only the owner's own message to Exec grounds a change, the change waits out the same
-//! Undo window as the owner's clicks, and each decision reaches the item's author through the
-//! item's own path.
+//! PostgreSQL: only the owner's own message to Exec grounds a change, the change waits out an Undo
+//! window that opens only once the owner can see it, and each decision reaches the item's author
+//! through the item's own path.
 use chrono::{Duration, Utc};
 use restless_orgintel::{
     CompanyAccessIdentity, ExecInboxVerb, HumanAccessContext, NewArtifactRef, NewExecInboxAction,
@@ -124,7 +124,8 @@ impl Fixture {
 
     async fn end_window(&self, id: Uuid) {
         sqlx::query(&format!(
-            "UPDATE \"{}\".exec_inbox_actions SET undo_until=clock_timestamp()-INTERVAL '1 second' WHERE id=$1",
+            "UPDATE \"{}\".exec_inbox_actions SET undo_until=clock_timestamp()-INTERVAL '1 second', \
+             shown_at=COALESCE(shown_at, clock_timestamp()-INTERVAL '1 minute') WHERE id=$1",
             self.org.schema()
         ))
         .bind(id)
@@ -270,8 +271,8 @@ async fn only_the_owners_own_message_to_exec_changes_the_owners_inbox() {
         "no, drop that"
     );
     assert!(
-        saved.undo_until > saved.created_at,
-        "it waits out an Undo window"
+        saved.held() && saved.undo_until.is_none(),
+        "it waits, with no deadline, until the reply that carries it is shown"
     );
 
     // The owner signed in through a company membership is still the owner.
@@ -590,5 +591,226 @@ async fn an_outcome_review_declined_from_chat_goes_back_for_changes_with_the_rea
     assert!(feedback.contains("Lighten the hero."), "{feedback}");
     assert!(feedback.contains("the hero is too dark"), "{feedback}");
 
+    f.drop().await;
+}
+
+/// Move a shown change's window back in time, as if it had been shown `ago` seconds since.
+async fn shown_ago(f: &Fixture, id: Uuid, ago: f64) {
+    sqlx::query(&format!(
+        "UPDATE \"{}\".exec_inbox_actions SET shown_at=shown_at-make_interval(secs => $2), \
+         undo_until=undo_until-make_interval(secs => $2) WHERE id=$1",
+        f.org.schema()
+    ))
+    .bind(id)
+    .bind(ago)
+    .execute(&f.db)
+    .await
+    .unwrap();
+}
+
+async fn action(f: &Fixture, id: Uuid) -> restless_orgintel::ExecInboxAction {
+    f.org
+        .recent_exec_inbox_actions(50)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|action| action.id == id)
+        .unwrap()
+}
+
+/// The window is the owner's: it opens when the reply carrying the change has finished, runs at
+/// least 30 seconds, and otherwise until the owner's next message to Exec, at most two minutes.
+#[tokio::test]
+async fn the_undo_window_opens_when_the_owner_can_see_it_and_ends_when_they_move_on() {
+    let Some(f) = Fixture::new().await else {
+        return;
+    };
+    let words = f
+        .says("owner", "exec", "accept that and skip the warning")
+        .await;
+    let accept = f
+        .queue("orgintel:handoff:a", ExecInboxVerb::Accept, words)
+        .await
+        .unwrap();
+    // While the reply streams: no deadline, nothing due, the worker sleeps, and the owner's
+    // next message (sent mid-reply) does not start or shorten anything.
+    assert!(accept.held());
+    assert!(f.org.next_exec_inbox_delay().await.unwrap().is_none());
+    assert!(f.org.next_human_decision_delay().await.unwrap().is_none());
+    assert!(f.org.due_exec_inbox_actions().await.unwrap().is_empty());
+    assert_eq!(
+        f.org.owner_moved_on_from_exec_inbox_actions().await.unwrap(),
+        0
+    );
+    assert!(action(&f, accept.id).await.held());
+
+    // The reply finishes: the window opens for the ceiling, counted from now.
+    assert_eq!(f.org.show_exec_inbox_actions().await.unwrap(), 1);
+    assert_eq!(
+        f.org.show_exec_inbox_actions().await.unwrap(),
+        0,
+        "shown once"
+    );
+    let shown = action(&f, accept.id).await;
+    let (shown_at, until) = (shown.shown_at.unwrap(), shown.undo_until.unwrap());
+    let open = (until - shown_at).num_milliseconds();
+    assert!((119_000..=121_000).contains(&open), "{open} ms");
+    let delay = f.org.next_exec_inbox_delay().await.unwrap().unwrap();
+    assert!(delay.as_secs() >= 115, "{delay:?}");
+
+    // The owner answers straight away: the window still runs its 30 seconds.
+    assert_eq!(
+        f.org.owner_moved_on_from_exec_inbox_actions().await.unwrap(),
+        1
+    );
+    let floor = action(&f, accept.id).await;
+    let left = (floor.undo_until.unwrap() - floor.shown_at.unwrap()).num_milliseconds();
+    assert!((29_000..=31_000).contains(&left), "{left} ms");
+    assert!(f.org.due_exec_inbox_actions().await.unwrap().is_empty());
+    assert_eq!(
+        f.org.owner_moved_on_from_exec_inbox_actions().await.unwrap(),
+        0,
+        "a window is never lengthened by a later message"
+    );
+
+    // A second change, shown 50 seconds ago and still open: the owner's next message ends it.
+    let skip_words = f.says("owner", "exec", "skip the spend warning").await;
+    let skip = f
+        .queue("authority:spend_warning", ExecInboxVerb::Dismiss, skip_words)
+        .await
+        .unwrap();
+    f.org.show_exec_inbox_actions().await.unwrap();
+    shown_ago(&f, skip.id, 50.0).await;
+    assert!(!f
+        .org
+        .due_exec_inbox_actions()
+        .await
+        .unwrap()
+        .iter()
+        .any(|a| a.id == skip.id));
+    f.org.owner_moved_on_from_exec_inbox_actions().await.unwrap();
+    assert!(f
+        .org
+        .due_exec_inbox_actions()
+        .await
+        .unwrap()
+        .iter()
+        .any(|a| a.id == skip.id));
+
+    // An owner who reads the reply and walks away: the ceiling ends it.
+    let move_words = f.says("owner", "exec", "put the launch page first").await;
+    let moved = f
+        .queue("orgintel:handoff:launch", ExecInboxVerb::Move, move_words)
+        .await
+        .unwrap();
+    f.org.show_exec_inbox_actions().await.unwrap();
+    shown_ago(&f, moved.id, 118.0).await;
+    assert!(!f
+        .org
+        .due_exec_inbox_actions()
+        .await
+        .unwrap()
+        .iter()
+        .any(|a| a.id == moved.id));
+    shown_ago(&f, moved.id, 3.0).await;
+    assert!(f
+        .org
+        .due_exec_inbox_actions()
+        .await
+        .unwrap()
+        .iter()
+        .any(|a| a.id == moved.id));
+    f.drop().await;
+}
+
+/// The owner can undo while the reply streams and after it finishes, until the window ends; a due
+/// change is applied exactly once, and an Undo racing the worker either wins or is refused.
+#[tokio::test]
+async fn undo_after_the_reply_finishes_and_a_change_applies_exactly_once() {
+    let Some(f) = Fixture::new().await else {
+        return;
+    };
+    // Undo while the reply is still streaming (from a card the owner has open).
+    let early = f.says("owner", "exec", "decline it").await;
+    let declined = f
+        .queue("orgintel:handoff:early", ExecInboxVerb::Decline, early)
+        .await
+        .unwrap();
+    assert_eq!(
+        f.org
+            .cancel_exec_inbox_action(declined.id)
+            .await
+            .unwrap()
+            .state,
+        "canceled"
+    );
+    assert_eq!(
+        f.org.show_exec_inbox_actions().await.unwrap(),
+        0,
+        "an undone change is never shown"
+    );
+
+    // Undo 25 seconds after the reply finished, after the owner moved on: still inside 30 s.
+    let words = f.says("owner", "exec", "accept the launch page").await;
+    let accept = f
+        .queue("orgintel:handoff:launch", ExecInboxVerb::Accept, words)
+        .await
+        .unwrap();
+    f.org.show_exec_inbox_actions().await.unwrap();
+    shown_ago(&f, accept.id, 25.0).await;
+    f.org.owner_moved_on_from_exec_inbox_actions().await.unwrap();
+    assert_eq!(
+        f.org
+            .cancel_exec_inbox_action(accept.id)
+            .await
+            .unwrap()
+            .state,
+        "canceled"
+    );
+    f.end_window(accept.id).await;
+    assert!(f.org.due_exec_inbox_actions().await.unwrap().is_empty());
+
+    // Applied exactly once, with a second worker and a late Undo racing the first worker.
+    let again = f.says("owner", "exec", "ok accept it after all").await;
+    let accept = f
+        .queue("orgintel:handoff:launch", ExecInboxVerb::Accept, again)
+        .await
+        .unwrap();
+    f.org.show_exec_inbox_actions().await.unwrap();
+    f.end_window(accept.id).await;
+    let claim = f
+        .org
+        .claim_exec_inbox_action(accept.id)
+        .await
+        .unwrap()
+        .expect("the due change is claimed");
+    assert!(f
+        .org
+        .claim_exec_inbox_action(accept.id)
+        .await
+        .unwrap()
+        .is_none());
+    let late_undo = {
+        let org = f.org.clone();
+        let id = accept.id;
+        tokio::spawn(async move { org.cancel_exec_inbox_action(id).await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert_eq!(claim.settle(None).await.unwrap(), "applied");
+    let refused = late_undo.await.unwrap().unwrap_err().to_string();
+    assert!(refused.contains("Undo window has ended"), "{refused}");
+    assert!(f
+        .org
+        .claim_exec_inbox_action(accept.id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(f.org.due_exec_inbox_actions().await.unwrap().is_empty());
+    assert_eq!(action(&f, accept.id).await.state, "applied");
+    assert_eq!(
+        f.org.show_exec_inbox_actions().await.unwrap(),
+        0,
+        "showing never reopens a settled change"
+    );
     f.drop().await;
 }
