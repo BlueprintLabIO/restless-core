@@ -1452,8 +1452,12 @@
 		gap: 6px;
 		margin-left: auto;
 	}
-	/* A filter shows its value (a person's name) but never wider than a short name. */
-	.filters .goal-picker :global(summary > span) {
+	/* A picker keeps its size: one line, its value (a person's name) never wider than a short
+	 * name. Squeezed, "Goal actions" broke over two lines and grew the header by a pixel. */
+	.head .goal-picker {
+		flex: none;
+	}
+	.head .goal-picker :global(summary > span) {
 		max-width: 14ch;
 		overflow: hidden;
 		text-overflow: ellipsis;
