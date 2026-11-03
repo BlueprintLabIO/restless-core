@@ -262,7 +262,7 @@ pub fn settled(change: &SettingChange, config: &crate::runtime::CompanyConfig) -
         SettingChange::ReasoningEffort { effort } => config.reasoning_effort == *effort,
         SettingChange::Model { model } => config.configured_model() == Some(model.as_str()),
         SettingChange::EverydayModel { model } => {
-            config.everyday()
+            config.everyday().as_deref()
                 == crate::runtime::everyday_model_setting(model)
                     .ok()
                     .flatten()
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn everyday_and_decision_models_are_proposed_and_settled_like_company_set() {
         let everyday: SettingProposalInput = serde_json::from_str(
-            r#"{"setting":"everyday_model","model":"anthropic/claude-sonnet-5-5","reason":"Most turns are routine."}"#,
+            r#"{"setting":"everyday_model","model":"anthropic/claude-haiku-5-5","reason":"Most turns are routine."}"#,
         )
         .unwrap();
         assert!(everyday.change.validate().is_ok());
@@ -440,11 +440,18 @@ mod tests {
             toml::from_str("name = \"acme\"\nmodel = \"anthropic/claude-opus-5-5\"\n").unwrap();
         assert_eq!(
             everyday.change.summary_for(&config),
-            "Chat and routine work run on Claude Sonnet 5.5; the Exec, leads and reviews stay on Claude Opus 5.5"
+            "Chat and routine work run on Claude Haiku 5.5; the Exec, leads and reviews stay on Claude Opus 5.5"
         );
         assert!(!settled(&everyday.change, &config));
+        // Unset, an Opus company already runs routine turns on its Sonnet sibling (S107).
+        assert!(settled(
+            &SettingChange::EverydayModel {
+                model: "anthropic/claude-sonnet-5-5".into()
+            },
+            &config
+        ));
         config
-            .set_everyday_model("anthropic/claude-sonnet-5-5")
+            .set_everyday_model("anthropic/claude-haiku-5-5")
             .unwrap();
         assert!(settled(&everyday.change, &config));
         let off = SettingChange::EverydayModel {
