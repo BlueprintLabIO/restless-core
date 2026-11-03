@@ -31,8 +31,10 @@ pub enum ApprovalTarget {
     Party { party: String },
     /// One prepared tool call.
     ToolCall { call_key: String },
-    /// A proposed email mandate and its exact limits.
-    EmailMandate { proposal: Uuid },
+    /// A proposed standing permission (of any kind) and its exact limits. Answers saved while
+    /// only email had standing permissions said `email_mandate`.
+    #[serde(alias = "email_mandate")]
+    Mandate { proposal: Uuid },
     /// One more payee for a payment allowance.
     Payee { proposal: i64 },
     /// A notice about a use of one of the owner's accounts: Fine (grant) or Freeze (decline).
@@ -50,7 +52,7 @@ impl ApprovalTarget {
         match self {
             Self::Party { party } => format!("party:{}", normalize_party(party)),
             Self::ToolCall { call_key } => format!("call:{call_key}"),
-            Self::EmailMandate { proposal } => format!("mandate:{proposal}"),
+            Self::Mandate { proposal } => format!("mandate:{proposal}"),
             Self::Payee { proposal } => format!("payee:{proposal}"),
             Self::AccountNotice { notice, .. } => format!("account-notice:{notice}"),
             Self::AccountRequest { request } => format!("account-request:{request}"),
@@ -86,9 +88,7 @@ impl ApprovalTarget {
         match self {
             Self::Party { .. } => None,
             Self::ToolCall { call_key } => Some(format!("authority:tool-call:{call_key}")),
-            Self::EmailMandate { proposal } => {
-                Some(format!("authority:email_mandate_proposal:{proposal}"))
-            }
+            Self::Mandate { proposal } => Some(format!("authority:mandate_request:{proposal}")),
             Self::Payee { proposal } => Some(format!("authority:payee:{proposal}")),
             Self::AccountNotice { notice, .. } => {
                 Some(format!("authority:account_notice:{notice}"))
@@ -107,7 +107,7 @@ impl ApprovalTarget {
         match self {
             Self::Party { party } => party.is_empty(),
             Self::ToolCall { call_key } => call_key.is_empty(),
-            Self::EmailMandate { .. } | Self::Payee { .. } | Self::EmailSend { .. } => false,
+            Self::Mandate { .. } | Self::Payee { .. } | Self::EmailSend { .. } => false,
             Self::AccountNotice { account, notice } => account.is_empty() || notice.is_empty(),
             Self::AccountRequest { request } => request.is_empty(),
             Self::Publication { publication } => publication.is_empty(),
@@ -373,17 +373,14 @@ async fn waiting_digest(
                 .await?
                 .map(|request| digest_of(&request))
         }
-        ApprovalTarget::EmailMandate { proposal } => {
-            let proposal = proposal.to_string();
-            authority
-                .pending_email_mandate_proposals(company)
-                .await?
-                .into_iter()
-                .filter(|record| record.body["id"].as_str() == Some(proposal.as_str()))
-                .map(|record| record.id)
-                .max()
-                .map(|id| format!("record:{id}"))
-        }
+        ApprovalTarget::Mandate { proposal } => authority
+            .pending_mandate_proposals(company)
+            .await?
+            .into_iter()
+            .filter(|pending| pending.id == *proposal)
+            .map(|pending| pending.record_id)
+            .max()
+            .map(|id| format!("record:{id}")),
         ApprovalTarget::Payee { proposal } => {
             crate::finance::pending_payee_proposals(authority, company)
                 .await?
@@ -471,10 +468,10 @@ async fn already_answered(
     let actor = saved.principal.actor_id.as_str();
     Ok(match &saved.target {
         ApprovalTarget::Party { .. } | ApprovalTarget::ToolCall { .. } => false,
-        ApprovalTarget::EmailMandate { proposal } => {
+        ApprovalTarget::Mandate { proposal } => {
             let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
                 "SELECT actor_id, body->>'decision' FROM restless_authority.records \
-                 WHERE company=$1 AND kind='email_mandate_proposal_decision' \
+                 WHERE company=$1 AND kind='mandate_request_decision' \
                  AND body->>'proposal_id'=$2 ORDER BY id LIMIT 1",
             )
             .bind(company)
@@ -593,13 +590,13 @@ pub async fn queue(
         }
         (ApprovalTarget::Party { .. }, _) => {}
         (
-            ApprovalTarget::EmailMandate { .. } | ApprovalTarget::Payee { .. },
+            ApprovalTarget::Mandate { .. } | ApprovalTarget::Payee { .. },
             ApprovalDecision::Decline {
                 changes_requested: true,
                 ..
             },
         ) => bail!("This is answered yes or no. Say what should change in a note with Decline."),
-        (ApprovalTarget::EmailMandate { .. } | ApprovalTarget::Payee { .. }, _) => {}
+        (ApprovalTarget::Mandate { .. } | ApprovalTarget::Payee { .. }, _) => {}
         // An email is declined with a note, or sent back for changes like a prepared call.
         (ApprovalTarget::EmailSend { .. }, _) => {}
         (
@@ -895,11 +892,11 @@ async fn apply(effects: &Effects<'_>, saved: &PendingApprovalDecision) -> Result
     };
     let note = saved.decision.note();
     match &saved.target {
-        ApprovalTarget::EmailMandate { proposal } => {
+        ApprovalTarget::Mandate { proposal } => {
             if !already_answered(authority, company, saved).await? {
                 recheck().await?;
                 authority
-                    .decide_email_mandate_proposal(company, actor, *proposal, grant, note.text)
+                    .decide_mandate_proposal(company, actor, *proposal, grant, note.text)
                     .await?;
             }
             crate::approval::announce_decisions(company, authority, org).await;
@@ -1667,7 +1664,7 @@ mod tests {
             .propose_email_mandate(&fx.company, "exec", proposal(5), None, None)
             .await
             .unwrap();
-        let target = ApprovalTarget::EmailMandate { proposal: first };
+        let target = ApprovalTarget::Mandate { proposal: first };
         // Yes or no: a request for changes is refused at once, not after five seconds.
         assert!(fx
             .answer(
@@ -1687,7 +1684,7 @@ mod tests {
         assert!(fx.settle(undone.id, None).await.is_none());
         assert_eq!(
             fx.authority
-                .pending_email_mandate_proposals(&fx.company)
+                .pending_mandate_proposals(&fx.company)
                 .await
                 .unwrap()
                 .len(),
@@ -1707,7 +1704,7 @@ mod tests {
         fx.expire(saved.id).await;
         fx.crash_after(saved.id, async {
             fx.authority
-                .decide_email_mandate_proposal(&fx.company, "owner", first, true, None)
+                .decide_mandate_proposal(&fx.company, "owner", first, true, None)
                 .await
                 .unwrap();
         })
@@ -1721,7 +1718,7 @@ mod tests {
                 .len(),
             1
         );
-        assert_eq!(fx.count("email_mandate_proposal_decision").await, 1);
+        assert_eq!(fx.count("mandate_request_decision").await, 1);
         assert!(fx.settle(saved.id, None).await.is_none());
 
         // A decline with a note is recorded once, with the note.
@@ -1732,7 +1729,7 @@ mod tests {
             .unwrap();
         let declined = fx
             .answer(
-                &ApprovalTarget::EmailMandate { proposal: second },
+                &ApprovalTarget::Mandate { proposal: second },
                 &ApprovalDecision::Decline {
                     note: Some("Not before the launch".into()),
                     changes_requested: false,
@@ -1740,12 +1737,12 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(fx.count("email_mandate_proposal_decision").await, 1);
+        assert_eq!(fx.count("mandate_request_decision").await, 1);
         fx.expire(declined.id).await;
         assert_eq!(fx.settle(declined.id, None).await, Some("applied"));
         let decisions = fx
             .authority
-            .records_of_kind(&fx.company, "email_mandate_proposal_decision")
+            .records_of_kind(&fx.company, "mandate_request_decision")
             .await
             .unwrap();
         assert_eq!(decisions.len(), 2);

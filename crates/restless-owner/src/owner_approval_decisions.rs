@@ -61,7 +61,7 @@ struct QueueInput {
 enum Decider {
     /// First contact and held calls: the Authority owner, or a deputy while they are away.
     OwnerOrDeputy,
-    /// Email mandates, publications and single emails: the current Authority owner only.
+    /// Standing permissions, publications and single emails: the current Authority owner only.
     AuthorityOwner,
     /// Payees: the company's owner.
     CompanyOwner,
@@ -72,7 +72,7 @@ enum Decider {
 fn decider(target: &ApprovalTarget) -> Decider {
     match target {
         ApprovalTarget::Party { .. } | ApprovalTarget::ToolCall { .. } => Decider::OwnerOrDeputy,
-        ApprovalTarget::EmailMandate { .. }
+        ApprovalTarget::Mandate { .. }
         | ApprovalTarget::Publication { .. }
         | ApprovalTarget::EmailSend { .. } => Decider::AuthorityOwner,
         ApprovalTarget::Payee { .. } => Decider::CompanyOwner,

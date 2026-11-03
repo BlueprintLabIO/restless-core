@@ -4538,9 +4538,42 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             "unsupported",
             "browser control belongs to the owner cockpit; use the prepared owner handoff or send the accountable actor a Work message instead",
         ),
-        "mandate-list" => {
-            match daemon.authority.list_email_mandates(company).await {
-                Ok(mandates) => Response::ok_serialized(mandates),
+        // Every standing permission the owner has granted and not revoked, with what is used.
+        "mandate-list" => match standing_permissions(daemon, company).await {
+            Ok(list) => Response::ok(list),
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        // The one check an action makes before acting (`mandate-check` records nothing;
+        // `mandate-use` records the action against the limits when it is allowed).
+        "mandate-check" | "mandate-use" => {
+            let kind = match request
+                .authority
+                .mandate_kind
+                .as_deref()
+                .map(crate::mandate::MandateKind::parse)
+            {
+                Some(Ok(kind)) => kind,
+                Some(Err(error)) => return Response::err(format!("{error:#}")),
+                None => return Response::err("say which kind of standing permission: --kind"),
+            };
+            let action: crate::mandate::MandateAction = match request.authority.mandate_action {
+                Some(value) => match serde_json::from_value(value) {
+                    Ok(action) => action,
+                    Err(error) => return Response::err(format!("invalid action: {error}")),
+                },
+                None => crate::mandate::MandateAction::default(),
+            };
+            let actor = request.orgintel.actor.as_deref().unwrap_or_default();
+            let checked = if request.cmd == "mandate-use" {
+                if actor.trim().is_empty() {
+                    return Response::err("recording a use needs an authenticated acting actor");
+                }
+                daemon.authority.record_mandate_use(company, actor, kind, &action).await
+            } else {
+                daemon.authority.require_mandate(company, kind, &action).await
+            };
+            match checked {
+                Ok(check) => Response::ok_serialized(check),
                 Err(error) => Response::err(format!("{error:#}")),
             }
         }
@@ -4575,51 +4608,31 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Err(error) => Response::err(format!("record Resend observation: {error:#}")),
             }
         }
-        // Exec asks the owner for standing permission to send email (S109 H2): the proposal is
-        // the owner's Inbox card, approved with Undo. Exec then still permits each email.
+        // An agent asks the owner for a standing permission of any kind: one Inbox card,
+        // approved or declined with Undo. Nothing is allowed under it until then.
         "mandate-propose" => {
             let Some(value) = request.authority.mandate_proposal else {
                 return Response::err("mandate propose needs a proposal");
-            };
-            let proposal: crate::authority::NewEmailMandate = match serde_json::from_value(value) {
-                Ok(proposal) => proposal,
-                Err(error) => return Response::err(format!("invalid mandate proposal: {error}")),
             };
             let note = request.authority.purpose.as_deref().map(str::trim).filter(|note| !note.is_empty());
             if note.is_some_and(|note| note.len() > 2_000) {
                 return Response::err("the reason is longer than 2,000 characters");
             }
-            let actor = request.orgintel.actor.as_deref().unwrap_or("exec");
-            match daemon.authority.pending_email_mandate_proposals(company).await {
-                Ok(pending) => {
-                    if let Some(waiting) = pending.last().and_then(|record| record.body["id"].as_str().map(str::to_string)) {
-                        return Response::ok(serde_json::json!({
-                            "proposal_id": waiting,
-                            "status": "waiting_for_owner",
-                            "note": "A proposal is already waiting in the owner's Inbox. Do not propose again; you are told when they answer.",
-                        }));
-                    }
-                }
-                Err(error) => return Response::err(format!("{error:#}")),
+            let actor = request.orgintel.actor.as_deref().unwrap_or_default();
+            if actor.trim().is_empty() {
+                return Response::err("a proposal needs an authenticated acting actor");
             }
-            // A change to the current mandate names it, so approving replaces it.
-            let replaces = match daemon.authority.list_email_mandates(company).await {
-                Ok(mandates) => mandates
-                    .into_iter()
-                    .find(|mandate| mandate.expires_at > chrono::Utc::now())
-                    .map(|mandate| mandate.id),
-                Err(error) => return Response::err(format!("{error:#}")),
-            };
-            match daemon
-                .authority
-                .propose_email_mandate(company, actor, proposal, note, replaces)
-                .await
+            match crate::mandate::raise(
+                daemon.authority.pool(),
+                company,
+                actor,
+                value,
+                request.authority.mandate_kind.as_deref(),
+                note,
+            )
+            .await
             {
-                Ok(id) => Response::ok(serde_json::json!({
-                    "proposal_id": id,
-                    "status": "waiting_for_owner",
-                    "note": "Nothing can be sent under it yet. The owner approves or declines this exact permission in their Inbox; you are told when they answer.",
-                })),
+                Ok(outcome) => Response::ok(outcome),
                 Err(error) => Response::err(format!("{error:#}")),
             }
         }
@@ -4638,6 +4651,25 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Err(error) => return Response::err(format!("invalid permit proposal: {error}")),
             };
             let actor = request.orgintel.actor.as_deref().unwrap_or_default();
+            // Email is a standing permission like any other: the one check runs first, and when
+            // nothing covers this email it says what to ask the owner for instead of failing.
+            match daemon
+                .authority
+                .require_mandate(
+                    company,
+                    crate::mandate::MandateKind::Email,
+                    &crate::mandate::MandateAction {
+                        summary: format!("Email {}", proposal.recipient),
+                        counterparty: Some(proposal.recipient.clone()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            {
+                Ok(check) if !check.allowed() => return needs_permission(check),
+                Ok(_) => {}
+                Err(error) => return Response::err(format!("{error:#}")),
+            }
             match daemon
                 .authority
                 .issue_email_permit(company, actor, mandate_id, proposal)
@@ -4784,6 +4816,46 @@ pub fn authenticate_request(
     }
 }
 
+/// A check that found no standing permission, as the refusal an agent reads: why, and the
+/// ready proposal it raises instead of stopping.
+fn needs_permission(check: crate::mandate::MandateCheck) -> Response {
+    Response::err_kind(
+        "needs_permission",
+        match serde_json::to_string_pretty(&check) {
+            Ok(text) => format!("This needs a standing permission from the owner.\n{text}"),
+            Err(_) => "This needs a standing permission from the owner.".to_string(),
+        },
+    )
+}
+
+/// What `restless mandate list` shows: each standing permission, its limits in plain words, and
+/// how much of them is used.
+async fn standing_permissions(daemon: &Daemon, company: &str) -> anyhow::Result<serde_json::Value> {
+    let now = chrono::Utc::now();
+    let mut list = Vec::new();
+    for (mandate, version) in daemon.authority.list_mandates(company).await? {
+        let usage = daemon.authority.mandate_usage(company, &mandate).await?;
+        let mut entry = serde_json::to_value(&mandate)?;
+        entry["version"] = serde_json::json!(version);
+        entry["active"] = serde_json::json!(mandate.expires_at > now);
+        entry["limits_in_words"] =
+            serde_json::json!(crate::mandate::limit_lines(mandate.kind, &mandate.limits));
+        entry["usage"] = serde_json::to_value(usage)?;
+        entry["how"] = serde_json::json!(mandate.kind.how_to_act());
+        list.push(entry);
+    }
+    let pending = daemon.authority.pending_mandate_proposals(company).await?;
+    Ok(serde_json::json!({
+        "mandates": list,
+        "waiting_for_owner": pending.iter().map(|proposal| serde_json::json!({
+            "proposal_id": proposal.id,
+            "kind": proposal.terms.kind,
+            "title": proposal.terms.title,
+            "proposed_by": proposal.proposed_by,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
 /// A Runtime actor cannot re-label an attribution field after the daemon has
 /// authenticated the session. Fields that name another person as a target
 /// remain ordinary OrgIntel work, while every acting-attribution field is
@@ -4814,6 +4886,8 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "effect-reconcile"
         | "mandate-permit"
         | "mandate-propose"
+        | "mandate-check"
+        | "mandate-use"
         | "email-preview"
         | "email-send"
         | "email-observe"

@@ -341,7 +341,7 @@ fn decision<'a>(
                 .map_err(|_| "mandate_proposal must be the item's mandate_proposal".to_string())?;
             let answer = if allow { "approve" } else { "decline" };
             Ok((
-                format!("/companies/{company}/email-mandates/proposals/{proposal}/decision"),
+                format!("/companies/{company}/mandates/proposals/{proposal}/decision"),
                 serde_json::json!({"decision": answer}),
             ))
         }
@@ -371,7 +371,7 @@ fn inbox_summary(view: &serde_json::Value) -> serde_json::Value {
                         "call_key": item.pointer("/source/call_key"),
                         "mandate_proposal": item
                             .pointer("/source/kind")
-                            .filter(|kind| *kind == "email_mandate_proposal")
+                            .filter(|kind| *kind == "mandate_request")
                             .and_then(|_| item.pointer("/source/reference")),
                         "actions": item.get("actions"),
                     })
@@ -654,8 +654,8 @@ mod tests {
     fn each_inbox_approval_names_the_answer_that_reaches_it() {
         let proposal = Uuid::new_v4();
         let view = serde_json::json!({"items": [
-            {"id": format!("authority:email_mandate_proposal:{proposal}"),
-             "source": {"kind": "email_mandate_proposal", "reference": proposal.to_string()}},
+            {"id": format!("authority:mandate_request:{proposal}"),
+             "source": {"kind": "mandate_request", "reference": proposal.to_string()}},
             {"id": "authority:approval_required:1",
              "source": {"kind": "approval_required", "reference": "1", "party": "ann@example.com"}},
             {"id": "authority:approval_required:2",
@@ -672,7 +672,7 @@ mod tests {
         assert_eq!(
             answer(0, true),
             (
-                format!("/companies/acme/email-mandates/proposals/{proposal}/decision"),
+                format!("/companies/acme/mandates/proposals/{proposal}/decision"),
                 serde_json::json!({"decision": "approve"}),
             )
         );

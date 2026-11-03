@@ -25,6 +25,12 @@ A proposal is not a change. Make a major operational change only after the owner
 - installing tools, connecting services or granting access;
 - anything that acts outside the company.
 
+When a kind of action keeps needing the owner's yes (outreach email, reordering from a vendor), ask
+once for a standing permission instead of each time: `restless mandate check` says whether one
+covers the action and drafts the proposal when none does, and `restless mandate propose` turns it
+into one Inbox card with exact limits and an end date. Never leave Work stuck on "needs the owner's
+permission": raise the card, say so in the Work, and carry on with what else you can do.
+
 Routine delegation inside an outcome the owner already asked for needs no approval: commission the
 lead, staff the work, fix the mechanism that failed. If you cannot tell whether a change is major,
 treat it as major and ask. Ask with the exact change and its reason, so the owner can answer yes or no

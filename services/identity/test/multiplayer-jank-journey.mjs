@@ -708,9 +708,35 @@ async function seed(owner, alice) {
       work_id: null,
     },
   ]);
+  /* A standing permission Exec asks for (3 Nov 2026), with a long title, scope and vendor list:
+   * the record `restless mandate propose` writes. */
+  await plane.query("INSERT INTO restless_authority.records (company, kind, actor_id, body) VALUES ($1, 'mandate_request', 'exec', $2)", [
+    company,
+    {
+      id: randomUUID(),
+      kind: "vendor_order",
+      terms: {
+        kind: "vendor_order",
+        title: "Reorder printed fridge magnets and open-day flyers from the two print shops we already use",
+        scope: "Reorder the open-day fridge magnets and the A5 flyers whenever the box in the back room runs low, at the quantities and finishes of the last order, delivered to the café before nine.",
+        limits: {
+          max_per_action: { minor: 15000, currency: "AUD" },
+          max_spend_total: { minor: 60000, currency: "AUD" },
+          max_total: 6,
+          max_per_day: 1,
+          timezone: "Australia/Sydney",
+          counterparties: ["vistaprint.com.au", "officeworks-print-and-copy.example.com.au"],
+        },
+        expires_at: new Date(Date.now() + 90 * 86400000).toISOString(),
+        owner_approves_each: false,
+        rationale: "We hand out about two hundred magnets at each open day and ran out twice last month.",
+        evidence: ["https://www.vistaprint.com.au/magnets", "Library/marketing/open-day-checklist.md"],
+      },
+    },
+  ]);
   await plane.end();
-  await until(async () => (await coreApi(owner, `${base}/attention`)).items.length >= 2, "seeded Inbox items", 30);
-  pass("seeded documents, a sheet, goals, a team, a room with a mention, direction requests, a charter draft, a review, margin comments and an email to approve");
+  await until(async () => (await coreApi(owner, `${base}/attention`)).items.length >= 3, "seeded Inbox items", 30);
+  pass("seeded documents, a sheet, goals, a team, a room with a mention, direction requests, a charter draft, a review, margin comments, an email to approve and a standing permission to grant");
   return { path: `/${company}/library/documents?document=${plan}`, name: "document" };
 }
 

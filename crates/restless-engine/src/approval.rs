@@ -243,7 +243,8 @@ pub(crate) async fn decline_as(
 pub(crate) const DECISION_KINDS: [&str; 3] =
     ["approval_granted", "approval_declined", "approval_revoked"];
 pub(crate) const TOOL_CALL_DECISION_KINDS: [&str; 2] = ["tool_call_approved", "tool_call_declined"];
-pub(crate) const EMAIL_MANDATE_DECISION_KIND: &str = "email_mandate_proposal_decision";
+/// The owner's answer to a standing permission proposal, of any kind.
+pub(crate) const MANDATE_DECISION_KIND: &str = crate::mandate::DECISION_KIND;
 
 enum DecisionSubject {
     Party {
@@ -257,10 +258,12 @@ enum DecisionSubject {
         note: Option<String>,
         changes: bool,
     },
-    EmailMandate {
+    Mandate {
         proposal_id: String,
         mandate_id: Option<String>,
         decision: String,
+        kind: Option<crate::mandate::MandateKind>,
+        title: Option<String>,
     },
     EmailSend {
         request_id: String,
@@ -357,7 +360,7 @@ pub async fn announce_decisions(
         }
     }
     let Ok(records) = authority
-        .records_of_kind(company, EMAIL_MANDATE_DECISION_KIND)
+        .records_of_kind(company, MANDATE_DECISION_KIND)
         .await
     else {
         return 0;
@@ -378,8 +381,8 @@ pub async fn announce_decisions(
         }
         pending.push((
             record.id,
-            EMAIL_MANDATE_DECISION_KIND,
-            DecisionSubject::EmailMandate {
+            MANDATE_DECISION_KIND,
+            DecisionSubject::Mandate {
                 proposal_id: proposal_id.to_owned(),
                 mandate_id: record
                     .body
@@ -387,6 +390,12 @@ pub async fn announce_decisions(
                     .and_then(|value| value.as_str())
                     .map(str::to_owned),
                 decision: decision.to_owned(),
+                kind: serde_json::from_value(record.body["kind"].clone()).ok(),
+                title: record
+                    .body
+                    .get("title")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned),
             },
         ));
     }
@@ -486,19 +495,26 @@ pub async fn announce_decisions(
                     serde_json::json!({ "email_request_id": request_id, "recipient": recipient }),
                 )
             }
-            DecisionSubject::EmailMandate {
+            DecisionSubject::Mandate {
                 proposal_id,
                 mandate_id,
                 decision,
+                kind,
+                title,
             } => {
+                let kind = kind.unwrap_or(crate::mandate::MandateKind::Email);
+                let named = title
+                    .as_deref()
+                    .map(|title| format!("“{title}”"))
+                    .unwrap_or_else(|| format!("to {}", kind.purpose()));
                 let body = if decision == "approve" {
-                    format!("The owner approved email mandate {} from proposal {proposal_id}. Revisit work and scheduled responsibilities waiting on this authority. Judge each candidate against the exact active mandate and current provider state; only a matching one-use permit can authorize a send. Continue useful independent work and do not replay uncertain effects.", mandate_id.as_deref().unwrap_or("unknown"))
+                    format!("The owner approved the standing permission {named} ({kind}, mandate {}, from proposal {proposal_id}). Revisit work and scheduled responsibilities waiting on it. Check each action with `restless mandate check --kind {kind}` before acting and stay inside its limits. {} Continue useful independent work and do not replay uncertain effects.", mandate_id.as_deref().unwrap_or("unknown"), kind.how_to_act())
                 } else {
-                    format!("The owner declined email mandate proposal {proposal_id}. Revisit work waiting on it, find an authorized route if possible, or identify the precise owner decision still needed. Do not send under the declined proposal.")
+                    format!("The owner declined the standing permission proposal {named} ({kind}, proposal {proposal_id}). Do not act under it. Revisit work waiting on it, find an authorized route if possible, or identify the precise owner decision still needed; do not propose the same thing again unless something changed.")
                 };
                 (
                     body,
-                    serde_json::json!({ "proposal_id": proposal_id, "mandate_id": mandate_id, "mandate_decision": decision }),
+                    serde_json::json!({ "proposal_id": proposal_id, "mandate_id": mandate_id, "mandate_decision": decision, "mandate_kind": kind }),
                 )
             }
         };

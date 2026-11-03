@@ -384,7 +384,8 @@ pub enum Binding {
         call_key: String,
         command_digest: String,
     },
-    EmailMandate {
+    /// A standing permission proposal, of any kind.
+    Mandate {
         proposal: Uuid,
     },
     /// A payee request: approve adds the payee to the allowance.
@@ -471,7 +472,7 @@ pub async fn outgoing(
                 (None, None) => None,
             }
         }
-        ("authority", "email_mandate_proposal") => Some(Binding::EmailMandate {
+        ("authority", "mandate_request") => Some(Binding::Mandate {
             proposal: item.source.reference.parse()?,
         }),
         ("authority", "payee_proposal") => Some(Binding::Payee {
@@ -743,14 +744,14 @@ async fn decide_inner(
             )
             .await
         }
-        Binding::EmailMandate { proposal } => authority
-            .decide_email_mandate_proposal(&company, &principal, *proposal, approve, None)
+        Binding::Mandate { proposal } => authority
+            .decide_mandate_proposal(&company, &principal, *proposal, approve, None)
             .await
             .map(|_| {
                 if approve {
-                    "approved the email mandate"
+                    "approved the standing permission"
                 } else {
-                    "declined the email mandate"
+                    "declined the standing permission"
                 }
                 .to_string()
             }),
@@ -849,11 +850,11 @@ async fn still_pending(
                     .await?
                     .is_none()
         }
-        Binding::EmailMandate { proposal } => authority
-            .pending_email_mandate_proposals(company)
+        Binding::Mandate { proposal } => authority
+            .pending_mandate_proposals(company)
             .await?
             .iter()
-            .any(|record| record.body["id"].as_str() == Some(proposal.to_string().as_str())),
+            .any(|pending| pending.id == *proposal),
         Binding::Payee { proposal } => crate::finance::pending_payee_proposals(authority, company)
             .await?
             .iter()

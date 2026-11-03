@@ -62,6 +62,7 @@
 	import InlineBrandProposal from './inbox/InlineBrandProposal.svelte';
 	import InlineSkillCandidate from './inbox/InlineSkillCandidate.svelte';
 	import EmailDraft from './inbox/EmailDraft.svelte';
+	import MandateGrant from './inbox/MandateGrant.svelte';
 	import InlineMachine from './inbox/InlineMachine.svelte';
 	import InlineReconnect from './inbox/InlineReconnect.svelte';
 	import InlineStartComputer from './inbox/InlineStartComputer.svelte';
@@ -175,7 +176,13 @@
 	const approval = $derived(item.category === 'approval');
 	/* The exact thing an approval asks about (a command's draft, the build and limits put online,
 	 * a payment's amount and payee), shown under the ask rather than folded away. */
-	const EXACT_KINDS = ['command', 'authority-publication', 'authority-payment', 'authority-email'];
+	const EXACT_KINDS = [
+		'command',
+		'authority-publication',
+		'authority-payment',
+		'authority-email',
+		'authority-mandate'
+	];
 	const drafts = $derived(
 		approval || item.evidence.some((entry) => entry.kind === 'authority-payment')
 			? item.evidence.filter((entry) => EXACT_KINDS.includes(entry.kind) && entry.content)
@@ -207,8 +214,9 @@
 	 * alone: an away deputy answers one call at a time. */
 	const grantAlways = $derived(canSetAside ? action('grant-always') : undefined);
 	const decline = $derived(action('decline'));
-	const approveMandate = $derived(action('approve-email-mandate'));
-	const declineMandate = $derived(action('decline-email-mandate'));
+	/* A standing permission of any kind (email, a vendor order, ...). */
+	const approveMandate = $derived(action('approve-mandate'));
+	const declineMandate = $derived(action('decline-mandate'));
 	const approvePayee = $derived(action('approve-payee'));
 	const declinePayee = $derived(action('decline-payee'));
 	const authorizeOnline = $derived(action('authorize-publication'));
@@ -652,8 +660,8 @@
 	const decideMandate = (decision: 'approve' | 'decline', note = '') =>
 		answerApproval(
 			approvalDecision(decision === 'approve' ? 'grant' : 'decline', { note }),
-			decision === 'approve' ? 'Mandate approved' : 'Mandate declined',
-			'The mandate decision was not recorded. Try again.'
+			decision === 'approve' ? 'Permission approved' : 'Permission declined',
+			'That answer was not recorded. Try again.'
 		);
 	const answerPayee = (approve: boolean, note = '') =>
 		answerApproval(
@@ -823,6 +831,8 @@
 						{/if}
 						{#each drafts as draft, index (index)}
 							{#if draft.kind === 'authority-email'}<EmailDraft
+									content={draft.content ?? ''}
+								/>{:else if draft.kind === 'authority-mandate'}<MandateGrant
 									content={draft.content ?? ''}
 								/>{:else}<pre
 									class="draft"
@@ -1040,9 +1050,9 @@
 			{#if approveMandate}
 				<p
 					class="note"
-					title="Exec judges whether each recipient and message fits the mandate. The system enforces the mechanical limits."
+					title="Judgement about what fits the scope can be wrong. The limits and the date are enforced before each action."
 				>
-					Approving gives Exec bounded sending authority.
+					You can revoke it any time in Company › Authority.
 				</p>
 			{/if}
 
@@ -1350,7 +1360,7 @@
 						<HoldApprove
 							small
 							completeLabel="Saving approval…"
-							label="Hold to approve mandate"
+							label="Hold to approve"
 							disabled={acting}
 							title={`${approveMandate.consequence} ${approveMandate.nextState}`}
 							onapprove={() => void decideMandate('approve')}

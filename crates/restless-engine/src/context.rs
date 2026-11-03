@@ -677,11 +677,14 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          and optional declared attachments. A mandate covers one first email per recipient; once \
          they write back, each message they send allows one reply in that thread. The permit JSON names sender, recipient, \
          payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
-         To send outreach with no active mandate, ask the owner for standing permission once: \
-         restless mandate propose --proposal-file <json> --reason <why> (purpose, audience_guidance, \
-         sender, optional sender_name, max_per_day, max_total, timezone, expires_at); it is one \
-         Inbox card, and you are told when it is answered. Once approved, send the first email \
-         under it to the owner's own address as a test, then permit each real email as above. \
+         Needing the owner's permission for a kind of action (outreach email, an order from a \
+         vendor) is never a dead end and never a chat question: restless mandate check --kind \
+         email|vendor_order [--vendor --amount --currency --summary] says allowed, or returns a \
+         ready proposal; adjust it and raise it with restless mandate propose --proposal-file \
+         <json> --reason <why>, one Inbox card you are told the answer to. Under a new email \
+         permission, send the first email to the owner's own address as a test, then permit each \
+         real email as above. Before each vendor order run restless mandate use with the same \
+         flags; order only when it says allowed. \
          For a single email without a mandate, run restless email send with no permit_id: \
          nothing is sent, and the owner approves or declines that exact email in their Inbox (never \
          ask for it in chat). When told it was approved, run the same send again unchanged and it \
