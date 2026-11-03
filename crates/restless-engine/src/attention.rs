@@ -747,7 +747,7 @@ async fn conversation_requests(
                 },
                 category: "conversation".into(),
                 title: format!("{} needs you", actor.display),
-                what_happened: body,
+                what_happened: body.clone(),
                 why_it_matters: need.clone(),
                 recommendation: need.clone(),
                 requested_action: need,
@@ -757,7 +757,7 @@ async fn conversation_requests(
                 brief_status: "source-authored",
                 brief_author: Some(actor.clone()),
                 briefed_at: Some(created_at),
-                evidence: Vec::new(),
+                evidence: message_evidence(&body),
                 review_sources: Vec::new(),
                 responsible_actor: Some(actor),
                 runtime_attach: None,
@@ -800,7 +800,7 @@ fn merge_conversation_requests(
     requests.sort_by_key(|request| (Reverse(request.item.created_at), request.item.id.clone()));
     for request in requests {
         // A question naming a setting proposal waits for the setting items (see
-        // merge_setting_questions); they are composed later in the queue.
+        // merge_authority_questions); they are composed later in the queue.
         if request
             .handoff_ref
             .as_deref()
@@ -842,31 +842,105 @@ fn merge_conversation_requests(
             // A resolved/withdrawn or differently assigned source is not another owner question.
             continue;
         }
-        // Missing, malformed or unknown provenance must never swallow an independent question.
-        items.push(request.item);
+        // The rest wait for the Authority decisions, composed later in the queue: a question
+        // about one of them is its context (merge_authority_questions); any other stays a
+        // question there.
+        about_settings.push(request);
     }
     about_settings
 }
 
-/// A question about a setting Exec also proposed is that proposal's context, not a second item:
-/// the $200 budget question and "Set the spend limit to US$200" were two (21 October). A question
-/// naming no live proposal stays a question.
-fn merge_setting_questions(items: &mut Vec<AttentionItem>, requests: Vec<ConversationRequest>) {
+/// A proposed email mandate in the owner's words: a plain title, one line on what approving
+/// does, and the limits as labelled values (never "8 per day, 8 total, expires 2026-11-07").
+fn mandate_proposal_copy(
+    who: &str,
+    proposal: &crate::authority::NewEmailMandate,
+    replaces: bool,
+) -> (String, String, String) {
+    let one_line = |text: &str, limit: usize| {
+        let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if text.chars().count() <= limit {
+            text
+        } else {
+            format!("{}…", text.chars().take(limit - 1).collect::<String>().trim_end())
+        }
+    };
+    let purpose = one_line(&proposal.purpose, 80);
+    let title = if replaces {
+        format!("Change what {who} may email: {purpose}")
+    } else {
+        format!("Let {who} send email: {purpose}")
+    };
+    let what_happened = if replaces {
+        format!("{who} asks to change its standing permission to send email. Approving replaces the current one.")
+    } else {
+        format!("{who} asks for standing permission to send these emails without asking you each time.")
+    };
+    let from = match proposal.sender_name.as_deref() {
+        Some(name) => format!("{name} <{}>", proposal.sender),
+        None => proposal.sender.clone(),
+    };
+    let until = proposal
+        .expires_at
+        .with_timezone(&proposal.timezone.parse::<chrono_tz::Tz>().unwrap_or(chrono_tz::UTC))
+        .format("%-d %b %Y")
+        .to_string();
+    let per = |n: u32| if n == 1 { "1 email".to_string() } else { format!("{n} emails") };
+    let mut lines = vec![
+        format!("- **Purpose:** {}", one_line(&proposal.purpose, 300)),
+        format!("- **Who gets them:** {}", one_line(&proposal.audience_guidance, 300)),
+        format!("- **How many:** up to {} a day, {} in total", per(proposal.max_per_day), proposal.max_total),
+        format!("- **Sent from:** {from}"),
+        format!("- **Until:** {until}"),
+    ];
+    if proposal.one_email_per_recipient {
+        lines.push("- **Each person:** one first email, then a reply to each message they send".into());
+    }
+    // A plain sentence first: the Inbox row reads "Waiting on you: approve these limits…".
+    (
+        title,
+        what_happened,
+        format!("Approve these limits, or decline.\n\n{}", lines.join("\n")),
+    )
+}
+
+/// How long after raising a decision the same agent's question is taken to be about it. The
+/// question is the reply that closes the turn that raised the decision, so minutes suffice.
+const QUESTION_BESIDE_DECISION: chrono::Duration = chrono::Duration::minutes(10);
+
+/// A question about a decision already in the Inbox is that decision's context, not a second
+/// item: the $200 budget question and "Set the spend limit to US$200" were two (21 October), and
+/// "Review proposed email mandate" stood beside "The Exec needs you: approve the permission to
+/// send…" (3 November). Two observed identities coalesce, never similar wording:
+/// - the question names the decision (`ownerNeedHandoff` is its proposal number or reference);
+/// - it names nothing, and its author raised exactly one open Authority decision in the minutes
+///   before asking, the turn that raised it.
+///
+/// Anything else stays a question.
+fn merge_authority_questions(items: &mut Vec<AttentionItem>, requests: Vec<ConversationRequest>) {
     for request in requests {
         let reference = request.handoff_ref.clone().unwrap_or_default();
-        let Some(setting) = items
-            .iter_mut()
-            .find(|item| item.id == format!("authority:setting:{reference}"))
-        else {
+        let decision = if reference.is_empty() {
+            question_beside_decision(items, &request.item)
+        } else {
+            items.iter().position(|item| {
+                item.id == format!("authority:setting:{reference}")
+                    || (is_authority_decision(item) && item.source.reference == reference)
+            })
+        };
+        let Some(decision) = decision else {
             items.push(request.item);
             continue;
         };
-        if !setting
+        let decision = &mut items[decision];
+        if decision
             .review_sources
             .iter()
-            .any(|source| source.provider == "conversation")
+            .filter(|source| source.provider == "conversation")
+            .count()
+            < 2
         {
-            setting.review_sources.push(ReviewSourceRef {
+            decision.review_sources.push(ReviewSourceRef {
                 label: format!(
                     "{}'s context",
                     request
@@ -884,6 +958,34 @@ fn merge_setting_questions(items: &mut Vec<AttentionItem>, requests: Vec<Convers
             });
         }
     }
+}
+
+/// An open owner decision held by Authority (a proposal or prepared effect with decide actions).
+fn is_authority_decision(item: &AttentionItem) -> bool {
+    item.source.plane == "authority"
+        && item
+            .actions
+            .iter()
+            .any(|action| action.role == "decision")
+}
+
+/// The one open Authority decision `question`'s author raised shortly before asking it.
+fn question_beside_decision(items: &[AttentionItem], question: &AttentionItem) -> Option<usize> {
+    if question.source.kind != "conversation_owner_need" {
+        return None;
+    }
+    let author = question.responsible_actor.as_ref()?.id.as_str();
+    let mut beside = items.iter().enumerate().filter(|(_, item)| {
+        is_authority_decision(item)
+            && item
+                .responsible_actor
+                .as_ref()
+                .is_some_and(|actor| actor.id == author)
+            && item.created_at <= question.created_at
+            && question.created_at - item.created_at <= QUESTION_BESIDE_DECISION
+    });
+    let (index, _) = beside.next()?;
+    beside.next().is_none().then_some(index)
 }
 
 /// Compose the live queue from its owners. Authority remains independently
@@ -4246,27 +4348,30 @@ async fn project_queue(
         if !proposal.own_addresses.is_empty() {
             limits.push_str(&format!("\nYour own inboxes (never limited): {}", proposal.own_addresses.join(", ")));
         }
-        let proposer = record.actor_id.as_deref().unwrap_or("a company actor");
+        let responsible = record.actor_id.as_deref().and_then(|actor| actors.get(actor)).cloned();
+        let who = responsible
+            .as_ref()
+            .map(|actor| actor.display.trim_start_matches("The ").to_string())
+            .or_else(|| record.actor_id.clone())
+            .unwrap_or_else(|| "Exec".into());
+        let replaces = record.body["replaces"].is_string();
+        let (title, what_happened, requested_action) = mandate_proposal_copy(&who, &proposal, replaces);
         items.push(AttentionItem {
             id: format!("authority:email_mandate_proposal:{proposal_id}"), work_id: None,
             source: AttentionSource { plane: "authority", kind: "email_mandate_proposal".into(), reference: proposal_id.to_string(), party: None, call_key: None },
-            category: "approval".into(), title: "Review proposed email mandate".into(),
-            what_happened: if record.body["replaces"].is_string() {
-                format!("{proposer} proposed changing the current email mandate to the exact limits below. Approving replaces the current one.")
-            } else {
-                format!("{proposer} proposed permission to send email within the exact limits below.")
-            },
-            why_it_matters: "Approving grants a real sending mandate to the company.".into(),
-            recommendation: "Approve only if you accept this mandate's purpose, audience and limits. For each proposed send, Exec must judge whether the recipient and message fit; its judgment can be wrong. The host enforces the daily cap, total cap and expiry.".into(),
-            requested_action: format!("Review purpose “{}”, sender {}, {} per day, {} total, expires {}. Approve or decline.", proposal.purpose, proposal.sender, proposal.max_per_day, proposal.max_total, proposal.expires_at.format("%Y-%m-%d")),
-            if_no_action: "No email mandate is granted while this proposal remains pending.".into(),
-            uncertainty: Some("Exec makes a judgment on each proposed send against this mandate. It can make mistakes; approval of this mandate is not a guarantee that every send will be appropriate.".into()),
+            category: "approval".into(), title,
+            what_happened,
+            why_it_matters: "These emails go out under the company's name.".into(),
+            recommendation: format!("Approve if the purpose, who gets them and the limits look right. {who} decides whether each email fits and can be wrong; Restless enforces the limits and the end date."),
+            requested_action,
+            if_no_action: "Nothing is sent under this until you approve it.".into(),
+            uncertainty: None,
             deadline: Some(proposal.expires_at.to_rfc3339()), brief_status: "source-observed", brief_author: None, briefed_at: None,
-            evidence: vec![AttentionEvidence { label: "Exact proposed email mandate".into(), uri: None, content: Some(limits), kind: "authority-email-mandate-proposal" }, AttentionEvidence { label: "Exec judgement".into(), uri: None, content: Some(if note.is_empty() { "No additional rationale supplied.".into() } else { note.into() }), kind: "exec-judgement" }],
-            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, review_version: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
+            evidence: vec![AttentionEvidence { label: "Exact proposed email mandate".into(), uri: None, content: Some(limits), kind: "authority-email-mandate-proposal" }, AttentionEvidence { label: format!("{who}'s reason"), uri: None, content: Some(if note.is_empty() { "No additional rationale supplied.".into() } else { note.into() }), kind: "exec-judgement" }],
+            review_sources: Vec::new(), responsible_actor: responsible, runtime_attach: None, review_target: None, review_version: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
             actions: vec![
-                AttentionAction { id: "approve-email-mandate".into(), label: "Approve mandate".into(), role: "decision", consequence: "Grants the exact reviewed email mandate and its limits.".into(), next_state: "The pending proposal is resolved and the mandate becomes active.".into(), href: None },
-                AttentionAction { id: "decline-email-mandate".into(), label: "Decline mandate".into(), role: "decision", consequence: "Declines this exact email mandate proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
+                AttentionAction { id: "approve-email-mandate".into(), label: "Approve".into(), role: "decision", consequence: "Allows sending within exactly these limits.".into(), next_state: "The pending proposal is resolved and the mandate becomes active.".into(), href: None },
+                AttentionAction { id: "decline-email-mandate".into(), label: "Decline".into(), role: "decision", consequence: "Nothing is sent under this proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
             ], can_continue: false, preparing: false, created_at: record.created_at,
         });
     }
@@ -4320,7 +4425,12 @@ async fn project_queue(
                             kind: "authority-email",
                         }],
                         review_sources: Vec::new(),
-                        responsible_actor: None,
+                        // Whose turn raised it: a question that turn asks is this item's context.
+                        responsible_actor: stored
+                            .actor_id
+                            .as_deref()
+                            .and_then(|actor| actors.get(actor))
+                            .cloned(),
                         runtime_attach: None,
                         review_target: None,
                         review_version: None,
@@ -4702,7 +4812,7 @@ async fn project_queue(
         }
         Err(error) => tracing::warn!(%error, "setting proposals unavailable"),
     }
-    merge_setting_questions(&mut items, std::mem::take(&mut setting_questions));
+    merge_authority_questions(&mut items, std::mem::take(&mut setting_questions));
     match effect_outcome_items(config, authority, &actors).await {
         Ok(outcomes) => items.extend(outcomes),
         Err(error) => tracing::warn!(%error, "outside-action outcomes unavailable"),
@@ -4785,6 +4895,13 @@ async fn project_queue(
                 Ok(added) => items.extend(added.iter().map(crate::exec_inbox::added_item)),
                 Err(error) => tracing::warn!(%error, "items Exec added are unavailable"),
             }
+        }
+    }
+    // A title is a short line of words: links belong to the card's actions (3 November).
+    for item in &mut items {
+        let title = crate::owner_copy::owner_title(&item.title);
+        if !title.is_empty() {
+            item.title = title;
         }
     }
     // Set aside by the owner as not needed, until it is raised again.
@@ -7315,5 +7432,157 @@ mod skill_candidate_tests {
             item.actions[0].href.as_deref(),
             Some("/acme/apps/s-release-notes")
         );
+    }
+}
+
+#[cfg(test)]
+mod question_beside_decision_tests {
+    use super::*;
+
+    fn exec() -> AttentionActorRef {
+        AttentionActorRef {
+            id: "exec".into(),
+            display: "The Exec".into(),
+            role: "exec".into(),
+        }
+    }
+
+    fn item(id: &str, plane: &'static str, kind: &str, reference: &str, at: DateTime<Utc>) -> AttentionItem {
+        AttentionItem {
+            id: id.into(),
+            work_id: None,
+            source: AttentionSource {
+                plane,
+                kind: kind.into(),
+                reference: reference.into(),
+                party: None,
+                call_key: None,
+            },
+            category: "approval".into(),
+            title: id.into(),
+            what_happened: format!("{id} body"),
+            why_it_matters: String::new(),
+            recommendation: String::new(),
+            requested_action: String::new(),
+            if_no_action: String::new(),
+            uncertainty: None,
+            deadline: None,
+            brief_status: "source-observed",
+            brief_author: None,
+            briefed_at: None,
+            evidence: Vec::new(),
+            review_sources: Vec::new(),
+            responsible_actor: Some(exec()),
+            runtime_attach: None,
+            review_target: None,
+            review_version: None,
+            native_document: None,
+            direction_request: None,
+            charter_proposal: None,
+            account_use: None,
+            account_request: None,
+            request_fields: None,
+            setting_proposal: None,
+            owner_replies: Vec::new(),
+            actions: vec![AttentionAction {
+                id: "approve".into(),
+                label: "Approve".into(),
+                role: if plane == "authority" { "decision" } else { "conversation" },
+                consequence: String::new(),
+                next_state: String::new(),
+                href: None,
+            }],
+            can_continue: false,
+            preparing: false,
+            created_at: at,
+        }
+    }
+
+    fn mandate(at: DateTime<Utc>) -> AttentionItem {
+        item("authority:email_mandate_proposal:p1", "authority", "email_mandate_proposal", "p1", at)
+    }
+
+    fn question(at: DateTime<Utc>, handoff: Option<&str>) -> ConversationRequest {
+        let mut question = item("conversation:exec:7", "orgintel", "conversation_owner_need", "7", at);
+        question.category = "conversation".into();
+        question.owner_replies = vec!["Approve the test-send permission card".into()];
+        ConversationRequest {
+            item: question,
+            handoff_id: None,
+            handoff_ref: handoff.map(str::to_owned),
+        }
+    }
+
+    /// 3 November: Exec proposed a mandate and, in the same turn, asked "approve the permission
+    /// to send…". One request is one card: the question became the proposal's context.
+    #[test]
+    fn a_question_from_the_turn_that_raised_a_decision_is_its_context() {
+        let raised = Utc::now() - chrono::Duration::minutes(2);
+        let mut items = vec![mandate(raised)];
+        merge_authority_questions(&mut items, vec![question(Utc::now(), None)]);
+        assert_eq!(items.len(), 1, "one request, one card");
+        assert_eq!(items[0].review_sources.len(), 1);
+        assert_eq!(items[0].review_sources[0].content, "conversation:exec:7 body");
+    }
+
+    #[test]
+    fn a_question_naming_the_decision_is_its_context() {
+        let mut items = vec![mandate(Utc::now() - chrono::Duration::days(1))];
+        merge_authority_questions(&mut items, vec![question(Utc::now(), Some("p1"))]);
+        assert_eq!(items.len(), 1);
+    }
+
+    /// Only observed identity coalesces: a later, separate question, a question while two
+    /// decisions are open, or another agent's question each stays a question.
+    #[test]
+    fn an_unrelated_question_stays_a_question() {
+        let now = Utc::now();
+        let mut items = vec![mandate(now - chrono::Duration::hours(1))];
+        merge_authority_questions(&mut items, vec![question(now, None)]);
+        assert_eq!(items.len(), 2, "asked an hour later");
+
+        let mut two = mandate(now - chrono::Duration::minutes(1));
+        two.id = "authority:email_send:e1".into();
+        two.source.reference = "e1".into();
+        let mut items = vec![mandate(now - chrono::Duration::minutes(2)), two];
+        merge_authority_questions(&mut items, vec![question(now, None)]);
+        assert_eq!(items.len(), 3, "two decisions open: which one is unknown");
+
+        let mut items = vec![mandate(now - chrono::Duration::minutes(2))];
+        let mut other = question(now, None);
+        other.item.responsible_actor = Some(AttentionActorRef {
+            id: "baloo".into(),
+            display: "Baloo".into(),
+            role: "staff".into(),
+        });
+        merge_authority_questions(&mut items, vec![other]);
+        assert_eq!(items.len(), 2, "another agent's question");
+
+        let mut items = vec![mandate(now - chrono::Duration::minutes(2))];
+        merge_authority_questions(&mut items, vec![question(now, Some("p-unknown"))]);
+        assert_eq!(items.len(), 2, "names a different decision");
+    }
+
+    #[test]
+    fn a_mandate_card_speaks_plainly_with_labelled_limits() {
+        let proposal = crate::authority::NewEmailMandate {
+            purpose: "[TEST] emails to your inbox".into(),
+            audience_guidance: "Only your own inbox".into(),
+            sender: "hello@example.com".into(),
+            sender_name: Some("Acme".into()),
+            max_per_day: 8,
+            max_total: 8,
+            timezone: "Australia/Sydney".into(),
+            expires_at: "2026-11-06T20:00:00Z".parse().unwrap(),
+            one_email_per_recipient: false,
+            own_addresses: Vec::new(),
+        };
+        let (title, _, limits) = mandate_proposal_copy("Exec", &proposal, false);
+        assert_eq!(title, "Let Exec send email: [TEST] emails to your inbox");
+        assert!(!title.to_lowercase().contains("mandate"));
+        assert!(limits.starts_with("Approve these limits, or decline."), "{limits}");
+        assert!(limits.contains("- **How many:** up to 8 emails a day, 8 in total"));
+        assert!(limits.contains("- **Sent from:** Acme <hello@example.com>"));
+        assert!(limits.contains("- **Until:** 7 Nov 2026"), "{limits}");
     }
 }
