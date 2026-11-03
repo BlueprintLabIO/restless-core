@@ -98,6 +98,9 @@ for pair in "BlueprintLabIO/restless-core:$core" "BlueprintLabIO/restless-cloud:
   repo="${pair%%:*}" checkout="${pair#*:}"
   gh pr list -R "$repo" --state open --limit 50 --json number,headRefOid,isCrossRepository \
     -q '.[] | select(.isCrossRepository | not) | "\(.number) \(.headRefOid)"' 2>/dev/null |
+  # PR numbers listed in $state/priority (one per line) are checked first, e.g. a release's blockers.
+  awk -v pf="$state/priority" 'BEGIN { while ((getline n < pf) > 0) p[n] = 1 } { print (($1 in p) ? 0 : 1), $0 }' |
+  sort -s -k1,1n | cut -d' ' -f2- |
   while read -r number sha; do
     [ -n "$sha" ] && check "$repo" "$checkout" "$number" "$sha"
   done
