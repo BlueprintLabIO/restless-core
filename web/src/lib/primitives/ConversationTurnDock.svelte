@@ -671,6 +671,15 @@
 		border-top: 1px solid var(--border);
 		background: transparent;
 	}
+	/* The reply as it streams sits where its finished message will: under the author's name
+	 * (ConversationMessage's 31px), at the same width, so every line breaks in the same place
+	 * and nothing rewraps sideways when it lands (S110). */
+	.streamed-reply.visible-reply .streamed-copy {
+		padding-left: 31px;
+	}
+	.streamed-reply.visible-reply .stream-caret {
+		margin-left: 31px;
+	}
 
 	.streamed-reply header {
 		display: flex;

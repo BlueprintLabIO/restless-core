@@ -647,8 +647,11 @@
 			side: 'end',
 			min: 320,
 			minOther: 320,
-			defaultSize: 380,
-			enabled: !!rail && railOpen && !immersive
+			/* The token's own width (tokens.css --exec-rail-w): a default 2px narrower resized the
+			 * rail, and moved what it holds, as it opened (S110). */
+			defaultSize: 382,
+			enabled: !!rail && railOpen && !immersive,
+			holdWhileDisabled: !immersive
 		}}
 	>
 		<div class="bridge-workspace">
