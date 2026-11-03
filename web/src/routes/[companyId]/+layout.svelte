@@ -4,6 +4,7 @@
 	import { setupTabs } from '$lib/model/company-setup-steps';
 	import { companySetup, takeSetupHandoff } from '$lib/model/company-setup.svelte';
 	import { reenterIfLapsed } from '$lib/model/reenter';
+	import { ownerText } from '$lib/model/owner-copy';
 	import { firstPaint } from '$lib/model/first-paint.svelte';
 	import { rememberShell } from '$lib/model/shell-snapshot';
 	import WelcomeTour from '$lib/components/WelcomeTour.svelte';
@@ -638,9 +639,7 @@
 				(person) => person.actor_id === railActorId && person.session_running
 			)
 	);
-	const railRouteState = $derived(
-		agentRouteState(intelligence.view, railActorId, railProgressing)
-	);
+	const railRouteState = $derived(agentRouteState(intelligence.view, railActorId, railProgressing));
 	const railConnectionStatus = $derived.by(() => {
 		/* A member has no owner cockpit projection; whether Exec can think is the model route. */
 		if (!ownerAccess) {
@@ -1391,7 +1390,7 @@
 				(handoff) => ({
 					id: `handoff:${handoff.id}`,
 					group: 'Needs you',
-					label: handoff.requested_action,
+					label: ownerText(handoff.requested_action, 'Your next step'),
 					hint: work.find((item) => item.id === handoff.work_id)?.title,
 					href: `${root}/work/${encodeURIComponent(handoff.work_id)}`
 				})
