@@ -1352,8 +1352,9 @@ pub struct CompanyConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub everyday_model: Option<String>,
     /// The decision model that gates Exec wakes and tiers Work (S102), called on OpenRouter's
-    /// decisions API with the `model.inference` credential, e.g. `typesafe/jev-1.14`. Unset: the
-    /// hosted relay decides when this plane has one; otherwise no decisions run.
+    /// decisions API with the `model.inference` credential, e.g. `typesafe/jev-1.14`. `included`:
+    /// the hosted relay decides and the gate is active, with no key of the company's own. Unset:
+    /// the hosted relay decides in shadow when this plane has one; otherwise no decisions run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_model: Option<String>,
     /// Named binding → `credential_reference`, e.g.

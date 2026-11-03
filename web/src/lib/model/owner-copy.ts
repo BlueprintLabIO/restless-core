@@ -104,6 +104,42 @@ export function ownerLine(
 	return said && !leaksInternals(said, actorIds) ? said : fallback;
 }
 
+const TITLE_LIMIT = 120;
+const LINK = /^(?:[("'[]*)(?:https?:\/\/|www\.)/i;
+
+/**
+ * A card title an owner reads: never a URL, never more than a short line (the engine's
+ * `owner_copy::owner_title`). The link lives in the card's Open action. 3 November: a sign-in
+ * step titled with its whole Cloudflare OAuth URL rendered as a ten-line heading.
+ */
+export function ownerTitle(text: string): string {
+	let title = text
+		.split(/\s+/)
+		.filter((word) => word && !LINK.test(word))
+		.join(' ')
+		.replace(/[\s:,;([\-–—]+$/, '')
+		.trim();
+	if (title.length > TITLE_LIMIT) {
+		const cut = title.slice(0, TITLE_LIMIT - 1);
+		const space = cut.lastIndexOf(' ');
+		title = `${(space > 40 ? cut.slice(0, space) : cut).replace(/[^\p{L}\p{N}]+$/u, '')}…`;
+	}
+	return title || text.trim().slice(0, TITLE_LIMIT);
+}
+
+/** A sentence with its raw links taken out, for a card whose action already carries the link. */
+export function withoutLinks(text: string): string {
+	const said = text
+		.split(/(\s+)/)
+		.filter((word) => !LINK.test(word))
+		.join('')
+		.replace(/[ \t]+\n/g, '\n')
+		.replace(/[ \t]{2,}/g, ' ')
+		.replace(/[\s:,;([\-–—]+$/, '')
+		.trim();
+	return said ? `${said}${/[.!?…]$/.test(said) ? '' : '.'}` : text;
+}
+
 export type DecidedOutcome = NonNullable<DecisionContinuation['outcome']>;
 
 export interface DecidedNotice {

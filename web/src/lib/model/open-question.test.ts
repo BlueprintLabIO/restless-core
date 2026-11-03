@@ -33,3 +33,18 @@ test('a newer question supersedes the older one', () => {
 	assert.equal(openQuestionIndex(thread, 'Exec'), 2);
 	assert.equal(answerIndex(thread, 'Exec', 0), -1);
 });
+
+test('approving what the question asked for closes it, and its suggested replies', () => {
+	const need = 'Approve the test-send permission card so I can send the four test emails';
+	const decided = {
+		from: 'system',
+		text: 'You approved sending: [TEST] emails to your inbox',
+		intent: { kind: 'authority', ownerNeed: null }
+	};
+	assert.equal(openQuestionIndex([ask(need), decided], 'Exec'), -1);
+	/* A newer question after the decision is open as usual. */
+	assert.equal(openQuestionIndex([ask(need), decided, ask('Which day suits?')], 'Exec'), 2);
+	/* An agent's own authority-kind summary is not the owner's decision. */
+	const agentAuthority = { from: 'exec', text: 'Asked for it.', intent: { kind: 'authority' } };
+	assert.equal(openQuestionIndex([ask(need), agentAuthority], 'Exec'), 0);
+});

@@ -710,8 +710,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          --proposal-file <json>, then restless email send --request-file <json> with that \
          permit id. The email JSON names from, optional from_name, to, subject, text or html, effect_key, permit_id, \
          optional in_reply_to (the Message-ID you answer, so a reply stays in the customer's thread) \
-         and optional declared attachments. A mandate covers one first email per recipient; once \
-         they write back, each message they send allows one reply in that thread. The permit JSON names sender, recipient, \
+         and optional declared attachments. The caps govern; one address may get several \
+         emails within them. For cold outreach set one_email_per_recipient (one first email per \
+         prospect, then one reply per message they send) and list the owner's inboxes in own_addresses. The permit JSON names sender, recipient, \
          payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
          To send outreach with no active mandate, ask the owner for standing permission once: \
          restless mandate propose --proposal-file <json> --reason <why> (purpose, audience_guidance, \
@@ -787,9 +788,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          limitations or the exact decision needed. A producer completion is not proof of lead \
          acceptance or completion of downstream Work. Deliver requested results promptly rather \
          than promising to return later. Do not create approval gates merely to report a result.\n\
-         When you propose a setting with `restless setting propose` and also explain it to the \
-         owner, put the proposal number it returns in `ownerNeedHandoff`: the Inbox then shows one \
-         item, the proposal, with your words as its context, never a question beside it.\n\
+         A proposal you raise (a setting, a mandate, an email to approve) is already the owner's \
+         Inbox card: never ask for it again as a question. When you mention it, put the number or \
+         id it returns in `ownerNeedHandoff`, so the Inbox shows one item with your words as context.\n\
          When a proactive update delivers a finished result the owner should look at (a site, a \
          document, a design, a report), also put its name, a few words, in `ownerReview`: that puts \
          it in the owner's Inbox, where finished work belongs, rather than only in chat. The item \

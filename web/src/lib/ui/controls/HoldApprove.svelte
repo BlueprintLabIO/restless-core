@@ -1,12 +1,19 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import Check from '@lucide/svelte/icons/check';
 	/* Press-and-hold approval button. Pointer-driven rAF fill over `duration`;
 	 * releasing early resets, reaching 100% fires `onapprove` once. Renders a
 	 * plain submit button so it still works in a form without JS.
 	 *
 	 * Holding is not possible for everyone, so a short press arms the button for a few
 	 * seconds and a second press confirms. Assistive tech that activates the button with
-	 * a click (no press-and-hold) takes the same two-step route. */
+	 * a click (no press-and-hold) takes the same two-step route.
+	 *
+	 * Completing it is a small celebration (3 November, the owner: "make it pop"): a check pops
+	 * in and an accent glow rings the button, then the decision is sent and the card resolves
+	 * away. Only transform, opacity and box-shadow move, so nothing around it shifts; with
+	 * reduced motion the check simply fades in. The decision waits for the pop's peak (a few
+	 * hundred milliseconds), never longer, and is sent at once if the button goes away first. */
 
 	let {
 		label,
@@ -35,6 +42,29 @@
 	let armed = $state(false);
 	let armTimer: ReturnType<typeof setTimeout> | undefined;
 	let lastPress = -Infinity; /* when a press last started or ended */
+	let celebration: ReturnType<typeof setTimeout> | undefined;
+	let pending = false; /* approved, decision not yet handed on */
+	/* Long enough to see the pop land, short enough that the answer still feels instant. */
+	const CELEBRATE_MS = 280;
+	const FADE_MS = 90;
+
+	function reducedMotion(): boolean {
+		return (
+			typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+		);
+	}
+
+	function handOn() {
+		clearTimeout(celebration);
+		celebration = undefined;
+		if (!pending) return;
+		pending = false;
+		if (onapprove) {
+			onapprove();
+		} else {
+			button?.closest('form')?.requestSubmit();
+		}
+	}
 
 	function arm() {
 		armed = true;
@@ -47,11 +77,8 @@
 		armed = false;
 		clearTimeout(armTimer);
 		done = true;
-		if (onapprove) {
-			onapprove();
-		} else {
-			button.closest('form')?.requestSubmit();
-		}
+		pending = true;
+		celebration = setTimeout(handOn, reducedMotion() ? FADE_MS : CELEBRATE_MS);
 	}
 
 	function start() {
@@ -94,6 +121,8 @@
 	onDestroy(() => {
 		stop();
 		clearTimeout(armTimer);
+		/* Never lose an approval to its celebration. */
+		handOn();
 	});
 
 	function guardClick(event: MouseEvent) {
@@ -143,7 +172,9 @@
 	<span aria-hidden="true" class:concealed={done || pct > 2 || armed}>{label}</span>
 	<span aria-hidden="true" class:concealed={done || pct > 2 || !armed}>{armedLabel}</span>
 	<span aria-hidden="true" class:concealed={done || pct <= 2}>hold… {Math.round(pct)}%</span>
-	<span aria-hidden="true" class:concealed={!done}>{completeLabel}</span>
+	<span aria-hidden="true" class="complete" class:concealed={!done}
+		><span class="check"><Check size={14} strokeWidth={2.5} /></span>{completeLabel}</span
+	>
 </button>
 <!-- The label swap above is silent to a screen reader; this says the hold completed. -->
 <span class="sr-only" role="status" aria-live="polite"
@@ -162,5 +193,46 @@
 	}
 	.concealed {
 		visibility: hidden;
+	}
+	.complete {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+	}
+	.check {
+		display: inline-flex;
+		opacity: 0;
+	}
+	/* The check pops in; the button's glow and settle are in style/primitives.css. */
+	.done .check {
+		animation: hold-approve-check 420ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)) 40ms both;
+	}
+	@keyframes hold-approve-check {
+		0% {
+			opacity: 0;
+			transform: scale(0.3) rotate(-12deg);
+		}
+		60% {
+			opacity: 1;
+			transform: scale(1.25) rotate(0deg);
+		}
+		100% {
+			opacity: 1;
+			transform: scale(1);
+		}
+	}
+	@keyframes hold-approve-fade {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.done .check,
+		.done .complete {
+			animation: hold-approve-fade 90ms linear both;
+		}
 	}
 </style>

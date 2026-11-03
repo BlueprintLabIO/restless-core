@@ -3,7 +3,7 @@
  * the frame and mounts the same sections from this plane's `/plane-ui/` bundle, so the addresses,
  * names and content are the same on both. */
 
-export type AccountSectionId = 'accounts' | 'computers' | 'appearance' | 'this-computer';
+export type AccountSectionId = 'accounts' | 'computers' | 'appearance' | 'voice' | 'this-computer';
 
 export interface AccountSectionInfo {
 	id: AccountSectionId;
@@ -34,6 +34,11 @@ export const ACCOUNT_SECTIONS: Record<AccountSectionId, AccountSectionInfo> = {
 		'appearance',
 		'Appearance',
 		'Light, dark, or follow this device. Saved in this browser on this device only.'
+	),
+	voice: section(
+		'voice',
+		'Voice',
+		'How you talk to Restless: dictating messages, and hearing replies read aloud. Yours alone, on every device; each member chooses their own.'
 	),
 	'this-computer': section(
 		'this-computer',
