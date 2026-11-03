@@ -756,7 +756,8 @@ impl AuthorityStore {
         provider: &str,
     ) -> Result<u64> {
         Ok(sqlx::query(
-            "DELETE FROM restless_authority.model_cooldowns              WHERE company=$1 AND kind IN ('credential','quota') AND model LIKE $2",
+            "DELETE FROM restless_authority.model_cooldowns \
+             WHERE company=$1 AND kind IN ('credential','quota') AND model LIKE $2",
         )
         .bind(company)
         .bind(format!("{provider}/%"))

@@ -223,14 +223,14 @@ owner's decision.
     credit or quota".
   - The quota card says "Work resumes within minutes of a top-up". That isn't true for
     already-claimed Work (item 1).
-- **Fixed** (fix/s109-blocker-cards, with the resume in fix/s109-stalled-work):
+- **Fixed** (fix/model-avail-live-row, 3 Nov; lifted from the unmerged fix/s109-blocker-cards):
   - Granting a provider another connection clears that provider's quota and credential
     cooldowns, not only credential ones.
   - A rate limit (429) cools down for the provider's own wait, or two minutes, never an hour, and
     raises no "out of credit" card: it clears by itself.
-  - Work blocked by a `[quota]` or `[credential]` refusal goes on by itself within about two
-    minutes of no such refusal being active (bounded like any interruption resume), so the card's
-    promise is now true.
+  - The first output of any turn on a model lifts that model's cooldown at once, rather than
+    when the turn ends.
+  - The quota card's top-up wording (item 1) is still open on fix/s109-blocker-cards.
 
 ### 16. Native-turn cap raises a "spend limit" card that can't lift it
 
@@ -239,11 +239,7 @@ owner's decision.
   - `attention.rs:3653` maps any `[budget]` refusal to the spend-stopped card, whose editor sets
     only the spend limit.
   - Raising the native limit doesn't wake Exec.
-- **Fixed** (fix/s109-blocker-cards):
-  - A native-harness cap raises its own `native_limit_stopped` card ("Raise native limit"), which
-    says the spend limit doesn't affect it.
-  - Raising or clearing the native limit above this month's use tells Exec to resume, as raising
-    the spend limit does.
+- **Open.**
 
 ### 17. Setting changed directly in Settings blocks all future proposals for it
 
@@ -253,23 +249,13 @@ owner's decision.
   - `setting_proposals::pending` still counts it.
   - Every later proposal for that setting (keyed per variant, so every schedule) is refused:
     "already waiting for the owner's answer". The owner sees no card.
-- **Fixed** (fix/s109-blocker-cards):
-  - A new proposal closes any waiting one that Settings already satisfies as superseded
-    (`setting_decided` with `superseded`), and its reply lists what it superseded.
-  - Proposing what Settings already holds is refused with that reason.
-  - Each schedule is its own setting, so a waiting proposal for one no longer blocks another.
-  - The proposal is recorded as the agent that made it (not always Exec), so the answer reaches
-    them.
+- **Open.**
 
 ### 18. A judgement handoff with a stale brief vanishes
 
 - **Code:** `attention.rs:2888` drops it with a `warn` once the Work revision changes. The handoff
   stays pending, the Work stays blocked, and nobody is asked to re-brief.
-- **Fixed** (fix/s109-blocker-cards, with the notice in fix/s109-stalled-work):
-  - The card stays in the Inbox, marked as briefed for an earlier version of the Work. A stale
-    outcome review offers chat with the lead instead of Accept, which would be refused.
-  - Whoever briefed it is asked once per Work revision to brief it again with
-    `restless work prepare-owner-brief`.
+- **Open.**
 
 ### 19. Cloud: setup on a sold-out location retries forever, reason lost
 
@@ -295,18 +281,11 @@ owner's decision.
   - `coordination.rs:1501/1520/1539` hard-code actor `exec` for `finance-reserve`,
     `finance-payee-propose` and `setting-propose`.
   - The answer goes to Exec, not the staff member.
-  - **Fixed** (fix/s109-blocker-cards): all three record the calling agent.
 - **Home-site helper offline:**
   - `home_egress.rs:163` replies "Turn it on, or ask the owner" with no card.
   - The same text is used when no helper is assigned at all.
-  - **Fixed** (fix/s109-blocker-cards): a refusal raises a `home_helper_offline` card for a day
-    while no helper is online, worded for "offline" or "none set up", and the agent is told the
-    owner has it.
 - **Codex/Claude reconnect loop:** `owner_oauth_login.rs:262/487`, "Restore that connection
   before reconnecting", with no restore action.
-  - **Fixed in part** (fix/s109-blocker-cards): the refusal now names the real way through
-    (Remove… in the account's Connections, then connect again). Verifying the old identity
-    differently is left alone: it is the guard against swapping accounts in place.
 - **Dead links in Inbox items (fixed, #599):**
   - `attention.rs:1574` links `/{company}/vault`; the page is `/company/vault`.
   - `attention.rs:912` links `/company/limits#spend`; there's no such page.

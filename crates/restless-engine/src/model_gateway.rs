@@ -619,7 +619,8 @@ pub async fn record_cooldown(
                 .unwrap_or_else(|| chrono::Duration::hours(1))
         }
         // A rate limit (429) is short: honour the provider's own wait when it gives one, else
-        // look again in two minutes. It used to become an hour labelled "out of credit".
+        // look again in two minutes. It used to become an hour labelled "out of credit"
+        // (S109 blockers audit, finding 15).
         crate::health::BlockKind::Quota if crate::health::is_rate_limit(reason) => {
             chrono::Duration::seconds(
                 crate::health::usage_limit_reset_seconds(&reason.to_lowercase())
@@ -653,6 +654,48 @@ pub async fn record_cooldown(
         )
         .await?;
     Ok(())
+}
+
+/// Watch one model turn for its first output: a reply, a thought, a tool call or generated tokens
+/// is a model call that succeeded, so any cooldown the model holds lifts at once, for every actor
+/// on it, instead of when this turn ends many minutes later. A cooldown held through a long,
+/// working run kept other turns off a model that was answering (3 Nov 2026). A turn that then
+/// fails records its cooldown again when it ends, as before.
+pub fn clearing_cooldown_on_output(
+    observer: Option<crate::acp::SessionObserver>,
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    model: &str,
+) -> Option<crate::acp::SessionObserver> {
+    let observer = observer?;
+    let answered = std::sync::Arc::new(AtomicBool::new(false));
+    let authority = authority.clone();
+    let company = company.to_string();
+    let model = model.to_string();
+    Some(std::sync::Arc::new(
+        move |event: crate::acp::LiveSessionEvent| {
+            let output = matches!(
+                event,
+                crate::acp::LiveSessionEvent::ReplyDelta { .. }
+                    | crate::acp::LiveSessionEvent::ThoughtDelta
+                    | crate::acp::LiveSessionEvent::ToolStarted { .. }
+                    | crate::acp::LiveSessionEvent::GeneratedOutputTokens(_)
+            );
+            if output && !answered.swap(true, Ordering::AcqRel) {
+                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                    let (authority, company, model) =
+                        (authority.clone(), company.clone(), model.clone());
+                    runtime.spawn(async move {
+                        if let Err(error) = authority.clear_model_cooldown(&company, &model).await
+                        {
+                            tracing::warn!(%error, company, model, "could not lift the cooldown of a model that answered");
+                        }
+                    });
+                }
+            }
+            observer(event);
+        },
+    ))
 }
 
 /// Child handles are deliberately ordinary supervised processes. Dropping the

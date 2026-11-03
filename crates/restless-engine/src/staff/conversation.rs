@@ -869,6 +869,21 @@ pub async fn dispatch_actor_conversation(
             opportunity_context.join("\n")
         ));
     }
+    // The creator of a Work is the source of truth for its progress. This wake already exists
+    // (an Attempt ended, a handoff arrived or settled), so asking costs one line, not a model call.
+    if is_accountable_lead {
+        match org.work_progress_owed(actor).await {
+            Ok(owed) if !owed.is_empty() => {
+                spine.push('\n');
+                spine.push_str(&restless_orgintel::progress_owed_section(
+                    &owed,
+                    crate::owner_brief::ESTIMATE_PROGRESS,
+                ));
+            }
+            Ok(_) => {}
+            Err(error) => tracing::warn!(actor, "progress estimates owed unreadable: {error:#}"),
+        }
+    }
     // A Staff member cannot change Work from a conversation, so what the owner asks of them goes
     // on to the lead who can (below, once the reply is recorded). Edna told the owner she would
     // shorten an email, and nothing reached anyone able to resume it (20 October).

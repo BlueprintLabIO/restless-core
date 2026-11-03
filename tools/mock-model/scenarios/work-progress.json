@@ -1,0 +1,40 @@
+{
+	"rules": [
+		{
+			"match": "where does work ([0-9a-f-]{36}) stand\\? it is at (\\d+), next (.+)",
+			"steps": [
+				{
+					"tool": {
+						"name": "bash",
+						"input": {
+							"command": "restless work progress {{1}} --percent {{2}} --next \"{{3}}\""
+						}
+					}
+				},
+				{
+					"text": "I looked at it and recorded my estimate on the Work.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"I recorded where that Work stands.\"}-->"
+				}
+			]
+		},
+		{
+			"match": "work ([0-9a-f-]{36}) is blocked: (.+)",
+			"steps": [
+				{
+					"tool": {
+						"name": "bash",
+						"input": {
+							"command": "restless work progress {{1}} --blocked \"{{2}}\""
+						}
+					}
+				},
+				{
+					"text": "Recorded: it is blocked, and why.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"I recorded that the Work is blocked.\"}-->"
+				}
+			]
+		},
+		{
+			"match": "The turn is ending now",
+			"steps": [{ "text": "{\"decision\": \"waiting\", \"reason\": \"Nothing else to do.\"}" }]
+		}
+	]
+}

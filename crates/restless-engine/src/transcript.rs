@@ -309,20 +309,13 @@ pub struct OwnerNeed {
     pub fields: Vec<String>,
 }
 
-/// A finished result a message asks the owner to look at, with its visible text, when the message
-/// asks for nothing else.
+/// A finished result a message asks the owner to look at, with its visible text. A question the
+/// same message asks is its own item; it never hides the result.
 pub fn conversation_owner_review(
     message: &restless_orgintel::MessageRow,
 ) -> Option<(String, String)> {
     let decoded = decode_body(&message.body);
     let intent = decoded.intent?;
-    if intent
-        .owner_need
-        .as_deref()
-        .is_some_and(|need| !need.trim().is_empty())
-    {
-        return None;
-    }
     let review = intent.owner_review?;
     let review = review.trim();
     if review.is_empty() || review.chars().count() > 120 {

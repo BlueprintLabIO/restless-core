@@ -1106,6 +1106,7 @@ impl OrgIntel {
                     .bind(&effective_summary)
                     .execute(&mut *tx)
                     .await?;
+                    crate::progress::record_done_progress_in_tx(&mut tx, work_id).await?;
                 }
             }
             WorkAttemptState::ChangesRequested => {
@@ -1116,6 +1117,7 @@ impl OrgIntel {
                     .bind(&effective_summary)
                     .execute(&mut *tx)
                     .await?;
+                crate::progress::record_done_progress_in_tx(&mut tx, work_id).await?;
                 let targets = sqlx::query_scalar::<_, Uuid>(
                     "SELECT to_work_id FROM work_edges \
                      WHERE from_work_id = $1 AND kind = 'revises' ORDER BY to_work_id",

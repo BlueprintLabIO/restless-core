@@ -598,17 +598,26 @@ async fn company_schema_round_trip() {
             title: "Choose the human headline",
             outcome: "apply the owner's copy judgement",
             goal_id: Some(goal),
-            priority: 1,
+            // Ahead of "Owner sign-in", which is ready again once signed in.
+            priority: 2,
             expected_artifact: "",
             workspace: WorkspaceSpec::default(),
             attempt_limit: None,
         })
         .await
         .unwrap();
+    // An outcome review reaches a person only with its prepared outcome linked
+    // (S109 A4, #571), so the headlines are produced in an Attempt first.
+    let headline_attempt = org
+        .claim_ready_work("prepare the headlines")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(headline_attempt.work.id, judgement_work);
     let judgement_handoff = org
         .request_owner_handoff(NewOwnerHandoff {
             work_id: judgement_work,
-            attempt_id: None,
+            attempt_id: Some(headline_attempt.attempt_id),
             requested_by: "delivery-build",
             category: OwnerHandoffCategory::OwnerJudgement,
             requested_action: "choose the clearer headline",
@@ -617,6 +626,27 @@ async fn company_schema_round_trip() {
         })
         .await
         .unwrap();
+    org.link_work_artifact(NewArtifactRef {
+        kind: "review_target",
+        uri: "/company/outputs/headlines.md",
+        note: "Both finished headlines",
+        created_by: "delivery-build",
+        work_id: Some(judgement_work),
+        attempt_id: Some(headline_attempt.attempt_id),
+        digest: None,
+        source_commit: None,
+        runtime_generation: None,
+        label: "Headlines",
+    })
+    .await
+    .unwrap();
+    org.finish_work_attempt(
+        headline_attempt.attempt_id,
+        WorkAttemptState::Blocked,
+        "awaiting the owner's headline review",
+    )
+    .await
+    .unwrap();
     org.prepare_owner_brief(
         judgement_handoff,
         "delivery-build",
@@ -700,10 +730,16 @@ async fn company_schema_round_trip() {
     );
     org.mark_read(lead_reply).await.unwrap();
 
+    let revision_attempt = org
+        .claim_ready_work("revise the headline")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(revision_attempt.work.id, judgement_work);
     let accepted_handoff = org
         .request_owner_handoff(NewOwnerHandoff {
             work_id: judgement_work,
-            attempt_id: None,
+            attempt_id: Some(revision_attempt.attempt_id),
             requested_by: "delivery-build",
             category: OwnerHandoffCategory::OwnerJudgement,
             requested_action: "accept or request another revision",
@@ -712,6 +748,27 @@ async fn company_schema_round_trip() {
         })
         .await
         .unwrap();
+    org.link_work_artifact(NewArtifactRef {
+        kind: "review_target",
+        uri: "/company/outputs/headline-revised.md",
+        note: "The revised headline",
+        created_by: "delivery-build",
+        work_id: Some(judgement_work),
+        attempt_id: Some(revision_attempt.attempt_id),
+        digest: None,
+        source_commit: None,
+        runtime_generation: None,
+        label: "Revised headline",
+    })
+    .await
+    .unwrap();
+    org.finish_work_attempt(
+        revision_attempt.attempt_id,
+        WorkAttemptState::Blocked,
+        "awaiting the owner's acceptance",
+    )
+    .await
+    .unwrap();
     org.prepare_owner_brief(
         accepted_handoff,
         "delivery-build",
@@ -948,7 +1005,8 @@ async fn company_schema_round_trip() {
     let again = OrgIntel::ensure(&url, &company).await.unwrap();
     assert_eq!(again.list_work().await.unwrap().len(), 7);
     let graph = again.work_graph_snapshot().await.unwrap();
-    assert_eq!(graph.attempt_feedback.len(), 4);
+    // The fifth is the headline revision Attempt taking the owner's requested changes.
+    assert_eq!(graph.attempt_feedback.len(), 5);
     assert!(graph
         .attempt_feedback
         .iter()
