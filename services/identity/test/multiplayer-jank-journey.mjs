@@ -294,7 +294,8 @@ async function gridEdges(page) {
     const wide = matchMedia("(min-width: 900px)").matches;
     check("the top bar is --topbar-h tall", box(topbar).height, px("--topbar-h"));
     check("the content starts at the top bar's left edge", frame.left, box(topbar).left);
-    if (visible(rail)) {
+    /* Below 981px the open rail is an overlay over the page, not a pane beside it. */
+    if (visible(rail) && getComputedStyle(rail).position !== "fixed") {
       check("the Exec rail starts at the content's top edge", box(rail).top, frame.top);
       check("the Exec rail is --pane-gap from the content", box(rail).left - frame.right, px("--pane-gap"));
       const head = rail.querySelector(".exr-head");
@@ -441,6 +442,7 @@ async function measure(page, id, { since = 0, state, shot }) {
       score: unexpected.reduce((sum, entry) => sum + entry.value, 0),
       intentional: intentional.reduce((sum, entry) => sum + entry.value, 0),
       shifts: unexpected,
+      intentionalShifts: intentional,
       moved,
       unstyled: jank.unstyled.filter((frame) => frame.t >= since),
       fontFrames: jank.fontFrames,
@@ -584,6 +586,84 @@ async function pass_(who, role, state, surfaces, loads = ["cold", "warm", "nav"]
           await measure(page, key("nav"), { state, since });
         }
       });
+    }
+  }
+}
+
+/* The Exec rail before its code arrives (4 November). The rail is its own chunk: a phone starts
+ * with it closed and loads it on the first tap or key anywhere, or when it is opened; a desktop
+ * whose rail was left closed does the same. The chunk is held 1.2 s here, so anything its arrival
+ * moves happens long after the input and fails as unexpected: a tap (a key press, which takes the
+ * same path and lands on nothing), opening the rail while it is still on its way, and opening it
+ * again once it is here. On a phone the rail is an overlay, so the page under it keeps its width
+ * as it opens and closes, input or not. */
+const RAIL_CHUNK = "**/_app/immutable/assets/ExecutiveRail.*.css";
+async function railPass(who, role, surface) {
+  const url = `${core}${surface.path}`;
+  for (const width of Object.keys(WIDTHS)) {
+    const key = (load) => `${role}/populated/${width}/${load}/rail`;
+    if (!["tap", "open-slow", "open-warm"].some((load) => wanted(key(load)))) continue;
+    const contextFor = async () => {
+      const context = await freshContext(who, width, "populated");
+      await context.route(RAIL_CHUNK, async (route) => {
+        await pause(SLOW_MS);
+        return route.continue().catch(() => {});
+      });
+      // A desktop rail starts open unless it was left closed; a phone's always starts closed.
+      if (width === "desktop") await context.addInitScript((name) => localStorage.setItem(name, "closed"), `restless:exec-rail:${company}`);
+      return context;
+    };
+    const main = (page) => page.evaluate(() => {
+      const r = document.querySelector("#main-content").getBoundingClientRect();
+      return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+    });
+    const keeps = async (page, id, before) => {
+      const after = await main(page);
+      if (width !== "phone" || JSON.stringify(after) === JSON.stringify(before)) return;
+      const delta = Math.max(...["x", "y", "w", "h"].map((side) => Math.abs(after[side] - before[side])));
+      failures.push({ visit: id, kind: "movement", element: "#main-content under the phone's Exec rail", value: delta, detail: { before, after }, known: false });
+    };
+    const settle = async (page) => {
+      await revealed(page);
+      await pause(800);
+      return page.evaluate(() => {
+        window.__jankWatch(15000);
+        return performance.now();
+      });
+    };
+    for (const load of ["tap", "open-slow"]) {
+      if (!wanted(key(load)) && !(load === "open-slow" && wanted(key("open-warm")))) continue;
+      const context = await contextFor();
+      let id = key(load);
+      try {
+        const page = await context.newPage();
+        await page.goto(url);
+        const since = await settle(page);
+        const before = await main(page);
+        if (load === "tap") await page.keyboard.press("Shift");
+        else await page.locator(".tb-exec").filter({ visible: true }).first().click();
+        await measure(page, id, { since, state: "populated", shot: `${role}-rail-${width}-${load}` });
+        if (load === "tap") await keeps(page, id, before);
+        else {
+          await page.waitForSelector("#bridge-exrail.open .exr-inner", { timeout: 15000 });
+          await keeps(page, id, before);
+          // Closed and opened again: the chunk is here, so this is the warm open.
+          id = key("open-warm");
+          await page.locator(".tb-exec").filter({ visible: true }).first().click();
+          await page.waitForSelector("#bridge-exrail:not(.open)", { state: "attached" });
+          await pause(800);
+          const closed = await main(page);
+          const since = await page.evaluate(() => performance.now());
+          await page.locator(".tb-exec").filter({ visible: true }).first().click();
+          await measure(page, id, { since, state: "populated" });
+          await keeps(page, id, closed);
+        }
+      } catch (error) {
+        failures.push({ visit: id, kind: "error", element: "visit", value: 1, detail: String(error.message ?? error).slice(0, 300), known: false });
+        for (const open of context.pages()) await open.screenshot({ path: join(out, `error-${id.replaceAll("/", "_")}.png`) }).catch(() => {});
+      } finally {
+        await context.close();
+      }
     }
   }
 }
@@ -790,6 +870,9 @@ await run("multiplayer-jank", async () => {
     }
     pass(`${state} state measured`);
   }
+  await railPass(owner, "owner", surfaces.owner[0]);
+  await railPass(alice, "member", surfaces.member[0]);
+  pass("the Exec rail measured before, as and after its code arrives");
   const kinds = { owner: await cardPass(owner, "owner"), member: await cardPass(alice, "member") };
 
   const fresh = failures.filter((failure) => !failure.known);
