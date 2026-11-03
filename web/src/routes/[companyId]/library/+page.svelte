@@ -1764,24 +1764,38 @@
 		}
 		visitSince = { company, at };
 	});
+	/* Goals can close behind the page's back (Exec closes one; the shell's copy waits for its
+	 * next poll), so each navigation reads them again and Live now is redrawn with the answer, as
+	 * part of that navigation. The first visit draws at once from what has loaded. */
+	let liveRead = 0;
 	$effect(() => {
 		void page.url.pathname;
 		void page.url.search;
 		if (loading || visitSince.company !== companyId) return;
-		untrack(() => {
-			liveNow = {
-				company: companyId,
-				rows: liveCollections({
-					goals,
-					works: goalWorks,
-					items: [...entries, ...noteEntries.filter((entry) => entry.review)].map(liveItemOf),
-					titles: folderTitles,
-					since: visitSince.at,
-					now: Date.now()
-				})
-			};
-		});
+		const read = ++liveRead;
+		const company = companyId;
+		const draw = () =>
+			untrack(() => {
+				if (read !== liveRead || company !== companyId) return;
+				liveNow = {
+					company,
+					rows: liveCollections({
+						goals,
+						works: goalWorks,
+						items: [...entries, ...noteEntries.filter((entry) => entry.review)].map(liveItemOf),
+						titles: folderTitles,
+						since: visitSince.at,
+						now: Date.now()
+					})
+				};
+			});
+		if (untrack(() => liveNow?.company !== company)) draw();
+		/* At most one fresh read of the goals every few seconds, however fast the clicks. */
+		if (Date.now() - goalsReadAt < 4_000) return draw();
+		goalsReadAt = Date.now();
+		void untrack(() => (owner ? cockpit : collaboration).refresh()).then(draw, draw);
 	});
+	let goalsReadAt = 0;
 	const liveRows = $derived(liveNow?.company === companyId ? liveNow.rows : []);
 	const LIVE_ICON = (key: string) =>
 		key.startsWith('goal:') ? Target : key.startsWith('folder:') ? FolderOpen : Folder;
