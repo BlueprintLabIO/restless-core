@@ -639,6 +639,13 @@ pub fn bound_attempt_context(
         )
     } else if expected_artifact.is_empty() {
         "- This Work has no declared output URI. Do not invent one; report the observed native result through the ordinary Work outcome.".to_string()
+    } else if expected_artifact.starts_with("/company/") {
+        // recovery.rs links a declared company file itself when the Attempt ends `outcome_met` and
+        // the file exists, so a separate `restless work artifact` call only spent a model turn.
+        format!(
+            "- When `{uri}` is the exact deliverable and meets the outcome, declare `outcome_met`: the Runtime observes that file and links it to this Attempt itself, so do not link it. Link only other outputs the reviewer needs.\n- If the file is missing or does not meet the outcome, report the specific gap instead.",
+            uri = expected_artifact,
+        )
     } else if expected_artifact.starts_with('/') || expected_artifact.contains("://") {
         format!(
             "- Writing `{uri}` alone does not complete this Work. If it is the exact deliverable and meets the outcome, link it to this Attempt before declaring `outcome_met`:\n  `restless work artifact --work {work_id} --attempt {attempt_id} --kind {artifact_kind} --uri {uri}`\n- If the candidate is missing or does not meet the outcome, do not attach it merely to pass the gate; report the specific gap instead.{review_note}",
