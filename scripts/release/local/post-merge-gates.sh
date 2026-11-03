@@ -39,6 +39,11 @@ for gate in connections-smoke jank-gate resource-gate; do
     failed="$failed $gate"
   fi
 done
+# Token parity tracks Restless's tokens against a direct agent run. It posts its own
+# `token-parity` status and never changes this gate's result.
+(cd "$tree" && env -i HOME="$HOME" USER="${USER:-}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" TERM=dumb \
+  CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS" timeout 3h scripts/release/local/token-parity.sh "$sha") \
+  >"$state/$sha-token-parity.log" 2>&1 || log "${sha:0:12} token-parity did not run, log $state/$sha-token-parity.log"
 git -C "$core" worktree remove --force "$tree" >/dev/null 2>&1 || true
 if [ -z "$failed" ]; then
   echo pass >"$state/$sha.result"; status "$sha" success "Smoke, jank and resource gates passed"
