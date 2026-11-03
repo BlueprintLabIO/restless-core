@@ -8,6 +8,7 @@
 	import DocumentActions from './DocumentActions.svelte';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import Markdown from '$lib/primitives/Markdown.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import DocumentInspector, { type DocumentInspectorPanel } from './DocumentInspector.svelte';
 	import { documentQuery, documentVersionQuery } from '$lib/model/document-queries.svelte';
 	import { collaborationBootstrapQuery, companyPrincipalQuery } from '$lib/model/queries.svelte';
@@ -246,11 +247,8 @@
 									Version {requestedVersion.version.version.version_number} under review
 								</h2>
 								<Markdown text={requestedVersion.version.markdown} />
-							{:else}<p>
-									{requestedVersion.failure
-										? 'The requested version is unavailable.'
-										: 'Loading requested version…'}
-								</p>{/if}
+							{:else if requestedVersion.failure}<p>The requested version is unavailable.</p>
+							{:else}<Skeleton label="Loading the version under review" count={3} />{/if}
 						</article>
 					{:else}
 						<DocumentEditor
@@ -314,6 +312,13 @@
 	<AttentionFooter>
 		{#if request.kind === 'review'}
 			{#if reviewActions}{@render reviewActions()}
+			{:else if detail.status === 'unknown'}
+				<!-- The decision's own buttons, disabled, while the document is read: the footer
+				     never swaps "Review details" for them a moment later (S110). -->
+				<div class="action-row" aria-busy="true">
+					<button class="btn" type="button" disabled>Request changes</button>
+					<button class="btn primary" type="button" disabled>Accept this version</button>
+				</div>
 			{:else}<div class="action-row">
 					<button
 						class="btn small"

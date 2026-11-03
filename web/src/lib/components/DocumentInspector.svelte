@@ -1383,8 +1383,16 @@
 		return quote ? `“${quote}”` : 'A block that has since moved';
 	}
 
+	/* A review card (requestedReviewId) whose reviews have not been read yet. */
+	const reviewPendingRead = $derived(!!requestedReviewId && reviews.status === 'unknown');
 	$effect(() => {
-		onreviewactionschange?.(requestedReview && canJudge ? requestedReviewActions : undefined);
+		onreviewactionschange?.(
+			reviewPendingRead
+				? pendingReviewActions
+				: requestedReview && canJudge
+					? requestedReviewActions
+					: undefined
+		);
 		return () => onreviewactionschange?.(undefined);
 	});
 </script>
@@ -1435,20 +1443,14 @@
 	</div>
 {/snippet}
 
+{#snippet pendingReviewActions()}
+	<div class="review-actions action-row" aria-busy="true">
+		<button type="button" class="btn" disabled>Request changes</button>
+		<button type="button" class="btn primary" disabled>Accept this version</button>
+	</div>
+{/snippet}
+
 <aside class="document-inspector" aria-label="Document review and discussion">
-	{#if ondismiss}
-		<div class="inspector-dismiss">
-			<button
-				type="button"
-				class="flat-action icon-only"
-				onclick={ondismiss}
-				aria-label="Close"
-				title="Close this panel without accepting or rejecting a review"
-			>
-				<X size={15} aria-hidden="true" />
-			</button>
-		</div>
-	{/if}
 	<nav class="inspector-tabs" aria-label="Document details">
 		<button
 			type="button"
@@ -1481,6 +1483,16 @@
 		>
 			<History size={14} strokeWidth={1.8} aria-hidden="true" /> History
 		</button>
+		<!-- On the tabs' own line: a row of its own held only this button (S110). -->
+		{#if ondismiss}<button
+				type="button"
+				class="inspector-close"
+				onclick={ondismiss}
+				aria-label="Close"
+				title="Close this panel without accepting or rejecting a review"
+			>
+				<X size={15} aria-hidden="true" />
+			</button>{/if}
 	</nav>
 
 	{#if panel === 'comments'}
@@ -1825,7 +1837,19 @@
 			<p class="sr-only" role="status">
 				{editing && canJudge ? 'Waiting for edits to finish saving.' : ''}
 			</p>
-			{#if requestedReview}
+			{#if reviewPendingRead}
+				<!-- An Inbox review card opens on its decision: until the reviews have been read,
+				     the decision form's own fields, disabled, rather than the "Request review" form
+				     that it replaced a moment later, moving everything below it (S110). -->
+				<section class="review-request current" aria-busy="true">
+					<label class="field"
+						><span>Version name</span><input disabled value="" aria-label="Version name" /></label
+					>
+					<label class="field"
+						><span>Note</span><textarea disabled rows="3" aria-label="Note"></textarea></label
+					>
+				</section>
+			{:else if requestedReview}
 				<section
 					class="review-request current"
 					title={editing && canJudge ? 'Waiting for edits to finish saving.' : undefined}
@@ -2012,7 +2036,9 @@
 						{/if}
 					{/if}
 				{:else if proposals.status === 'unknown'}
-					<Skeleton label="Loading proposals" count={3} />
+					<!-- The empty line's own box, held blank: most often there are none, and a
+					     skeleton of another height resized the section when they were read (S110). -->
+					<p class="quiet-state" aria-busy="true"><span class="sr-only">Loading proposals</span>&nbsp;</p>
 				{:else}
 					<p class="quiet-state">No agent revisions are waiting.</p>
 				{/if}
@@ -2231,10 +2257,20 @@
 </aside>
 
 <style>
-	.inspector-dismiss {
-		display: flex;
-		justify-content: flex-end;
-		padding: 5px 8px;
+	.inspector-tabs .inspector-close {
+		flex: none;
+		width: 32px;
+		height: 32px;
+		align-self: center;
+		margin-left: 4px;
+		padding: 0;
+		border: 1px solid transparent;
+		border-radius: var(--radius-control);
+		color: var(--text-secondary);
+	}
+	.inspector-tabs .inspector-close:hover {
+		border-color: var(--border);
+		background: var(--surface-alt);
 	}
 	.document-inspector {
 		min-width: 0;
@@ -2246,14 +2282,13 @@
 	}
 	.inspector-tabs {
 		min-height: 40px;
-		display: grid;
-		grid-auto-flow: column;
-		grid-auto-columns: minmax(0, 1fr);
-		align-items: end;
+		display: flex;
+		align-items: flex-end;
 		padding: 0 6px;
 		border-bottom: 1px solid var(--border);
 	}
 	.inspector-tabs button {
+		flex: 1 1 0;
 		min-width: 0;
 		height: 38px;
 		display: flex;
@@ -2930,8 +2965,5 @@
 			z-index: 2;
 			background: var(--surface-rail);
 		}
-	}
-	.inspector-dismiss .icon-only {
-		padding: 4px;
 	}
 </style>
