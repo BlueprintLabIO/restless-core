@@ -1063,6 +1063,19 @@ impl OrgIntel {
                 WorkEdgeKind::Requires => (target, id),
                 WorkEdgeKind::Revises => (id, target),
             };
+            if matches!(kind, WorkEdgeKind::Requires) {
+                let abandoned: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM work WHERE id=$1 AND status='abandoned')",
+                )
+                .bind(from)
+                .fetch_one(&mut *tx)
+                .await?;
+                if abandoned {
+                    return Err(OrgIntelError::InvalidWork(format!(
+                        "Work {from} is abandoned, so new Work that requires it could never start; require its replacement instead"
+                    )));
+                }
+            }
             sqlx::query(
                 "INSERT INTO work_edges (from_work_id, to_work_id, kind) VALUES ($1,$2,$3)",
             )
@@ -1383,6 +1396,21 @@ impl OrgIntel {
                 .bind(runnable_work_id)
                 .fetch_one(&mut *tx)
                 .await?;
+        if kind == WorkEdgeKind::Requires {
+            // Readiness waits for a completed upstream; an abandoned one never completes, so the
+            // edge would park this Work for good (S109 blockers audit).
+            let abandoned: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM work WHERE id=$1 AND status='abandoned')",
+            )
+            .bind(from)
+            .fetch_one(&mut *tx)
+            .await?;
+            if abandoned {
+                return Err(OrgIntelError::InvalidWork(format!(
+                    "Work {from} is abandoned, so Work that requires it could never start; require its replacement instead"
+                )));
+            }
+        }
         if !runnable_exists {
             return Err(OrgIntelError::InvalidWork(format!(
                 "Work {runnable_work_id} does not exist"

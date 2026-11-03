@@ -728,7 +728,6 @@ struct CompanyCatalogEntry {
     logo_url: Option<String>,
 }
 
-
 /// The one high-value owner read model. This remains a projection: every
 /// field is assembled from its authoritative plane immediately before the
 /// response is encoded. Naming it makes the browser contract checkable rather
