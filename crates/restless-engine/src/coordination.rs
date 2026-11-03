@@ -6270,14 +6270,8 @@ mod tests {
             .await
             .unwrap();
         assert!(mandate_cards(&view).is_empty());
-        let permitted = value(
-            dispatch(
-                permit(granted.id.to_string()),
-                &daemon,
-                Principal::CompanyExec,
-            )
-            .await,
-        );
+        let permitted =
+            value(dispatch(permit(granted.id.to_string()), &daemon, Principal::CompanyExec).await);
         assert_eq!(permitted["ok"], true, "{permitted}");
         assert_eq!(permitted["data"]["mandate_id"], granted.id.to_string());
 
