@@ -537,7 +537,7 @@
 	font-size: var(--t-body);
 	font-weight: 600;
 	text-decoration: none;
-	transform: translateY(-160%);
+	transform: translateY(calc(-100% - 40px)); /* its shadow stays off screen (S110) */
 	transition: transform var(--motion-state) var(--ease-out);
 }
 

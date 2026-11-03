@@ -228,7 +228,7 @@
 		padding: 0 5px;
 		border-radius: 9px;
 		background: var(--intent-authority);
-		color: var(--on-primary);
+		color: var(--text-inverse);
 		font-size: var(--t-label);
 		font-weight: 600;
 		text-align: center;

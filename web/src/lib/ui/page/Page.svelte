@@ -114,6 +114,9 @@
 	}
 	.settings .page-body {
 		display: grid;
+		/* One column no wider than the page: an implicit one sized to its longest unwrapped line
+		 * (the charter on Company's overview) ran 180px off a phone (S110). */
+		grid-template-columns: minmax(0, 1fr);
 		gap: 36px;
 		padding: var(--space-6) 0 64px;
 	}
