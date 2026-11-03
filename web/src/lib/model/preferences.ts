@@ -24,7 +24,9 @@ export const PREFERENCE_KEYS = [
 	'work.view',
 	'work.sort',
 	'inbox.filter',
-	'folds'
+	'folds',
+	'voice.stt',
+	'voice.tts'
 ] as const;
 export type PreferenceKey = (typeof PREFERENCE_KEYS)[number];
 export type PreferenceValues = Partial<Record<PreferenceKey, unknown>>;

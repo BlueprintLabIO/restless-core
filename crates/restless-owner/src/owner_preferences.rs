@@ -31,6 +31,9 @@ const KNOWN_KEYS: &[&str] = &[
     "work.sort",
     "inbox.filter",
     "folds",
+    // Voice (S107 D): speech to text and text to speech follow the person, not a company.
+    "voice.stt",
+    "voice.tts",
 ];
 
 type Preferences = serde_json::Map<String, serde_json::Value>;
@@ -282,6 +285,35 @@ mod tests {
         );
         assert!(
             serde_json::from_value::<PreferencesPatch>(serde_json::json!({ "other": {} })).is_err()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// S107 D3: voice is the person's own. The owner turning on read-aloud leaves a member on the
+    /// browser's defaults.
+    #[tokio::test]
+    async fn voice_choices_are_kept_per_person() {
+        let root = root();
+        let owner = RequestPrincipal::local_owner();
+        let (status, kept) = body(put_at(
+            &root,
+            &owner,
+            patch(serde_json::json!({ "voice.tts": "browser", "voice.stt": "browser" })),
+        ))
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(kept["preferences"]["voice.tts"], "browser");
+        let (_, member) = body(get_at(&root, &member("aris", "human-1"))).await;
+        assert_eq!(member["preferences"], serde_json::json!({}));
+        let (_, off) = body(put_at(
+            &root,
+            &owner,
+            patch(serde_json::json!({ "voice.tts": null })),
+        ))
+        .await;
+        assert_eq!(
+            off["preferences"],
+            serde_json::json!({ "voice.stt": "browser" })
         );
         std::fs::remove_dir_all(root).unwrap();
     }
