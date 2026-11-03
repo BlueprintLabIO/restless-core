@@ -598,14 +598,20 @@ pub async fn dispatch_actor_conversation(
     )
     .await?;
     // Conversation turns answer, route and relay: the everyday model takes them, with the
-    // actor's own model behind it as failover (S102).
-    let candidates = crate::model_gateway::with_everyday_model(
-        config,
-        config.coordination_harness,
-        candidates,
-        runtime.authority,
-    )
-    .await?;
+    // actor's own model behind it as failover (S102). A team lead's turns commission and judge,
+    // so they stay on the primary (S107).
+    let candidates = if current_lead_team.is_some() {
+        candidates
+    } else {
+        crate::model_gateway::with_everyday_model(
+            config,
+            actor,
+            config.coordination_harness,
+            candidates,
+            runtime.authority,
+        )
+        .await?
+    };
     let billings = candidates
         .iter()
         .map(|model| crate::model_gateway::billing_for_company_model(config, model))
