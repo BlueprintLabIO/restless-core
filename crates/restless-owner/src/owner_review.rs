@@ -701,8 +701,11 @@ pub(crate) async fn library_image(
                 Some(refusal) => (StatusCode::NOT_FOUND, refusal.to_string()),
                 None => (
                     StatusCode::NOT_FOUND,
-                    logged(error, "This picture could not be read from the company computer.")
-                        .to_string(),
+                    logged(
+                        error,
+                        "This picture could not be read from the company computer.",
+                    )
+                    .to_string(),
                 ),
             };
             return api_error(status, "library", sentence);
@@ -718,7 +721,10 @@ pub(crate) async fn library_image(
     headers.insert(CONTENT_DISPOSITION, HeaderValue::from_static("inline"));
     // A re-rendered message reuses the picture rather than reading the computer again; a minute
     // is short enough that a redrawn picture shows on the next look.
-    headers.insert(CACHE_CONTROL, HeaderValue::from_static("private, max-age=60"));
+    headers.insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=60"),
+    );
     headers.insert(
         "content-security-policy",
         HeaderValue::from_static(

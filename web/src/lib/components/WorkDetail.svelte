@@ -33,6 +33,9 @@
 	import { fileLabel, LIBRARY_KIND_LABEL, libraryKind } from '$lib/model/library-files';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import { goalAbout } from '$lib/work/goal';
+	import { workEstimate } from '$lib/work/progress';
+	import Estimate from '$lib/ui/data/Estimate.svelte';
+	import Trend from '$lib/ui/data/Trend.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { attentionTitle, isOutcomeReview } from '$lib/model/attention-presentation';
 	import type { AttentionItem } from '$lib/model/view';
@@ -137,6 +140,8 @@
 		ownerAccess ? (cockpit?.company.name ?? companyId) : (collaboration?.company.name ?? companyId)
 	);
 	const goal = $derived(goals.find((item) => item.id === work?.goal_id) ?? null);
+	/* The creator's rough estimate and its short history (owner decision, 3 November). */
+	const estimate = $derived(work ? workEstimate(work, graph?.progress, ownerName) : null);
 	/* The owner, and the person who owns this Work's team, may resume it or stop it; the server
 	 * checks the team. It used to live only in a team owner's Inbox. */
 	const workTeam = $derived(
@@ -758,6 +763,22 @@
 				>
 					{waitingLine}
 				</p>{/if}
+			<!-- Held for open Work whether or not an estimate has landed, so one arriving never moves
+			     the page; settled Work shows it only when there is one. -->
+			{#if estimate || (work.status !== 'completed' && work.status !== 'abandoned')}<div
+					class="work-progress"
+				>
+					{#if estimate}<span class="work-progress-label">Estimate</span><Estimate
+							wide
+							fill={estimate.fill}
+							text={estimate.text}
+							title={estimate.title}
+							tone={estimate.tone}
+						/><Trend
+							values={estimate.trend}
+							label={`Estimates so far: ${estimate.trend.map((value) => `${value}%`).join(', ')}`}
+						/><span class="work-progress-by">{estimate.title}</span>{/if}
+				</div>{/if}
 			{#if blocker}<p class="work-blocker">{blocker}</p>{/if}
 
 			{#if pending.length}
@@ -1354,6 +1375,32 @@
 		color: var(--text-secondary);
 		font-size: var(--t-body);
 		line-height: 1.45;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/* The estimate: a labelled value on one held line, with its trend and who said it when. */
+	.work-progress {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		height: 22px;
+		margin: 6px 0 0;
+		min-width: 0;
+		overflow: hidden;
+		font-size: var(--t-label);
+	}
+	.work-progress-label {
+		flex: none;
+		color: var(--text-tertiary);
+	}
+	.work-progress :global(.estimate) {
+		flex: 0 1 auto;
+	}
+	.work-progress-by {
+		flex: 0 10 auto;
+		min-width: 0;
+		overflow: hidden;
+		color: var(--text-tertiary);
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}

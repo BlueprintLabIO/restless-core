@@ -64,6 +64,8 @@ export { default as SidebarRow } from './views/SidebarRow.svelte';
 export { default as CountUp } from './data/CountUp.svelte';
 export { default as LiveDot } from './data/LiveDot.svelte';
 export { default as Meter } from './data/Meter.svelte';
+export { default as Estimate } from './data/Estimate.svelte';
+export { default as Trend } from './data/Trend.svelte';
 export { default as UsageChart } from './data/UsageChart.svelte';
 export type { UsageDay } from './data/UsageChart.svelte';
 export { default as AllowanceCard } from './data/AllowanceCard.svelte';

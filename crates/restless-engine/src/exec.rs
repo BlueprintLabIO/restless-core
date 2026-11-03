@@ -1741,6 +1741,26 @@ async fn gather_snapshot(
         .into_iter()
         .map(|signal| format!("[{}] {}", signal.kind, signal.detail))
         .collect();
+    // Progress estimates: the newest per Work, each open Goal's roll-up over all its Work (done
+    // included), and the checkpoints Exec owes an estimate for on Work it created.
+    let (work_progress, progress_owed) = tokio::try_join!(
+        async { org.work_progress(None).await.map_err(anyhow::Error::from) },
+        async {
+            org.work_progress_owed("exec")
+                .await
+                .map_err(anyhow::Error::from)
+        },
+    )?;
+    let goal_progress = goals
+        .iter()
+        .filter(|goal| goal.closed_at.is_none())
+        .map(|goal| {
+            (
+                goal.id,
+                restless_orgintel::goal_progress(goal.id, &work, &work_progress),
+            )
+        })
+        .collect();
     let open: Vec<_> = work
         .into_iter()
         .filter(|item| {
@@ -1944,6 +1964,9 @@ async fn gather_snapshot(
         current_plan,
         latest_journal,
         open_work: open,
+        work_progress,
+        goal_progress,
+        progress_owed,
         open_goals: goals
             .into_iter()
             .filter(|goal| goal.closed_at.is_none())
