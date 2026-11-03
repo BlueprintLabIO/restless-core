@@ -1480,10 +1480,12 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         "finance-reserve" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<finance::PaymentIntentInput>(body) {
                 Ok(mut input) => {
+                    // The caller, never Exec by default: a staff member's request is theirs,
+                    // and the answer goes back to them (S109 blockers audit).
                     input.requesting_actor = if principal == Principal::Owner {
                         "owner".into()
                     } else {
-                        "exec".into()
+                        request.orgintel.actor.as_deref().unwrap_or("exec").to_string()
                     };
                     match daemon.orgintel.get(company).await {
                         Ok(org) => match finance::validate_work_link(&org, &input).await {
@@ -1502,7 +1504,7 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
         },
         "finance-payee-propose" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<finance::PayeeProposalInput>(body) {
-                Ok(input) => match finance::propose_payee(&daemon.authority, company, "exec", input).await {
+                Ok(input) => match finance::propose_payee(&daemon.authority, company, request.orgintel.actor.as_deref().unwrap_or("exec"), input).await {
                     Ok(id) => Response::ok(serde_json::json!({
                         "proposal": id,
                         "status": "waiting for the owner in the Inbox",
@@ -1521,12 +1523,17 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 {
                     Response::err("there is no live schedule with that id; name one from `restless schedule opportunities` or the company's Schedules")
                 }
-                Ok(input) => match crate::setting_proposals::propose(&daemon.authority, company, "exec", input).await {
-                    Ok(id) => Response::ok(serde_json::json!({
-                        "proposal": id,
+                Ok(input) => match runtime::CompanyConfig::load(&daemon.root, company) {
+                    Err(error) => Response::err(format!("{error:#}")),
+                    Ok(config) => match crate::setting_proposals::propose(&daemon.authority, &config, request.orgintel.actor.as_deref().unwrap_or("exec"), input).await {
+                    Ok(proposed) => Response::ok(serde_json::json!({
+                        "proposal": proposed.id,
                         "status": "waiting for the owner in the Inbox",
+                        // Earlier proposals the owner settled by changing Settings directly.
+                        "superseded": proposed.superseded,
                     })),
                     Err(error) => Response::err(format!("{error:#}")),
+                    },
                 },
                 Err(error) => Response::err(format!("invalid setting proposal: {error}")),
             },
