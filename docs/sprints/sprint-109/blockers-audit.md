@@ -51,7 +51,7 @@ owner's decision.
     "next wake" never comes. The only exits are a plane restart (`resume_after_platform_restart`)
     or someone running `restless work resume`.
   - The lead is told the next wake continues, so it does nothing.
-- **Fixed** (PR "Resumable Work resumes itself"):
+- **Fixed** (#602):
   - A `[resumable]` block resumes automatically, at most twice per Work revision.
   - The owner's own Stop is excluded.
   - Each resume records a `work_resumed_after_interruption` event.
@@ -91,7 +91,7 @@ owner's decision.
     more on an account", with Approve. Nothing on the agent side raised it.
 - **Evidence:** Restless and Jolly Heron are waiting on GitHub and Cloudflare grants. Sydney
   Resale's eBay sign-in card has been pending since 23 Oct.
-- **Fixed** (PR "Grant refusals ask the owner, and askers hear the answer"):
+- **Fixed** (#601):
   - A refusal the owner can lift (an ability that is off, or an ask a browser or push can't wait
     for) now raises that card, deduplicated per account.
   - It tells the agent "Asked the owner".
@@ -103,7 +103,7 @@ owner's decision.
     `owner_accounts.rs:865`) message nobody.
   - The Deny action still promises "the company is told". Only the API-key path tells the asker
     (`owner_vault.rs` `tell_asker`).
-- **Fixed** (same PR): approving or denying messages the requesting agent.
+- **Fixed** (#601): approving or denying messages the requesting agent.
 
 ### 5. A Vault key that isn't bound to its name loops the agent (catch-22)
 
@@ -113,7 +113,7 @@ owner's decision.
   - `credential::resolve` only reads bindings, so the same name fails.
   - The failure said to run `restless credential set`, which is owner-only.
   - Asking again returns `already_held` again.
-- **Fixed** (PR "Every refusal names its way out"):
+- **Fixed** (#599):
   - `resolve` falls back to a Vault secret with exactly that name.
   - The refusal names `restless apps ask-account --kind api`.
 
@@ -126,7 +126,7 @@ owner's decision.
   - `prompts/align-and-learn.md:37`: tells Exec to run `restless identity voice-learn`, which is
     owner-only.
   - `wire::authorize`: "{cmd} is an act of owner authority" names no way out, across 35 commands.
-- **Fixed** (same PR):
+- **Fixed** (#599):
   - Each owner-only command has a door: the agent command that raises the owner's card, the card
     already raised, or the owner's page plus how to tell them.
   - The refusal ends with that door.
@@ -135,7 +135,7 @@ owner's decision.
 
 - **Code:** `approval::announce_decisions` sends to `exec` only. The preparer recorded on the
   `approval_required` record waits forever.
-- **Fixed** (same PR): the answer also goes to each non-Exec preparer of that party or call.
+- **Fixed** (#599): the answer also goes to each non-Exec preparer of that party or call.
 
 ### 8. Workspace "differs from requested source": Work can't be taken back
 
@@ -205,14 +205,14 @@ owner's decision.
 - **Fixed in part:** `restless document request-collaboration` now appears in the agents'
   instructions. It existed but no prompt named it.
 
-### 14. "Start the computer" hides the monthly-hours cap
+### 14. "Start the computer" hides the monthly-hours cap (fixed, #599)
 
 - **Code:**
   - `restless-owner/src/owner.rs:8935` turns every `recover` error into "The computer could not
     be recovered. Try again."
   - The real reason ("monthly Runtime cap … raise or clear the cap") has a fix in Company ›
     Resources, which the message doesn't name.
-- **Open:** a small owner-route change.
+- **Fixed** (#599): the start route returns 409 "Raise or clear the limit in Company → Resources", as waking the desktop already did.
 
 ### 15. Quota block survives switching the connection; a short 429 becomes a 1 h block
 
@@ -278,7 +278,7 @@ owner's decision.
   - The same text is used when no helper is assigned at all.
 - **Codex/Claude reconnect loop:** `owner_oauth_login.rs:262/487`, "Restore that connection
   before reconnecting", with no restore action.
-- **Dead links in Inbox items:**
+- **Dead links in Inbox items (fixed, #599):**
   - `attention.rs:1574` links `/{company}/vault`; the page is `/company/vault`.
   - `attention.rs:912` links `/company/limits#spend`; there's no such page.
 - **Unrecorded faults:** `coordination.rs:408/414` ignore errors from `ensure_actor` and
