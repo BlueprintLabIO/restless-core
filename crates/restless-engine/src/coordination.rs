@@ -3122,6 +3122,43 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             (Err(error), _, _) => Response::err(format!("bad Work id: {error}")),
             _ => Response::err("work-abandon needs work, reason and --as"),
         },
+        "work-progress" => {
+            let Some(Ok(id)) = request.common.id.as_deref().map(uuid::Uuid::parse_str) else {
+                return Response::err("work-progress needs a Work id");
+            };
+            let Some(actor) = request.common.as_actor.as_deref() else {
+                return Response::err("work-progress needs --as");
+            };
+            let report = match (
+                request.percent,
+                request.next.as_deref(),
+                request.blocked.as_deref(),
+            ) {
+                (Some(percent), Some(next), None) => {
+                    restless_orgintel::ProgressReport::Estimate { percent, next }
+                }
+                (None, None, Some(why)) => restless_orgintel::ProgressReport::Blocked { why },
+                _ => {
+                    return Response::err(
+                        "give --percent with --next \"what is left\", or --blocked \"why\" on its own",
+                    )
+                }
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match org.record_work_progress(id, actor, report).await {
+                    Ok(recorded) => Response::ok(serde_json::json!({
+                        "work_id": id,
+                        "state": recorded.progress.state,
+                        "percent": recorded.progress.percent,
+                        "next": recorded.progress.next,
+                        "estimated_by": recorded.progress.estimated_by,
+                        "told_owner": recorded.posted_message_id.is_some(),
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "work-review" => match (request.common.id.as_deref(), request.common.state.as_deref()) {
             (Some(id), Some(state)) => {
                 let Ok(id) = uuid::Uuid::parse_str(id) else {
@@ -4523,6 +4560,54 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Err(error) => Response::err(format!("record Resend observation: {error:#}")),
             }
         }
+        // Exec asks the owner for standing permission to send email (S109 H2): the proposal is
+        // the owner's Inbox card, approved with Undo. Exec then still permits each email.
+        "mandate-propose" => {
+            let Some(value) = request.authority.mandate_proposal else {
+                return Response::err("mandate propose needs a proposal");
+            };
+            let proposal: crate::authority::NewEmailMandate = match serde_json::from_value(value) {
+                Ok(proposal) => proposal,
+                Err(error) => return Response::err(format!("invalid mandate proposal: {error}")),
+            };
+            let note = request.authority.purpose.as_deref().map(str::trim).filter(|note| !note.is_empty());
+            if note.is_some_and(|note| note.len() > 2_000) {
+                return Response::err("the reason is longer than 2,000 characters");
+            }
+            let actor = request.orgintel.actor.as_deref().unwrap_or("exec");
+            match daemon.authority.pending_email_mandate_proposals(company).await {
+                Ok(pending) => {
+                    if let Some(waiting) = pending.last().and_then(|record| record.body["id"].as_str().map(str::to_string)) {
+                        return Response::ok(serde_json::json!({
+                            "proposal_id": waiting,
+                            "status": "waiting_for_owner",
+                            "note": "A proposal is already waiting in the owner's Inbox. Do not propose again; you are told when they answer.",
+                        }));
+                    }
+                }
+                Err(error) => return Response::err(format!("{error:#}")),
+            }
+            // A change to the current mandate names it, so approving replaces it.
+            let replaces = match daemon.authority.list_email_mandates(company).await {
+                Ok(mandates) => mandates
+                    .into_iter()
+                    .find(|mandate| mandate.expires_at > chrono::Utc::now())
+                    .map(|mandate| mandate.id),
+                Err(error) => return Response::err(format!("{error:#}")),
+            };
+            match daemon
+                .authority
+                .propose_email_mandate(company, actor, proposal, note, replaces)
+                .await
+            {
+                Ok(id) => Response::ok(serde_json::json!({
+                    "proposal_id": id,
+                    "status": "waiting_for_owner",
+                    "note": "Nothing can be sent under it yet. The owner approves or declines this exact permission in their Inbox; you are told when they answer.",
+                })),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "mandate-permit" => {
             let Some(mandate_id) = request.authority.mandate_id.as_deref() else {
                 return Response::err("mandate permit needs a mandate id");
@@ -4713,6 +4798,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "effect"
         | "effect-reconcile"
         | "mandate-permit"
+        | "mandate-propose"
         | "email-preview"
         | "email-send"
         | "email-observe"
@@ -4751,6 +4837,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "work-interrupt"
         | "work-resume"
         | "work-abandon"
+        | "work-progress"
         | "judgement"
         | "schedule-list"
         | "schedule-link-work"
@@ -6082,6 +6169,17 @@ mod tests {
                 "{cmd} must stay open to the company"
             );
         }
+    }
+
+    /// S109 H2: Exec asks for standing email permission; the owner cannot propose to themselves
+    /// through Exec's channel, and grants it only in the Inbox.
+    #[test]
+    fn only_exec_proposes_an_email_mandate_over_the_coordination_channel() {
+        assert_eq!(
+            authorize(Principal::CompanyExec, "mandate-propose").unwrap(),
+            Principal::CompanyExec
+        );
+        assert!(authorize(Principal::Owner, "mandate-propose").is_err());
     }
 
     /// TCP has no principal fallback. Local Unix derives owner identity from

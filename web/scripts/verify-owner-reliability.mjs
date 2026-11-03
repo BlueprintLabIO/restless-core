@@ -128,6 +128,7 @@ try {
 		assert(goal && !goal.closed_at, 'The completed-only goal fixture must be open');
 		await page.goto(origin + '/' + company + '/work?goal=' + goal.id + '&view=board');
 		const head = page.locator('.head');
+		await head.locator('summary[aria-label="Completed work actions"]').click();
 		await head.getByRole('button', { name: 'Clear done', exact: true }).click();
 		const confirm = page.getByRole('dialog');
 		await confirm.getByRole('button', { name: 'Clear and archive', exact: true }).click();

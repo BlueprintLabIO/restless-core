@@ -547,7 +547,7 @@ pub fn bound_attempt_context(
     };
     let review_note = if claimed.work.owner_review_required {
         format!(
-            " This Work requires owner outcome review: choose exactly one native candidate as the ReviewTarget and link it with kind `{}`. The Runtime runs the declared `{}` gate after your process returns; do not claim that probe passed yourself.",
+            " This Work requires owner outcome review: choose exactly one native candidate as the ReviewTarget and link it with kind `{}`. When the outcome has several parts (several emails, sites or pictures), make the ReviewTarget one Markdown document that shows them together: each part's exact text, each site linked, and each picture embedded with `![what it shows](path)`, the path relative to that document or a full `/company/...` path. Link the other files with kind `output` too, so the review carries them. The Runtime runs the declared `{}` gate after your process returns; do not claim that probe passed yourself.",
             restless_orgintel::REVIEW_TARGET_ARTIFACT_KIND,
             restless_orgintel::REVIEW_TARGET_LIVE_PROBE_GATE,
         )

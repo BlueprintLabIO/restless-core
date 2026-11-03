@@ -17,6 +17,15 @@
 		ownerBusy?: number;
 		/** Redone past a few revisions (G3): worth asking the lead why. */
 		churning?: boolean;
+		/** The creator's rough estimate: a bar and "~60% · next: …", who and when on hover. Any value,
+		 * even null, reserves the line so the card never grows when an estimate lands; leave it out
+		 * on cards that never carry one. */
+		progress?: {
+			fill: number;
+			text: string;
+			title: string;
+			tone: 'progress' | 'blocked' | 'done' | 'stopped';
+		} | null;
 	};
 
 	export type BoardColumn = {
@@ -33,6 +42,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { listFlip, listIn, listOut } from '../motion';
+	import Estimate from '../data/Estimate.svelte';
 
 	const id = $props.id();
 
@@ -86,6 +96,14 @@
 					>
 					{#if item.waiting !== undefined}<span class="waiting" title={item.waiting || undefined}
 							>{item.waiting}</span
+						>{/if}
+					{#if item.progress !== undefined}<span class="progress"
+							>{#if item.progress}<Estimate
+									fill={item.progress.fill}
+									text={item.progress.text}
+									title={item.progress.title}
+									tone={item.progress.tone}
+								/>{/if}</span
 						>{/if}
 					{#if item.signal}<p>{item.signal}</p>{/if}
 					<footer>
@@ -236,6 +254,16 @@
 		line-height: 1.4;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	/* The estimate's line is held whether or not an estimate has landed yet. */
+	.board-item .progress {
+		display: flex;
+		height: 1.4em;
+		margin-top: 6px;
+		min-width: 0;
+		overflow: hidden;
+		font-size: var(--t-label);
+		line-height: 1.4;
 	}
 	.board-item p {
 		display: -webkit-box;

@@ -2472,3 +2472,158 @@ async fn agents_holding_a_copy_of_the_company_default_follow_the_next_one() {
     );
     org.drop_schema().await.unwrap();
 }
+
+/// Owner decision 3 Nov 2026: "unique without numbers, new names please!!!". A team far
+/// larger than its letter's original five gets fresh characters, and a roster saved by the
+/// old allocator ("Eames 2" ... "Eeyore 2") is renamed exactly once, keeping identity.
+#[tokio::test]
+async fn numbered_colleagues_get_fresh_names_once_and_keep_their_identity() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        return;
+    };
+    let company = format!("uniquenames{}_test", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    let result = async {
+        org.ensure_actor("owner", "owner", "owner", "Owner").await?;
+        org.ensure_actor("exec", "exec", "exec", "The Exec").await?;
+        org.create_actor("reno-direction", "lead", "ignored", None, "exec", "lead")
+            .await?;
+        let pool = sqlx::PgPool::connect(&url).await?;
+        let schema = org.schema().to_owned();
+        sqlx::query(&format!("UPDATE {schema}.actors SET display='Eames' WHERE id='reno-direction'"))
+            .execute(&pool)
+            .await?;
+        let team = org.create_team("Reno", "Ship Reno", "reno-direction", "exec").await?;
+        let members: Vec<String> = [
+            "alpha", "bravo", "charlie", "delta", "foxtrot", "golf", "hotel", "india", "juliet",
+            "kilo", "lima", "mike", "november", "oscar",
+        ]
+        .iter()
+        .map(|craft| format!("reno-{craft}"))
+        .collect();
+        for id in &members {
+            org.create_actor(id, "specialist", "ignored", None, "reno-direction", "help")
+                .await?;
+            org.set_actor_team(id, Some(team), "exec", "join Reno").await?;
+        }
+        let names = |actors: Vec<restless_orgintel::ActorRow>| {
+            actors
+                .into_iter()
+                .filter(|a| a.kind == "staff")
+                .map(|a| (a.id, a.display))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        let numbered = |name: &str| {
+            name.rsplit_once(' ')
+                .is_some_and(|(_, n)| n.chars().all(|c| c.is_ascii_digit()))
+        };
+        let roster = names(org.list_actors().await?);
+        assert_eq!(roster.len(), 15);
+        let unique: std::collections::BTreeSet<_> = roster.values().collect();
+        assert_eq!(unique.len(), 15, "{roster:?}");
+        for name in roster.values() {
+            assert!(name.starts_with('E'), "{name} is outside the E team");
+            assert!(!numbered(name), "{name} is numbered");
+        }
+
+        // The production roster: five members carry the old allocator's numbers, and so
+        // does a retired colleague.
+        let old = ["Eames 2", "Ebenezer Scrooge 2", "Echo 2", "Edna Mode 2", "Eeyore 2"];
+        for (id, display) in members.iter().zip(old) {
+            sqlx::query(&format!("UPDATE {schema}.actors SET display=$2 WHERE id=$1"))
+                .bind(id)
+                .bind(display)
+                .execute(&pool)
+                .await?;
+        }
+        org.create_actor("reno-history", "researcher", "ignored", None, "exec", "past")
+            .await?;
+        org.retire_actor("reno-history", "exec", "assignment complete").await?;
+        sqlx::query(&format!("UPDATE {schema}.actors SET display='Echo 3' WHERE id='reno-history'"))
+            .execute(&pool)
+            .await?;
+        let room = org
+            .create_room(
+                "owner",
+                restless_orgintel::RoomKind::Group,
+                "Reno",
+                &["owner", "reno-alpha"],
+                "unique-names-room",
+            )
+            .await?;
+        let mention = org
+            .send_room_message_with_mentions(
+                room.id,
+                "owner",
+                "@reno-alpha can you check the launch copy?",
+                None,
+                "unique-names-mention",
+                &[restless_orgintel::NewRoomMessageMention::actor("reno-alpha")],
+                None,
+            )
+            .await?;
+        let direct = org.send_message("owner", Some("reno-bravo"), "Keep this with the same person").await?;
+        let work = org
+            .add_work(NewWork {
+                owner_id: "reno-charlie",
+                title: "Keep Work through a rename",
+                outcome: "The same person owns it",
+                goal_id: None,
+                priority: 1,
+                expected_artifact: "note",
+                workspace: WorkspaceSpec::default(),
+                attempt_limit: None,
+            })
+            .await?;
+
+        let reopened = OrgIntel::ensure(&url, &company).await?;
+        let after = names(reopened.list_actors_including_retired().await?);
+        assert_eq!(after.len(), 16, "same people, no one added or lost");
+        let unique: std::collections::BTreeSet<_> = after.values().collect();
+        assert_eq!(unique.len(), 16, "{after:?}");
+        for (id, name) in &after {
+            assert!(!numbered(name), "{id} is still {name}");
+            assert!(name.starts_with('E'), "{id} left the E letter as {name}");
+        }
+        // Each rename is in the person's history, from the numbered name to the new one.
+        for (id, display) in members.iter().zip(old).chain([(&"reno-history".to_string(), "Echo 3")]) {
+            let to: String = sqlx::query_scalar(&format!(
+                "SELECT body->>'to_display' FROM {schema}.events WHERE kind='actor_display_changed' \
+                 AND actor_id=$1 AND body->>'from_display'=$2"
+            ))
+            .bind(id)
+            .bind(display)
+            .fetch_one(&pool)
+            .await?;
+            assert_eq!(&to, &after[id]);
+        }
+        // Mentions, conversations and Work still point at the same person.
+        let pending = reopened.next_pending_message_mention("reno-alpha").await?.unwrap();
+        assert_eq!(pending.mention.message_id, mention.message.id);
+        let recipient: String =
+            sqlx::query_scalar(&format!("SELECT to_actor FROM {schema}.messages WHERE id=$1"))
+                .bind(direct)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(recipient, "reno-bravo");
+        assert_eq!(reopened.get_work(work).await?.unwrap().owner_id, "reno-charlie");
+
+        // Applied exactly once: opening again renames no one.
+        let count = |pool: sqlx::PgPool, schema: String| async move {
+            sqlx::query_scalar::<_, i64>(&format!(
+                "SELECT count(*) FROM {schema}.events WHERE kind='actor_display_changed'"
+            ))
+            .fetch_one(&pool)
+            .await
+        };
+        let changes = count(pool.clone(), schema.clone()).await?;
+        let again = OrgIntel::ensure(&url, &company).await?;
+        assert_eq!(count(pool.clone(), schema.clone()).await?, changes);
+        assert_eq!(names(again.list_actors_including_retired().await?), after);
+        pool.close().await;
+        Ok::<(), restless_orgintel::OrgIntelError>(())
+    }
+    .await;
+    org.drop_schema().await.unwrap();
+    result.unwrap();
+}

@@ -4213,10 +4213,19 @@ async fn exec_discusses_delegated_work_without_taking_its_production_role() {
         .unwrap()
         .iter()
         .any(|row| row.id == input));
+    // An outcome review reaches a person only with its prepared outcome linked
+    // (S109 A4, #571): the worker produces the candidate in an Attempt, links
+    // it as the review target and blocks on the review.
+    let attempt = org
+        .claim_ready_work("prepare the delivery outcome")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(attempt.work.id, work_id);
     let handoff_id = org
         .request_owner_handoff(NewOwnerHandoff {
             work_id,
-            attempt_id: None,
+            attempt_id: Some(attempt.attempt_id),
             requested_by: "delivery-build",
             category: OwnerHandoffCategory::OwnerJudgement,
             requested_action: "Choose whether this candidate meets the brief",
@@ -4225,6 +4234,27 @@ async fn exec_discusses_delegated_work_without_taking_its_production_role() {
         })
         .await
         .unwrap();
+    org.link_work_artifact(restless_orgintel::NewArtifactRef {
+        kind: "review_target",
+        uri: "/company/outputs/delivery.md",
+        note: "Prepared delivery outcome",
+        created_by: "delivery-build",
+        work_id: Some(work_id),
+        attempt_id: Some(attempt.attempt_id),
+        digest: None,
+        source_commit: None,
+        runtime_generation: None,
+        label: "Delivery outcome",
+    })
+    .await
+    .unwrap();
+    org.finish_work_attempt(
+        attempt.attempt_id,
+        restless_orgintel::WorkAttemptState::Blocked,
+        "awaiting the owner's review",
+    )
+    .await
+    .unwrap();
     org.prepare_owner_brief(
         handoff_id,
         "exec",

@@ -1,6 +1,14 @@
 {
 	"rules": [
 		{
+			"match": "where is the final send pack",
+			"steps": [
+				{
+					"text": "The send pack is in your Inbox as one item to approve: each email with its live site, its pictures and its price.\n\n- [Final send pack](/company/outputs/pack-verify/final-send-pack.md)\n- [Aleon live site](https://example.com/aleon/)\n\n![Magnet design](/company/outputs/pack-verify/magnet/preview.png)\n\n![Magnet mockup](file:///company/outputs/pack-verify/magnet/mockup.png)\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Your send pack is ready to approve.\",\"ownerNeed\":\"Order 250 printed magnets too? Yes or no.\",\"ownerReview\":\"Final send pack\"}-->"
+				}
+			]
+		},
+		{
 			"match": "People use the cockpit, not a terminal",
 			"steps": [
 				{

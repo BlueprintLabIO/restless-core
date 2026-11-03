@@ -166,7 +166,7 @@
 	<div class="outcome-stage">
 		{#if target?.kind === 'runtime-text' && target.status === 'available' && target.content}
 			<article class="outcome-text" aria-label="Prepared outcome">
-				<Markdown text={target.content} />
+				<Markdown text={target.content} source={target.uri} />
 			</article>
 		{:else if file && resolve}
 			<LibraryViewer {companyId} {file} {resolve} owner="" backHref="" />

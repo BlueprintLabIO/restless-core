@@ -24,6 +24,8 @@ const RUST_INPUTS = ['infra/rust-binaries/Dockerfile', 'Cargo.toml', 'Cargo.lock
 // (rustBinaries) instead of two image builds sharing the machine. arm64 keeps the old bound.
 const cargoJobs = (platform: string = 'linux/amd64') => platform === 'linux/amd64' ? String(availableParallelism()) : '2';
 
+const QUALIFY_GROUPS = ['rust', 'web', 'documents', 'sheets', 'issuer', 'release'];
+
 function project(source: Directory, path: string, base: Container = dag.container().from(NODE_IMAGE)): Container {
   const files = source.directory(path);
   return base
@@ -278,26 +280,40 @@ export class RestlessCore {
   async qualify(
     @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/target-*/**', '**/.env', '**/.env.*'] })
     source: Directory,
+    /** Comma list of check groups to run (rust, web, documents, sheets, issuer, release); empty runs all.
+     * PR checks pass only the groups a change can affect; a release always runs all of them. */
+    only: string = '',
   ): Promise<string> {
     const timings: Timing[] = [];
-    await Promise.all([
-      timed(timings, 'schema version', () => this.verifySchemaVersion(source).sync()),
-      timed(timings, 'rust check and boundary tests', () => rust(source).withExec(['cargo', 'check', '--workspace', '--locked'])
+    const groups = new Set(only.split(',').map((group) => group.trim()).filter(Boolean));
+    const unknown = [...groups].filter((group) => !QUALIFY_GROUPS.includes(group));
+    if (unknown.length) throw new Error(`unknown qualify groups: ${unknown.join(', ')}`);
+    const runs = (group: string) => groups.size === 0 || groups.has(group);
+    const checks: [string, string, () => Promise<unknown>][] = [
+      ['release', 'schema version', () => this.verifySchemaVersion(source).sync()],
+      ['rust', 'rust check and boundary tests', () => rust(source).withExec(['cargo', 'check', '--workspace', '--locked'])
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'company_projection::tests'])
-        .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync()),
-      timed(timings, 'paired machine isolation tests', () => rust(source)
-        .withExec(['cargo', 'test', '--locked', '-p', 'restless-machine']).sync()),
-      timed(timings, 'cockpit check and build', () => cockpit(source).sync()),
-      timed(timings, 'cockpit unit tests', () => project(source, 'web').withExec(['npm', 'test']).sync()),
-      timed(timings, 'browser overlays', () => this.verifyOverlays(source).sync()),
-      timed(timings, 'chat warning motion', () => this.verifyChatWarning(source).sync()),
-      timed(timings, 'ui artifact consumer', () => this.verifyUiArtifact(source).sync()),
-      timed(timings, 'native documents check and build', () => project(source, 'services/native-documents-collaboration')
-        .withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']).sync()),
-      timed(timings, 'native sheets tests', () => project(source, 'services/native-sheets').withExec(['npm', 'test']).sync()),
-      timed(timings, 'issuer artifact', () => this.issuer(source).sync()),
-      timed(timings, 'release contracts', () => this.verifyRelease(source)),
-    ]);
+        .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync()],
+      ['rust', 'paired machine isolation tests', () => rust(source)
+        .withExec(['cargo', 'test', '--locked', '-p', 'restless-machine']).sync()],
+      ['web', 'cockpit check and build', () => cockpit(source).sync()],
+      ['web', 'cockpit unit tests', () => project(source, 'web').withExec(['npm', 'test']).sync()],
+      ['web', 'browser overlays', () => this.verifyOverlays(source).sync()],
+      ['web', 'chat warning motion', () => this.verifyChatWarning(source).sync()],
+      ['web', 'ui artifact consumer', () => this.verifyUiArtifact(source).sync()],
+      ['documents', 'native documents check and build', () => project(source, 'services/native-documents-collaboration')
+        .withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']).sync()],
+      ['sheets', 'native sheets tests', () => project(source, 'services/native-sheets').withExec(['npm', 'test']).sync()],
+      ['issuer', 'issuer artifact', () => this.issuer(source).sync()],
+      ['release', 'release contracts', () => this.verifyRelease(source)],
+    ];
+    const ran = checks.filter(([group]) => runs(group));
+    await Promise.all(ran.map(([, name, run]) => timed(timings, name, run)));
+    if (groups.size) {
+      return `Core qualification passed for ${[...groups].join(', ')}: ${ran.map(([, name]) => name).join(', ')}
+`
+        + `timings ${JSON.stringify(timings)}`;
+    }
     return 'Core qualification passed: schema version, Rust workspace, projection contract and public-key boundary tests, cockpit check/build, browser overlays and chat warning motion, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports and versioned release contracts\n'
       + `timings ${JSON.stringify(timings)}`;
   }
