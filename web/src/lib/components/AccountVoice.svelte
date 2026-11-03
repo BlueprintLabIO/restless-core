@@ -13,6 +13,8 @@
 		voice
 	} from '$lib/model/voice.svelte';
 	import type { SpeechToText, TextToSpeech } from '$lib/model/voice';
+	import Volume2 from '@lucide/svelte/icons/volume-2';
+	import Square from '@lucide/svelte/icons/square';
 
 	const NOT_YET = 'Not on this version yet: dictation stays in your browser.';
 	const sttChoices: { value: SpeechToText; label: string; available: boolean }[] = [
@@ -36,8 +38,8 @@
 		{ value: 'off', label: 'Off' },
 		{
 			value: 'browser',
-			label: 'Your browser’s voice',
-			title: speaks ? undefined : 'This browser cannot read text aloud.'
+			label: 'Browser',
+			title: speaks ? 'Your browser’s own voice' : 'This browser cannot read text aloud.'
 		}
 	]);
 	let tts = $state<TextToSpeech>(voice.textToSpeech);
@@ -69,7 +71,7 @@
 	</Row>
 	<Row
 		label="Read replies aloud"
-		info="Adds a play button to messages from the Exec and your team, which reads the message in your browser's own voice. Off by default."
+		info="Adds a play button to messages from the Exec and your team, which reads the message in your browser's own voice. Off by default. The speaker button plays a sample."
 	>
 		<Segmented
 			label="Read replies aloud"
@@ -89,8 +91,18 @@
 			class="btn small voice-try"
 			disabled={tts === 'off' || !speaks}
 			aria-pressed={playing}
-			title={tts === 'off' ? 'Turn on reading aloud to try it' : 'Hear a short sample'}
-			onclick={() => toggleSpeaking(sampleId, SAMPLE)}>{playing ? 'Stop' : 'Try'}</button
+			aria-label={playing ? 'Stop the sample' : 'Hear a sample'}
+			title={tts === 'off'
+				? 'Turn on reading aloud to hear a sample'
+				: playing
+					? 'Stop the sample'
+					: 'Hear a sample'}
+			onclick={() => toggleSpeaking(sampleId, SAMPLE)}
+			>{#if playing}<Square size={13} strokeWidth={2} aria-hidden="true" />{:else}<Volume2
+					size={14}
+					strokeWidth={1.8}
+					aria-hidden="true"
+				/>{/if}</button
 		>
 	</Row>
 </Section>
@@ -99,9 +111,16 @@
 	.voice-select {
 		width: min(240px, 100%);
 	}
-	/* "Try" and "Stop" share one width, so pressing it moves nothing. */
+	/* One square for play and stop, so pressing it moves nothing. */
 	.voice-try {
-		min-width: 56px;
+		width: 30px;
+		padding: 0;
 		justify-content: center;
+	}
+	/* A phone row has room for the choice alone; the sample would wrap under it. */
+	@media (max-width: 480px) {
+		.voice-try {
+			display: none;
+		}
 	}
 </style>
