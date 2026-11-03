@@ -20,3 +20,26 @@ export function truncatedTitle(node: HTMLElement, text: string | null | undefine
 		}
 	};
 }
+
+/* The same tooltip on a list row's link (Item's `.item-hit`). The link covers the whole row, so
+ * the pointer meets the link and never the title under it; the link carries the title instead,
+ * while the title it covers is cut. Pointer only: the focused link already speaks its full name,
+ * and a title would repeat it as a description. */
+export function coveredTitle(node: HTMLElement, text: string | null | undefined) {
+	let full = text ?? '';
+	const check = () => {
+		const title = node.parentElement?.querySelector<HTMLElement>(':scope > .item-main > .item-title');
+		if (full && title && title.scrollWidth > title.clientWidth + 1) node.title = full;
+		else node.removeAttribute('title');
+	};
+	node.addEventListener('pointerenter', check);
+	return {
+		update(next: string | null | undefined) {
+			full = next ?? '';
+			node.removeAttribute('title');
+		},
+		destroy() {
+			node.removeEventListener('pointerenter', check);
+		}
+	};
+}

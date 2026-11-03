@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { truncatedTitle } from '../truncated-title';
+	import { coveredTitle, truncatedTitle } from '../truncated-title';
 	/* One row in any list: Inbox, Work, Library, schedules, skills, activity.
 	 *
 	 * Leading mark, a single-line title, quiet inline meta, and a trailing area
@@ -20,6 +20,7 @@
 		unread = false,
 		dim = false,
 		stacked = false,
+		fixed = false,
 		leading,
 		trailing,
 		actions,
@@ -49,6 +50,9 @@
 		/** Title over meta, the title on up to two lines: for narrow lists such as the Inbox, where
 		 * one line cut every title to a few words. */
 		stacked?: boolean;
+		/** With `stacked`: every row one height. The title keeps one line, cut with an ellipsis; its
+		 * full text shows on hover and stays in the row's name for a screen reader. */
+		fixed?: boolean;
 		leading?: Snippet;
 		trailing?: Snippet;
 		actions?: Snippet;
@@ -66,6 +70,7 @@
 	class:unread
 	class:dim
 	class:stacked
+	class:fixed={stacked && fixed}
 	class:noted={note !== undefined && note !== null}
 	class:interactive={!!href || !!onclick}
 >
@@ -75,8 +80,13 @@
 				{href}
 				download={download ? '' : undefined}
 				aria-current={selected ? 'true' : undefined}
+				use:coveredTitle={title}
 				{onclick}><span class="sr-only">{label ?? title}</span></a
-			>{:else if onclick}<button class="item-hit" type="button" {onclick}
+			>{:else if onclick}<button
+				class="item-hit"
+				type="button"
+				use:coveredTitle={title}
+				{onclick}
 				><span class="sr-only">{label ?? title}</span></button
 			>{/if}
 		{#if leading}<span class="item-leading">{@render leading()}</span>{/if}
@@ -341,6 +351,16 @@
 		line-height: 1.35;
 		white-space: normal;
 		overflow-wrap: anywhere;
+	}
+	/* Fixed rows (the Inbox): one line of title over the meta line, one height whatever the title's
+	 * length, its weight or whether a meta arrives. Rows never grow. */
+	.stacked.fixed > .item-row {
+		height: 64px;
+	}
+	.stacked.fixed .item-title {
+		display: block;
+		white-space: nowrap;
+		overflow-wrap: normal;
 	}
 	.stacked .item-note,
 	.stacked .item-note-line {
