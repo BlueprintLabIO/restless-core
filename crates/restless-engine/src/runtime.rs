@@ -1266,6 +1266,24 @@ pub fn account_intelligence_route(connection: &str) -> Option<(&str, &str, Agent
 /// `everyday_model = "off"`: the owner chose "Same as primary"; every turn runs on the primary.
 pub const EVERYDAY_OFF: &str = "off";
 
+/// The cheaper sibling of a primary model from the same provider: the everyday model a company
+/// runs routine turns on until the owner chooses (owner, 3 Nov: "some agents should be
+/// automatically a smaller agent like sonnet 5.5"). Opus becomes Sonnet, GPT Sol becomes Terra,
+/// Gemini Pro becomes Flash; anything else has none. A sibling the provider refuses cools down and
+/// the primary, always behind it, takes the turn.
+pub fn everyday_sibling(primary: &str) -> Option<String> {
+    let (provider, id) = primary.trim().split_once('/')?;
+    let sibling = match provider {
+        "anthropic" if id.contains("opus") => id.replacen("opus", "sonnet", 1),
+        "openai" | "openai-codex" if id.ends_with("-sol") => {
+            format!("{}-terra", id.strip_suffix("-sol")?)
+        }
+        "google" if id.contains("-pro") => id.replacen("-pro", "-flash", 1),
+        _ => return None,
+    };
+    Some(format!("{provider}/{sibling}"))
+}
+
 /// The stored `everyday_model` for a value: a provider/model, `off` (or `primary`), or empty for
 /// the default.
 pub fn everyday_model_setting(value: &str) -> Result<Option<String>> {
@@ -1289,6 +1307,9 @@ pub fn decision_model_setting(value: &str) -> Result<Option<String>> {
     }
     if value.eq_ignore_ascii_case(crate::decisions::INCLUDED_DECISIONS) {
         return Ok(Some(crate::decisions::INCLUDED_DECISIONS.to_string()));
+    }
+    if value.eq_ignore_ascii_case(crate::decisions::DECISIONS_OFF) {
+        return Ok(Some(crate::decisions::DECISIONS_OFF.to_string()));
     }
     provider_for_model(value)?;
     if value.len() > 200 || value.chars().any(char::is_whitespace) {
@@ -1744,24 +1765,35 @@ impl CompanyConfig {
     }
 
     /// Every model a turn may run on: the candidates, then the everyday model (S102).
-    pub fn routed_models(&self) -> Result<Vec<&str>> {
-        let mut models = self.model_candidates()?;
+    pub fn routed_models(&self) -> Result<Vec<String>> {
+        let mut models: Vec<String> = self
+            .model_candidates()?
+            .into_iter()
+            .map(str::to_string)
+            .collect();
         if let Some(everyday) = self.everyday() {
-            provider_for_model(everyday)?;
-            if !models.contains(&everyday) {
-                models.push(everyday);
+            provider_for_model(&everyday)?;
+            if !models.iter().any(|model| *model == everyday) {
+                models.push(everyday.into_owned());
             }
         }
         Ok(models)
     }
 
-    /// The everyday model in effect: `None` when unset or set to [`EVERYDAY_OFF`], so every turn
-    /// runs on the primary.
-    pub fn everyday(&self) -> Option<&str> {
-        self.everyday_model
+    /// The everyday model in effect: the owner's choice; `None` for [`EVERYDAY_OFF`], so every
+    /// turn runs on the primary; unset, the primary's cheaper sibling when it has one (S107).
+    /// On a raw config the primary is `model`; resolve with [`Self::for_agent`] first.
+    pub fn everyday(&self) -> Option<std::borrow::Cow<'_, str>> {
+        match self
+            .everyday_model
             .as_deref()
             .map(str::trim)
-            .filter(|model| !model.is_empty() && !model.eq_ignore_ascii_case(EVERYDAY_OFF))
+            .filter(|model| !model.is_empty())
+        {
+            Some(model) if model.eq_ignore_ascii_case(EVERYDAY_OFF) => None,
+            Some(model) => Some(std::borrow::Cow::Borrowed(model)),
+            None => everyday_sibling(&self.model).map(std::borrow::Cow::Owned),
+        }
     }
 
     /// Set the everyday model exactly as `company set everyday_model` and an applied setting
