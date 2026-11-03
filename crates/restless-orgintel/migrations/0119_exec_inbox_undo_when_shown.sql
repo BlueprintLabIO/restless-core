@@ -7,7 +7,7 @@ ALTER TABLE exec_inbox_actions
     ALTER COLUMN undo_until DROP NOT NULL,
     ALTER COLUMN undo_until DROP DEFAULT,
     ADD COLUMN shown_at TIMESTAMPTZ;
--- Rows saved under 0117 were shown when they were saved.
+-- Rows saved under 0117 and 0118 were shown when they were saved.
 UPDATE exec_inbox_actions SET shown_at = created_at;
 ALTER TABLE exec_inbox_actions
     ADD CONSTRAINT exec_inbox_window_opens_when_shown

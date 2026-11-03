@@ -141,6 +141,7 @@ impl PublicationManager {
         idempotency_key: &str,
         deadline: DateTime<Utc>,
     ) -> Result<Value> {
+        // An unconfigured plane says so in words the agent acts on (S109 blockers audit).
         if self.configured_provider(company)? != ConfiguredProvider::Http {
             bail!("candidate image builds require the production cloud-http provider");
         }
@@ -1467,10 +1468,12 @@ impl PublicationManager {
                 Ok(ConfiguredProvider::Http)
             }
             _ => bail!(
-                "no published-service provider is configured; Core's local fixture requires \
+                "Publishing a service isn't available on this plane yet, so it can't run here; \
+                 don't retry. File it with `restless capabilities fault` and carry on with work \
+                 that doesn't need it. (No published-service provider is configured; Core's local fixture requires \
                  {PROVIDER_ENV}={LOCAL_PROVIDER} (contract fixture) or \
                  {LOCAL_DOCKER_PROVIDER} (exact isolated image), and production Cloud requires \
-                 {PROVIDER_ENV}={HTTP_PROVIDER}"
+                 {PROVIDER_ENV}={HTTP_PROVIDER}.)"
             ),
         }
     }

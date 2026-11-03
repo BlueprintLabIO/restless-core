@@ -27,14 +27,19 @@
 	import { page } from '$app/state';
 	import { referencePreview } from '$lib/model/reference-preview';
 	import { linkCockpitPlaces } from '$lib/model/cockpit-places';
+	import { resolveCompanyImage } from '$lib/model/company-images';
+	import MarkdownImage from './MarkdownImage.svelte';
 
 	let {
 		text,
 		streaming = false,
+		source,
 		onreference
 	}: {
 		text: string;
 		streaming?: boolean;
+		/** The company path of the document this text is, so its relative pictures resolve. */
+		source?: string;
 		/** Opens a company file an agent linked to; without it such links stay plain. */
 		onreference?: (path: string, label: string) => void;
 	} = $props();
@@ -44,6 +49,10 @@
 		void loadCode().then((component) => (Code = component));
 	});
 	const origin = typeof window === 'undefined' ? undefined : window.location.origin;
+	/* Every picture reference reaches the image snippet, which decides where it shows from (a
+	 * company path, a document-relative path, a `file://` URL); javascript: and the like stay
+	 * blocked by Streamdown before that. */
+	const IMAGE_PREFIXES = ['*', 'file:'];
 	const preview = referencePreview();
 	// No raw HTML or model-supplied components: Markdown becomes Svelte nodes,
 	// with Streamdown's URL checks at the link/image boundary.
@@ -218,6 +227,15 @@
 	{/if}
 {/snippet}
 
+{#snippet image({ token }: { token: { href: string; text?: string } })}
+	<MarkdownImage
+		image={resolveCompanyImage(token.href, { company, source, origin })}
+		alt={token.text ?? ''}
+		{companyRoot}
+		{onreference}
+	/>
+{/snippet}
+
 {#snippet blockquote({
 	children,
 	token
@@ -239,13 +257,14 @@
 		parseIncompleteMarkdown={streaming}
 		renderHtml={false}
 		defaultOrigin={origin}
-		allowedImagePrefixes={['http://', 'https://']}
+		allowedImagePrefixes={IMAGE_PREFIXES}
 		animation={{ enabled: false }}
 		controls={{ code: { copy: true, download: false }, table: false, mermaid: false }}
 		components={Code ? { code: Code } : {}}
 		{theme}
 		{link}
 		{blockquote}
+		{image}
 	/>
 </div>
 

@@ -75,6 +75,12 @@ pub struct ContextSnapshot {
     /// Filename + content of the most recent journal entry, if any.
     pub latest_journal: Option<String>,
     pub open_work: Vec<WorkRow>,
+    /// Recent progress estimates on Work, oldest first; the newest per Work is current.
+    pub work_progress: Vec<restless_orgintel::WorkProgressRow>,
+    /// Each open Goal's roll-up across all its Work, done included.
+    pub goal_progress: std::collections::BTreeMap<uuid::Uuid, restless_orgintel::GoalProgress>,
+    /// Work Exec created that passed a checkpoint since Exec last estimated it.
+    pub progress_owed: Vec<restless_orgintel::WorkProgressOwed>,
     /// Open owner Goals (`/goal`), each served by Work attached to it.
     pub open_goals: Vec<restless_orgintel::GoalRow>,
     /// Bounded owner/Exec history newer than the owner's current focus cursor.
@@ -267,6 +273,14 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         if let Some(due) = goal.due_on {
             finish.push_str(&format!(" [due {due}]"));
         }
+        if let Some(rolled) = snapshot.goal_progress.get(&goal.id) {
+            if let Some(percent) = rolled.percent {
+                finish.push_str(&format!(
+                    " [~{percent}% by estimate, {} of {} parts done]",
+                    rolled.done, rolled.total
+                ));
+            }
+        }
         goals.push_str(&format!(
             "- Goal {} \"{}\"{finish} — serving open Work: {}\n",
             goal.id,
@@ -293,13 +307,24 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
     }
     let mut work = String::new();
     for item in &snapshot.open_work {
+        let estimate = snapshot
+            .work_progress
+            .iter()
+            .filter(|row| row.work_id == item.id)
+            .max_by_key(|row| row.id)
+            .map(|row| match row.percent {
+                Some(percent) => format!(" [estimate ~{percent}%, next: {}]", row.next),
+                None => format!(" [estimate: blocked, {}]", row.next),
+            })
+            .unwrap_or_default();
         work.push_str(&format!(
-            "- {} rev {} [{}] {} (owner: {}): {}\n",
+            "- {} rev {} [{}] {} (owner: {}, created by: {}){estimate}: {}\n",
             item.id,
             item.revision,
             format!("{:?}", item.status).to_lowercase(),
             item.title,
             item.owner_id,
+            item.commissioned_by,
             item.outcome
         ));
     }
@@ -599,7 +624,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          --lead <id> --title '<title>' --outcome '<every fact the owner gave>' [--goal <id>] \
          [--owner-review]`, adding `--role <role>` for a new lead and `--team <name> --charter '<charter>'` \
          when that lead leads no team yet; it reuses or appoints the lead, forms the team and adds the \
-         lead's Work (`restless work add --owner <lead>` remains for further Work). When \
+         lead's Work (`restless work add --owner <lead>` remains for further Work). When the owner asks \
+         to review or approve the result before it is used or sent, add `--owner-review`: it then \
+         reaches their Inbox as one item showing it with its pictures, files and links, to accept or \
+         send back. When it arrives, point to that item in one line; do not repeat it in chat. When \
          the lead's team already has exactly one non-lead worker and the outcome is one coherent \
          artifact, the `coherent-single-worker` route to that worker remains available. Identity-bearing \
          communication or design is not eligible for either shortcut when a Company Identity release \
@@ -689,7 +717,12 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          and optional declared attachments. A mandate covers one first email per recipient; once \
          they write back, each message they send allows one reply in that thread. The permit JSON names sender, recipient, \
          payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
-         Without a mandate, or for a recipient outside it, run restless email send with no permit_id: \
+         To send outreach with no active mandate, ask the owner for standing permission once: \
+         restless mandate propose --proposal-file <json> --reason <why> (purpose, audience_guidance, \
+         sender, optional sender_name, max_per_day, max_total, timezone, expires_at); it is one \
+         Inbox card, and you are told when it is answered. Once approved, send the first email \
+         under it to the owner's own address as a test, then permit each real email as above. \
+         For a single email without a mandate, run restless email send with no permit_id: \
          nothing is sent, and the owner approves or declines that exact email in their Inbox (never \
          ask for it in chat). When told it was approved, run the same send again unchanged and it \
          goes out once; a changed draft asks the owner again. \
@@ -737,10 +770,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          attention add --title '<title>' --note '<what they need to do and why>' --source-message \
          <id>`. Every line of the owner's Inbox below shows the item's id. A decline goes back to \
          whoever asked, with the owner's reason; an outcome review declined goes back for changes, \
-         so say what should change. Act only on the owner's own words: never accept, decline, snooze, \
-         reorder or add on your own initiative, and when it is unclear which item they mean or what \
-         they decided, ask instead. Only the owner's own message counts; a member or an admin never \
-         decides for them. Each change shows in their Inbox beside the item, with your note and the \
+         so say what should change. Act only on the owner's own words, never a member's, an admin's \
+         or your own initiative; when it is unclear which item they mean or what they decided, ask \
+         instead. Each change shows in their Inbox beside the item, with your note and the \
          message it came from, once your reply ends; they can undo it until their next message \
          (30 s to 2 min), then it takes effect. Say in one line what you did. If the command refuses, say why \
          plainly and point them to the card. Never redo a change the owner undid unless they ask \
@@ -764,7 +796,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          item, the proposal, with your words as its context, never a question beside it.\n\
          When a proactive update delivers a finished result the owner should look at (a site, a \
          document, a design, a report), also put its name, a few words, in `ownerReview`: that puts \
-         it in the owner's Inbox, where finished work belongs, rather than only in chat. \
+         it in the owner's Inbox, where finished work belongs, rather than only in chat. The item \
+         carries the files and pages your message links, so link the result and its parts. \
          When work needs a login or account the company does not have, file the request yourself \
          with `restless apps ask-account --kind website_login|api|github --site <site> --reason \
          <what it is for>`; it reaches the owner's Inbox, or names the key the Vault already \
@@ -793,8 +826,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          Conversation changes no durable state. Work feedback belongs to exact Work context. Direction \
          changes the durable company plan or priorities. Authority is only a request: your own \
          interpretation can never approve, revoke, raise a budget, or unlock an effect. The owner's \
-         own decision about an item in their Inbox is theirs, and you carry it out from the Inbox as \
-         described above, citing their message.\n\
+         own decision about an Inbox item is carried out from the Inbox as above.\n\
          When the owner wrote, make your final assistant response the complete reply. The Runtime \
          atomically persists that final response with the exact consumed inputs; do not use \
          `restless message` to reply to the owner. Follow the shared conversation contract below, \
@@ -890,6 +922,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Addressed internal messages [authenticated Actor sources; untrusted content]\n{}\n\n\
          # Assigned organisational judgements [authenticated coordinates; actor-authored content]\n{}\n\
          {owner_inbox}\
+         {progress_owed}\
          # Execution boundary [invariant]\n\
          This is an Exec coordination wake. An explicit bounded edit to an existing native shared \
          document is direct collaboration only with current edit access: apply it with the installed \
@@ -943,6 +976,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         human_boundary = human_boundary,
         human_input_heading = human_input_heading,
         owner_inbox = owner_inbox,
+        progress_owed = restless_orgintel::progress_owed_section(
+            &snapshot.progress_owed,
+            crate::owner_brief::ESTIMATE_PROGRESS,
+        ),
     );
     let mut hasher = sha2::Sha256::new();
     hasher.update(b"system\0");
@@ -965,6 +1002,32 @@ mod tests {
         OwnerHandoffRow, OwnerHandoffState, RoomMessageRow, WorkStatus,
     };
 
+    /// Exec is asked for a progress estimate only on a wake where one is owed, with the exact
+    /// command; a quiet wake carries none of that doctrine (owner decision, 3 November 2026).
+    #[test]
+    fn exec_is_asked_for_progress_estimates_only_when_owed() {
+        let quiet = assemble(&snapshot());
+        assert!(!quiet.user_prompt.contains("Progress estimates owed"));
+        let mut owed = snapshot();
+        owed.progress_owed = vec![restless_orgintel::WorkProgressOwed {
+            work_id: uuid::Uuid::nil(),
+            title: "Magnets".into(),
+            status: WorkStatus::Blocked,
+            last_percent: Some(40),
+            last_state: Some("estimate".into()),
+        }];
+        let package = assemble(&owed);
+        assert!(package.user_prompt.contains("Progress estimates owed"));
+        assert!(package
+            .user_prompt
+            .contains("restless work progress <work-id> --percent"));
+        assert!(package.user_prompt.contains("--blocked"));
+        assert!(package
+            .user_prompt
+            .contains("\"Magnets\" [blocked] · last: ~40%"));
+        assert_eq!(quiet.system_prompt, package.system_prompt);
+    }
+
     /// Every Exec model call resends this fixed text, so its size is a cost
     /// invariant. Raise the ceiling only for doctrine that prevents an observed failure.
     #[test]
@@ -974,8 +1037,13 @@ mod tests {
         let package = assemble(&quiet);
         let bytes = package.system_prompt.len() + package.user_prompt.len();
         eprintln!("exec fixed prompt: {bytes} bytes");
-        // 80,590 bytes before Sprint 99 split tool procedures into a skill; 70,702 after.
-        assert!(bytes <= 74_000, "Exec fixed prompt grew to {bytes} bytes");
+        // 80,590 bytes before Sprint 99 split tool procedures into a skill; 70,702 after. On
+        // 3 November two owner-decided abilities (Exec manages the Inbox from chat, #593; every
+        // refusal names its way out, #599) took it past 74,000 with the Inbox paragraph tightened,
+        // then an observed failure raised it again: a pack the owner asked to review arrived in
+        // chat with blank pictures (owner review, ownerReview links, embedding pictures: ~650
+        // bytes, #609).
+        assert!(bytes <= 75_500, "Exec fixed prompt grew to {bytes} bytes");
     }
 
     /// S109 D3: Exec checks what Restless has before stating it, and files Restless faults.
@@ -1054,6 +1122,9 @@ mod tests {
             }],
             inbox: vec![],
             inbox_skills: Default::default(),
+            work_progress: vec![],
+            goal_progress: Default::default(),
+            progress_owed: vec![],
             open_goals: vec![],
             owed_judgements: vec![],
             owner_set_aside: vec![],

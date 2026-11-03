@@ -190,7 +190,13 @@ escalated_from: string | null, escalated_at: string | null, owner_brief: OwnerBr
  */
 delivered_at: string | null, created_at: string, resolved_at: string | null, };
 
-export type WorkGraphSnapshot = { work: Array<WorkRow>, edges: Array<WorkEdgeRow>, attempts: Array<WorkAttemptRow>, attempt_inputs: Array<WorkAttemptInputRow>, attempt_feedback: Array<WorkAttemptFeedbackRow>, artifacts: Array<ArtifactRefRow>, gates: Array<WorkGateRow>, gate_runs: Array<WorkGateRunRow>, handoffs: Array<OwnerHandoffRow>, };
+export type WorkProgressRow = { id: number, work_id: string, state: string, percent: number | null, next: string, estimated_by: string, recorded_at: string, };
+
+export type WorkGraphSnapshot = { work: Array<WorkRow>, edges: Array<WorkEdgeRow>, attempts: Array<WorkAttemptRow>, attempt_inputs: Array<WorkAttemptInputRow>, attempt_feedback: Array<WorkAttemptFeedbackRow>, artifacts: Array<ArtifactRefRow>, gates: Array<WorkGateRow>, gate_runs: Array<WorkGateRunRow>, handoffs: Array<OwnerHandoffRow>,
+/**
+ * Each Work's recent progress estimates, oldest first; the newest is current.
+ */
+progress: Array<WorkProgressRow>, };
 
 export type MessageReactionRow = { message_id: number, actor_id: string, emoji: string, };
 

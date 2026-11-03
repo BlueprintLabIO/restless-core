@@ -601,6 +601,17 @@ export function turnWorking(turn: ActiveAgentTurn | null | undefined): boolean {
 	);
 }
 
+/** A turn that is thinking, acting or replying right now: live proof that the actor's model
+ * answers. A queued turn proves nothing; it may be waiting on that very model. */
+export function turnProgressing(turn: ActiveAgentTurn | null | undefined): boolean {
+	const phase = turn?.live?.phase;
+	return (
+		!!turn &&
+		turn.transport !== 'idle' &&
+		(phase === 'thinking' || phase === 'acting' || phase === 'responding')
+	);
+}
+
 /**
  * One conversation query plus, only while needed, one SSE subscription. There
  * is no client Map, second transcript cache, timer or synthetic completion
@@ -625,7 +636,10 @@ function trackedConversationQuery(
 	viewerActorId = 'owner',
 	followLiveActivity: QueryEnabled = true,
 	/** Also follow the actor's ambient turns (only the rail does: one more open connection). */
-	followAmbient: QueryEnabled = false
+	followAmbient: QueryEnabled = false,
+	/** Also follow the Work the actor runs now, streamed text and all, as the Work panel does
+	 * for the owner. Only the owner's rail asks. */
+	followWork: QueryEnabled = false
 ) {
 	const client = useQueryClient();
 	const key = queryKeys.conversation(companyId, actorId, workId);
@@ -788,6 +802,46 @@ function trackedConversationQuery(
 		};
 	});
 
+	/* The Work the actor is running now, followed in its conversation, so the person's chat shows
+	 * them at work where their next reply will appear rather than only in the Work panel
+	 * (owner, 3 Nov 2026). The Work's stream stays open from one Attempt to the next; it closes
+	 * when the conversation says the actor is no longer on that Work. */
+	let onWork = $state<AgentActivityState | null>(null);
+	let onWorkTransport = $state<ActivityTransport>('idle');
+	const busyWorkId = $derived(
+		queryEnabled(enabled) &&
+			queryEnabled(followLiveActivity) &&
+			queryEnabled(followWork) &&
+			typeof EventSource !== 'undefined'
+			? ((query.data as ActorConversation | undefined)?.busy_work?.id ?? null)
+			: null
+	);
+	$effect(() => {
+		const workOn = busyWorkId;
+		onWork = null;
+		onWorkTransport = 'idle';
+		if (!workOn) return;
+		onWorkTransport = 'connecting';
+		let ended = false;
+		const close = openAgentActivityStream(
+			companyId,
+			actorId,
+			{ workId: workOn },
+			(state) => {
+				onWork = state;
+				onWorkTransport = 'live';
+				const terminal =
+					state.phase === 'complete' || state.phase === 'failed' || state.phase === 'unavailable';
+				/* A run that ended: read the conversation again, for its reply and whether the actor
+				 * is still on this Work. */
+				if (terminal && !ended) void client.invalidateQueries({ queryKey: key });
+				ended = terminal;
+			},
+			() => (onWorkTransport = 'reconnecting')
+		);
+		return () => close();
+	});
+
 	/* The query holds the newest 100 messages; earlier ones are paged in on request and kept
 	 * here. Messages that later fall out of the newest 100 join them, so no gap opens. */
 	const PAGE = 100;
@@ -890,6 +944,25 @@ function trackedConversationQuery(
 				since: current.startedAt ?? current.updatedAt,
 				live: current,
 				transport: 'live'
+			};
+		},
+		/** The Work the actor is running now, while a run of it thinks, acts or writes. */
+		get workTurn(): ActiveAgentTurn | null {
+			const current = onWork;
+			if (
+				!current ||
+				!(
+					current.phase === 'thinking' ||
+					current.phase === 'acting' ||
+					current.phase === 'responding'
+				)
+			)
+				return null;
+			return {
+				triggerMessageId: 0,
+				since: current.startedAt ?? current.updatedAt,
+				live: current,
+				transport: onWorkTransport
 			};
 		},
 		get uploadProgress() {

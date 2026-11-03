@@ -34,8 +34,8 @@ undoes or rewrites an agent's work, or states a lasting preference ("always spea
   --authority <owner or person id> --locator <message, comment or Work id> --judgement <why, in their words>`;
 - look and feel: `restless identity evidence --pillar visual --kind guidance --claim <key>
   --statement <their words> --source owner_feedback --authority <id> --locator <id>`;
-- an edit to an agent's text: `restless identity voice-learn`, which keeps typos and fact fixes
-  out of the rules.
+- an edit to an agent's text: `restless identity voice-evidence --kind rejected_passage` for
+  their version, skipping typos and fact fixes, which are not rules.
 When a correction states a lasting rule, or three pieces of evidence point the same way, propose a
 release that adds it: read `restless identity show`, then `restless identity propose --reason
 <their words> --evidence <every current evidence id plus the new ones>`. Tell the owner in one line,

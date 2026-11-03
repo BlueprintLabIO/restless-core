@@ -20,10 +20,30 @@ export function listedConnection(
 	return view.connections.find((row) => row.kind === 'direct' && row.provider === provider);
 }
 
+/** The listed connection that serves a saved choice now. A choice on one of the owner's accounts
+ * that the company no longer uses (granting another account for the same provider replaced it)
+ * thinks on the company's current account for that provider, exactly as the daemon routes it
+ * (`model_connections::provider_fallback`, Sprint 104 A5). Matching the choice's id alone called
+ * such an agent "Model unavailable" while its turns ran (3 Nov 2026). A plain key is no fallback:
+ * the daemon refuses then, and so does this. */
+export function servingConnection(
+	view: IntelligenceView,
+	id: string
+): IntelligenceConnection | undefined {
+	const listed = listedConnection(view, id);
+	if (listed) return listed;
+	const harness = /^account-harness:([^:]+):/.exec(id)?.[1];
+	if (!harness && !id.startsWith('account:')) return undefined;
+	const provider = routeProvider(id);
+	if (!provider) return undefined;
+	const current = harness ? `account-harness:${harness}:${provider}@` : `account:${provider}@`;
+	return view.connections.find((row) => row.id.startsWith(current));
+}
+
 /** A saved choice whose connection is known to be unusable now. While the connections are still
  * being read (`has_connections` null) nothing is called unavailable, so nothing flashes. */
 export function connectionUnavailable(view: IntelligenceView, id: string | null | undefined) {
-	return !!id && view.has_connections !== null && !listedConnection(view, id);
+	return !!id && view.has_connections !== null && !servingConnection(view, id);
 }
 
 /** The provider a route serves, as `CompanyConfig::for_agent` reads it; null for a harness. */
@@ -122,7 +142,7 @@ export function agentConnection(
 	// use a different provider from the company's base model. The daemon uses
 	// that effective model for this agent, so resolve its provider below.
 	const selected = agent.assignment ?? view.default ?? null;
-	let connection = selected ? listedConnection(view, selected.connection) : undefined;
+	let connection = selected ? servingConnection(view, selected.connection) : undefined;
 	if (!connection && !selected) {
 		const provider = agent.effective_model.split('/')[0];
 		connection = agent.effective_model.startsWith('native-')
@@ -149,7 +169,16 @@ export function routeActionLabel(state: AgentRouteState): string | null {
 	return null;
 }
 
-export function agentRouteState(view: IntelligenceView | null, actorId: string): AgentRouteState {
+/** Whether an actor's model can reply now. `progressing` is live evidence that it is: one of the
+ * actor's turns is thinking, acting or replying at this moment. That beats anything read from
+ * the configured routes, which are a projection and can lag; a person whose turn is running is
+ * never shown as waiting on a model (3 Nov 2026). */
+export function agentRouteState(
+	view: IntelligenceView | null,
+	actorId: string,
+	progressing = false
+): AgentRouteState {
+	if (progressing) return 'ready';
 	if (!view) return 'checking';
 	if (actorId === 'exec' && view.company_issue)
 		return view.has_connections === false ? 'needs_connection' : 'unavailable';

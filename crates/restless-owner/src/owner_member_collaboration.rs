@@ -244,6 +244,8 @@ struct MemberWorkGraphView {
     edges: Vec<MemberWorkEdgeView>,
     attempts: Vec<MemberAttemptView>,
     artifacts: Vec<MemberArtifactView>,
+    /// Rough progress estimates on the visible Work, oldest first.
+    progress: Vec<restless_orgintel::WorkProgressRow>,
 }
 
 #[derive(Debug, Serialize)]
@@ -435,7 +437,14 @@ async fn collaboration_bootstrap(
         })
         .collect();
 
+    let progress = graph
+        .progress
+        .iter()
+        .filter(|row| visible_work_ids.contains(&row.work_id))
+        .cloned()
+        .collect();
     let work_graph = MemberWorkGraphView {
+        progress,
         work: graph
             .work
             .into_iter()
