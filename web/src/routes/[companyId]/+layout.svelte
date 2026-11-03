@@ -161,7 +161,10 @@
 	function loadRail() {
 		/* Offline, the import fails; the next reach for the rail tries again. */
 		railLoading ??= import('$lib/components/ExecutiveRail.svelte').then(
-			(module) => void (ExecutiveRail = module.default),
+			(module) => {
+				railArrived = entry.ready && (execRailOpen || !!wideActor);
+				ExecutiveRail = module.default;
+			},
 			() => void (railLoading = null)
 		);
 		return railLoading;
@@ -169,6 +172,12 @@
 	$effect(() => {
 		/* People shows the Exec and leads in the rail at full width. */
 		if (execRailOpen || wideActor) void loadRail();
+	});
+	/* A rail opened before its code arrived opened as the placeholder (below), so it does not
+	 * slide in a second time when the code lands; the next open moves as usual. */
+	let railArrived = $state(false);
+	$effect(() => {
+		if (!(execRailOpen || wideActor)) railArrived = false;
 	});
 	onMount(() => {
 		/* A rail that could not load while offline loads once the connection is back. */
@@ -724,7 +733,7 @@
 			let rail: HTMLElement | null = null;
 			for (let frame = 0; frame < 45 && !rail?.getBoundingClientRect().width; frame++) {
 				await new Promise((resolve) => requestAnimationFrame(resolve));
-				rail = document.querySelector<HTMLElement>('.bridge-exrail.open');
+				rail = document.querySelector<HTMLElement>('.bridge-exrail.open:not(.pending)');
 			}
 			const to = rail?.getBoundingClientRect();
 			if (!rail || !to?.width || !to.height) return void fadeOut();
@@ -1841,6 +1850,7 @@
 	{#if ExecutiveRail}
 		<ExecutiveRail
 			{wide}
+			arrived={railArrived}
 			{header}
 			focusMessage={wide ? Number(page.url.searchParams.get('focus')) || 0 : 0}
 			messages={railConversation.messages}
@@ -1892,7 +1902,19 @@
 			onask={askRail}
 			review={null}
 			workContext={null}
-		/>{/if}
+		/>
+	{:else}
+		<!-- Until its code arrives, the rail's own box (its geometry is all in the shared design
+		     CSS, keyed on these classes), so the page around it does not move when it does. -->
+		<aside
+			id="bridge-exrail"
+			class="bridge-exrail pending"
+			class:open={wide || execRailOpen}
+			class:wide
+			aria-hidden="true"
+			inert
+		></aside>
+	{/if}
 {/snippet}
 
 <div

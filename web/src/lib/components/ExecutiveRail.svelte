@@ -18,7 +18,8 @@
 	import {
 		answerIndex,
 		excerptOf,
-		openQuestionIndex as findOpenQuestion
+		openQuestionIndex as findOpenQuestion,
+		isDecisionLine
 	} from '$lib/model/open-question';
 	import { untrack, type Snippet } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -37,6 +38,7 @@
 	import { conversationMarkdown, saveConversationToLibrary } from '$lib/model/conversation-export';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import Check from '@lucide/svelte/icons/check';
+	import { formatMoment } from '$lib/ui/time';
 	import SquarePen from '@lucide/svelte/icons/square-pen';
 	import Maximize2 from '@lucide/svelte/icons/maximize-2';
 	import PanelRightClose from '@lucide/svelte/icons/panel-right-close';
@@ -133,6 +135,7 @@
 		focusRequest = 0,
 		draftRequest = null,
 		wide = false,
+		arrived = false,
 		header,
 		focusMessage = 0,
 		uploadProgress = null,
@@ -209,6 +212,9 @@
 		draftRequest?: { text: string; key: number } | null;
 		/** The same conversation at full width, in People. */
 		wide?: boolean;
+		/** Already open, as the layout's placeholder, before this code arrived: the rail made its
+		 * opening move then, so its content appears in place instead of sliding in again. */
+		arrived?: boolean;
 		header?: Snippet<[Snippet, Snippet]>;
 		/** A message a link points at; the conversation scrolls to it. */
 		focusMessage?: number;
@@ -1173,7 +1179,7 @@
 		}
 		if (!last || id <= announcedThrough) return;
 		announcedThrough = id;
-		if (last.from !== 'you')
+		if (last.from === 'agent')
 			announcement = `${last.author || participantName}: ${excerptOf(last.intent?.summary || last.text)}`;
 	});
 
@@ -1449,6 +1455,7 @@
 	class="bridge-exrail"
 	class:open
 	class:wide
+	class:arrived
 	aria-label={`${participantName} conversation`}
 	aria-hidden={!open}
 	inert={!open}
@@ -1687,46 +1694,56 @@
 								<span>{dayLabel(message.createdAt)}</span>
 							</div>
 						{/if}
-						<ConversationMessage
-							continued={continuesRun(i)}
-							domId={messageDomId(message.id)}
-							messageId={String(messageNumericId(message.id) || '')}
-							{companyId}
-							reactions={reactions.summaryFor(messageNumericId(message.id))}
-							onreact={canOperate && messageNumericId(message.id) > 0
-								? (emoji, on) => void reactions.react(messageNumericId(message.id), emoji, on)
-								: undefined}
-							sender={message.from === 'you' ? 'owner' : message.from}
-							author={message.from === 'you' ? 'You' : message.author || participantName}
-							text={message.text}
-							createdAt={message.createdAt}
-							details={message.details}
-							intent={message.intent}
-							accountUses={message.accountUses}
-							attachments={message.attachments}
-							hrefFor={attachmentHref}
-							context={message.from === 'you' ? sentFrom(message.contextPath) : null}
-						>
-							{#snippet actions()}<!-- Two tools in sight (reply, and copy beside them); the rest wait in one menu. -->{#if message.from !== 'you' && onask}<button
-										type="button"
-										class="copy-message"
-										aria-label="Reply to this message"
-										title="Reply to this message"
-										onclick={() => quote(message.author || participantName, message.text)}
-										><Reply size={12} aria-hidden="true" /></button
-									>{/if}{#if canOperate && messageNumericId(message.id) > 0}<ActionMenu label="More"
-										><button type="button" onclick={() => togglePin(message)}
-											>{isPinned(messageNumericId(message.id))
-												? 'Unpin'
-												: 'Pin above the conversation'}</button
-										><button type="button" onclick={() => void copyLink(message)}>Copy link</button
-										><button
+						<!-- An owner decision (approve, decline) is the platform's line, not a message the owner
+						     typed: one quiet sentence, no author, no agent instructions. -->
+						{#if isDecisionLine(message)}<p
+								class="decision-line"
+								id={messageDomId(message.id)}
+								title={formatMoment(message.createdAt)}
+							>
+								<Check size={12} strokeWidth={2.25} aria-hidden="true" /><span>{message.text}</span>
+							</p>{:else}<ConversationMessage
+								continued={continuesRun(i)}
+								domId={messageDomId(message.id)}
+								messageId={String(messageNumericId(message.id) || '')}
+								{companyId}
+								reactions={reactions.summaryFor(messageNumericId(message.id))}
+								onreact={canOperate && messageNumericId(message.id) > 0
+									? (emoji, on) => void reactions.react(messageNumericId(message.id), emoji, on)
+									: undefined}
+								sender={message.from === 'you' ? 'owner' : message.from}
+								author={message.from === 'you' ? 'You' : message.author || participantName}
+								text={message.text}
+								createdAt={message.createdAt}
+								details={message.details}
+								intent={message.intent}
+								accountUses={message.accountUses}
+								attachments={message.attachments}
+								hrefFor={attachmentHref}
+								context={message.from === 'you' ? sentFrom(message.contextPath) : null}
+							>
+								{#snippet actions()}<!-- Two tools in sight (reply, and copy beside them); the rest wait in one menu. -->{#if message.from !== 'you' && onask}<button
 											type="button"
-											title="Ask the Exec to turn this into Work"
-											onclick={() => turnIntoWork(message)}>Turn into Work</button
-										></ActionMenu
-									>{/if}{/snippet}
-						</ConversationMessage>
+											class="copy-message"
+											aria-label="Reply to this message"
+											title="Reply to this message"
+											onclick={() => quote(message.author || participantName, message.text)}
+											><Reply size={12} aria-hidden="true" /></button
+										>{/if}{#if canOperate && messageNumericId(message.id) > 0}<ActionMenu
+											label="More"
+											><button type="button" onclick={() => togglePin(message)}
+												>{isPinned(messageNumericId(message.id))
+													? 'Unpin'
+													: 'Pin above the conversation'}</button
+											><button type="button" onclick={() => void copyLink(message)}
+												>Copy link</button
+											><button
+												type="button"
+												title="Ask the Exec to turn this into Work"
+												onclick={() => turnIntoWork(message)}>Turn into Work</button
+											></ActionMenu
+										>{/if}{/snippet}
+							</ConversationMessage>{/if}
 						{#if openQuestion && i === openQuestionIndex}
 							<div class="open-question" role="group" aria-label={`${participantName} is asking`}>
 								<p>{openQuestion}</p>
@@ -2065,6 +2082,22 @@
 		max-width: 320px;
 		margin-top: 4px;
 		text-align: left;
+	}
+	/* An owner decision line: as quiet as a command line, with a check in the approval hue. */
+	.decision-line {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		margin: 6px 0;
+		padding: 0 4px;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		overflow-wrap: anywhere;
+	}
+	.decision-line :global(svg) {
+		flex: none;
+		color: var(--intent-authority);
 	}
 	.command-line {
 		display: flex;

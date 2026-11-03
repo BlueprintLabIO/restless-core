@@ -647,7 +647,7 @@ impl OrgIntel {
         .bind(created_by)
         .bind(lead_actor_id)
         .bind(format!(
-            "You now lead {name}. Read the current team charter, produce the first useful outcome yourself through Work you own (add Staff only for a real seam), and report only material results or blockers.",
+            "{APPOINTMENT_PREFIX}{name}. Read the current team charter, produce the first useful outcome yourself through Work you own (add Staff only for a real seam), and report only material results or blockers.",
             name = name.trim()
         ))
         .execute(&mut *tx)
@@ -1590,3 +1590,7 @@ async fn lock_work_accountability_with_mode_in_tx(
         revision,
     })
 }
+
+/// How a lead's appointment message begins. Work commissioned to that lead carries the charter,
+/// so adding it settles the appointment without a separate conversation wake (S110).
+pub(crate) const APPOINTMENT_PREFIX: &str = "You now lead ";

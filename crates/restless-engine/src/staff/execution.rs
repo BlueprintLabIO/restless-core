@@ -13,7 +13,9 @@ use crate::exec::{self, Termination, TerminationDecision};
 use crate::health;
 use crate::spend::SpendLedger;
 
-use super::context::{actor_posture, workspace_instruction};
+use super::context::{
+    actor_posture, split_wake_state, staff_system_prompt, staff_turn_prompt, workspace_instruction,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StaffTurnKind {
@@ -1887,20 +1889,17 @@ async fn run_staff(
     };
     let posture = actor_posture(accountable_lead);
     let workspace = workspace_instruction(&workdir, turn_kind.is_conversation());
-    let system_prompt = format!(
-        // Text every Staff turn shares comes first, so the provider's prompt cache can reuse it
-        // across actors and fresh sessions (S101); actor- and wake-specific text follows.
-        "# Company operating rules [authoritative — applies to every actor]\n{}\n\n\
-         # Capability recovery [shared operating guidance]\n{sourcing}\n\n\
-         You are {name}, the {role} of {company}, {assignment}. Your stable OrgIntel actor id is `{actor}`.\n\
-         {posture}\n\
-         {workspace}\n\
-         {spine}\n\
-         # Trusted assignment context [OrgIntel decision]\n{task}\n\n\
-         Work until the task is done or you are stuck. {ending}",
-        crate::context::COMPANY_OPERATING_RULES.trim(),
-        sourcing = crate::capability_sourcing::SOURCE_CAPABILITY.trim(),
-        ending = match turn_kind {
+    let (contract, state) = split_wake_state(&task);
+    let turn_prompt = staff_turn_prompt(&workspace, &spine, state, &turn_prompt);
+    let system_prompt = staff_system_prompt(
+        &name,
+        &role,
+        &company,
+        assignment,
+        &actor,
+        posture,
+        contract,
+        match turn_kind {
             StaffTurnKind::Work =>
                 "The session ends when you stop writing; you will then be asked for a decision envelope.",
             StaffTurnKind::OwnerConversation =>

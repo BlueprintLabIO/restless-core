@@ -691,8 +691,16 @@
 				<div class="handover-thread" aria-live="polite">
 					{#each visibleConversationMessages as message (message.id)}
 						<ConversationMessage
-							sender={message.from === 'you' ? 'owner' : 'agent'}
-							author={message.from === 'you' ? 'You' : message.author || requestingActorName}
+							sender={message.from === 'you'
+								? 'owner'
+								: message.from === 'system'
+									? 'system'
+									: 'agent'}
+							author={message.from === 'you'
+								? 'You'
+								: message.from === 'system'
+									? 'Restless'
+									: message.author || requestingActorName}
 							text={message.text}
 							createdAt={message.createdAt}
 							details={message.details}

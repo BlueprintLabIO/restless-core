@@ -420,6 +420,24 @@ pub async fn announce_decisions(
         }
     }
     pending.sort_by_key(|(id, _, _)| *id);
+    // The owner's line names what they approved in their own terms (the mandate's purpose).
+    let mandate_purposes: BTreeMap<String, String> = authority
+        .records_of_kind(company, "email_mandate_proposal")
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|record| {
+            Some((
+                record.body.get("id")?.as_str()?.to_owned(),
+                record
+                    .body
+                    .pointer("/proposal/purpose")?
+                    .as_str()?
+                    .trim()
+                    .to_owned(),
+            ))
+        })
+        .collect();
 
     // Who prepared each waiting party or call. Their refusal said "you get a message when they
     // answer", so the answer goes to them as well as to Exec (S109 blockers audit): a staff
@@ -470,19 +488,22 @@ pub async fn announce_decisions(
             DecisionSubject::ToolCall { key, .. } => Some(format!("call:{key}")),
             _ => None,
         };
-        let (body, event_subject) = match subject {
+        // The owner sees one short line in their own words; the instruction is the agent's,
+        // carried as system-supplied context so it never renders as something the owner said
+        // (3 November: "The owner approved email mandate df67… Revisit work…" showed as "You").
+        let (owner_line, instruction, event_subject) = match subject {
             DecisionSubject::Party {
                 party,
                 note,
                 changes,
             } => {
-                let body = match kind {
-                    "approval_granted" => format!("The owner approved real external effects to {party}. You may proceed with the work that was waiting on it."),
-                    "approval_declined" if changes => format!("The owner asked for changes before first contact with {party}: “{}” Do not send the draft as prepared. Prepare a revised draft that addresses this; the new attempt asks the owner again.", note.as_deref().unwrap_or_default()),
-                    "approval_declined" => format!("The owner declined first contact with {party}. Do not contact them. Work that was waiting on this needs a different route or an explicit decision to stop.{}", owner_note_sentence(note.as_deref())),
-                    _ => format!("The owner revoked approval for real external effects to {party}. Stop any work that depends on reaching them."),
+                let (line, body) = match kind {
+                    "approval_granted" => (format!("You approved contact with {party}"), format!("The owner approved real external effects to {party}. You may proceed with the work that was waiting on it.")),
+                    "approval_declined" if changes => (format!("You asked for changes before contacting {party}"), format!("The owner asked for changes before first contact with {party}: “{}” Do not send the draft as prepared. Prepare a revised draft that addresses this; the new attempt asks the owner again.", note.as_deref().unwrap_or_default())),
+                    "approval_declined" => (format!("You declined contact with {party}"), format!("The owner declined first contact with {party}. Do not contact them. Work that was waiting on this needs a different route or an explicit decision to stop.{}", owner_note_sentence(note.as_deref()))),
+                    _ => (format!("You withdrew approval for {party}"), format!("The owner revoked approval for real external effects to {party}. Stop any work that depends on reaching them.")),
                 };
-                (body, serde_json::json!({ "party": party }))
+                (line, body, serde_json::json!({ "party": party }))
             }
             DecisionSubject::ToolCall {
                 key,
@@ -490,14 +511,14 @@ pub async fn announce_decisions(
                 note,
                 changes,
             } => {
-                let body = if kind == "tool_call_approved" {
-                    format!("The owner allowed the prepared {tool} call with key {key}. Retry exactly that call with the same arguments, purpose and key; it runs once.{}", owner_note_sentence(note.as_deref()))
+                let (line, body) = if kind == "tool_call_approved" {
+                    (format!("You allowed {tool}"), format!("The owner allowed the prepared {tool} call with key {key}. Retry exactly that call with the same arguments, purpose and key; it runs once.{}", owner_note_sentence(note.as_deref())))
                 } else if changes {
-                    format!("The owner asked for changes to the prepared {tool} call with key {key}: “{}” Do not run it as prepared. Prepare a changed call that addresses this; it asks the owner again.", note.as_deref().unwrap_or_default())
+                    (format!("You asked for changes to {tool}"), format!("The owner asked for changes to the prepared {tool} call with key {key}: “{}” Do not run it as prepared. Prepare a changed call that addresses this; it asks the owner again.", note.as_deref().unwrap_or_default()))
                 } else {
-                    format!("The owner declined the prepared {tool} call with key {key}. Do not run it. Work that was waiting on it needs a different route or an explicit decision to stop.{}", owner_note_sentence(note.as_deref()))
+                    (format!("You declined {tool}"), format!("The owner declined the prepared {tool} call with key {key}. Do not run it. Work that was waiting on it needs a different route or an explicit decision to stop.{}", owner_note_sentence(note.as_deref())))
                 };
-                (body, serde_json::json!({ "call_key": key, "tool": tool }))
+                (line, body, serde_json::json!({ "call_key": key, "tool": tool }))
             }
             DecisionSubject::EmailSend {
                 request_id,
@@ -507,14 +528,15 @@ pub async fn announce_decisions(
                 note,
                 changes,
             } => {
-                let body = if kind == crate::email_approval::APPROVED_KIND {
-                    format!("The owner approved the email to {recipient} (“{subject}”, effect key {effect_key}). It has not been sent yet: run the same `restless email send` again now, with the request unchanged, and it is sent exactly once.{}", owner_note_sentence(note.as_deref()))
+                let (line, body) = if kind == crate::email_approval::APPROVED_KIND {
+                    (format!("You approved the email to {recipient}"), format!("The owner approved the email to {recipient} (“{subject}”, effect key {effect_key}). It has not been sent yet: run the same `restless email send` again now, with the request unchanged, and it is sent exactly once.{}", owner_note_sentence(note.as_deref())))
                 } else if changes {
-                    format!("The owner asked for changes to the email to {recipient} (“{subject}”, effect key {effect_key}): “{}” Do not send it as prepared. Revise the draft and run `restless email send` with it; the new version goes to the owner.", note.as_deref().unwrap_or_default())
+                    (format!("You asked for changes to the email to {recipient}"), format!("The owner asked for changes to the email to {recipient} (“{subject}”, effect key {effect_key}): “{}” Do not send it as prepared. Revise the draft and run `restless email send` with it; the new version goes to the owner.", note.as_deref().unwrap_or_default()))
                 } else {
-                    format!("The owner declined the email to {recipient} (“{subject}”, effect key {effect_key}). It was not sent; do not send it. Work that was waiting on it needs a different route or an explicit decision to stop.{}", owner_note_sentence(note.as_deref()))
+                    (format!("You declined the email to {recipient}"), format!("The owner declined the email to {recipient} (“{subject}”, effect key {effect_key}). It was not sent; do not send it. Work that was waiting on it needs a different route or an explicit decision to stop.{}", owner_note_sentence(note.as_deref())))
                 };
                 (
+                    line,
                     body,
                     serde_json::json!({ "email_request_id": request_id, "recipient": recipient }),
                 )
@@ -524,17 +546,33 @@ pub async fn announce_decisions(
                 mandate_id,
                 decision,
             } => {
-                let body = if decision == "approve" {
-                    format!("The owner approved email mandate {} from proposal {proposal_id}. Revisit work and scheduled responsibilities waiting on this authority. Judge each candidate against the exact active mandate and current provider state; only a matching one-use permit can authorize a send. Continue useful independent work and do not replay uncertain effects.", mandate_id.as_deref().unwrap_or("unknown"))
+                let purpose = mandate_purposes
+                    .get(&proposal_id)
+                    .map(|purpose| bounded_line(purpose, 120))
+                    .filter(|purpose| !purpose.is_empty());
+                let (line, body) = if decision == "approve" {
+                    (
+                        purpose.map_or_else(|| "You approved sending email".to_owned(), |purpose| format!("You approved sending: {purpose}")),
+                        format!("The owner approved email mandate {} from proposal {proposal_id}. Revisit work and scheduled responsibilities waiting on this authority. Judge each candidate against the exact active mandate and current provider state; only a matching one-use permit can authorize a send. Continue useful independent work and do not replay uncertain effects.", mandate_id.as_deref().unwrap_or("unknown")),
+                    )
                 } else {
-                    format!("The owner declined email mandate proposal {proposal_id}. Revisit work waiting on it, find an authorized route if possible, or identify the precise owner decision still needed. Do not send under the declined proposal.")
+                    (
+                        purpose.map_or_else(|| "You declined sending email".to_owned(), |purpose| format!("You declined sending: {purpose}")),
+                        format!("The owner declined email mandate proposal {proposal_id}. Revisit work waiting on it, find an authorized route if possible, or identify the precise owner decision still needed. Do not send under the declined proposal."),
+                    )
                 };
                 (
+                    line,
                     body,
                     serde_json::json!({ "proposal_id": proposal_id, "mandate_id": mandate_id, "mandate_decision": decision }),
                 )
             }
         };
+        let body = crate::transcript::owner_decision_message(
+            &owner_line,
+            &instruction,
+            &record_id.to_string(),
+        );
         // Record the announcement first. A duplicate message to the Exec is a
         // wasted turn; a duplicate *effect* is the thing that must never
         // happen, and the message itself performs none. Recording first means
@@ -559,16 +597,36 @@ pub async fn announce_decisions(
             );
             return announced;
         }
-        if let Err(error) = org.send_message("owner", Some("exec"), &body).await {
-            tracing::warn!(company, "could not announce authority decision: {error:#}");
-            return announced;
+        // The decision is a structured fact, not something the owner said to Exec in chat (S110).
+        // It shows in the owner's chat as their decision, already read, so it never demands an
+        // owner-reply turn; Exec and whoever prepared it act on it from a system notice, a
+        // background turn that may stay quiet and settles with other notices into one wake.
+        match org.send_message("owner", Some("exec"), &body).await {
+            Ok(shown) => {
+                if let Err(error) = org.mark_read(shown).await {
+                    tracing::warn!(
+                        company,
+                        "could not settle the owner's decision line: {error:#}"
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::warn!(company, "could not announce authority decision: {error:#}");
+                return announced;
+            }
+        }
+        if let Err(error) = org.send_message("daemon", Some("exec"), &body).await {
+            tracing::warn!(
+                company,
+                "could not tell Exec about an authority decision: {error:#}"
+            );
         }
         for preparer in preparers_key
             .and_then(|key| preparers.get(&key))
             .into_iter()
             .flatten()
         {
-            if let Err(error) = org.send_message("owner", Some(preparer), &body).await {
+            if let Err(error) = org.send_message("daemon", Some(preparer), &body).await {
                 tracing::warn!(
                     company,
                     preparer = %preparer,
@@ -579,6 +637,16 @@ pub async fn announce_decisions(
         announced += 1;
     }
     announced
+}
+
+/// At most `limit` characters on one line, with an ellipsis when cut.
+fn bounded_line(text: &str, limit: usize) -> String {
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.chars().count() <= limit {
+        return text;
+    }
+    let cut: String = text.chars().take(limit.saturating_sub(1)).collect();
+    format!("{}…", cut.trim_end())
 }
 
 fn owner_note_sentence(note: Option<&str>) -> String {
@@ -948,6 +1016,14 @@ mod tests {
             "grant, decline and revoke each reach the company"
         );
         assert_eq!(exec_inbox_len(org.clone()).await, 3);
+        // Each reaches Exec as a system notice; the owner's own line is already read, so no
+        // decision demands an owner-reply turn (S110).
+        assert!(org
+            .inbox(Some("exec"))
+            .await
+            .unwrap()
+            .iter()
+            .all(|message| message.from_actor == "daemon"));
 
         // Idempotent: the owner action and the scheduler both call this.
         assert_eq!(
@@ -993,6 +1069,76 @@ mod tests {
             0
         );
 
+        // The owner never sees the agent instruction as their own words.
+        let owner_view = org.inbox(Some("exec")).await.unwrap();
+        for message in &owner_view {
+            let decoded = crate::transcript::decode_body(&message.body);
+            let receipt = decoded.intent.expect("a decision line carries its receipt");
+            assert!(matches!(
+                receipt.kind,
+                crate::transcript::OwnerIntentKind::Authority
+            ));
+            assert!(receipt.summary.starts_with("You "), "{}", receipt.summary);
+            assert!(!decoded.body.contains("The owner"), "{}", decoded.body);
+            assert!(message.body.contains("The owner"), "the agent keeps the instruction");
+        }
+
+        authority.delete_test_company(&company).await.unwrap();
+    }
+
+    /// 3 November: approving a mandate showed "The owner approved email mandate df67… from
+    /// proposal ed26… Revisit work…" as the owner's own message. The owner sees one plain
+    /// line naming what they approved; ids and instructions reach only the agent.
+    #[tokio::test]
+    async fn an_approved_mandate_reads_as_one_owner_line() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping mandate announcement scenario");
+            return;
+        };
+        let company = format!("approve_mandate_{}_test", uuid::Uuid::new_v4().simple());
+        let authority = crate::authority::AuthorityStore::connect(&database_url)
+            .await
+            .unwrap();
+        let org = restless_orgintel::OrgIntel::ensure(&database_url, &company)
+            .await
+            .unwrap();
+        let proposal = authority
+            .propose_email_mandate(
+                &company,
+                "exec",
+                crate::mandate::NewEmailMandate {
+                    purpose: "[TEST] emails to your inbox".into(),
+                    audience_guidance: "Only the owner's own inbox".into(),
+                    sender: "hello@example.com".into(),
+                    sender_name: None,
+                    max_per_day: 8,
+                    max_total: 8,
+                    timezone: "UTC".into(),
+                    expires_at: chrono::Utc::now() + chrono::Duration::days(4),
+                    one_email_per_recipient: false,
+                    own_addresses: Vec::new(),
+                },
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        authority
+            .decide_email_mandate_proposal(&company, "owner", proposal, true, None)
+            .await
+            .unwrap();
+        assert_eq!(announce_decisions(&company, &authority, Some(&org)).await, 1);
+        let message = org.inbox(Some("exec")).await.unwrap().remove(0);
+        assert_eq!(message.from_actor, "owner");
+        let decoded = crate::transcript::decode_body(&message.body);
+        assert_eq!(decoded.body.trim(), "You approved sending: [TEST] emails to your inbox");
+        assert_eq!(
+            decoded.intent.unwrap().summary,
+            "You approved sending: [TEST] emails to your inbox"
+        );
+        assert!(!decoded.body.contains(&proposal.to_string()));
+        assert!(message.body.contains("Revisit work and scheduled responsibilities"));
+        assert!(message.body.contains(&proposal.to_string()));
         authority.delete_test_company(&company).await.unwrap();
     }
 }

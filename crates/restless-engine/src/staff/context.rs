@@ -33,6 +33,65 @@ Stop only at quality convergence: the contract is proven in the native environme
 /// A durable actor keeps one organisational posture across every wake. Before
 /// this distinction, a lead's conversation wake called it accountable while
 /// its productive Work wake called the same actor a mere specialist.
+/// Where an assignment's standing contract ends and this wake's state begins. Everything after it
+/// leaves the system prompt for the turn: the harness caches the system prompt as one prefix, and
+/// a resumed session's history follows it, so wake state there re-billed both on every wake.
+pub const WAKE_STATE: &str =
+    "\n\n# Current state [trusted OrgIntel observation for this wake; it supersedes any earlier copy in this conversation]\n";
+
+/// An assignment split into its standing contract (cacheable) and this wake's state. A Work brief
+/// has no standing part: all of it is state.
+pub fn split_wake_state(task: &str) -> (&str, &str) {
+    match task.split_once(WAKE_STATE) {
+        Some((contract, state)) => (contract, state),
+        None => ("", task),
+    }
+}
+
+/// The Staff system prompt: only what is the same on every wake of this actor in this kind of
+/// turn, so the provider's prompt cache reuses it across wakes and Attempts.
+#[allow(clippy::too_many_arguments)]
+pub fn staff_system_prompt(
+    name: &str,
+    role: &str,
+    company: &str,
+    assignment: &str,
+    actor: &str,
+    posture: &str,
+    contract: &str,
+    ending: &str,
+) -> String {
+    let contract = if contract.trim().is_empty() {
+        String::new()
+    } else {
+        format!(
+            "# Your standing contract [OrgIntel decision]\n{}\n\n",
+            contract.trim()
+        )
+    };
+    format!(
+        // Text every Staff turn shares comes first, so the provider's prompt cache can reuse it
+        // across actors and fresh sessions (S101); actor-specific text follows.
+        "# Company operating rules [authoritative — applies to every actor]\n{}\n\n\
+         {}\n\n\
+         You are {name}, the {role} of {company}, {assignment}. Your stable OrgIntel actor id is `{actor}`.\n\
+         {posture}\n\n\
+         {contract}\
+         Work until the task is done or you are stuck. {ending}",
+        crate::context::COMPANY_OPERATING_RULES.trim(),
+        crate::owner_brief::staff_doctrine(),
+    )
+}
+
+/// The first prompt of a Staff turn: this wake's workspace, continuity and assignment state, then
+/// the turn itself.
+pub fn staff_turn_prompt(workspace: &str, spine: &str, state: &str, turn: &str) -> String {
+    format!(
+        "{workspace}\n{spine}\n# Trusted assignment context [OrgIntel decision]\n{}\n\n# This turn\n{turn}",
+        state.trim()
+    )
+}
+
 pub fn actor_posture(accountable_lead: bool) -> &'static str {
     if accountable_lead {
         "You are the ACCOUNTABLE LEAD for this team's whole accepted outcome, not a relay or a smaller Exec. Produce tightly coupled or single-piece work yourself, through Work you own (`restless work add --owner <your id>`). When the outcome splits into pieces that can proceed independently, commission Staff for them in parallel by default instead of doing them one after another: a good result sooner beats tokens saved by working alone. Up to four Work Attempts run at once per company; more wait their turn. When Staff contribute, guide, redirect and repair through them rather than silently changing their artifact. You retain native review, quality convergence judgement, and truthful attribution of every real contribution. A material Staff exception is a decision boundary, not a status-update opportunity: before ending that wake, either repair or redirect attributable Work, record the concrete blocker, or escalate the exact judgement. Clean passing completion remains observable state and does not require a ceremonial model wake. Never accept a consequentially substandard charter merely because one bounded Work item passed."

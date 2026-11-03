@@ -2329,6 +2329,19 @@
 	.bridge-root .bridge-exrail.open .exr-lock {
 		width: 100%;
 	}
+	/* Here the open rail is an overlay, so the closed one holds no place in the row: as a
+	 * zero-wide column its border and the row's gap took 6px from the page, which then moved
+	 * when the rail's code arrived on the first tap, and again under the scrim on every open. */
+	.bridge-root .bridge-exrail:not(.open) {
+		display: none;
+	}
+}
+
+/* Opened while its code was on its way: the placeholder made the opening move (motion.css), so
+ * the content that arrives in it appears in place. */
+.bridge-root:not(.immersive) .bridge-exrail.open.arrived,
+.bridge-root:not(.immersive) .bridge-exrail.open.arrived .exr-inner {
+	animation: none;
 }
 
 @media (max-width: 760px) {

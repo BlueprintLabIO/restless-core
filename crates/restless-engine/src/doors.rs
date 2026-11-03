@@ -333,13 +333,13 @@ mod tests {
             include_str!("staff/context.rs"),
             include_str!("staff/conversation.rs"),
             include_str!("staff/execution.rs"),
-            include_str!("../prompts/align-and-learn.md"),
             include_str!("../prompts/converse-with-owner.md"),
-            include_str!("../prompts/present-to-owner.md"),
-            include_str!("../prompts/run-the-business.md"),
-            include_str!("../prompts/source-capability.md"),
             include_str!("../prompts/welcome-the-owner.md"),
-            include_str!("../prompts/writing-what-the-owner-reads.md"),
+            crate::owner_brief::DOCTRINE_SKILLS
+                .iter()
+                .map(|(_, text)| *text)
+                .collect::<String>()
+                .as_str(),
             include_str!("../../../docs/COMPANY_OPERATING_RULES.md"),
         ]
         .concat()
@@ -507,13 +507,10 @@ mod tests {
                 );
             }
         }
-        let prompts = [
-            include_str!("../prompts/align-and-learn.md"),
-            include_str!("../prompts/source-capability.md"),
-            include_str!("../prompts/run-the-business.md"),
-            include_str!("../prompts/converse-with-owner.md"),
-        ]
-        .concat();
+        let mut prompts = include_str!("../prompts/converse-with-owner.md").to_string();
+        for (_, text) in crate::owner_brief::DOCTRINE_SKILLS {
+            prompts.push_str(text);
+        }
         for spelling in owner_only_spellings {
             assert!(
                 !prompts.contains(spelling),

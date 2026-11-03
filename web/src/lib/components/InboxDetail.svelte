@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { isSiteTask } from '$lib/model/site-ask';
+	import { withoutLinks } from '$lib/model/owner-copy';
 	/* One Inbox item, read as a message from whoever is asking and answered
 	 * from one action bar at the bottom.
 	 *
@@ -230,7 +232,11 @@
 	const ownerAccountAsk = $derived(!!item.accountRequest && !canPassToOwner);
 	const askText = $derived.by(() => {
 		const ask = item.accountRequest;
-		if (!ask || canPassToOwner) return item.requestedAction;
+		/* A sign-in link is the card's Open button; the ask is the words around it. */
+		if (!ask || canPassToOwner)
+			return action('open-external-human-step')
+				? withoutLinks(item.requestedAction)
+				: item.requestedAction;
 		if (ask.account_id) return 'Approve as asked, or set its access below and give it. Or deny.';
 		if (ask.kind === 'website_login' || ask.kind === 'browser_profile')
 			return 'Sign in below, then choose what the company may do there. Or deny.';
@@ -282,8 +288,6 @@
 		item.source.kind === 'document_collaboration' || item.source.kind === 'document_review'
 	);
 	/* Cards whose task the card itself does (S101): their links out are not shown. */
-	const SITE_ASK =
-		/company browser|shared desktop|https?:\/\/|\b[a-z0-9-]+\.(?:com|net|org|io|co|au|nz|uk)\b|\b(?:sign|log) in\b|\bregister\b|\bpay\b|\bcheckout\b/i;
 	const MODEL_KINDS = [
 		'model_cooldown',
 		'account_headroom',
@@ -330,7 +334,14 @@
 						candidate.href &&
 						candidate.role !== 'conversation' &&
 						!(ownerAccountAsk && candidate.id === 'approve-with-limits') &&
-						!(candidate.id === 'open-external-human-step' && canSetAside && !item.preparing)
+						/* The embedded computer opens the page itself; with no prepared computer the
+						 * link is the card's own Open button. */
+						!(
+							candidate.id === 'open-external-human-step' &&
+							canSetAside &&
+							!item.preparing &&
+							!!item.runtimeAttach
+						)
 				)
 	);
 	/* A refused model offers two ways out (Top up, or another account the owner already holds);
@@ -379,14 +390,19 @@
 		canSetAside &&
 			!appRequest &&
 			!item.preparing &&
-			((!!item.runtimeAttach && item.category !== 'review') || !!stepUrl)
+			/* Only a step with a prepared computer embeds it. A sign-in link alone is the card's
+			 * Open action: on 3 November a Cloudflare consent step embedded a grey "could not be
+			 * opened" panel and an internal error instead (bug B). */
+			!!item.runtimeAttach &&
+			item.category !== 'review'
 	);
 	/* An agent's question about doing something on a site (register a domain, sign in, pay) shows
-	 * the company computer too, at the page the agent left open, so it is done in the card. */
+	 * the company computer too, at the page the agent left open, so it is done in the card. A
+	 * decision never does: its links are evidence (see model/site-ask). */
 	const siteAsk = $derived(
 		item.source.kind === 'conversation_owner_need' &&
 			canSetAside &&
-			SITE_ASK.test(`${item.requestedAction} ${item.whatHappened}`)
+			isSiteTask(item.requestedAction, item.whatHappened)
 	);
 	/* A live outcome to review renders in the card's content beside the decision. */
 	const outcomeInline = $derived(item.category === 'review' && !!item.reviewTarget);
@@ -1060,7 +1076,7 @@
 					class="note"
 					title="Exec judges whether each recipient and message fits the mandate. The system enforces the mechanical limits."
 				>
-					Approving gives Exec bounded sending authority.
+					Exec decides whether each email fits; Restless holds it to these limits.
 				</p>
 			{/if}
 
@@ -1367,8 +1383,8 @@
 					{#key `${item.id}:${attempt}`}
 						<HoldApprove
 							small
-							completeLabel="Saving approval…"
-							label="Hold to approve mandate"
+							completeLabel="Approved"
+							label="Hold to approve"
 							disabled={acting}
 							title={`${approveMandate.consequence} ${approveMandate.nextState}`}
 							onapprove={() => void decideMandate('approve')}
@@ -1577,6 +1593,13 @@
 		line-height: 1.3;
 		letter-spacing: -0.015em;
 		text-wrap: balance;
+		/* Two lines at most, cut with an ellipsis: a title never grows into a tall header. */
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		overflow: hidden;
+		overflow-wrap: anywhere;
 	}
 	/* One line: what does not fit is cut at the end, never wrapped into a taller header. */
 	.meta {
