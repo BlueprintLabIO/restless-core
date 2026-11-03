@@ -127,6 +127,8 @@
 		const label = agent ? modelLabel(agent.effective_model) : '';
 		return label.length > 18 ? `${label.slice(0, 17)}…` : label;
 	});
+	/* Where the composer is narrow (a phone), the family name gives way: "Sonnet 4.5". */
+	const compactModel = $derived(shortModel.replace(/^Claude\s+/, ''));
 	holdQueries(() => [source]);
 </script>
 
@@ -156,7 +158,9 @@
 				<Popover label={`${name}’s model`}>
 					{#snippet trigger()}<span class="face"
 							><Brain size={14} strokeWidth={1.8} aria-hidden="true" /><span class="model-name"
-								>{shortModel}</span
+								><span class="full">{shortModel}</span><span class="compact" aria-hidden="true"
+									>{compactModel}</span
+								></span
 							></span
 						>{/snippet}
 					{#snippet children(close)}
@@ -189,13 +193,16 @@
 
 <style>
 	/* One width for every state: room for "Checking model…", "Model unavailable" and the longest
-	 * short model name (18 characters) with its mark; a longer label ends in an ellipsis. */
+	 * short model name (18 characters) with its mark; a longer label ends in an ellipsis. Its width
+	 * comes from the room beside it, never from what it says, so a state change moves nothing.
+	 * Short of room it gives way first, down to its mark (the tooltip names the model), so the
+	 * chip beside it keeps its whole label: on a phone the page chip was cut to "W." (S110). */
 	.model-slot {
 		display: flex;
 		align-items: center;
-		flex: none;
-		width: 136px;
-		min-width: 0;
+		flex: 0 100 136px;
+		min-width: 26px;
+		overflow: hidden;
 	}
 	.chip,
 	.chip :global(.selection-popover) {
@@ -226,6 +233,20 @@
 		font-size: var(--t-label);
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.model-name .compact {
+		display: none;
+	}
+	/* The composer's control slot is a size container (chat.css): narrower than the full name and
+	 * the page chip beside it, the short name shows. The slot's width never depends on what it
+	 * holds, so this never flips back and forth. */
+	@container composer-slot (max-width: 192px) {
+		.model-name .full {
+			display: none;
+		}
+		.model-name .compact {
+			display: inline;
+		}
 	}
 	/* A narrow menu: the longest model name sets it, not five effort boxes. */
 	.chip :global(.selection-popover-panel) {
