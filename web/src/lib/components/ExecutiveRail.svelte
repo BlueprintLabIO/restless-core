@@ -133,6 +133,7 @@
 		focusRequest = 0,
 		draftRequest = null,
 		wide = false,
+		arrived = false,
 		header,
 		focusMessage = 0,
 		uploadProgress = null,
@@ -209,6 +210,9 @@
 		draftRequest?: { text: string; key: number } | null;
 		/** The same conversation at full width, in People. */
 		wide?: boolean;
+		/** Already open, as the layout's placeholder, before this code arrived: the rail made its
+		 * opening move then, so its content appears in place instead of sliding in again. */
+		arrived?: boolean;
 		header?: Snippet<[Snippet, Snippet]>;
 		/** A message a link points at; the conversation scrolls to it. */
 		focusMessage?: number;
@@ -1449,6 +1453,7 @@
 	class="bridge-exrail"
 	class:open
 	class:wide
+	class:arrived
 	aria-label={`${participantName} conversation`}
 	aria-hidden={!open}
 	inert={!open}
