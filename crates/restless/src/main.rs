@@ -490,7 +490,8 @@ enum Command {
         #[command(subcommand)]
         command: Option<GoalCommand>,
     },
-    /// Inspect the standing outbound-email mandate or ask Exec to issue a permit.
+    /// Standing permissions from the owner: list them, ask for one, check an action against
+    /// them, or (Exec, email) issue a one-use permit.
     Mandate {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
         company: Option<String>,
@@ -660,19 +661,40 @@ enum Command {
 
 #[derive(Subcommand)]
 enum MandateCommand {
-    /// List active owner-granted outbound email mandates.
+    /// List the owner's standing permissions, their limits and what is used, and any proposal
+    /// still waiting.
     List,
-    /// Ask the owner for standing permission to send email: purpose, audience, sender, daily and
-    /// total caps, timezone and expiry. It waits in the owner's Inbox; each email still needs
-    /// its own permit.
+    /// Ask the owner for a standing permission of any kind. It is one card in their Inbox,
+    /// approved or declined with Undo; you are told when they answer.
     Propose {
-        /// JSON file containing purpose, audience_guidance, sender, optional sender_name,
-        /// max_per_day, max_total, timezone and expires_at.
+        /// The kind: `email` or `vendor_order`. Optional when the file says it.
+        #[arg(long)]
+        kind: Option<String>,
+        /// JSON file: kind, title, scope, limits {max_total, max_per_day, timezone,
+        /// max_per_action {amount, currency}, max_spend_total, counterparties}, expires_at,
+        /// owner_approves_each, rationale, evidence, and for email `email` {purpose,
+        /// audience_guidance, sender, sender_name}. `restless mandate check` returns one ready to
+        /// adjust. The older email shape (purpose, sender, max_per_day, ...) still works.
         #[arg(long)]
         proposal_file: PathBuf,
         /// Why the company needs it, in a sentence the owner reads on the card.
         #[arg(long)]
         reason: Option<String>,
+    },
+    /// Before acting: is this action covered by a standing permission? Says allowed, or what
+    /// to ask the owner for (with a ready proposal). Records nothing.
+    Check {
+        #[command(flatten)]
+        action: MandateActionArgs,
+    },
+    /// Check an action and, when it is allowed, record it against the permission's limits.
+    /// Run it right before placing an order; a repeated --key counts once.
+    Use {
+        #[command(flatten)]
+        action: MandateActionArgs,
+        /// A key naming this one action, such as the order reference.
+        #[arg(long)]
+        key: Option<String>,
     },
     /// Issue a one-use permit for a specific sender, recipient and payload.
     Permit {
@@ -684,6 +706,43 @@ enum MandateCommand {
         #[arg(long)]
         proposal_file: PathBuf,
     },
+}
+
+#[derive(clap::Args)]
+struct MandateActionArgs {
+    /// The kind of standing permission: `email` or `vendor_order`.
+    #[arg(long)]
+    kind: String,
+    /// What the action is, in plain words: "Order 200 fridge magnets".
+    #[arg(long, default_value = "")]
+    summary: String,
+    /// The recipient, vendor or domain.
+    #[arg(long, alias = "vendor", alias = "to")]
+    counterparty: Option<String>,
+    /// What it costs in total, such as 120 or 120.50.
+    #[arg(long)]
+    amount: Option<String>,
+    /// The currency of --amount, such as AUD.
+    #[arg(long)]
+    currency: Option<String>,
+}
+
+impl MandateActionArgs {
+    fn action(&self, key: Option<String>) -> Result<serde_json::Value> {
+        let amount = match (&self.amount, &self.currency) {
+            (Some(amount), Some(currency)) => {
+                Some(serde_json::json!({"amount": amount, "currency": currency}))
+            }
+            (None, None) => None,
+            _ => bail!("--amount and --currency go together"),
+        };
+        Ok(serde_json::json!({
+            "summary": self.summary,
+            "counterparty": self.counterparty,
+            "amount": amount,
+            "key": key,
+        }))
+    }
 }
 
 #[derive(Subcommand)]
@@ -2863,19 +2922,43 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "company": company,
             }),
             MandateCommand::Propose {
+                kind,
                 proposal_file,
                 reason,
             } => {
-                let actor = acting_actor();
-                if principal() != "company/exec" || actor != "exec" {
-                    bail!("mandate propose must run as the authenticated Exec actor in the company Runtime");
+                if principal() != "company/exec" {
+                    bail!("mandate propose runs as an agent in the company Runtime; the owner adds permissions in Company › Authority");
                 }
+                let file = read_json_file(&proposal_file)?;
+                // `restless mandate check` prints a whole answer; its ready proposal is accepted
+                // as it is.
+                let proposal = file.get("proposal").cloned().unwrap_or(file);
                 serde_json::json!({
                     "cmd": "mandate-propose",
                     "company": company,
-                    "mandate_proposal": read_json_file(&proposal_file)?,
+                    "mandate_proposal": proposal,
+                    "mandate_kind": kind,
                     "purpose": reason,
-                    "actor": actor,
+                    "actor": acting_actor(),
+                })
+            }
+            MandateCommand::Check { action } => serde_json::json!({
+                "cmd": "mandate-check",
+                "company": company,
+                "mandate_kind": action.kind,
+                "mandate_action": action.action(None)?,
+                "actor": acting_actor(),
+            }),
+            MandateCommand::Use { action, key } => {
+                if principal() != "company/exec" {
+                    bail!("mandate use records an agent's action in the company Runtime");
+                }
+                serde_json::json!({
+                    "cmd": "mandate-use",
+                    "company": company,
+                    "mandate_kind": action.kind,
+                    "mandate_action": action.action(key)?,
+                    "actor": acting_actor(),
                 })
             }
             MandateCommand::Permit {

@@ -50,6 +50,10 @@ const MAX_RESULT_BYTES: usize = 2 * 1024 * 1024;
 /// Larger text is cut with a note so one page fetch cannot crowd out the turn.
 const CONTEXT_RESULT_CHARS: usize = 60_000;
 const RECONCILE_TOOL: &str = "restless_reconcile_effect";
+/// Ask the owner for a standing permission: one card in their Inbox.
+const PROPOSE_MANDATE_TOOL: &str = "restless_propose_mandate";
+/// Before acting: is this covered by a standing permission, and if not, what to ask for.
+const CHECK_MANDATE_TOOL: &str = "restless_check_mandate";
 const GOVERNANCE_ARGUMENT: &str = "_restless";
 
 /// Where a hosted Runtime reaches this gateway on the plane's entry host.
@@ -841,6 +845,73 @@ impl ToolCaller<'_> {
         format!("tool-{}", &digest[..32])
     }
 
+    /// The standing permission tools: the same proposal and check as `restless mandate`.
+    async fn mandate(&self, name: &str, arguments: Option<JsonObject>) -> CallToolResponse {
+        let arguments = arguments.unwrap_or_default();
+        let text = |key: &str| {
+            arguments
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        };
+        let pool = self.authority.pool();
+        let outcome = if name == PROPOSE_MANDATE_TOOL {
+            let Some(proposal) = arguments.get("proposal").cloned() else {
+                return text_error("`proposal` is required: the standing permission to ask for");
+            };
+            crate::mandate::raise(
+                pool,
+                self.company(),
+                &self.grant.actor,
+                proposal,
+                text("kind"),
+                text("reason"),
+            )
+            .await
+        } else {
+            let kind = match text("kind").map(crate::mandate::MandateKind::parse) {
+                Some(Ok(kind)) => kind,
+                Some(Err(error)) => return text_error(format!("{error:#}")),
+                None => return text_error("`kind` is required: email or vendor_order"),
+            };
+            let amount = match (text("amount"), text("currency")) {
+                (Some(amount), Some(currency)) => match serde_json::from_value(
+                    serde_json::json!({"amount": amount, "currency": currency}),
+                ) {
+                    Ok(amount) => Some(amount),
+                    Err(error) => return text_error(format!("{error}")),
+                },
+                (None, None) => None,
+                _ => return text_error("`amount` and `currency` go together"),
+            };
+            let action = crate::mandate::MandateAction {
+                summary: text("summary").unwrap_or_default().to_string(),
+                counterparty: text("counterparty").map(str::to_string),
+                amount,
+                key: text("key").map(str::to_string),
+            };
+            let record = arguments
+                .get("record")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let checked = if record {
+                crate::mandate::record_use(pool, self.company(), &self.grant.actor, kind, &action)
+                    .await
+            } else {
+                crate::mandate::require(pool, self.company(), kind, &action).await
+            };
+            checked.and_then(|check| Ok(serde_json::to_value(check)?))
+        };
+        match outcome {
+            Ok(value) => CallToolResult::success(vec![ContentBlock::text(
+                serde_json::to_string_pretty(&value).unwrap_or_default(),
+            )])
+            .into(),
+            Err(error) => text_error(format!("{error:#}")),
+        }
+    }
+
     async fn reconcile(&self, arguments: Option<JsonObject>) -> CallToolResponse {
         let arguments = arguments.unwrap_or_default();
         let Some(key) = arguments.get("key").and_then(serde_json::Value::as_str) else {
@@ -1050,6 +1121,60 @@ fn reconcile_tool() -> Tool {
         "Settle a tool call whose outcome is unknown, using a read made after it as evidence. Never retry an unknown call before settling it.",
         Arc::new(schema),
     )
+}
+
+/// The standing permission tools every tool session carries, so "I need the owner's permission"
+/// is always a proposal, never a dead end. The same as `restless mandate propose|check|use`.
+fn mandate_tools() -> Vec<Tool> {
+    let tool = |name: &'static str,
+                description: &'static str,
+                schema: serde_json::Value,
+                read_only: bool| {
+        let serde_json::Value::Object(schema) = schema else {
+            unreachable!()
+        };
+        let mut tool = Tool::new(name, description, Arc::new(schema));
+        tool.annotations = Some(
+            ToolAnnotations::new()
+                .read_only(read_only)
+                .destructive(false),
+        );
+        tool
+    };
+    vec![
+        tool(
+            CHECK_MANDATE_TOOL,
+            "Before an action that needs the owner's permission (sending email, ordering from a vendor), check whether a standing permission covers it. Answers `allowed` (with what is left), or `needs_permission` with why and a ready `proposal` to raise with restless_propose_mandate. With record=true an allowed action is counted against the limits (do this right before placing an order).",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["email", "vendor_order"]},
+                    "summary": {"type": "string", "description": "What the action is, in plain words."},
+                    "counterparty": {"type": "string", "description": "The recipient, vendor or domain."},
+                    "amount": {"type": "string", "description": "What it costs in total, such as 120.50."},
+                    "currency": {"type": "string", "description": "ISO code of the amount, such as AUD."},
+                    "record": {"type": "boolean", "description": "Count this action against the limits when allowed."},
+                    "key": {"type": "string", "description": "A key naming this one action, so recording it twice counts once."}
+                },
+                "required": ["kind"]
+            }),
+            false,
+        ),
+        tool(
+            PROPOSE_MANDATE_TOOL,
+            "Ask the owner for a standing permission: it becomes one card in their Inbox with Approve and Decline, and you are told when they answer. Use it whenever you need the owner's permission for a kind of action instead of stopping or asking in chat. `proposal` is the `proposal` restless_check_mandate returned, adjusted: kind, title, scope, limits, expires_at, owner_approves_each, rationale, evidence (and `email` terms for email).",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "proposal": {"type": "object", "description": "The standing permission, exactly as the owner should approve it."},
+                    "kind": {"type": "string", "enum": ["email", "vendor_order"]},
+                    "reason": {"type": "string", "description": "Why the company needs it, in a sentence the owner reads."}
+                },
+                "required": ["proposal", "reason"]
+            }),
+            false,
+        ),
+    ]
 }
 
 impl ServerHandler for ToolScope {
@@ -1532,6 +1657,7 @@ impl ToolCaller<'_> {
         {
             listed.push(reconcile_tool());
         }
+        listed.extend(mandate_tools());
         Ok(listed)
     }
 
@@ -1757,6 +1883,9 @@ impl ToolCaller<'_> {
         let name = name.to_string();
         if name == RECONCILE_TOOL {
             return Ok(self.reconcile(arguments).await);
+        }
+        if name == PROPOSE_MANDATE_TOOL || name == CHECK_MANDATE_TOOL {
+            return Ok(self.mandate(&name, arguments).await);
         }
         if crate::account_broker::is_account_tool(&name) {
             return Ok(self.call_account(&name, arguments).await);

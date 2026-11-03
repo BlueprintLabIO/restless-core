@@ -2467,9 +2467,7 @@ async fn project_queue(
     let declines = authority
         .records_of_kind(&config.name, "approval_declined")
         .await?;
-    let mandate_proposals = authority
-        .pending_email_mandate_proposals(&config.name)
-        .await?;
+    let mandate_proposals = authority.pending_mandate_proposals(&config.name).await?;
 
     let mut resolved_after: HashMap<String, i64> = HashMap::new();
     for event in grants.iter().chain(declines.iter()) {
@@ -3723,43 +3721,10 @@ async fn project_queue(
         }
     }
 
-    for record in mandate_proposals {
-        let Some(id) = record.body["id"].as_str() else {
-            continue;
-        };
-        let Ok(proposal_id) = uuid::Uuid::parse_str(id) else {
-            continue;
-        };
-        let Ok(proposal) = serde_json::from_value::<crate::authority::NewEmailMandate>(
-            record.body["proposal"].clone(),
-        ) else {
-            continue;
-        };
-        let note = record.body["judgement_note"].as_str().unwrap_or("");
-        let limits = format!("Purpose: {}\nAudience: {}\nSender: {}{}\nDaily cap: {}\nTotal cap: {}\nTimezone: {}\nExpires: {}", proposal.purpose, proposal.audience_guidance, proposal.sender, proposal.sender_name.as_deref().map(|name| format!(" ({name})")).unwrap_or_default(), proposal.max_per_day, proposal.max_total, proposal.timezone, proposal.expires_at.to_rfc3339());
-        let proposer = record.actor_id.as_deref().unwrap_or("a company actor");
-        items.push(AttentionItem {
-            id: format!("authority:email_mandate_proposal:{proposal_id}"), work_id: None,
-            source: AttentionSource { plane: "authority", kind: "email_mandate_proposal".into(), reference: proposal_id.to_string(), party: None, call_key: None },
-            category: "approval".into(), title: "Review proposed email mandate".into(),
-            what_happened: if record.body["replaces"].is_string() {
-                format!("{proposer} proposed changing the current email mandate to the exact limits below. Approving replaces the current one.")
-            } else {
-                format!("{proposer} proposed permission to send email within the exact limits below.")
-            },
-            why_it_matters: "Approving grants a real sending mandate to the company.".into(),
-            recommendation: "Approve only if you accept this mandate's purpose, audience and limits. For each proposed send, Exec must judge whether the recipient and message fit; its judgment can be wrong. The host enforces the daily cap, total cap and expiry.".into(),
-            requested_action: format!("Review purpose “{}”, sender {}, {} per day, {} total, expires {}. Approve or decline.", proposal.purpose, proposal.sender, proposal.max_per_day, proposal.max_total, proposal.expires_at.format("%Y-%m-%d")),
-            if_no_action: "No email mandate is granted while this proposal remains pending.".into(),
-            uncertainty: Some("Exec makes a judgment on each proposed send against this mandate. It can make mistakes; approval of this mandate is not a guarantee that every send will be appropriate.".into()),
-            deadline: Some(proposal.expires_at.to_rfc3339()), brief_status: "source-observed", brief_author: None, briefed_at: None,
-            evidence: vec![AttentionEvidence { label: "Exact proposed email mandate".into(), uri: None, content: Some(limits), kind: "authority-email-mandate-proposal" }, AttentionEvidence { label: "Exec judgement".into(), uri: None, content: Some(if note.is_empty() { "No additional rationale supplied.".into() } else { note.into() }), kind: "exec-judgement" }],
-            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, review_version: None, native_document: None, direction_request: None, charter_proposal: None, account_use: None, account_request: None, request_fields: None, setting_proposal: None, owner_replies: Vec::new(),
-            actions: vec![
-                AttentionAction { id: "approve-email-mandate".into(), label: "Approve mandate".into(), role: "decision", consequence: "Grants the exact reviewed email mandate and its limits.".into(), next_state: "The pending proposal is resolved and the mandate becomes active.".into(), href: None },
-                AttentionAction { id: "decline-email-mandate".into(), label: "Decline mandate".into(), role: "decision", consequence: "Declines this exact email mandate proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
-            ], can_continue: false, preparing: false, created_at: record.created_at,
-        });
+    // A standing permission an agent asked for, of any kind: one card that says exactly what is
+    // granted, approved or declined inside the Authority Undo window.
+    for proposal in mandate_proposals {
+        items.push(mandate_proposal_item(&proposal, &actors));
     }
     // One exact email an agent asked to send without a mandate (S109 H2). Only the owner sends it.
     if assignee.is_none() {
@@ -4701,27 +4666,33 @@ async fn authority_decisions(
         }
     }
     for record in authority
-        .records_of_kind(company, approval::EMAIL_MANDATE_DECISION_KIND)
+        .records_of_kind(company, approval::MANDATE_DECISION_KIND)
         .await?
     {
         let approve = record.body.get("decision").and_then(Value::as_str) == Some("approve");
         let (note, _) = approval::recorded_note(&record.body);
+        let kind: crate::mandate::MandateKind = serde_json::from_value(record.body["kind"].clone())
+            .unwrap_or(crate::mandate::MandateKind::Email);
+        let title = record.body["title"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("Permission to {}", kind.purpose()));
         rows.push(DecisionContinuation {
             id: format!("authority:{}", record.id),
             work_id: None,
-            title: "Email mandate".into(),
+            title,
             recorded_decision: with_owner_note(
                 if approve {
-                    "Approved the mandate."
+                    "Approved the standing permission."
                 } else {
-                    "Declined the mandate."
+                    "Declined the standing permission."
                 },
                 note.as_deref(),
             ),
             what_it_unlocked: if approve {
-                "Exec may send email within the mandate's limits.".into()
+                format!("The company may {} within its limits.", kind.purpose())
             } else {
-                "No email authority was granted.".into()
+                "Nothing was granted.".into()
             },
             current_state: String::new(),
             observed_outcome: String::new(),
@@ -4731,11 +4702,132 @@ async fn authority_decisions(
                 .body
                 .get("proposal_id")
                 .and_then(Value::as_str)
-                .map(|id| format!("authority:email_mandate_proposal:{id}")),
+                .map(|id| format!("authority:mandate_proposal:{id}")),
             decided_by: decider(&record),
         });
     }
     Ok(rows)
+}
+
+/// One standing permission proposal, of any kind, as the owner's Inbox card. The card says
+/// exactly what is granted, line by line (`authority-mandate` evidence), and answers with
+/// Approve or Decline inside the Authority Undo window.
+fn mandate_proposal_item(
+    proposal: &crate::mandate::MandateProposal,
+    actors: &HashMap<String, AttentionActorRef>,
+) -> AttentionItem {
+    let terms = &proposal.terms;
+    let asker = proposal
+        .proposed_by
+        .as_deref()
+        .and_then(|actor| actors.get(actor))
+        .cloned();
+    let who = asker
+        .as_ref()
+        .map(|actor| actor.display.trim_start_matches("The ").to_string())
+        .or_else(|| proposal.proposed_by.clone())
+        .unwrap_or_else(|| "An agent".into());
+    let granted = crate::mandate::plain_terms(terms)
+        .into_iter()
+        .map(|(label, value)| format!("{label}: {}", value.replace('\n', " ")))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (one, _) = terms.kind.unit();
+    let mut evidence = vec![AttentionEvidence {
+        label: "Exactly what is granted".into(),
+        uri: None,
+        content: Some(granted),
+        kind: "authority-mandate",
+    }];
+    if !terms.rationale.is_empty() {
+        evidence.push(AttentionEvidence {
+            label: format!("Why {who} asks"),
+            uri: None,
+            content: Some(terms.rationale.clone()),
+            kind: "exec-judgement",
+        });
+    }
+    for (index, entry) in terms.evidence.iter().enumerate() {
+        let link = entry.starts_with("http://") || entry.starts_with("https://");
+        evidence.push(AttentionEvidence {
+            label: format!("Evidence {}", index + 1),
+            uri: link.then(|| entry.clone()),
+            content: (!link).then(|| entry.clone()),
+            kind: "evidence",
+        });
+    }
+    let limits = crate::mandate::limit_lines(terms.kind, &terms.limits);
+    AttentionItem {
+        id: format!("authority:mandate_proposal:{}", proposal.id),
+        work_id: None,
+        source: AttentionSource {
+            plane: "authority",
+            kind: "mandate_proposal".into(),
+            reference: proposal.id.to_string(),
+            party: None,
+            call_key: None,
+        },
+        category: "approval".into(),
+        title: format!("Allow: {}", terms.title),
+        what_happened: if proposal.replaces.is_some() {
+            format!("{who} asks to change a standing permission to {}. Approving replaces the current one.", terms.kind.purpose())
+        } else {
+            format!("{who} asks for standing permission to {}, so it does not have to ask each time.", terms.kind.purpose())
+        },
+        why_it_matters: "Approving lets the company act on its own within exactly these limits until the date, or until you revoke it in Company › Authority.".into(),
+        recommendation: if terms.owner_approves_each {
+            format!("You still approve each {one}; this permission only sets the limits.")
+        } else {
+            format!("Approve only if you accept every line below. Each {one} is checked against the limits before it happens; judgement about what fits the scope can be wrong.")
+        },
+        requested_action: format!(
+            "Allow {} until {}{}?",
+            terms.title,
+            terms.expires_at.format("%-d %b %Y"),
+            if limits.is_empty() { String::new() } else { format!(" ({})", limits.join("; ")) }
+        ),
+        if_no_action: "Nothing is allowed while this waits; the company keeps asking or works around it.".into(),
+        uncertainty: None,
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: None,
+        evidence,
+        review_sources: Vec::new(),
+        responsible_actor: asker,
+        runtime_attach: None,
+        review_target: None,
+        review_version: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        account_use: None,
+        account_request: None,
+        request_fields: None,
+        setting_proposal: None,
+        owner_replies: Vec::new(),
+        actions: vec![
+            AttentionAction {
+                id: "approve-mandate".into(),
+                label: "Approve".into(),
+                role: "decision",
+                consequence: format!("Grants exactly this standing permission to {}.", terms.kind.purpose()),
+                next_state: "It is active once the Undo window ends, and listed in Company › Authority.".into(),
+                href: None,
+            },
+            AttentionAction {
+                id: "decline-mandate".into(),
+                label: "Decline".into(),
+                role: "decision",
+                consequence: "Declines this exact proposal.".into(),
+                next_state: format!("Nothing is granted; {who} is told, with your note."),
+                href: None,
+            },
+        ],
+        can_continue: false,
+        preparing: false,
+        created_at: proposal.created_at,
+    }
 }
 
 fn with_owner_note(decision: &str, note: Option<&str>) -> String {

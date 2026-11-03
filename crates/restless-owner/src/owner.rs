@@ -130,11 +130,11 @@ use tower_http::compression::CompressionLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
-use crate::authority as mandate;
 use crate::entry::{
     company_in_path, CompanyScope, EntryMode, RequestPrincipal, SessionLease, SessionStore,
     VerifiedAccessContext, VerifiedIdentity,
 };
+use crate::mandate;
 use crate::model_connections::{
     load_owner_connections, model_connection_reference, owner_connection_reference,
     save_owner_connections, valid_provider_id, OwnerModelConnection,
@@ -1796,7 +1796,11 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route(
             "/companies/{company}/email-mandates/proposals/{proposal}/decision",
-            post(decide_email_mandate),
+            post(decide_mandate),
+        )
+        .route(
+            "/companies/{company}/mandates/proposals/{proposal}/decision",
+            post(decide_mandate),
         )
         .route("/companies/{company}/cockpit", get(cockpit_view))
         .route("/companies/{company}/company", get(company_view))
@@ -2077,10 +2081,15 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/approvals/grant", post(grant))
         .route("/companies/{company}/approvals/decline", post(decline))
         .route("/companies/{company}/approvals/revoke", post(revoke))
+        .route("/companies/{company}/mandates", get(standing_mandates))
+        .route(
+            "/companies/{company}/mandates/{mandate}/revoke",
+            post(revoke_mandate),
+        )
         .route("/companies/{company}/mandates/email", get(email_mandates))
         .route(
             "/companies/{company}/mandates/email/{mandate}/revoke",
-            post(revoke_email_mandate),
+            post(revoke_mandate),
         )
         .route("/companies/{company}/browser/ticket", post(issue_ticket))
         .route("/companies/{company}/browser/open", post(open_browser_link))
@@ -7911,7 +7920,9 @@ async fn propose_email_mandate(
     }
 }
 
-async fn decide_email_mandate(
+/// The owner's direct answer to a standing permission proposal of any kind (the Inbox card
+/// answers through the Undo window instead).
+async fn decide_mandate(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, proposal)): AxumPath<(String, Uuid)>,
@@ -7954,7 +7965,7 @@ async fn decide_email_mandate(
     match state
         .daemon
         .authority
-        .decide_email_mandate_proposal(
+        .decide_mandate_proposal(
             &company,
             principal.actor_id(),
             proposal,
@@ -12931,6 +12942,7 @@ struct EmailMandateRevocation {
     reason: String,
 }
 
+/// The email view of standing permissions, as it was before permissions were generic.
 async fn email_mandates(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
@@ -12942,46 +12954,63 @@ async fn email_mandates(
             logged(error, "This company could not be found."),
         );
     }
+    let unreadable = |error: anyhow::Error| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "mandate",
+            logged(error, "Email permissions could not be read. Try again."),
+        )
+    };
     let mandates = match state.daemon.authority.list_email_mandates(&company).await {
         Ok(mandates) => mandates,
-        Err(error) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "mandate",
-                logged(error, "Email permissions could not be read. Try again."),
-            )
-        }
+        Err(error) => return unreadable(error),
     };
-    let reservations = match state
-        .daemon
-        .authority
-        .records_of_kind(&company, "email_send_reserved")
-        .await
-    {
-        Ok(records) => records,
-        Err(error) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "mandate",
-                logged(error, "Email permissions could not be read. Try again."),
-            )
-        }
-    };
-    let statuses = match state
-        .daemon
-        .authority
-        .records_of_kind(&company, "email_send_status")
-        .await
-    {
-        Ok(records) => records,
-        Err(error) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "mandate",
-                logged(error, "Email permissions could not be read. Try again."),
-            )
-        }
-    };
+    let mut entries = Vec::with_capacity(mandates.len());
+    for mandate in mandates {
+        let usage = match state
+            .daemon
+            .authority
+            .email_mandate_usage(&company, mandate.id)
+            .await
+        {
+            Ok(usage) => usage,
+            Err(error) => return unreadable(error),
+        };
+        let recent_decisions = match email_recent_sends(&state, &company, mandate.id).await {
+            Ok(sends) => sends,
+            Err(error) => return unreadable(error),
+        };
+        entries.push(serde_json::json!({
+            "id": mandate.id,
+            "purpose": mandate.purpose,
+            "audience_guidance": mandate.audience_guidance,
+            "sender": mandate.sender,
+            "sender_name": mandate.sender_name,
+            "max_per_day": mandate.max_per_day,
+            "max_total": mandate.max_total,
+            "timezone": mandate.timezone,
+            "expires_at": mandate.expires_at,
+            "created_at": mandate.created_at,
+            "usage": usage,
+            "recent_decisions": recent_decisions,
+        }));
+    }
+    Json(serde_json::json!({"mandates": entries})).into_response()
+}
+
+/// The latest sends under one email permission, newest first, each with its provider outcome.
+async fn email_recent_sends(
+    state: &OwnerState,
+    company: &str,
+    mandate_id: Uuid,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let authority = &state.daemon.authority;
+    let reservations = authority
+        .records_of_kind(company, "email_send_reserved")
+        .await?;
+    let statuses = authority
+        .records_of_kind(company, "email_send_status")
+        .await?;
     let reserved_ids: std::collections::HashSet<String> = reservations
         .iter()
         .filter_map(|record| {
@@ -13002,84 +13031,100 @@ async fn email_mandates(
                 .map(|id| (id.to_owned(), &record.body))
         })
         .collect();
-    let mut entries = Vec::with_capacity(mandates.len());
-    for mandate in mandates {
+    Ok(authority
+        .list_email_permits(company, mandate_id)
+        .await?
+        .into_iter()
+        .take(20)
+        .map(|permit| {
+            let permit_id = permit.id.to_string();
+            let status = latest_statuses.get(&permit_id);
+            let outcome = status
+                .and_then(|body| body.get("outcome").and_then(serde_json::Value::as_str))
+                .unwrap_or_else(|| {
+                    if reserved_ids.contains(&permit_id) {
+                        "outcome_unknown"
+                    } else {
+                        "permit_issued"
+                    }
+                });
+            serde_json::json!({
+                "permit_id": permit.id,
+                "recipient": permit.recipient,
+                "effect_key": permit.effect_key,
+                "issued_at": permit.issued_at,
+                "rationale": permit.rationale,
+                "evidence_refs": permit.evidence_refs,
+                "outcome": outcome,
+                "provider_ref": status.and_then(|body| body.get("provider_ref")),
+                "provider_detail": status.and_then(|body| body.get("provider_detail")),
+            })
+        })
+        .collect())
+}
+
+/// Every standing permission not revoked, with its limits in plain words and its usage so far,
+/// for Company › Authority. Email permissions also carry their recent sends.
+async fn standing_mandates(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            logged(error, "This company could not be found."),
+        );
+    }
+    let unreadable = |error: anyhow::Error| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "mandate",
+            logged(error, "Standing permissions could not be read. Try again."),
+        )
+    };
+    let listed = match state.daemon.authority.list_mandates(&company).await {
+        Ok(listed) => listed,
+        Err(error) => return unreadable(error),
+    };
+    let now = Utc::now();
+    let mut entries = Vec::with_capacity(listed.len());
+    for (mandate, version) in listed {
         let usage = match state
             .daemon
             .authority
-            .email_mandate_usage(&company, mandate.id)
+            .mandate_usage(&company, &mandate)
             .await
         {
             Ok(usage) => usage,
-            Err(error) => {
-                return api_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "mandate",
-                    logged(error, "Email permissions could not be read. Try again."),
-                )
-            }
+            Err(error) => return unreadable(error),
         };
-        let recent_decisions = match state
-            .daemon
-            .authority
-            .list_email_permits(&company, mandate.id)
-            .await
-        {
-            Ok(permits) => permits
-                .into_iter()
-                .take(20)
-                .map(|permit| {
-                    let permit_id = permit.id.to_string();
-                    let status = latest_statuses.get(&permit_id);
-                    let outcome = status
-                        .and_then(|body| body.get("outcome").and_then(serde_json::Value::as_str))
-                        .unwrap_or_else(|| {
-                            if reserved_ids.contains(&permit_id) {
-                                "outcome_unknown"
-                            } else {
-                                "permit_issued"
-                            }
-                        });
-                    serde_json::json!({
-                        "permit_id": permit.id,
-                        "recipient": permit.recipient,
-                        "effect_key": permit.effect_key,
-                        "issued_at": permit.issued_at,
-                        "rationale": permit.rationale,
-                        "evidence_refs": permit.evidence_refs,
-                        "outcome": outcome,
-                        "provider_ref": status.and_then(|body| body.get("provider_ref")),
-                        "provider_detail": status.and_then(|body| body.get("provider_detail")),
-                    })
-                })
-                .collect::<Vec<_>>(),
-            Err(error) => {
-                return api_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "mandate",
-                    logged(error, "Email permissions could not be read. Try again."),
-                )
-            }
+        let mut entry = match serde_json::to_value(&mandate) {
+            Ok(entry) => entry,
+            Err(error) => return unreadable(error.into()),
         };
-        entries.push(serde_json::json!({
-            "id": mandate.id,
-            "purpose": mandate.purpose,
-            "audience_guidance": mandate.audience_guidance,
-            "sender": mandate.sender,
-            "sender_name": mandate.sender_name,
-            "max_per_day": mandate.max_per_day,
-            "max_total": mandate.max_total,
-            "timezone": mandate.timezone,
-            "expires_at": mandate.expires_at,
-            "created_at": mandate.created_at,
-            "usage": usage,
-            "recent_decisions": recent_decisions,
-        }));
+        entry["version"] = serde_json::json!(version);
+        entry["active"] = serde_json::json!(mandate.expires_at > now);
+        entry["limits_in_words"] =
+            serde_json::json!(mandate::limit_lines(mandate.kind, &mandate.limits));
+        entry["terms_in_words"] = serde_json::json!(mandate::plain_terms(&mandate.terms())
+            .into_iter()
+            .map(|(label, value)| serde_json::json!({"label": label, "value": value}))
+            .collect::<Vec<_>>());
+        entry["usage_in_words"] = serde_json::json!(mandate::usage_line(&mandate, &usage));
+        entry["usage"] = serde_json::json!(usage);
+        if mandate.kind == mandate::MandateKind::Email {
+            entry["recent_sends"] = match email_recent_sends(&state, &company, mandate.id).await {
+                Ok(sends) => serde_json::json!(sends),
+                Err(error) => return unreadable(error),
+            };
+        }
+        entries.push(entry);
     }
     Json(serde_json::json!({"mandates": entries})).into_response()
 }
 
-async fn revoke_email_mandate(
+async fn revoke_mandate(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, mandate_id)): AxumPath<(String, Uuid)>,
@@ -13098,7 +13143,7 @@ async fn revoke_email_mandate(
     match state
         .daemon
         .authority
-        .revoke_email_mandate(&company, principal.actor_id(), mandate_id, &input.reason)
+        .revoke_mandate(&company, principal.actor_id(), mandate_id, &input.reason)
         .await
     {
         Ok(()) => {
@@ -13109,7 +13154,7 @@ async fn revoke_email_mandate(
             "mandate",
             refusal_or_logged(
                 error,
-                "That email permission could not be revoked. Refresh and try again.",
+                "That standing permission could not be revoked. Refresh and try again.",
             ),
         ),
     }

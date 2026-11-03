@@ -1463,11 +1463,11 @@ try {
         },
       },
     });
-    const itemId = `authority:email_mandate_proposal:${proposal}`;
+    const itemId = `authority:mandate_proposal:${proposal}`;
     const answer = (who, expected, decision = { action: "grant" }) =>
       coreApi(who, `${base}/approvals/pending-decision`, {
         method: "POST", expected,
-        body: { id: randomUUID(), item_id: itemId, target: { kind: "email_mandate", proposal }, decision },
+        body: { id: randomUUID(), item_id: itemId, target: { kind: "mandate", proposal }, decision },
       });
     const inInbox = async () => (await coreApi(owner, `${base}/attention`)).items.some((item) => item.id === itemId);
     assert(await inInbox(), "the mandate proposal is in the owner's Inbox");
@@ -1491,6 +1491,96 @@ try {
     assert(!(await inInbox()), "answered: the card stays gone");
     await answer(owner, 400, { action: "decline" });
     pass("mandate answer: owner only, Undo by the decider only, applies once after the window");
+  }
+
+  // 9i-2b. Standing permissions are one generic card (3 Nov 2026): a vendor order permission an
+  //        agent asked for shows exactly what is granted, in plain words, at desktop and phone
+  //        width, light and dark. Only the owner sees and answers it; the admin and the member
+  //        neither see it nor read Company › Authority's permissions. After the window it is
+  //        listed with its limits and usage, and the owner revokes it.
+  {
+    const proposal = randomUUID();
+    const plane = new pg.Client({ connectionString: (await readFile(join(root, "orgintel.toml"), "utf8")).match(/database_url = "(.*)"/)[1] });
+    await plane.connect();
+    // The record `restless mandate propose` writes for Exec (the journey holds no Runtime).
+    await plane.query("INSERT INTO restless_authority.records (company, kind, actor_id, body) VALUES ($1, 'mandate_proposal', 'exec', $2)", [
+      company,
+      {
+        id: proposal, kind: "vendor_order",
+        terms: {
+          kind: "vendor_order", title: "Print fridge magnets with Vistaprint",
+          scope: "Reorder open-day fridge magnets when the box runs low",
+          limits: { max_per_action: { minor: 15000, currency: "AUD" }, max_total: 4, counterparties: ["vistaprint.com.au"] },
+          expires_at: new Date(Date.now() + 60 * 86400000).toISOString(),
+          owner_approves_each: false, rationale: "We hand out about 200 at each open day and run out every month.",
+          evidence: ["https://www.vistaprint.com.au/magnets"],
+        },
+      },
+    ]);
+    await plane.end();
+    const itemId = `authority:mandate_proposal:${proposal}`;
+    const inInbox = async (who = owner) => (await coreApi(who, `${base}/attention`)).items.some((item) => item.id === itemId);
+    const card = (await coreApi(owner, `${base}/attention`)).items.find((item) => item.id === itemId);
+    assert(card, "the permission is in the owner's Inbox");
+    assert.equal(card.source.kind, "mandate_proposal");
+    const granted = card.evidence.find((entry) => entry.kind === "authority-mandate");
+    assert.match(granted.content, /^Allows: Print fridge magnets with Vistaprint\n/, "the card says what it allows");
+    assert.match(granted.content, /\nLimits: Up to A\$150 per order; At most 4 orders in total; Only with vistaprint\.com\.au\n/, "and its limits in plain words");
+    assert(!(await inInbox(bob)) && !(await inInbox(alice)), "only the owner is asked");
+    for (const [width, height] of [[1440, 900], [390, 844]])
+      for (const colorScheme of ["light", "dark"]) {
+        await owner.page.setViewportSize({ width, height });
+        await owner.page.emulateMedia({ colorScheme });
+        await owner.page.goto(`${core}/${company}?item=${encodeURIComponent(itemId)}`);
+        await owner.page.locator("dl.grant").waitFor({ timeout: 15000 });
+        await owner.page.getByText("Hold to approve").first().waitFor({ timeout: 15000 });
+        const sideways = await owner.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        assert(sideways <= 0, `the permission card scrolls sideways by ${sideways}px at ${width}`);
+        await shot(owner, `mandate-card-${width}-${colorScheme}`);
+      }
+    await owner.page.setViewportSize({ width: 1280, height: 900 });
+    await owner.page.emulateMedia({ colorScheme: "light" });
+    const answer = (who, expected, decision = { action: "grant" }) =>
+      coreApi(who, `${base}/approvals/pending-decision`, {
+        method: "POST", expected,
+        body: { id: randomUUID(), item_id: itemId, target: { kind: "mandate", proposal }, decision },
+      });
+    await answer(bob, 403);
+    await answer(alice, 403);
+    await coreApi(bob, `${base}/mandates`, { expected: 403 });
+    await coreApi(alice, `${base}/mandates`, { expected: 403 });
+    const undone = await answer(owner, 200);
+    assert(!(await inInbox()), "the card leaves at once");
+    assert.equal((await coreApi(owner, `${base}/approval-decisions/${undone.id}`, { method: "DELETE" })).state, "canceled");
+    assert(await inInbox(), "Undo puts the card back");
+    const saved = await answer(owner, 200);
+    const deadline = Date.now() + 20000;
+    let state = saved.state;
+    while (state === "pending" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      state = (await coreApi(owner, `${base}/approval-decisions`)).items.find((item) => item.id === saved.id)?.state ?? "gone";
+    }
+    assert.equal(state, "applied", "the permission is granted after the window");
+    const listed = (await coreApi(owner, `${base}/mandates`)).mandates.find((item) => item.title === "Print fridge magnets with Vistaprint");
+    assert(listed, "Company › Authority lists it");
+    assert.equal(listed.usage_in_words, "0 of 4 orders");
+    assert.deepEqual(listed.limits_in_words, ["Up to A$150 per order", "At most 4 orders in total", "Only with vistaprint.com.au"]);
+    for (const [width, height] of [[1440, 900], [390, 844]])
+      for (const colorScheme of ["light", "dark"]) {
+        await owner.page.setViewportSize({ width, height });
+        await owner.page.emulateMedia({ colorScheme });
+        await owner.page.goto(`${core}/${company}/company/authority`);
+        await owner.page.getByText("Print fridge magnets with Vistaprint").first().waitFor({ timeout: 15000 });
+        const sideways = await owner.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        assert(sideways <= 0, `Authority scrolls sideways by ${sideways}px at ${width}`);
+        await shot(owner, `mandates-${width}-${colorScheme}`);
+      }
+    await owner.page.setViewportSize({ width: 1280, height: 900 });
+    await owner.page.emulateMedia({ colorScheme: "light" });
+    await coreApi(bob, `${base}/mandates/${listed.id}/revoke`, { method: "POST", body: { reason: "no" }, expected: 403 });
+    await coreApi(owner, `${base}/mandates/${listed.id}/revoke`, { method: "POST", body: { reason: "Box is full" } });
+    assert(!(await coreApi(owner, `${base}/mandates`)).mandates.some((item) => item.id === listed.id), "revoked: it leaves the list");
+    pass("standing permission: one generic card, owner only, Undo, listed with limits and usage, revoked");
   }
 
   // 9i-3. An email without a mandate waits for the owner (S109 H2). A Resend key stored under an

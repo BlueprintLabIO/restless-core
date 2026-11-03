@@ -102,6 +102,12 @@ pub struct AuthorityInput {
     pub mandate_id: Option<String>,
     #[serde(default)]
     pub mandate_proposal: Option<serde_json::Value>,
+    /// Which kind of standing permission a proposal or check is about (`email`, `vendor_order`).
+    #[serde(default)]
+    pub mandate_kind: Option<String>,
+    /// The one action a standing permission check is asked about.
+    #[serde(default)]
+    pub mandate_action: Option<serde_json::Value>,
     #[serde(default)]
     pub email_request: Option<serde_json::Value>,
     #[serde(default)]
@@ -1025,7 +1031,8 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "effect-reconcile" => &["key"],
         "mandate-list" => &[],
         "mandate-permit" => &["mandate_id", "mandate_proposal", "actor"],
-        "mandate-propose" => &["mandate_proposal", "purpose", "actor"],
+        "mandate-propose" => &["mandate_proposal", "mandate_kind", "purpose", "actor"],
+        "mandate-check" | "mandate-use" => &["mandate_kind", "mandate_action", "actor"],
         "email-preview" | "email-send" => &["email_request", "actor"],
         "email-observe" => &["actor", "email_observe_list", "email_observe_after"],
         "identity-evidence-add" => &[
@@ -1317,6 +1324,7 @@ pub const OWNER_ONLY: &[&str] = &[
 const COMPANY_EXEC_ONLY: &[&str] = &[
     "mandate-permit",
     "mandate-propose",
+    "mandate-use",
     "finance-payee-propose",
     "setting-propose",
     "email-send",

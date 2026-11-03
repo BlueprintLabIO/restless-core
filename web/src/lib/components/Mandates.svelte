@@ -1,4 +1,8 @@
 <script lang="ts">
+	/* What the owner allowed the company to do on its own (standing permissions of any kind:
+	 * email, orders from a vendor, ...): each with its limits, what it has used so far and until
+	 * when, and Revoke. Agents ask for these in the Inbox; the owner can also propose an email
+	 * permission here, which still waits for their approval there. */
 	import Field from '$lib/ui/forms/Field.svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { Section, Item, Notice, Empty } from '$lib/ui/page';
@@ -6,12 +10,12 @@
 	import { refreshAttention } from '$lib/model/queries.svelte';
 	import { settingQuery } from '$lib/model/setting.svelte';
 	import {
-		emailMandatesKey,
+		mandatesKey,
 		proposeEmailMandate,
-		readEmailMandates,
-		revokeEmailMandate,
-		type EmailMandate
-	} from '$lib/model/email-mandates';
+		readMandates,
+		revokeMandate,
+		type Mandate
+	} from '$lib/model/mandates';
 	import { toast, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { confirmAction } from '$lib/ui/feedback/confirm.svelte';
 
@@ -30,14 +34,14 @@
 	};
 
 	const source = settingQuery({
-		key: () => emailMandatesKey(companyId),
-		read: (signal) => readEmailMandates(companyId, signal)
+		key: () => mandatesKey(companyId),
+		read: (signal) => readMandates(companyId, signal)
 	});
 	const mandates = $derived(source.view ?? []);
 	const loading = $derived(source.loading);
 	const loadError = $derived(
 		source.failure && !source.view
-			? failureSentence(source.failure, 'Email authority couldn’t be loaded.')
+			? failureSentence(source.failure, 'Permissions couldn’t be loaded.')
 			: ''
 	);
 	const loadRetryable = $derived(source.failure ? describeFailure(source.failure).retryable : true);
@@ -46,11 +50,12 @@
 	let revoking = $state<string | null>(null);
 	let error = $state('');
 	let editing = $state(false);
-	/* The mandate a change is proposed for; null for a new one. */
-	let replacing = $state<EmailMandate | null>(null);
+	/* The email permission a change is proposed for; null for a new one. */
+	let replacing = $state<Mandate | null>(null);
 	let draft = $state<Draft>(emptyDraft());
-	const current = $derived(
-		mandates.find((item) => !item.revoked_at && Date.parse(item.expires_at) > Date.now()) ?? null
+	/* One email permission at a time; other kinds may have several. */
+	const currentEmail = $derived(
+		mandates.find((item) => item.kind === 'email' && item.active) ?? null
 	);
 
 	function emptyDraft(): Draft {
@@ -81,15 +86,16 @@
 		return new Date(date.valueOf() - offset).toISOString().slice(0, 16);
 	}
 
-	function beginChange(mandate: EmailMandate) {
+	function beginChange(mandate: Mandate) {
+		if (!mandate.email) return;
 		draft = {
-			purpose: mandate.purpose,
-			audience_guidance: mandate.audience_guidance,
-			sender: mandate.sender,
-			sender_name: mandate.sender_name ?? '',
-			max_per_day: String(mandate.max_per_day),
-			max_total: String(mandate.max_total),
-			timezone: mandate.timezone,
+			purpose: mandate.email.purpose,
+			audience_guidance: mandate.email.audience_guidance,
+			sender: mandate.email.sender,
+			sender_name: mandate.email.sender_name ?? '',
+			max_per_day: String(mandate.limits.max_per_day ?? ''),
+			max_total: String(mandate.limits.max_total ?? ''),
+			timezone: mandate.limits.timezone ?? 'UTC',
 			expires_at: localInput(mandate.expires_at)
 		};
 		replacing = mandate;
@@ -126,21 +132,21 @@
 			editing = false;
 			toast(
 				replacing
-					? 'Sent to your Inbox. The current mandate holds until you approve the change there'
-					: 'Sent to your Inbox. It authorizes nothing until you approve it there'
+					? 'Sent to your Inbox. The current permission holds until you approve the change there'
+					: 'Sent to your Inbox. It allows nothing until you approve it there'
 			);
 		} catch (cause) {
-			error = failureSentence(cause, 'The email mandate proposal could not be submitted.');
+			error = failureSentence(cause, 'The email permission could not be proposed.');
 		} finally {
 			saving = false;
 		}
 	}
 
-	async function revoke(mandate: EmailMandate) {
+	async function revoke(mandate: Mandate) {
 		if (revoking) return;
 		const yes = await confirmAction({
-			title: `Revoke the email mandate for “${mandate.purpose}”?`,
-			body: 'New email sends under it stop at once. A new mandate needs your approval again.',
+			title: `Revoke “${mandate.title}”?`,
+			body: 'Nothing more happens under it from now on. Asking again needs your approval.',
 			action: 'Revoke',
 			danger: true
 		});
@@ -148,11 +154,11 @@
 		error = '';
 		revoking = mandate.id;
 		try {
-			await revokeEmailMandate(companyId, mandate.id, 'Revoked by owner in Access & limits.');
+			await revokeMandate(companyId, mandate.id, 'Revoked by owner in Company › Authority.');
 			source.accept(mandates.filter((item) => item.id !== mandate.id));
-			toast('Email mandate revoked');
+			toast('Permission revoked');
 		} catch (cause) {
-			error = failureSentence(cause, 'The email mandate could not be revoked.');
+			error = failureSentence(cause, 'The permission could not be revoked.');
 		} finally {
 			revoking = null;
 		}
@@ -162,10 +168,10 @@
 		const date = new Date(value);
 		return Number.isNaN(date.valueOf())
 			? value
-			: date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+			: date.toLocaleDateString(undefined, { dateStyle: 'medium' });
 	}
 
-	function decisionLabel(outcome: string): string {
+	function sendLabel(outcome: string): string {
 		switch (outcome) {
 			case 'permit_issued':
 				return 'Permit issued; send status not reported';
@@ -181,29 +187,29 @@
 		}
 	}
 	let openMandate = $state('');
-	/* A change that failed is a toast, never a banner that pushes the mandates down. A first read
+	/* A change that failed is a toast, never a banner that pushes the list down. A first read
 	 * that failed is the section's content and stays in place. */
 	toastWhile(() => !!error && { text: error, tone: 'failure' });
 </script>
 
 <Section
-	id="email"
-	title="Email authority"
-	info="A mandate lets Exec email people who fit an approved purpose and audience, within daily and total limits, until it expires. Exec judges each prospect and can make mistakes; the send boundary checks recipient, sender, limits and expiry, not the judgement. Without a mandate, every email needs your exact-recipient approval."
+	id="permissions"
+	title="Granted permissions"
+	info="What you allowed the company to do on its own, such as sending email or ordering from a vendor, within limits and until a date. Agents ask for these in your Inbox; each action is checked against the limits before it happens. Revoking stops it at once."
 >
 	{#snippet actions()}
 		{#if !editing}<button
 				class="btn small"
 				type="button"
-				disabled={loading || loadError !== '' || current !== null}
-				title={current
-					? 'One mandate at a time. Propose changes to the current one, or revoke it first.'
-					: undefined}
-				onclick={beginCreate}>Add mandate</button
+				disabled={loading || loadError !== '' || currentEmail !== null}
+				title={currentEmail
+					? 'One email permission at a time. Propose changes to the current one, or revoke it first.'
+					: 'Propose an email permission. It waits for your approval in the Inbox.'}
+				onclick={beginCreate}>Add email permission</button
 			>{/if}
 	{/snippet}
 	{#if loadError}
-		<Notice tone="danger" title="Email mandates could not be read" details={loadError}>
+		<Notice tone="danger" title="Permissions could not be read" details={loadError}>
 			{#snippet actions()}{#if loadRetryable}<button
 						class="btn small"
 						type="button"
@@ -211,83 +217,78 @@
 					>{/if}{/snippet}
 		</Notice>
 	{:else if loading}
-		<Empty compact title="Loading email mandates…" />
+		<Empty compact title="Loading permissions…" />
 	{:else if mandates.length}
 		{#each mandates as mandate (mandate.id)}
-			{@const expired = Date.parse(mandate.expires_at) <= Date.now()}
 			<Item
-				title={mandate.purpose}
-				meta={mandate.usage
-					? `${mandate.usage.used_today}/${mandate.usage.limit_per_day} today · ${mandate.usage.used_total}/${mandate.usage.limit_total} total`
-					: `${mandate.max_per_day} a day · ${mandate.max_total} total`}
-				dim={expired || mandate.revoked_at != null}
+				title={mandate.title}
+				meta={mandate.usage_in_words}
+				dim={!mandate.active}
 				onclick={() => (openMandate = openMandate === mandate.id ? '' : mandate.id)}
 				selected={openMandate === mandate.id}
 			>
 				{#snippet trailing()}
-					<span
-						>{mandate.revoked_at
-							? 'Revoked'
-							: expired
-								? 'Expired'
-								: `Until ${localDate(mandate.expires_at)}`}</span
-					>
+					<span>{mandate.active ? `Until ${localDate(mandate.expires_at)}` : 'Expired'}</span>
 				{/snippet}
 				{#snippet actions()}
-					{#if current?.id === mandate.id && !editing}<button
+					{#if mandate.kind === 'email' && mandate.active && !editing}<button
 							class="btn small ghost"
 							type="button"
-							title="Prefilled from this mandate. It keeps working until you approve the change in the Inbox."
+							title="Prefilled from this permission. It keeps working until you approve the change in the Inbox."
 							onclick={() => beginChange(mandate)}>Propose changes</button
 						>{/if}
-					{#if !mandate.revoked_at}<button
-							class="btn small"
-							type="button"
-							disabled={revoking !== null}
-							onclick={() => void revoke(mandate)}
-							>{revoking === mandate.id ? 'Revoking…' : 'Revoke'}</button
-						>{/if}
+					<button
+						class="btn small"
+						type="button"
+						disabled={revoking !== null}
+						aria-busy={revoking === mandate.id}
+						onclick={() => void revoke(mandate)}>Revoke</button
+					>
 				{/snippet}
 				{#if openMandate === mandate.id}
 					<dl class="facts">
+						{#each mandate.terms_in_words as row (row.label)}
+							<div>
+								<dt>{row.label}</dt>
+								<dd>{row.value}</dd>
+							</div>
+						{/each}
 						<div>
-							<dt>Audience</dt>
-							<dd>{mandate.audience_guidance}</dd>
+							<dt>Used</dt>
+							<dd>{mandate.usage_in_words}</dd>
 						</div>
-						<div>
-							<dt>Sender</dt>
-							<dd>
-								{mandate.sender_name
-									? `${mandate.sender_name} <${mandate.sender}>`
-									: mandate.sender}
-							</dd>
-						</div>
-						<div>
-							<dt>Quota day</dt>
-							<dd>{mandate.usage?.usage_day ?? '—'} ({mandate.timezone})</dd>
-						</div>
+						{#if mandate.rationale}<div>
+								<dt>Why</dt>
+								<dd>{mandate.rationale}</dd>
+							</div>{/if}
+						{#if mandate.proposed_by}<div>
+								<dt>Asked by</dt>
+								<dd>{mandate.proposed_by}</dd>
+							</div>{/if}
 					</dl>
-					{#if mandate.recent_decisions?.length}
-						<ul class="sends" aria-label="Recent sends">
-							{#each mandate.recent_decisions as decision (decision.permit_id)}
-								<li
-									title={`${decision.rationale} Evidence: ${decision.evidence_refs.join(', ')}${decision.provider_ref ? ` · Provider reference: ${decision.provider_ref}` : ''}`}
-								>
-									<span>{decision.recipient}</span>
-									<span>{decisionLabel(decision.outcome)}</span>
-									<time>{localDate(decision.issued_at)}</time>
-								</li>
-							{/each}
-						</ul>
-					{:else}<p class="quiet">No emails sent under this mandate yet.</p>{/if}
+					{#if mandate.kind === 'email'}
+						{#if mandate.recent_sends?.length}
+							<ul class="sends" aria-label="Recent sends">
+								{#each mandate.recent_sends as send (send.permit_id)}
+									<li
+										title={`${send.rationale} Evidence: ${send.evidence_refs.join(', ')}${send.provider_ref ? ` · Provider reference: ${send.provider_ref}` : ''}`}
+									>
+										<span>{send.recipient}</span>
+										<span>{sendLabel(send.outcome)}</span>
+										<time>{localDate(send.issued_at)}</time>
+									</li>
+								{/each}
+							</ul>
+						{:else}<p class="quiet">No emails sent under this permission yet.</p>{/if}
+					{/if}
 				{/if}
 			</Item>
 		{/each}
 	{:else if !editing}
 		<Empty
 			compact
-			title="No email mandate"
-			info="Every email still needs your exact-recipient approval in the Inbox."
+			title="No permissions granted"
+			info="Agents ask in your Inbox when they need one. Until then, each email or order waits for you."
 		/>
 	{/if}
 
@@ -401,12 +402,8 @@
 						editing = false;
 						error = '';
 					}}>Cancel</button
-				><button class="btn primary small" type="submit" disabled={saving}
-					>{saving
-						? 'Submitting…'
-						: replacing
-							? 'Request approval for changes'
-							: 'Request approval'}</button
+				><button class="btn primary small" type="submit" disabled={saving} aria-busy={saving}
+					>{replacing ? 'Request approval for changes' : 'Request approval'}</button
 				>
 			</footer>
 		</form>

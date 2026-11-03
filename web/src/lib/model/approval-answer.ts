@@ -5,7 +5,7 @@ import type { AttentionItem } from './view';
 export type ApprovalTarget =
 	| { kind: 'party'; party: string }
 	| { kind: 'tool_call'; call_key: string }
-	| { kind: 'email_mandate'; proposal: string }
+	| { kind: 'mandate'; proposal: string }
 	| { kind: 'payee'; proposal: number }
 	| { kind: 'account_notice'; account: string; notice: string }
 	| { kind: 'account_request'; request: string }
@@ -16,12 +16,12 @@ export type ApprovalDecision =
 	| { action: 'decline'; note?: string; changes_requested?: boolean };
 
 /** The exact request this card answers: one prepared call, one party's first contact, or the
- * mandate, payee, account notice, account request, publication or email the card names. */
+ * standing permission, payee, account notice, account request, publication or email the card names. */
 export function approvalTarget(
 	item: Pick<AttentionItem, 'source'> & Partial<Pick<AttentionItem, 'accountUse'>>
 ): ApprovalTarget {
 	const { kind, reference } = item.source;
-	if (kind === 'email_mandate_proposal') return { kind: 'email_mandate', proposal: reference };
+	if (kind === 'mandate_proposal') return { kind: 'mandate', proposal: reference };
 	if (kind === 'payee_proposal' && /^\d+$/.test(reference))
 		return { kind: 'payee', proposal: Number(reference) };
 	if (kind === 'account_notice' && item.accountUse?.account.id)

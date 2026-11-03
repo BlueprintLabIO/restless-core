@@ -46,6 +46,10 @@ pub const BUILT_IN: &[(&str, &str)] = &[
     ("Operating money through Airwallex", "restless finance"),
     ("Fast typed decisions", "restless decide"),
     (
+        "Standing permissions from the owner (email, vendor orders)",
+        "restless mandate check|propose|list",
+    ),
+    (
         "Apps directory and connected tools",
         "restless apps search, restless tools list",
     ),
@@ -394,6 +398,24 @@ pub async fn read(daemon: &crate::daemon::Daemon, company: &str) -> Result<Value
         Err(_) => json!({ "state": "unknown" }),
     };
     let filed_to = faults_company(company);
+    // The owner's standing permissions: what the company may do on its own, and how to ask for
+    // one, so "this needs the owner's permission" always has a next step.
+    let now = chrono::Utc::now();
+    let permissions = crate::mandate::active(pool, company)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(mandate, _)| {
+            json!({
+                "id": mandate.id,
+                "kind": mandate.kind,
+                "title": mandate.title,
+                "limits": crate::mandate::limit_lines(mandate.kind, &mandate.limits),
+                "owner_approves_each": mandate.owner_approves_each,
+                "expires_in_days": (mandate.expires_at - now).num_days(),
+            })
+        })
+        .collect::<Vec<_>>();
     Ok(json!({
         "built_in": built_in(),
         "integrations": integrations(&names),
@@ -402,6 +424,11 @@ pub async fn read(daemon: &crate::daemon::Daemon, company: &str) -> Result<Value
         "vault": { "status": vault_status, "keys": vault },
         "model": model,
         "computer": computer,
+        "standing_permissions": {
+            "active": permissions,
+            "kinds": crate::mandate::MandateKind::ALL.map(|kind| json!({ "kind": kind, "for": kind.purpose() })),
+            "when_you_need_one": "Never stop on \"needs the owner's permission\" or ask in chat: `restless mandate check --kind <kind> ...` says allowed, or returns a ready proposal to raise with `restless mandate propose` as one Inbox card.",
+        },
         "faults": {
             "file_with": "restless capabilities fault --summary '<what failed>' --evidence '<exact error, command, Work or attempt id, time>'",
             "files_to": filed_to.as_deref().unwrap_or("recorded on this plane for Restless"),

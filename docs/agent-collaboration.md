@@ -118,13 +118,40 @@ lead's authority. A lead can use the resulting conversation to make or record th
 keeps peer communication responsive while leaving durable work, review, and accountability in the
 existing Work system.
 
+## Standing permissions
+
+Some actions need the owner's permission: sending outreach email, placing an order with a vendor.
+Asking each time blocks the company, so the owner grants a standing permission (a mandate) once:
+a kind, a plain title, what it covers, its limits (a count, a daily rate, money per action and in
+total with its currency, the recipients, vendors or domains it is limited to), an end date, and
+whether the owner still approves each action. It is proposed by an agent and answered by the owner
+as one Inbox card (Approve or Decline, with the usual Undo window), and listed with its usage in
+Company › Authority, where the owner can revoke it.
+
+Every action of a governed kind calls one check before acting: `restless mandate check --kind
+<kind> [--vendor ...] [--amount ... --currency ...] [--summary ...]` (or the `restless_check_mandate`
+tool). It answers `allowed`, with what is left, or `needs_permission`, with the reason and a ready
+proposal. "I need the owner's permission for X" is therefore never a dead end: adjust the proposal
+and raise it with `restless mandate propose --proposal-file <json> --reason <why>` (or the
+`restless_propose_mandate` tool), note it in the Work, and continue other work until the answer
+arrives as a message. Only one proposal per kind waits at a time. `restless mandate use` checks and
+records an action against the limits in one step, so two agents cannot both spend the last of a
+limit.
+
+Email is the first kind. Its permission does not replace the exact-text check: Exec still issues a
+one-use permit for each email (sender, recipient, payload digest, effect key), and the first email
+under a new permission goes to the owner's own address as a test. Ordering from a vendor is the
+second kind; it is a permission and the check only, and Restless does not pay the vendor.
+
 ## Verification
 
 `document_commands::tests` exercises private discovery and reads, durable create/share/comment/reply
 retries, exact mention IDs and reply threading, membership authority, and access revocation against
 PostgreSQL. `document::tests` covers CLI argument constraints and review/reply coordinates. The
 Runtime authentication test checks that both document and Room commands pin the signed actor and
-reject an owner attribution override. Installed-image verification runs against a separate `_test`
+reject an owner attribution override. `mandate::tests` covers standing permissions against
+PostgreSQL: propose, approve, decline, limits, expiry, revocation, a vendor order kind and the
+migration of email-only records; `approval_decisions::tests` covers the Undo window. Installed-image verification runs against a separate `_test`
 company and test account plane. Core/CLI regression runs use no model provider. Separate real
 Codex smoke runs exercise subscription authentication in a disposable runtime without writing
 owner-company documents. Test data, processes and credentials in the test volume are removed.

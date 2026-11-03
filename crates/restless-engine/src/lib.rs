@@ -99,7 +99,7 @@ pub mod tool_gateway;
 pub mod transcript;
 pub mod wire;
 
-pub use crate::authority as mandate;
+pub mod mandate;
 
 #[allow(unused_imports)]
 use std::collections::HashMap;

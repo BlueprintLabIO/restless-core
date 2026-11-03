@@ -4,7 +4,7 @@
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
-	import EmailMandates from '$lib/components/EmailMandates.svelte';
+	import Mandates from '$lib/components/Mandates.svelte';
 	import PaymentRail from '$lib/components/PaymentRail.svelte';
 	import { Section, Row, Item, Notice, Fold, Toggle, Segmented } from '$lib/ui/page';
 	import Field from '$lib/ui/forms/Field.svelte';
@@ -643,7 +643,7 @@
 			{/each}
 			<PaymentRail {companyId} {view} onview={(next) => source.accept(next)} />
 		</Section>
-		<EmailMandates {companyId} />
+		<Mandates {companyId} />
 	{:else if section === 'computer' && view}
 		{@const runtime = view.limits.runtime}
 		<Section
