@@ -23,6 +23,19 @@ test('Work changes and unknown kinds refresh everything but settings', () => {
 	assert.equal(hintTouches(['schedule_changed'], ['schedules', 'acme']), true);
 });
 
+/* A busy company sends these every few seconds; each query they touch is a request through the
+ * edge (3 Nov 2026), so they reach only what they can change. */
+test('progress and library hints read only what they can change', () => {
+	assert.equal(hintTouches(['work_progress'], ['work-graph', 'acme']), true);
+	assert.equal(hintTouches(['work_progress'], ['attention', 'acme']), true);
+	assert.equal(hintTouches(['work_progress'], ['conversation', 'acme', 'exec', null]), false);
+	assert.equal(hintTouches(['work_progress'], ['documents', 'acme']), false);
+	assert.equal(hintTouches(['library_changed'], ['documents', 'acme']), true);
+	assert.equal(hintTouches(['library_changed'], ['library-sheets', 'acme']), true);
+	assert.equal(hintTouches(['library_changed'], ['work-graph', 'acme']), false);
+	assert.equal(hintTouches(['library_changed', 'work_changed'], ['work-graph', 'acme']), true);
+});
+
 test('the tripwire reports a shown message that disappears, not older history or a retract', () => {
 	const before = [{ id: 10 }, { id: 11 }, { id: 12 }];
 	assert.deepEqual(vanished(before, [{ id: 10 }, { id: 11 }]), ['12']);
