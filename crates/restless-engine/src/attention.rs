@@ -4756,7 +4756,6 @@ fn mandate_proposal_item(
             kind: "evidence",
         });
     }
-    let limits = crate::mandate::limit_lines(terms.kind, &terms.limits);
     AttentionItem {
         id: format!("authority:mandate_proposal:{}", proposal.id),
         work_id: None,
@@ -4780,11 +4779,16 @@ fn mandate_proposal_item(
         } else {
             format!("Approve only if you accept every line below. Each {one} is checked against the limits before it happens; judgement about what fits the scope can be wrong.")
         },
+        // The exact terms are the card's table; the ask is the reason and the question.
         requested_action: format!(
-            "Allow {} until {}{}?",
-            terms.title,
+            "{}Let the company {} on its own within the limits below, until {}?",
+            if terms.rationale.is_empty() {
+                String::new()
+            } else {
+                format!("{} ", terms.rationale.trim_end_matches('.').to_string() + ".")
+            },
+            terms.kind.purpose(),
             terms.expires_at.format("%-d %b %Y"),
-            if limits.is_empty() { String::new() } else { format!(" ({})", limits.join("; ")) }
         ),
         if_no_action: "Nothing is allowed while this waits; the company keeps asking or works around it.".into(),
         uncertainty: None,

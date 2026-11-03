@@ -794,7 +794,7 @@ pub fn plain_terms(terms: &NewMandate) -> Vec<(String, String)> {
     ));
     let (one, _) = terms.kind.unit();
     rows.push((
-        "Each one".into(),
+        format!("Each {one}"),
         match (terms.kind, terms.owner_approves_each) {
             (_, true) => format!("You still approve each {one} before it happens"),
             (MandateKind::Email, false) => "Exec checks each email against its exact text first; the first goes to you as a test".into(),
