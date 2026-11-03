@@ -6119,6 +6119,18 @@ mod tests {
             loaded.credentials["resend.production"],
             "infisical:/companies/bindings_test/resend"
         );
+        // A key saved under the owner's own name (Reno's RESEND_API_KEY) becomes the sending key
+        // on load and stays usable under its old name.
+        std::fs::write(&path, "name = \"bindings_test\"\nmission = \"test\"\nmodel = \"openai/test\"\n[credentials]\nRESEND_API_KEY = \"infisical:/companies/bindings_test/RESEND_API_KEY\"\n").unwrap();
+        let loaded = super::CompanyConfig::load(&root, "bindings_test").unwrap();
+        assert_eq!(
+            loaded.credentials["resend.production"],
+            "infisical:/companies/bindings_test/RESEND_API_KEY"
+        );
+        assert_eq!(
+            loaded.credentials["RESEND_API_KEY"],
+            "infisical:/companies/bindings_test/RESEND_API_KEY"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]

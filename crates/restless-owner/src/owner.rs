@@ -14641,6 +14641,16 @@ async fn company_vault(
             references.push(serde_json::json!({"name":format!("{id} OAuth"),"reference":"Private native CLI profile in company computer"}));
         }
     }
+    // A Resend key stored under an older name with no binding still sends email; say so on its row.
+    if let Some(reference) = inventory
+        .as_ref()
+        .ok()
+        .and_then(|secrets| credential::unbound_resend_send_reference(&config, secrets))
+    {
+        references.push(
+            serde_json::json!({"name": credential::RESEND_SEND_BINDING, "reference": reference}),
+        );
+    }
     let mut response = match inventory {
         Ok(secrets) => Json(serde_json::json!({"status":"connected","secrets":secrets,"references":references,"revision":company_setup_view(&config)["revision"]})).into_response(),
         Err(_) => Json(serde_json::json!({"status":"unavailable","secrets":null,"references":references,"revision":company_setup_view(&config)["revision"],"message":"Cannot read Infisical right now. Check the local vault service and try again."})).into_response(),
