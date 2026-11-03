@@ -118,6 +118,39 @@ lead's authority. A lead can use the resulting conversation to make or record th
 keeps peer communication responsive while leaving durable work, review, and accountability in the
 existing Work system.
 
+## Work progress estimates
+
+The actor that created a Work (`work.commissioned_by`, usually a lead or Exec) is the source of
+truth for how far it has come. The owner sees that estimate as a thin bar and one line on every Work
+card and row, in the Work detail with a small trend, on People rows and the "Working on" card, and
+rolled up on each Goal. The owner asked for rough numbers from the agents rather than precision
+(3 November 2026).
+
+- At each checkpoint, the creator inspects the Work and records one honest overall estimate,
+  rounded to tens:
+  `restless work progress <work-id> --percent 60 --next "export print files"`. The checkpoints are:
+  an Attempt ended, a handoff was raised or settled, a review came back, a step was reported done,
+  or the Work was blocked or resumed.
+- When the Work is blocked, drop the number and say why instead:
+  `restless work progress <work-id> --blocked "waiting on the printer's bleed spec"`.
+- Only the creator or Exec may record an estimate. `--percent` takes 0 to 90. 100% is recorded
+  automatically, in the same transaction that completes the Work. Abandoned Work keeps its last
+  estimate, shown as stopped. Settled Work refuses new estimates. Work with no estimate shows
+  nothing, not 0%.
+- No extra model call is made. A lead's existing conversation wake and every Exec wake carry a
+  "Progress estimates owed" section, listing the Work the actor created that has passed an
+  Attempt or handoff checkpoint since its last estimate. The section opens with the doctrine in
+  `crates/restless-engine/prompts/estimate-progress.md`. A quiet wake carries nothing, so the
+  fixed prompts do not grow.
+- When an estimate moves 20 points or more from the last one the owner was told about, one
+  compact line goes into the creator's direct chat with the owner, for example
+  "Magnets: ~60% (next: export print files)". The same happens when estimated Work completes
+  ("Magnets: done (100%)"). The line is posted as already read, wakes no one, and never counts
+  as the agent's open question for the Inbox. Work that was never estimated completes quietly.
+- A Goal's roll-up averages its live Work, each part counting equally. Done Work counts 100%.
+  Blocked Work counts its last number. Unestimated Work counts 0. Stopped Work is left out.
+  The roll-up is shown beside "3 of 4 parts done".
+
 ## Verification
 
 `document_commands::tests` exercises private discovery and reads, durable create/share/comment/reply

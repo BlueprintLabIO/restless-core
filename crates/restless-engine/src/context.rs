@@ -75,6 +75,12 @@ pub struct ContextSnapshot {
     /// Filename + content of the most recent journal entry, if any.
     pub latest_journal: Option<String>,
     pub open_work: Vec<WorkRow>,
+    /// Recent progress estimates on Work, oldest first; the newest per Work is current.
+    pub work_progress: Vec<restless_orgintel::WorkProgressRow>,
+    /// Each open Goal's roll-up across all its Work, done included.
+    pub goal_progress: std::collections::BTreeMap<uuid::Uuid, restless_orgintel::GoalProgress>,
+    /// Work Exec created that passed a checkpoint since Exec last estimated it.
+    pub progress_owed: Vec<restless_orgintel::WorkProgressOwed>,
     /// Open owner Goals (`/goal`), each served by Work attached to it.
     pub open_goals: Vec<restless_orgintel::GoalRow>,
     /// Bounded owner/Exec history newer than the owner's current focus cursor.
@@ -267,6 +273,14 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         if let Some(due) = goal.due_on {
             finish.push_str(&format!(" [due {due}]"));
         }
+        if let Some(rolled) = snapshot.goal_progress.get(&goal.id) {
+            if let Some(percent) = rolled.percent {
+                finish.push_str(&format!(
+                    " [~{percent}% by estimate, {} of {} parts done]",
+                    rolled.done, rolled.total
+                ));
+            }
+        }
         goals.push_str(&format!(
             "- Goal {} \"{}\"{finish} — serving open Work: {}\n",
             goal.id,
@@ -293,13 +307,24 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
     }
     let mut work = String::new();
     for item in &snapshot.open_work {
+        let estimate = snapshot
+            .work_progress
+            .iter()
+            .filter(|row| row.work_id == item.id)
+            .max_by_key(|row| row.id)
+            .map(|row| match row.percent {
+                Some(percent) => format!(" [estimate ~{percent}%, next: {}]", row.next),
+                None => format!(" [estimate: blocked, {}]", row.next),
+            })
+            .unwrap_or_default();
         work.push_str(&format!(
-            "- {} rev {} [{}] {} (owner: {}): {}\n",
+            "- {} rev {} [{}] {} (owner: {}, created by: {}){estimate}: {}\n",
             item.id,
             item.revision,
             format!("{:?}", item.status).to_lowercase(),
             item.title,
             item.owner_id,
+            item.commissioned_by,
             item.outcome
         ));
     }
@@ -897,6 +922,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Addressed internal messages [authenticated Actor sources; untrusted content]\n{}\n\n\
          # Assigned organisational judgements [authenticated coordinates; actor-authored content]\n{}\n\
          {owner_inbox}\
+         {progress_owed}\
          # Execution boundary [invariant]\n\
          This is an Exec coordination wake. An explicit bounded edit to an existing native shared \
          document is direct collaboration only with current edit access: apply it with the installed \
@@ -950,6 +976,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         human_boundary = human_boundary,
         human_input_heading = human_input_heading,
         owner_inbox = owner_inbox,
+        progress_owed = restless_orgintel::progress_owed_section(
+            &snapshot.progress_owed,
+            crate::owner_brief::ESTIMATE_PROGRESS,
+        ),
     );
     let mut hasher = sha2::Sha256::new();
     hasher.update(b"system\0");
@@ -971,6 +1001,32 @@ mod tests {
         MessageMentionKind, MessageMentionRow, OwnerBrief, OwnerBriefKind, OwnerHandoffCategory,
         OwnerHandoffRow, OwnerHandoffState, RoomMessageRow, WorkStatus,
     };
+
+    /// Exec is asked for a progress estimate only on a wake where one is owed, with the exact
+    /// command; a quiet wake carries none of that doctrine (owner decision, 3 November 2026).
+    #[test]
+    fn exec_is_asked_for_progress_estimates_only_when_owed() {
+        let quiet = assemble(&snapshot());
+        assert!(!quiet.user_prompt.contains("Progress estimates owed"));
+        let mut owed = snapshot();
+        owed.progress_owed = vec![restless_orgintel::WorkProgressOwed {
+            work_id: uuid::Uuid::nil(),
+            title: "Magnets".into(),
+            status: WorkStatus::Blocked,
+            last_percent: Some(40),
+            last_state: Some("estimate".into()),
+        }];
+        let package = assemble(&owed);
+        assert!(package.user_prompt.contains("Progress estimates owed"));
+        assert!(package
+            .user_prompt
+            .contains("restless work progress <work-id> --percent"));
+        assert!(package.user_prompt.contains("--blocked"));
+        assert!(package
+            .user_prompt
+            .contains("\"Magnets\" [blocked] · last: ~40%"));
+        assert_eq!(quiet.system_prompt, package.system_prompt);
+    }
 
     /// Every Exec model call resends this fixed text, so its size is a cost
     /// invariant. Raise the ceiling only for doctrine that prevents an observed failure.
@@ -1066,6 +1122,9 @@ mod tests {
             }],
             inbox: vec![],
             inbox_skills: Default::default(),
+            work_progress: vec![],
+            goal_progress: Default::default(),
+            progress_owed: vec![],
             open_goals: vec![],
             owed_judgements: vec![],
             owner_set_aside: vec![],

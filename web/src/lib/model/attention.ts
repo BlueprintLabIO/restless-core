@@ -151,7 +151,8 @@ type WireContinuation = {
 	details?: string;
 };
 
-export type WorkContext = Pick<WorkGraphSnapshot, 'work' | 'artifacts'>;
+export type WorkContext = Pick<WorkGraphSnapshot, 'work' | 'artifacts'> &
+	Partial<Pick<WorkGraphSnapshot, 'progress'>>;
 export async function getWorkGraph(
 	company: string,
 	signal?: AbortSignal

@@ -3122,6 +3122,43 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             (Err(error), _, _) => Response::err(format!("bad Work id: {error}")),
             _ => Response::err("work-abandon needs work, reason and --as"),
         },
+        "work-progress" => {
+            let Some(Ok(id)) = request.common.id.as_deref().map(uuid::Uuid::parse_str) else {
+                return Response::err("work-progress needs a Work id");
+            };
+            let Some(actor) = request.common.as_actor.as_deref() else {
+                return Response::err("work-progress needs --as");
+            };
+            let report = match (
+                request.percent,
+                request.next.as_deref(),
+                request.blocked.as_deref(),
+            ) {
+                (Some(percent), Some(next), None) => {
+                    restless_orgintel::ProgressReport::Estimate { percent, next }
+                }
+                (None, None, Some(why)) => restless_orgintel::ProgressReport::Blocked { why },
+                _ => {
+                    return Response::err(
+                        "give --percent with --next \"what is left\", or --blocked \"why\" on its own",
+                    )
+                }
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match org.record_work_progress(id, actor, report).await {
+                    Ok(recorded) => Response::ok(serde_json::json!({
+                        "work_id": id,
+                        "state": recorded.progress.state,
+                        "percent": recorded.progress.percent,
+                        "next": recorded.progress.next,
+                        "estimated_by": recorded.progress.estimated_by,
+                        "told_owner": recorded.posted_message_id.is_some(),
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "work-review" => match (request.common.id.as_deref(), request.common.state.as_deref()) {
             (Some(id), Some(state)) => {
                 let Ok(id) = uuid::Uuid::parse_str(id) else {
@@ -4800,6 +4837,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "work-interrupt"
         | "work-resume"
         | "work-abandon"
+        | "work-progress"
         | "judgement"
         | "schedule-list"
         | "schedule-link-work"

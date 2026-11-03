@@ -1,5 +1,6 @@
 <script lang="ts">
 	import WorkPanel from '$lib/components/WorkPanel.svelte';
+	import { workEstimate, type ProgressRow } from '$lib/work/progress';
 	import { fetchWorkSpend } from '$lib/model/work-actions';
 	import {
 		DIRECTORY_FILTERS,
@@ -573,6 +574,7 @@
 		gates?: { id: string; work_id: string; retired_at: string | null }[];
 		gate_runs?: { gate_id: string; passed: boolean; ran_at: string }[];
 		attempts?: { work_id: string; revision: number; attempt_no: number; state: string }[];
+		progress?: ProgressRow[];
 	};
 	const workGraph = $derived(
 		(owner ? attention.view?.workGraph : collaboration.view?.work_graph) as
@@ -900,9 +902,9 @@
 		);
 	}
 	/* What each agent is on: their own Work in motion, or for a lead, their team's. */
-	function currentWorkTitle(actorId: string): string {
+	function currentWork(actorId: string): { id: string; title: string; status: string } | null {
 		const member = officeMember(actorId);
-		if (member?.work) return member.work.title;
+		if (member?.work) return member.work;
 		const team = teams.find((candidate) => candidate.lead_actor_id === actorId);
 		const owners = new Set([
 			actorId,
@@ -914,7 +916,18 @@
 					(item) =>
 						owners.has(item.owner_id) && (item.status === 'active' || item.status === 'blocked')
 				)
-				.toSorted((x, y) => Date.parse(y.updated_at) - Date.parse(x.updated_at))[0]?.title ?? ''
+				.toSorted((x, y) => Date.parse(y.updated_at) - Date.parse(x.updated_at))[0] ?? null
+		);
+	}
+	function currentWorkTitle(actorId: string): string {
+		return currentWork(actorId)?.title ?? '';
+	}
+	/* The creator's rough estimate for what this agent is on: a thin bar under their row. */
+	function currentEstimate(actorId: string) {
+		const work = currentWork(actorId);
+		if (!work || work.status === 'completed') return null;
+		return workEstimate(work, attention.view?.workGraph?.progress, (id) =>
+			personName(everyone.find((person) => person.actor_id === id)?.display ?? id)
 		);
 	}
 	/* A row: one status word, and one line, the current Work or else the role (S88-02). A
@@ -1374,6 +1387,7 @@
 			{#snippet directoryPerson(person: DirectoryPerson, kind: string)}
 				{@const line = personLine(person.actor_id)}
 				{@const row = directoryLine(person.actor_id)}
+				{@const estimate = person.kind === 'human' ? null : currentEstimate(person.actor_id)}
 				{@const isLead = kind === 'lead'}
 				<div class="person-row">
 					<a
@@ -1407,7 +1421,18 @@
 										class="status-word {row.word.toLowerCase().replaceAll(' ', '-')}"
 										>{row.word}</span
 									>{/if}</span
-							>{#if row.text}<small class="doing" title={row.hint}>{row.text}</small>{/if}</span
+							>{#if row.text}<small
+									class="doing"
+									title={estimate ? `${row.hint} · ${estimate.text} (${estimate.title})` : row.hint}
+									>{row.text}</small
+								>{/if}{#if estimate}<span
+									class="doing-progress {estimate.tone}"
+									role="meter"
+									aria-label={`${row.text}: ${estimate.text}`}
+									aria-valuemin="0"
+									aria-valuemax="100"
+									aria-valuenow={estimate.fill}><i style:width={`${estimate.fill}%`}></i></span
+								>{/if}</span
 						>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
 								class="new-dot"
 								title="Something new since you last looked"
@@ -1773,6 +1798,7 @@
 					gates={workGraph?.gates ?? []}
 					gateRuns={workGraph?.gate_runs ?? []}
 					attempts={workGraph?.attempts ?? []}
+					progress={workGraph?.progress ?? []}
 					owners={panelOwners}
 					ownerName={(id) => personName(everyone.find((p) => p.actor_id === id)?.display ?? id)}
 					highlight={workId}
@@ -2156,9 +2182,36 @@
 		outline-offset: -2px;
 	}
 	.person-lines {
+		position: relative;
 		display: grid;
 		flex: 1;
 		min-width: 0;
+	}
+	/* The current Work's estimate as a hairline under the row's words: it sits in the row's own
+	 * padding, so it never changes the row's height or moves its text. */
+	.doing-progress {
+		position: absolute;
+		left: 0;
+		bottom: -4px;
+		width: min(100%, 120px);
+		height: 2px;
+		overflow: hidden;
+		border-radius: 1px;
+		background: color-mix(in srgb, var(--ink) 10%, transparent);
+	}
+	.doing-progress i {
+		display: block;
+		height: 100%;
+		background: var(--intent-conversation);
+	}
+	.doing-progress.blocked i {
+		background: color-mix(in srgb, var(--intent-authority) 70%, var(--text-tertiary));
+	}
+	.doing-progress.stopped i {
+		background: var(--text-tertiary);
+	}
+	.directory-person.teammate .doing-progress {
+		bottom: -2px;
 	}
 	.name {
 		min-width: 0;

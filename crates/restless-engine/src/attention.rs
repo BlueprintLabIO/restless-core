@@ -5691,7 +5691,11 @@ mod tests {
         let pack = "The send pack is ready.\n\n- [Final send pack](/company/outputs/final-send-pack.md)\n- ![Magnet](file:///company/outputs/magnet/preview.png)\n- [Screenshots](/company/outputs/final-send-pack-evidence/)\n- [Aleon live site](https://concepts.example.au/aleon/)\n- [Preview](http://localhost:4173/)\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Pack ready\",\"ownerNeed\":\"Order 250 magnets?\",\"ownerReview\":\"Final send pack\"}-->";
         org.send_message(&contact.id, None, pack).await.unwrap();
         let both = read().await.unwrap();
-        assert_eq!(both.len(), 2, "the result and the question are both in the Inbox");
+        assert_eq!(
+            both.len(),
+            2,
+            "the result and the question are both in the Inbox"
+        );
         let review = both
             .iter()
             .find(|item| item.source.kind == "conversation_owner_review")
@@ -5700,7 +5704,12 @@ mod tests {
         let evidence: Vec<_> = review
             .evidence
             .iter()
-            .map(|row| (row.kind, row.uri.as_deref().or(row.content.as_deref()).unwrap()))
+            .map(|row| {
+                (
+                    row.kind,
+                    row.uri.as_deref().or(row.content.as_deref()).unwrap(),
+                )
+            })
             .collect();
         assert_eq!(
             evidence,

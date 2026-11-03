@@ -61,6 +61,8 @@
 	} from '$lib/model/attention-presentation';
 	import { emptyWorkTitle, matchesSearch, goalsWithFinishedWork } from '$lib/model/work-views';
 	import { dueLabel, finishLine, type Goal } from '$lib/work/goal';
+	import { goalRollup, partsDone, workEstimate } from '$lib/work/progress';
+	import Estimate from '$lib/ui/data/Estimate.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import Ban from '@lucide/svelte/icons/ban';
 	import {
@@ -332,7 +334,12 @@
 		const waiting = rows.filter(
 			(item) => item.status !== 'completed' && waitingOnOwner.has(item.id)
 		).length;
-		const parts = [`${done} of ${rows.length} done`];
+		/* The creators' estimates rolled up, when anyone has estimated; the parts count either way. */
+		const rollup = goalProgress(goalId);
+		const parts = [
+			...(rollup.percent === null ? [] : [`~${rollup.percent}%`]),
+			partsDone({ ...rollup, done, total: rows.length })
+		];
 		if (waiting) parts.push(`${waiting} needs you`);
 		if (blocked) parts.push(`${blocked} blocked`);
 		return {
@@ -469,11 +476,13 @@
 	function outputs(work: WorkItem): number {
 		return graph?.artifacts.filter((artifact) => artifact.work_id === work.id).length ?? 0;
 	}
-	function goalProgress(goalId: string): { done: number; total: number } {
-		const rows = (graph?.work ?? []).filter(
-			(item) => item.goal_id === goalId && item.status !== 'abandoned'
-		);
-		return { done: rows.filter((item) => item.status === 'completed').length, total: rows.length };
+	/* A goal across its Work: the creators' estimates averaged, each part equal, and parts done. */
+	function goalProgress(goalId: string) {
+		return goalRollup(goalId, graph?.work ?? [], graph?.progress);
+	}
+	/* The creator's rough estimate for one Work, as the bar and line every surface draws. */
+	function estimateOf(work: WorkItem) {
+		return workEstimate(work, graph?.progress, ownerName);
 	}
 	function ownerName(actorId: string): string {
 		return (
@@ -559,7 +568,9 @@
 						row.status === 'proposed' && (inMotion.get(row.owner_id) ?? 0) >= BUSY_OWNER
 							? inMotion.get(row.owner_id)
 							: undefined,
-					churning: row.status !== 'completed' && row.revision >= CHURN_REVISION
+					churning: row.status !== 'completed' && row.revision >= CHURN_REVISION,
+					/* Every card holds the estimate's line, so one landing never grows a card. */
+					progress: estimateOf(row)
 				}))
 		}))
 	);
@@ -862,22 +873,29 @@
 			finishLine(goal)
 				? `Done when ${finishLine(goal)}`
 				: 'No finish line yet: Exec will agree one with you',
-			`${progress.done} of ${progress.total} done`,
+			progress.percent === null
+				? ''
+				: `About ${progress.percent}% by the creators' rough estimates`,
+			partsDone(progress),
 			dueLabel(goal) ? `due ${dueLabel(goal)}` : ''
 		]
 			.filter(Boolean)
 			.join(' · ')}
 	>
+		<!-- The ring fills with the estimate roll-up once anyone has estimated, else with parts done. -->
 		{#snippet leading()}<span
 				class="ring"
-				style:--done={`${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%`}
-				aria-label={`${progress.done} of ${progress.total} done`}
+				style:--done={`${progress.percent ?? (progress.total ? Math.round((progress.done / progress.total) * 100) : 0)}%`}
+				aria-label={progress.percent === null
+					? partsDone(progress)
+					: `About ${progress.percent}%, ${partsDone(progress)}`}
 				role="img"
 			></span>{/snippet}
 	</SidebarRow>
 {/snippet}
 
 {#snippet row(work: WorkItem, tone: 'warning' | 'danger' | 'progress' | 'muted' | 'success')}
+	{@const estimate = work.status === 'completed' ? null : estimateOf(work)}
 	<Item
 		title={work.title}
 		meta={meta(work)}
@@ -885,6 +903,12 @@
 		href={workHref(work.id)}
 		dim={work.status === 'completed'}
 	>
+		{#snippet noteLeading()}{#if estimate}<Estimate
+					fill={estimate.fill}
+					text={estimate.text}
+					title={estimate.title}
+					tone={estimate.tone}
+				/>{/if}{/snippet}
 		{#snippet leading()}<Dot
 				{tone}
 				label={waitingOnOwner.has(work.id)
@@ -1210,7 +1234,15 @@
 							</details>
 						{/if}
 						<p class="goal-facts">
-							<span>{progress.done} of {progress.total} done</span>
+							{#if progress.percent !== null}<span
+									title="Each part counts equally: done is 100%, the rest as their creators estimate"
+									><Estimate
+										fill={progress.percent}
+										text={`~${progress.percent}% by estimate`}
+										label="Goal progress, estimated"
+									/></span
+								>{/if}
+							<span>{partsDone(progress)}</span>
 							{#if dueLabel(selectedGoalRow)}<span>Due {dueLabel(selectedGoalRow)}</span>{/if}
 							{#if goalTeam(selectedGoalRow)}<span>{goalTeam(selectedGoalRow)}</span>{/if}
 							<!-- The facts a goal row's hover title carries, readable on touch once it is chosen. -->
