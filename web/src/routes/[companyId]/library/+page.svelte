@@ -1871,6 +1871,38 @@
 		);
 	});
 	const breadcrumb = $derived(browsing && folderParam ? crumbs(folderParam, folderTitles) : []);
+	/* "Show in folder" lands with the row in view, once per arrival: a poll never scrolls again. */
+	let scrolledTo = '';
+	$effect(() => {
+		const key = highlightParam;
+		if (!key || loading || key === scrolledTo) return;
+		if (!shown.some((entry) => pinKey(entry) === key)) return;
+		scrolledTo = key;
+		void tick().then(() =>
+			document
+				.querySelector(`.table [data-row="${CSS.escape(key)}"]`)
+				?.scrollIntoView({ block: 'center' })
+		);
+	});
+	/* The breadcrumb keeps its end in view: scrolled to the folder you are in before it is
+	 * painted, and again whenever it or its room changes; `clipped` fades the cut edge. */
+	function keepEnd(node: HTMLElement) {
+		const fit = () => {
+			node.scrollLeft = node.scrollWidth;
+			node.classList.toggle('clipped', node.scrollLeft > 0);
+		};
+		const resized = new ResizeObserver(fit);
+		resized.observe(node);
+		const changed = new MutationObserver(fit);
+		changed.observe(node, { childList: true, subtree: true, characterData: true });
+		fit();
+		return {
+			destroy() {
+				resized.disconnect();
+				changed.disconnect();
+			}
+		};
+	}
 
 	/* Pinned: files, folders and saved filters, in the order the owner pinned them. */
 	type PinnedRow = {
@@ -2358,26 +2390,16 @@
 			>
 				<header class="head">
 					{#if breadcrumb.length}
-						<!-- All files / Sites / Aleon Electrical. On a phone it keeps its end: the folders
-						     above the last two fold into "…", which goes up one more. -->
-						<nav class="crumbs" aria-label="Folder">
-							{#if breadcrumb.length > 3}<a
-									class="crumb crumb-more"
-									href={folderHref(breadcrumb[breadcrumb.length - 3].folder)}
-									title="Up a folder">…</a
-								><ChevronRight
-									class="crumb-sep crumb-more"
-									size={14}
-									strokeWidth={1.8}
-									aria-hidden="true"
-								/>{/if}
+						<!-- All files / Sites / Aleon Electrical. Short of room (a phone) it keeps its end
+						     and gives way from the left, the cut edge faded. -->
+						<nav class="crumbs" aria-label="Folder" use:keepEnd>
 							{#each breadcrumb as crumb, index (crumb.folder)}
 								{#if index < breadcrumb.length - 1}<a
 										class="crumb"
-										class:lead={index < breadcrumb.length - 2}
-										href={folderHref(crumb.folder)}>{crumb.title}</a
+										href={folderHref(crumb.folder)}
+										title={crumb.title}>{crumb.title}</a
 									><ChevronRight
-										class={index < breadcrumb.length - 2 ? 'crumb-sep lead' : 'crumb-sep'}
+										class="crumb-sep"
 										size={14}
 										strokeWidth={1.8}
 										aria-hidden="true"
@@ -3081,6 +3103,8 @@
 		border-left: 1px solid var(--border);
 	}
 	.library-filters a {
+		display: inline-flex;
+		align-items: center;
 		flex: none;
 		white-space: nowrap;
 		padding: 5px 10px;
@@ -3307,7 +3331,8 @@
 		font-variant-numeric: tabular-nums;
 	}
 	/* The breadcrumb is the pane's title: earlier folders quiet links, the folder you are in the
-	 * heading. It never wraps; a long name gives way at its end. */
+	 * heading. It never wraps. Short of room it is scrolled to its end, so it gives way from the
+	 * left, the cut edge faded; a very long name ends in an ellipsis. */
 	.crumbs {
 		display: flex;
 		flex: 0 1 auto;
@@ -3315,11 +3340,13 @@
 		gap: 2px;
 		min-width: 0;
 		overflow: hidden;
+		scrollbar-width: none;
 	}
-	/* Short of room, the folders furthest up give way first; the one you are in last. */
+	.crumbs:global(.clipped) {
+		mask-image: linear-gradient(to right, transparent 0, #000 28px);
+	}
 	.crumb {
-		flex: 0 6 auto;
-		min-width: 3ch;
+		flex: none;
 		max-width: 22ch;
 		overflow: hidden;
 		padding: 2px 4px;
@@ -3330,9 +3357,6 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.crumb.lead {
-		flex-shrink: 30;
-	}
 	.crumb:hover {
 		background: var(--wash-hover);
 		color: var(--ink);
@@ -3342,16 +3366,12 @@
 		color: var(--text-tertiary);
 	}
 	.crumb-here {
-		flex: 0 1 auto;
-		min-width: 4ch;
+		flex: none;
+		max-width: 100%;
 		overflow: hidden;
 		padding: 2px 4px;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	.crumbs .crumb-more,
-	.crumbs :global(.crumb-sep.crumb-more) {
-		display: none;
 	}
 	/* Pressed while the folder is pinned: the button keeps its size and its words. */
 	.pin-folder {
@@ -3509,16 +3529,10 @@
 		justify-content: flex-end;
 		gap: 8px;
 	}
-	/* A phone keeps the end of the path: All files and the folders above the last two fold into
-	 * "…", one step up. */
+	/* On a phone the breadcrumb takes whatever room the head's buttons leave. */
 	@container page (max-width: 560px) {
-		.crumbs .crumb.lead,
-		.crumbs :global(.crumb-sep.lead) {
-			display: none;
-		}
-		.crumbs .crumb-more,
-		.crumbs :global(.crumb-sep.crumb-more) {
-			display: inline-flex;
+		.crumbs {
+			flex: 1 1 auto;
 		}
 		.crumb {
 			max-width: 14ch;
