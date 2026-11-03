@@ -1967,6 +1967,126 @@ async fn stranded_agent_items(
     items
 }
 
+/// One card per Work item stopped for over a day with nobody asked: blocked with no pending
+/// handoff, or requiring abandoned Work. It names who the Work waits on and the way through, and
+/// opens the Work, whose page has Resume and Stop for good (S109 blockers audit, finding 10).
+async fn stalled_work_items(
+    config: &runtime::CompanyConfig,
+    org: &OrgIntel,
+) -> Result<Vec<AttentionItem>> {
+    let stalled = org.stalled_work(restless_orgintel::STALLED_AFTER).await?;
+    if stalled.is_empty() {
+        return Ok(Vec::new());
+    }
+    let actors: HashMap<String, (String, String)> = org
+        .list_actors()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|actor| (actor.id, (actor.display, actor.role)))
+        .collect();
+    Ok(stalled
+        .into_iter()
+        .map(|work| stalled_work_item(&config.name, &actors, work))
+        .collect())
+}
+
+fn stalled_work_item(
+    company: &str,
+    actors: &HashMap<String, (String, String)>,
+    work: restless_orgintel::StalledWork,
+) -> AttentionItem {
+    let lead = actors
+        .get(&work.lead)
+        .map(|(display, role)| AttentionActorRef {
+            id: work.lead.clone(),
+            display: display.clone(),
+            role: role.clone(),
+        });
+    let lead_name = lead
+        .as_ref()
+        .map(|lead| lead.display.clone())
+        .unwrap_or_else(|| work.lead.clone());
+    let since = work.since.format("%-d %b");
+    let way_through = work.way_through();
+    let (title, what_happened, requested_action) = match &work.cause {
+        restless_orgintel::StallCause::Blocked { reason } => {
+            let reason = reason.trim();
+            (
+                format!("Stuck since {since}: {}", work.title),
+                format!(
+                    "Blocked since {since}, and nobody has been asked to unblock it. It waits on \
+                     {lead_name}, who leads it. The block said: {}",
+                    if reason.is_empty() {
+                        "nothing (no reason was recorded)."
+                    } else {
+                        reason
+                    }
+                ),
+                "Resume it once the cause is fixed, or stop it for good.".to_string(),
+            )
+        }
+        restless_orgintel::StallCause::AbandonedRequirement { upstream_title, .. } => (
+            format!("Can't start: {}", work.title),
+            format!(
+                "It requires \"{upstream_title}\", which was abandoned on {since}, so it can never \
+                 start as it is. It waits on {lead_name}, who leads it, to drop that requirement."
+            ),
+            "Have its lead drop the requirement, or stop it for good.".to_string(),
+        ),
+    };
+    AttentionItem {
+        id: format!("orgintel:work-stalled:{}:{}", work.work_id, work.revision),
+        work_id: Some(work.work_id),
+        source: AttentionSource {
+            plane: "orgintel",
+            kind: "work_stalled".into(),
+            reference: format!("{}:{}", work.work_id, work.revision),
+            party: None,
+            call_key: None,
+        },
+        category: "blocker".into(),
+        title,
+        what_happened,
+        why_it_matters: "Nothing moves it on its own: blocked Work is never picked up again until \
+                         someone resumes it."
+            .into(),
+        recommendation: way_through,
+        requested_action,
+        if_no_action: "The Work stays stopped, and anything that requires it waits too.".into(),
+        uncertainty: None,
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: Some(work.since),
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: lead,
+        runtime_attach: None,
+        review_target: None,
+        review_version: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        account_use: None,
+        account_request: None,
+        request_fields: None,
+        setting_proposal: None,
+        owner_replies: Vec::new(),
+        actions: vec![AttentionAction {
+            id: "open-work".into(),
+            label: "Open the Work".into(),
+            role: "inspect",
+            consequence: "Opens the Work, where you can resume it or stop it for good.".into(),
+            next_state: "Resuming, stopping or unblocking it clears this card.".into(),
+            href: Some(format!("/{company}/work/{}", work.work_id)),
+        }],
+        can_continue: false,
+        preparing: false,
+        created_at: work.since,
+    }
+}
+
 /// Open direction requests routed to `viewer` (the owner sees every one), and approved ones that
 /// failed to be carried out, as Inbox items: the
 /// request in the person's words, and Approve, Always allow and Decline in its detail (S80).
@@ -3860,6 +3980,17 @@ async fn project_queue(
     // Owner-only: an agent whose model connection no longer reaches the company (Sprint 86).
     if assignee.is_none() {
         items.extend(stranded_agent_items(config, org).await);
+    }
+    // Owner-only: Work stopped for over a day with nobody asked (S109 blockers audit, 10).
+    if assignee.is_none() {
+        if let Some(org) = org {
+            match stalled_work_items(config, org).await {
+                Ok(stalled) => items.extend(stalled),
+                Err(error) => {
+                    tracing::warn!(company = config.name, "stalled Work unavailable: {error:#}")
+                }
+            }
+        }
     }
     if let Some(org) = org {
         match direction_items(authority, &config.name, org, assignee.unwrap_or("owner")).await {

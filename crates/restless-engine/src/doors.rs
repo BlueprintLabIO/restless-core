@@ -312,6 +312,7 @@ pub const ATTENTION_KINDS: &[(&str, Raiser)] = &[
     ("spend_warning", Raiser::System),
     ("spend_stopped", Raiser::System),
     ("machine_offline", Raiser::System),
+    ("work_stalled", Raiser::System),
 ];
 
 #[cfg(test)]

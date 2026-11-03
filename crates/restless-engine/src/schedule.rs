@@ -240,6 +240,9 @@ pub async fn run(daemon: Arc<Daemon>) {
     tokio::spawn(crate::platform_capabilities::delivery_loop(Arc::clone(
         &daemon,
     )));
+    // Work stopped for over a day with nobody asked: its lead is told once per stall, and the
+    // owner's Inbox projects a card for it (S109 blockers audit, finding 10).
+    tokio::spawn(stalled_work_loop(Arc::clone(&daemon)));
     ensure_cell_listeners(&daemon).await;
     scan_all_companies(&daemon, &in_flight).await;
     let mut waiting_jobs = reconcile_waiting_jobs(&daemon).await;
@@ -284,6 +287,43 @@ pub async fn run(daemon: Arc<Daemon>) {
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
                 }
             }
+        }
+    }
+}
+
+/// How often the stalled-Work check runs. A stall only counts after a day, so an hour is plenty.
+const STALLED_WORK_CHECK: Duration = Duration::from_secs(60 * 60);
+
+async fn stalled_work_loop(daemon: Arc<Daemon>) {
+    // Let startup recovery (restart resumes, orphan reaping) settle first.
+    tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+    loop {
+        if let Some(_lease) = daemon.lifecycle.try_enter() {
+            tell_leads_of_stalled_work(&daemon).await;
+        }
+        tokio::time::sleep(STALLED_WORK_CHECK).await;
+    }
+}
+
+async fn tell_leads_of_stalled_work(daemon: &Arc<Daemon>) {
+    let Some(companies) = configured_companies(daemon) else {
+        return;
+    };
+    for company in companies {
+        let org = match daemon.orgintel.get(&company).await {
+            Ok(org) => org,
+            Err(error) => {
+                tracing::debug!(company, "stalled Work check skipped: {error:#}");
+                continue;
+            }
+        };
+        match org
+            .tell_leads_of_stalled_work(restless_orgintel::STALLED_AFTER)
+            .await
+        {
+            Ok(0) => {}
+            Ok(told) => tracing::info!(company, told, "told leads of stalled Work"),
+            Err(error) => tracing::warn!(company, "stalled Work check failed: {error:#}"),
         }
     }
 }
