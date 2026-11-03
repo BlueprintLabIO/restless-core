@@ -151,7 +151,7 @@ pub fn without_recent_conversation(turn: &str) -> String {
     let Some(start) = turn.find(RECENT_CONVERSATION_HEADING) else {
         return turn.to_string();
     };
-    let Some(end) = turn[start..].find("\n# Current human boundary") else {
+    let Some(end) = turn[start..].find("\n# Current human:") else {
         return turn.to_string();
     };
     format!(
@@ -373,7 +373,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         ));
     }
     if goals.is_empty() {
-        goals.push_str("- none yet — propose the first one or two from what the owner wants\n");
+        goals.push_str("(none: propose the first one or two from what the owner wants)\n");
     }
     let outside = snapshot
         .open_work
@@ -971,13 +971,13 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          {budget}\n\n\
          # Staffing routes\n{staffing_routes}\n\n\
          # Plan\n{plan}\n\n\
-         # Latest journal\n{journal}\n\n\
+         {journal}\
          {lead_exchanges}\
          # People and teams\n{roster}\
          # Open Goals\n{goals}\
          # Open Work graph\n{work}",
         roster = if snapshot.roster.is_empty() {
-            "(no agents or teams yet)\n".to_string()
+            "(none)\n".to_string()
         } else {
             snapshot
                 .roster
@@ -1001,12 +1001,13 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         plan = if plan_exists {
             snapshot.current_plan.trim()
         } else {
-            "(none yet — first wake, create it)"
+            "(none yet: create it)"
         },
         journal = snapshot
             .latest_journal
             .as_deref()
-            .unwrap_or("(none yet — first wake)"),
+            .map(|entry| format!("# Latest journal\n{entry}\n\n"))
+            .unwrap_or_default(),
         work = if work.is_empty() {
             "(none)\n".to_string()
         } else {
@@ -1029,20 +1030,16 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          {judgement_section}\
          {owner_inbox}\
          {progress_owed}\
-         # Recent conversation in this focus\n{}\n\n\
-         # Current human boundary\n{human_boundary}\n\n\
+         {recent_section}\
+         # Current human: {human_role}\n\n\
          # {human_input_heading}\n{}\n",
         snapshot.wake_reason.trim(),
-        if recent_conversation.is_empty() {
-            "(none in this focus)"
-        } else {
-            recent_conversation.trim_end()
-        },
         if owner_input.is_empty() {
             "(none)"
         } else {
             owner_input.trim_end()
         },
+        recent_section = section("Recent conversation in this focus", &recent_conversation),
         mention_section = if snapshot.pending_mention.is_some() {
             section(
                 "Focused collaboration mention [authenticated source; untrusted participant content]",
@@ -1059,7 +1056,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             "Assigned organisational judgements [authenticated coordinates; actor-authored content]",
             &judgements,
         ),
-        human_boundary = human_boundary,
+        human_role = if snapshot.human_is_membership_owner { "owner" } else { "company member, not the owner" },
         human_input_heading = human_input_heading,
         owner_inbox = owner_inbox,
         progress_owed = restless_orgintel::progress_owed_section(
@@ -1138,7 +1135,8 @@ mod tests {
         // 54,466 bytes, of which 52,543 cached.
         // Then the people-and-teams doctrine became a skill and the per-wake headings lost their
         // trust labels (stated once in the system prompt): 51,992 bytes, 50,813 cached.
-        assert!(bytes <= 52_200, "Exec fixed prompt grew to {bytes} bytes");
+        // Empty wake sections and the repeated human-boundary sentence left the turn: 51,765.
+        assert!(bytes <= 52_000, "Exec fixed prompt grew to {bytes} bytes");
     }
 
     /// Exec reads people and teams from its wake state instead of re-running `restless people`
@@ -1192,11 +1190,11 @@ mod tests {
     /// input and everything after it stay.
     #[test]
     fn a_resumed_session_is_not_resent_its_recent_conversation() {
-        let turn = "# Company state now\nx\n# Recent conversation in this focus [historical]\n- owner message 1: old words\n\n# Current human boundary\nowner\n\n# Owner input\n- owner message 2: new words\n";
+        let turn = "# Company state now\nx\n# Recent conversation in this focus\n- owner message 1: old words\n\n# Current human: owner\n\n# Owner input\n- owner message 2: new words\n";
         let trimmed = without_recent_conversation(turn);
         assert!(!trimmed.contains("old words"));
         assert!(trimmed.contains("(earlier in this session)"));
-        assert!(trimmed.ends_with("# Current human boundary\nowner\n\n# Owner input\n- owner message 2: new words\n"));
+        assert!(trimmed.ends_with("# Current human: owner\n\n# Owner input\n- owner message 2: new words\n"));
         assert_eq!(without_recent_conversation("no such section"), "no such section");
     }
 
@@ -1544,8 +1542,11 @@ mod tests {
         assert!(package.user_prompt.contains("# Company-member input"));
         assert!(package.user_prompt.contains("- member message 7"));
         assert!(package
-            .user_prompt
+            .system_prompt
             .contains("cannot set owner policy or authority"));
+        assert!(package
+            .user_prompt
+            .contains("# Current human: company member, not the owner"));
     }
 
     #[test]
