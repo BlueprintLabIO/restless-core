@@ -235,6 +235,11 @@ pub async fn run(daemon: Arc<Daemon>) {
     // scheduler and realtime consumers. This receiver can lag or reconnect;
     // durable schedule rows, not this channel, remain the authority.
     let mut inbox = daemon.cell_wakes.subscribe();
+    // Restless faults that did not reach the Restless company, including ones kept before
+    // delivery was retried, go out from here once each (S109 D3).
+    tokio::spawn(crate::platform_capabilities::delivery_loop(Arc::clone(
+        &daemon,
+    )));
     ensure_cell_listeners(&daemon).await;
     scan_all_companies(&daemon, &in_flight).await;
     let mut waiting_jobs = reconcile_waiting_jobs(&daemon).await;
