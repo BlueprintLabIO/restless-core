@@ -12,14 +12,18 @@ export const CRITICAL = new Set([
 	 * a status line that grows into one (S109 C7). */
 	'reusable-connections',
 	/* The Inbox's Today line sits above its rows. */
-	'direction-digest'
+	'direction-digest',
+	/* Work's goals and its phone view picker come from the Work graph; arriving after the reveal,
+	 * the picker pushed the list down (zero-jank gate, owner/slow/phone/warm/work). */
+	'work-context'
 ]);
 
 /* Reads the shell starts on every page that only one surface shows: they hold the reveal there
  * and nowhere else (3 Nov walkthrough: a direct load of Resources or the Library waited on the
  * Inbox's own reads). A route's own reads hold it by being read only where they are shown. */
 const ONLY_ON: Record<string, string> = {
-	'direction-digest': 'inbox'
+	'direction-digest': 'inbox',
+	'work-context': 'work'
 };
 
 type CachedRead = {
