@@ -4,6 +4,10 @@
 
 use super::*;
 
+/// How many times one Work revision resumes on its own after interrupted turns. Twice covers a
+/// slow tool or a busy host; a third silence in the same revision is the lead's to judge.
+pub const INTERRUPTION_RESUMES_PER_REVISION: i64 = 2;
+
 struct QualifiedOutcomeReview {
     target_uri: String,
     title: String,
@@ -1442,6 +1446,65 @@ impl OrgIntel {
              VALUES ('work_resumed_after_restart','daemon',$1)",
         )
         .bind(serde_json::json!({"work_id": work_id, "revision": revision}))
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// Resume Work whose Attempt a platform watchdog cut (silence, a wedged turn, a stopped
+    /// session) with nothing wrong in the Work itself. The staff summary promised "the next wake
+    /// continues from durable state", but blocked Work is never claimed again, so Sprint 107 sat
+    /// blocked for five days with no card (S109 blockers audit). Bounded like the restart
+    /// resume: at most [`INTERRUPTION_RESUMES_PER_REVISION`] times per revision, never past a
+    /// pending owner handoff, and each one is an event.
+    pub async fn resume_after_interruption(&self, work_id: Uuid, cause: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query("SELECT status, revision FROM work WHERE id=$1 FOR UPDATE")
+            .bind(work_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let status: WorkStatus = row.get("status");
+        let revision: i64 = row.get("revision");
+        if status != WorkStatus::Blocked {
+            return Ok(false);
+        }
+        let (pending_handoff, resumed): (bool, i64) = {
+            let row = sqlx::query(
+                "SELECT EXISTS(SELECT 1 FROM owner_handoffs WHERE work_id=$1 AND state='pending') AS pending, \
+                        (SELECT count(*) FROM events WHERE kind='work_resumed_after_interruption' \
+                          AND body->>'work_id'=$1::text AND (body->>'revision')::bigint=$2) AS resumed",
+            )
+            .bind(work_id)
+            .bind(revision)
+            .fetch_one(&mut *tx)
+            .await?;
+            (row.get("pending"), row.get("resumed"))
+        };
+        if pending_handoff || resumed >= INTERRUPTION_RESUMES_PER_REVISION {
+            return Ok(false);
+        }
+        sqlx::query(
+            "UPDATE work SET status='active', \
+                    resolution='resumed by the daemon after an interrupted turn', \
+                    attempt_limit=CASE WHEN attempt_limit IS NOT NULL \
+                                            AND attempt_limit < 2147483647 \
+                                            AND (SELECT count(*) FROM work_attempts \
+                                                 WHERE work_id=$1 AND revision=$2 \
+                                                   AND state <> 'superseded') >= attempt_limit \
+                                       THEN attempt_limit + 1 ELSE attempt_limit END \
+             WHERE id=$1",
+        )
+        .bind(work_id)
+        .bind(revision)
+        .execute(&mut *tx)
+        .await?;
+        let cause: String = cause.chars().take(500).collect();
+        sqlx::query(
+            "INSERT INTO events (kind, actor_id, body) \
+             VALUES ('work_resumed_after_interruption','daemon',$1)",
+        )
+        .bind(serde_json::json!({"work_id": work_id, "revision": revision, "cause": cause}))
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
