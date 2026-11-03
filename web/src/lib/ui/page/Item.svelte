@@ -254,6 +254,9 @@
 			gap: 1px;
 			align-items: stretch;
 		}
+		/* In a column a zero flex-basis with hidden overflow is zero height: the meta vanished on
+		 * phones (Vault's "Used by", every settings row's value). It takes its own line instead. */
+		.item-meta,
 		.item-note {
 			flex: none;
 		}
