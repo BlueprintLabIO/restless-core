@@ -157,10 +157,12 @@
 	const charterCompany = $derived(companyQuery(companyId, () => !!selectedItem?.charterProposal));
 	const attentionClear = $derived(loaded && items.length === 0 && !coordination);
 	/* A pending ownership handover (ADR 0012 decision 7) is said to both people in it, here rather
-	 * than as a refusal when someone tries to approve. Reread whenever Attention changes. */
+	 * than as a refusal when someone tries to approve. Reread whenever the Inbox's items change:
+	 * not on every read of it, which a busy company makes every few seconds. */
 	let handover = $state<OwnershipHandover | null>(null);
+	const attentionItems = $derived((view?.items ?? []).map((item) => item.id).join(','));
 	$effect(() => {
-		void view;
+		void attentionItems;
 		const requested = companyId;
 		getOwnershipHandover(requested)
 			.then((next) => {

@@ -8,6 +8,7 @@
  */
 
 import { failureKind } from './failure';
+import { untouched } from './activity.ts';
 
 export const connection = $state<{
 	lost: boolean;
@@ -54,13 +55,24 @@ const LIVE_REPAIR_MS = 180_000;
  * every few seconds from every pane only adds failed requests. */
 const OUTAGE_POLL_MS = 60_000;
 
+/* A page nobody has touched for a minute (a background pane, a tab left open that still reports
+ * itself visible) repairs far less often: 3 Nov 2026, a few such tabs made about 45 requests a
+ * minute each and the edge's daily cap ran out. Touching the page again reads whatever is older
+ * than LIVE_REPAIR_MS at once (companyChangeStream), so nobody looks at the slow copy. */
+const UNTOUCHED_REPAIR_MS = 30 * 60_000;
+const UNTOUCHED_POLL_MS = 60_000;
+
 /** A refetch interval: `ordinary` while hints are down, at most every `whenLive` (never under
- * three minutes) while they arrive, and slow while the connection is lost. */
+ * three minutes) while they arrive, and slow while the connection is lost or nobody is using
+ * the page. */
 export function pollEvery(ordinary: number, whenLive = LIVE_REPAIR_MS): () => number {
-	return () =>
-		connection.lost
-			? Math.max(ordinary, OUTAGE_POLL_MS)
-			: changes.live
-				? Math.max(whenLive, LIVE_REPAIR_MS)
-				: ordinary;
+	return () => {
+		if (connection.lost) return Math.max(ordinary, OUTAGE_POLL_MS);
+		const idle = untouched();
+		if (changes.live) return Math.max(whenLive, idle ? UNTOUCHED_REPAIR_MS : LIVE_REPAIR_MS);
+		return idle ? Math.max(ordinary, UNTOUCHED_POLL_MS) : ordinary;
+	};
 }
+
+/** Reads older than this are read again when someone comes back to the page. */
+export const CATCH_UP_AFTER_MS = LIVE_REPAIR_MS;

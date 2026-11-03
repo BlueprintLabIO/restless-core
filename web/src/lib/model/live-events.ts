@@ -89,11 +89,77 @@ class SocketEvents extends EventTarget implements LiveEvents {
  * `plane.localhost`, where native EventSource held one of six connections per stream and a page
  * with enough of them left a Room's own read queued behind them, so a message never showed. */
 export function isLoopbackHost(hostname: string): boolean {
-	return (
-		['127.0.0.1', 'localhost', '[::1]'].includes(hostname) || hostname.endsWith('.localhost')
-	);
+	return ['127.0.0.1', 'localhost', '[::1]'].includes(hostname) || hostname.endsWith('.localhost');
 }
-export function openLiveEvents(path: string): LiveEvents {
+/** Native EventSource retries a dropped connection by itself, but gives up for good when an
+ * answer is refused (a 429 when the company's streams are full, a 503 while the plane restarts).
+ * A page whose stream gave up fell back to its ordinary polling for as long as it stayed open:
+ * a second a read for some, every one a request through the edge (3 Nov 2026). This opens it
+ * again, waiting longer each time. */
+export class RetryingEventSource extends EventTarget implements LiveEvents {
+	onopen: ((event: Event) => void) | null = null;
+	onerror: ((event: Event) => void) | null = null;
+	private source: EventSource | null = null;
+	private timer: ReturnType<typeof setTimeout> | null = null;
+	private stopped = false;
+	private delay = 5_000;
+	private types = new Set<string>();
+	private path: string;
+	private open: (path: string) => EventSource;
+	constructor(path: string, open: (path: string) => EventSource = (url) => new EventSource(url)) {
+		super();
+		this.path = path;
+		this.open = open;
+		this.connect();
+	}
+	private forward = (event: Event) => {
+		const message = event as MessageEvent;
+		this.dispatchEvent(
+			new MessageEvent(message.type, { data: message.data, lastEventId: message.lastEventId })
+		);
+	};
+	private connect() {
+		if (this.stopped) return;
+		const source = (this.source = this.open(this.path));
+		for (const type of this.types) source.addEventListener(type, this.forward);
+		source.onopen = (event) => {
+			this.delay = 5_000;
+			this.onopen?.(event);
+		};
+		source.onerror = (event) => {
+			if (this.stopped) return;
+			this.onerror?.(event);
+			// The consumer may close the stream from its error callback.
+			if (this.stopped || source.readyState !== 2) return;
+			this.timer = setTimeout(() => {
+				this.timer = null;
+				this.connect();
+			}, this.delay);
+			this.delay = Math.min(this.delay * 2, 60_000);
+		};
+	}
+	addEventListener(
+		type: string,
+		listener: EventListenerOrEventListenerObject | null,
+		options?: AddEventListenerOptions | boolean
+	) {
+		if (!this.types.has(type) && type !== 'open' && type !== 'error') {
+			this.types.add(type);
+			this.source?.addEventListener(type, this.forward);
+		}
+		super.addEventListener(type, listener, options);
+	}
+	close() {
+		this.stopped = true;
+		if (this.timer) clearTimeout(this.timer);
+		this.timer = null;
+		this.source?.close();
+	}
+}
+
+/** `retry` reopens a refused EventSource (the company change stream); other streams are per turn
+ * or replay from their own cursor, and stop when refused, as before. */
+export function openLiveEvents(path: string, { retry = false } = {}): LiveEvents {
 	if (
 		typeof location !== 'undefined' &&
 		location.protocol === 'http:' &&
@@ -104,5 +170,5 @@ export function openLiveEvents(path: string): LiveEvents {
 		url.protocol = 'ws:';
 		return new SocketEvents(url.href);
 	}
-	return new EventSource(path);
+	return retry ? new RetryingEventSource(path) : new EventSource(path);
 }
