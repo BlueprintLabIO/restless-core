@@ -889,9 +889,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          changes the durable company plan or priorities. Authority is only a request: your own \
          interpretation can never approve, revoke, raise a budget, or unlock an effect. The owner's \
          own decision about an Inbox item is carried out from the Inbox as above.\n\
-         When the owner wrote, make your final assistant response the complete reply. The Runtime \
-         atomically persists that final response with the exact consumed inputs; do not use \
-         `restless message` to reply to the owner. Follow the shared conversation contract below, \
+         When the owner wrote, make your final assistant response the complete reply, as above. \
+         Follow the shared conversation contract below, \
          then end the response with exactly one machine-readable line before the turn decision:\n\
          <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"your one-line takeaway, said to the owner as you: address them as you, never as the owner in the third person, and do not grade your own work\",\"outcome\":\"optional concrete result\",\"nextStep\":\"optional next owner and action\",\"ownerNeed\":\"optional exact owner input\",\"ownerNeedHandoff\":\"optional exact existing handoff UUID for the same decision\",\"ownerReview\":\"optional name of a finished result for the owner to look at\"}}-->\n\
          Choose one real kind, not the pipe-separated example. If direction changed the plan, update \
@@ -1017,9 +1016,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Recent conversation in this focus [historical context; owner lines are owner-authored, your lines are prior claims]\n{}\n\n\
          # Current human boundary\n{human_boundary}\n\n\
          # {human_input_heading}\n{}\n\
-         Work this turn using the actor contract and current company state in your system context. \
-         If the owner wrote, interpret and reply through the stated conversation contract. Stop when \
-         this Exec wake's coordination or bounded executive work is done.",
+         Stop when this wake's coordination or bounded executive work is done.",
         snapshot.wake_reason.trim(),
         mention,
         if inbox.is_empty() {
