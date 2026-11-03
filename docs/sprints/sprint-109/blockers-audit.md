@@ -71,12 +71,16 @@ owner's decision.
   - Staff call `with_agent`, which turns `CleanupFailed` into `Err`. That throws away the
     productive outcome, even a met one, and records unknown recovery.
   - `7338704a` fixed only the case where the computer restarted, and only in `acp.rs`.
-- **Open:**
-  - Keep the outcome when only process-ownership cleanup is unverified.
-  - Retry the marker read.
-  - Copy the restart guard into `codex.rs`.
-  - Estimated at about 50 lines. Not done here: it needs the ACP harness tests, which need a
-    computer.
+- **Fixed** (#608):
+  - A missing or unreadable marker leaves process cleanup unverified but keeps the turn's outcome,
+    in `acp.rs` and `codex.rs` alike. Broad cleanup stays refused, and the gap is logged.
+  - The marker read is retried three times when Docker fails; only an answer from inside the
+    computer (no such file, no such container) counts as missing.
+  - An unreadable marker is left on disk, so the orphan reaper reaps exactly that session later.
+  - `codex.rs` has the restart guard too.
+  - Tests: `acp::tests::a_missing_or_unreadable_marker_keeps_the_turn_outcome` runs against a
+    disposable company-image container (removed marker, a marker Docker can't read, a computer
+    that's gone).
 
 ### 3. Account-grant refusals say "ask the owner", but no command asks (catch-22)
 
