@@ -1657,7 +1657,10 @@ impl ToolCaller<'_> {
         {
             listed.push(reconcile_tool());
         }
-        listed.extend(mandate_tools());
+        // A session with any tool can also ask for, and check, the owner's standing permissions.
+        if !listed.is_empty() {
+            listed.extend(mandate_tools());
+        }
         Ok(listed)
     }
 
@@ -2193,7 +2196,14 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             names,
-            vec!["mail__delete", "mail__search", "mail__send", RECONCILE_TOOL]
+            vec![
+                "mail__delete",
+                "mail__search",
+                "mail__send",
+                RECONCILE_TOOL,
+                CHECK_MANDATE_TOOL,
+                PROPOSE_MANDATE_TOOL
+            ]
         );
         let send_schema = &listed
             .iter()

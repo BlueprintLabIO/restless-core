@@ -167,6 +167,9 @@ fn minor_digits(currency: &str) -> u32 {
 /// "150", "150.5" or "1,150.50" in the currency's minor units.
 pub fn parse_minor(text: &str, currency: &str) -> Result<i64> {
     let digits = minor_digits(currency);
+    if text.contains('-') {
+        bail!("{text:?} is not an amount of {currency}; amounts are more than zero");
+    }
     let cleaned: String = text
         .trim()
         .trim_start_matches(|c: char| !c.is_ascii_digit() && c != '.')
