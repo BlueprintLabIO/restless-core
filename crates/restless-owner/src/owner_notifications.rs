@@ -8,7 +8,7 @@
 
 use super::*;
 
-use axum::http::header::{AUTHORIZATION, CACHE_CONTROL};
+use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE, ETAG, IF_NONE_MATCH};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use serde::Deserialize;
@@ -20,6 +20,7 @@ const CONTRACT_VERSION: u32 = 1;
 const TOKEN_FILE_ENV: &str = "RESTLESS_NOTIFICATION_DELIVERY_TOKEN_FILE";
 const PATH_PREFIX: &str = "/internal/v1/companies/";
 const INTENTS_SEGMENT: &str = "/notification-intents";
+const LOGO_SEGMENT: &str = "/logo";
 const PAGE_SIZE: usize = 100;
 const MAX_CURSOR_BYTES: usize = 512;
 
@@ -187,6 +188,9 @@ pub(super) fn is_notification_delivery_path(path: &str) -> bool {
     let Some(rest) = path.strip_prefix(PATH_PREFIX) else {
         return false;
     };
+    if let Some(company) = rest.strip_suffix(LOGO_SEGMENT) {
+        return !company.is_empty() && !company.contains('/');
+    }
     let Some((company, suffix)) = rest.split_once(INTENTS_SEGMENT) else {
         return false;
     };
@@ -223,6 +227,10 @@ where
         .route(
             "/internal/v1/companies/{company}/notification-intents/{intent}",
             get(preflight_notification_intent),
+        )
+        .route(
+            "/internal/v1/companies/{company}/logo",
+            get(company_logo_for_email),
         )
         .layer(DefaultBodyLimit::max(0))
         .layer(Extension(Arc::new(endpoint))))
@@ -337,6 +345,81 @@ async fn preflight_notification_intent(
         },
         intent: current,
     })
+}
+
+/// The company's uploaded logo, for its mark in Cloud's emails about the company (owner decision,
+/// 3 Nov 2026). The same file-backed bearer as the projection above: the logo is what every member
+/// already sees beside the company's name, nothing more. The entity tag is the logo's version, so
+/// Cloud asks with the version it holds and fetches the bytes once per logo.
+async fn company_logo_for_email(
+    State(state): State<OwnerState>,
+    Extension(endpoint): Extension<Arc<DeliveryEndpoint>>,
+    AxumPath(company): AxumPath<String>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+) -> Response<Body> {
+    if let Err(response) = authorize(&state, endpoint.as_ref(), &headers) {
+        return response;
+    }
+    if uri.query().is_some() {
+        return delivery_error(StatusCode::BAD_REQUEST, "company_logo_request_invalid");
+    }
+    if let Err(response) = hosted_company(&state, &company).await {
+        return response;
+    }
+    let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) else {
+        return delivery_error(StatusCode::NOT_FOUND, "notification_company_not_hosted");
+    };
+    let Some(logo) = runtime::company_logo(&state.daemon.root, &config) else {
+        return delivery_error(StatusCode::NOT_FOUND, "company_logo_none");
+    };
+    let tag = logo_entity_tag(&logo.version);
+    if if_none_match(&headers, &tag) {
+        let mut response = StatusCode::NOT_MODIFIED.into_response();
+        let response_headers = response.headers_mut();
+        response_headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        if let Ok(value) = HeaderValue::from_str(&tag) {
+            response_headers.insert(ETAG, value);
+        }
+        return response;
+    }
+    let bytes = match tokio::fs::read(&logo.path).await {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return delivery_error(StatusCode::NOT_FOUND, "company_logo_none")
+        }
+        Err(error) => {
+            tracing::warn!(%error, %company, "company logo could not be read for email");
+            return delivery_error(StatusCode::SERVICE_UNAVAILABLE, "company_logo_unavailable");
+        }
+    };
+    let mut response = (
+        [
+            (CONTENT_TYPE, HeaderValue::from_static(logo.media_type)),
+            (CACHE_CONTROL, HeaderValue::from_static("no-store")),
+            (
+                HeaderName::from_static("x-content-type-options"),
+                HeaderValue::from_static("nosniff"),
+            ),
+        ],
+        bytes,
+    )
+        .into_response();
+    if let Ok(value) = HeaderValue::from_str(&tag) {
+        response.headers_mut().insert(ETAG, value);
+    }
+    response
+}
+
+fn logo_entity_tag(version: &str) -> String {
+    format!("\"{version}\"")
+}
+
+/// Whether the one `If-None-Match` names exactly this logo's version.
+fn if_none_match(headers: &HeaderMap, tag: &str) -> bool {
+    let mut values = headers.get_all(IF_NONE_MATCH).iter();
+    let first = values.next().and_then(|value| value.to_str().ok());
+    values.next().is_none() && first == Some(tag)
 }
 
 fn authorize(
@@ -1004,6 +1087,41 @@ mod tests {
         assert!(!is_notification_delivery_path(
             "/internal/v1/notification-intents"
         ));
+        assert!(is_notification_delivery_path(
+            "/internal/v1/companies/company_deadbeef/logo"
+        ));
+        assert!(!is_notification_delivery_path(
+            "/internal/v1/companies/company_deadbeef/logo/extra"
+        ));
+        assert!(!is_notification_delivery_path(
+            "/internal/v1/companies/a/b/logo"
+        ));
+        assert!(!is_notification_delivery_path(
+            "/internal/v1/companies//logo"
+        ));
+    }
+
+    #[test]
+    fn a_logo_is_fetched_again_only_when_its_version_changed() {
+        let tag = logo_entity_tag("0123456789abcdef");
+        assert_eq!(tag, "\"0123456789abcdef\"");
+        let mut headers = HeaderMap::new();
+        assert!(!if_none_match(&headers, &tag));
+        headers.insert(
+            IF_NONE_MATCH,
+            HeaderValue::from_static("\"0123456789abcdef\""),
+        );
+        assert!(if_none_match(&headers, &tag));
+        headers.insert(
+            IF_NONE_MATCH,
+            HeaderValue::from_static("\"fedcba9876543210\""),
+        );
+        assert!(!if_none_match(&headers, &tag));
+        headers.append(
+            IF_NONE_MATCH,
+            HeaderValue::from_static("\"0123456789abcdef\""),
+        );
+        assert!(!if_none_match(&headers, &tag));
     }
 
     #[test]

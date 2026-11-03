@@ -331,6 +331,8 @@
 	box-shadow: 0 0 0 1.5px var(--surface-menu);
 }
 
+/* The current company's mark: its figure on the account rail's tile colours, or an uploaded logo
+ * on a neutral tile so its own colours read true. One fixed box either way. */
 .bridge-root .tb-co-mark {
 	display: grid;
 	flex: none;
@@ -339,6 +341,11 @@
 	height: 16px;
 	overflow: hidden;
 	border-radius: 4px;
+	background: var(--accent-soft);
+	color: var(--accent-strong);
+}
+
+.bridge-root .tb-co-mark.logo {
 	background: var(--surface);
 }
 
@@ -2444,6 +2451,16 @@ html[data-pane-resizing] iframe {
 html[data-pane-resizing] .attention-screen,
 html[data-pane-resizing] .bridge-exrail {
 	transition: none;
+}
+/* The cockpit is a fixed viewport (.bridge-root is 100vh, overflow hidden), so the document itself
+ * never scrolls. Anything that briefly lengthens the page, such as a page's content before its
+ * pane constrains it, would otherwise show a document scrollbar for a frame and push every
+ * right-anchored pane (the Exec rail) 15px left and back (S109 jank gate, Apps on arrival).
+ * Desktop widths only: a phone keeps its document scrolling for the browser's own chrome. */
+@media (min-width: 981px) {
+	html:has(.bridge-root) {
+		overflow: hidden;
+	}
 }
 .bridge-root .exr-msgs,
 .bridge-root .hc-messages {

@@ -60,3 +60,15 @@ test('the Inbox puts blockers, then the soonest deadline, then held Work before 
 	]).map((row) => row.id);
 	assert.deepEqual(order, ['blocker', 'due-today', 'due-friday', 'holds-work', 'old-question']);
 });
+
+test('the order Exec gave from the owner\'s chat holds, around the Inbox\'s own order', () => {
+	const at = (minutes: number) => new Date(Date.UTC(2026, 10, 3, 9, minutes)).toISOString();
+	const order = inboxOrder([
+		item({ id: 'oldest', category: 'decision', createdAt: at(1) }),
+		item({ id: 'blocker', category: 'blocker', createdAt: at(5) }),
+		item({ id: 'later', category: 'decision', createdAt: at(9), execPosition: 1 }),
+		item({ id: 'sink', category: 'decision', createdAt: at(0), execPosition: 0 }),
+		item({ id: 'second', category: 'decision', createdAt: at(8), execPosition: 2 })
+	]).map((row) => row.id);
+	assert.deepEqual(order, ['later', 'second', 'blocker', 'oldest', 'sink']);
+});

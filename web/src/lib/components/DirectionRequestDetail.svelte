@@ -15,16 +15,23 @@
 	import { decideDirectionRequest, targetPhrase } from '$lib/model/direction';
 	import { askExec } from '$lib/model/ask-exec';
 	import type { DirectionDecisionInput, DirectionRequest } from '$lib/model/generated/direction';
+	import type { AttentionItem } from '$lib/model/view';
+	import ExecNote from './inbox/ExecNote.svelte';
 
 	let {
 		companyId,
 		preview,
 		request,
+		attention,
+		owner = false,
 		onresolved
 	}: {
 		companyId: string;
 		preview?: Snippet;
 		request: DirectionRequest;
+		/** The Inbox item this request is, for what Exec did to it from the owner's chat. */
+		attention?: AttentionItem;
+		owner?: boolean;
 		onresolved?: (sent: { text: string; href?: string }) => void;
 	} = $props();
 
@@ -147,6 +154,7 @@
 				<span aria-hidden="true">·</span>
 				<RelativeTime value={current.filed_at} />
 			</p>
+			{#if attention}<ExecNote {companyId} item={attention} {owner} flush />{/if}
 		</header>
 
 		{#if preview}<div class="request-preview">{@render preview()}</div>{:else}

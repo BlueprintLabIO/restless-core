@@ -683,8 +683,14 @@ pub(super) async fn save_native_limit(
                 logged(error, "The change could not be recorded."),
             );
         }
+        let usage = state
+            .daemon
+            .spend
+            .native_usage(&company, chrono::Utc::now());
+        let was_capped = restless_engine::spend::native_limit_reason(&config, &usage).is_some();
         config.native_monthly_turn_limit = input.monthly_turn_limit;
         config.native_monthly_token_limit = input.monthly_token_limit;
+        let lifted = was_capped && restless_engine::spend::native_limit_reason(&config, &usage).is_none();
         if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -704,6 +710,22 @@ pub(super) async fn save_native_limit(
             .await
         {
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", logged(error, "Native usage limits were saved but confirmation could not be recorded. Refresh to check them."));
+        }
+        // As with the spend limit: lifting the cap is the resume condition, so tell Exec rather
+        // than leave the owner to (S109 blockers audit, finding 16).
+        if lifted {
+            if let Ok(org) = state.daemon.orgintel.get(&company).await {
+                let body = format!(
+                    "{} raised the native usage limit; work on the company's own sign-in can run again. Resume the work that stopped on the native limit.",
+                    principal.actor_id()
+                );
+                if let Err(error) = org
+                    .send_message(principal.actor_id(), Some("exec"), &body)
+                    .await
+                {
+                    tracing::warn!(%error, "could not tell Exec that the native limit was raised");
+                }
+            }
         }
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()

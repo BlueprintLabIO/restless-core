@@ -772,6 +772,7 @@ where
         .flatten();
 
     let launch_id = auth.session_id.clone();
+    let launched_at = chrono::Utc::now();
     let session_marker = format!("/tmp/restless-agent-{launch_id}.sid");
     let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
     let dirs = Command::new("docker")
@@ -995,16 +996,18 @@ where
     };
     let result = drive(&session).await;
     let _ = send_operation(&stdin, serde_json::json!({"op":"shutdown"})).await;
-    let owned_session = crate::acp::read_session_id(container, &session_marker).await;
+    let owned_session = crate::acp::read_session_marker(container, &session_marker).await;
     let _ = child.kill().await;
-    let process_cleanup = if let Some(session_id) = owned_session {
-        let _ = crate::acp::reap_session(container, &session_id).await;
-        crate::acp::verify_session_reaped(container, &session_id).await
-    } else {
-        Err(anyhow::anyhow!(
-            "Codex session marker {session_marker} is missing; broad process cleanup was refused"
-        ))
-    };
+    // Same rule as ACP: a missing or unreadable marker leaves process cleanup unverified but keeps
+    // the turn's outcome, and a computer that restarted under the turn has nothing left to reap.
+    let (process_cleanup, keep_marker) = crate::acp::clean_up_session_processes(
+        container,
+        &session_marker,
+        owned_session,
+        launched_at,
+        actor,
+    )
+    .await;
     let secret_cleanup = async {
         if !auth.model.starts_with("native-") {
             crate::acp::purge_exact_secret_residue(container, &codex_home, &auth.gateway_token)
@@ -1014,11 +1017,15 @@ where
             .await
     }
     .await;
-    let artifact_cleanup = crate::acp::remove_and_verify_session_artifacts(
-        container,
-        &[&session_marker, &session_runtime],
-    )
-    .await;
+    let artifact_cleanup = if keep_marker {
+        crate::acp::remove_and_verify_session_artifacts(container, &[&session_runtime]).await
+    } else {
+        crate::acp::remove_and_verify_session_artifacts(
+            container,
+            &[&session_marker, &session_runtime],
+        )
+        .await
+    };
     match result {
         Ok(value) => match process_cleanup.and(secret_cleanup).and(artifact_cleanup) {
             Ok(()) => Ok(crate::acp::SessionOutcome::Completed(value)),

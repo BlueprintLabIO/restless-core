@@ -382,6 +382,13 @@ pub async fn wake(
             None,
         )
         .await?;
+        // The first output of this turn lifts the model's cooldown at once (3 Nov 2026).
+        let observer = crate::model_gateway::clearing_cooldown_on_output(
+            observer.clone(),
+            authority,
+            &config.name,
+            model,
+        );
         let outcome = match harness {
             crate::runtime::AgentHarness::RestlessManaged
             | crate::runtime::AgentHarness::ClaudeAgent
@@ -1689,6 +1696,8 @@ fn owner_inbox_line(item: &crate::attention::AttentionItem) -> String {
         line.push_str(&format!(" · asked by {}", actor.display));
     }
     line.push_str(&format!(" · since {}", ago(item.created_at)));
+    // The id `restless attention <verb> --item` takes when the owner decides it in chat.
+    line.push_str(&format!(" · item {}", item.id));
     if item.source.kind == "owner_handoff" {
         line.push_str(&format!(" · handoff {}", item.source.reference));
     }
@@ -1738,6 +1747,26 @@ async fn gather_snapshot(
     let org_signals = health::organisational(spent_usd, &work, &effect_records)
         .into_iter()
         .map(|signal| format!("[{}] {}", signal.kind, signal.detail))
+        .collect();
+    // Progress estimates: the newest per Work, each open Goal's roll-up over all its Work (done
+    // included), and the checkpoints Exec owes an estimate for on Work it created.
+    let (work_progress, progress_owed) = tokio::try_join!(
+        async { org.work_progress(None).await.map_err(anyhow::Error::from) },
+        async {
+            org.work_progress_owed("exec")
+                .await
+                .map_err(anyhow::Error::from)
+        },
+    )?;
+    let goal_progress = goals
+        .iter()
+        .filter(|goal| goal.closed_at.is_none())
+        .map(|goal| {
+            (
+                goal.id,
+                restless_orgintel::goal_progress(goal.id, &work, &work_progress),
+            )
+        })
         .collect();
     let open: Vec<_> = work
         .into_iter()
@@ -1847,6 +1876,13 @@ async fn gather_snapshot(
             Err(_) => None,
         }
     };
+    // Exec's own recent changes to the owner's Inbox and how each ended, so an undone one is not
+    // silently redone and a refused one is reported honestly.
+    let exec_inbox_actions = if pending_mention.is_some() || !human_is_membership_owner {
+        Vec::new()
+    } else {
+        crate::exec_inbox::recent_lines(org).await
+    };
     // What people changed in settings in the last three days: a raised limit, a new name, another
     // model. Exec otherwise carries on as if what it last saw still held (14 October report).
     let people_changes = {
@@ -1928,12 +1964,16 @@ async fn gather_snapshot(
         human_is_membership_owner,
         owner_set_aside,
         owner_inbox,
+        exec_inbox_actions,
         operating_rules: crate::context::COMPANY_OPERATING_RULES.to_string(),
         mission: config.mission.clone(),
         legal_identity,
         current_plan,
         latest_journal,
         open_work: open,
+        work_progress,
+        goal_progress,
+        progress_owed,
         open_goals: goals
             .into_iter()
             .filter(|goal| goal.closed_at.is_none())

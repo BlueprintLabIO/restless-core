@@ -756,6 +756,32 @@ pub async fn acknowledge(
     Ok(())
 }
 
+/// End a pending decision's Undo window now. Exec's Inbox actions wait out their own window
+/// first (the owner's), so the Authority answer they lead to is due at once.
+pub async fn make_due(authority: &AuthorityStore, id: Uuid) -> Result<()> {
+    sqlx::query(&format!(
+        "UPDATE {TABLE} SET undo_until=LEAST(undo_until, clock_timestamp()) \
+         WHERE id=$1 AND state='pending'"
+    ))
+    .bind(id)
+    .execute(authority.pool())
+    .await?;
+    Ok(())
+}
+
+/// A decision's state and refusal, if it exists.
+pub async fn outcome(
+    authority: &AuthorityStore,
+    id: Uuid,
+) -> Result<Option<(String, Option<String>)>> {
+    Ok(
+        sqlx::query_as(&format!("SELECT state, problem FROM {TABLE} WHERE id=$1"))
+            .bind(id)
+            .fetch_optional(authority.pool())
+            .await?,
+    )
+}
+
 /// Delay to the next deadline in any company, by the database clock.
 pub async fn next_delay(authority: &AuthorityStore) -> Result<Option<std::time::Duration>> {
     let seconds: Option<f64> = sqlx::query_scalar(&format!(
@@ -933,7 +959,7 @@ async fn apply(effects: &Effects<'_>, saved: &PendingApprovalDecision) -> Result
         ApprovalTarget::AccountRequest { request } => {
             if !already_answered(authority, company, saved).await? {
                 recheck().await?;
-                crate::account_broker::settle_request(
+                let settled = crate::account_broker::settle_request(
                     authority.pool(),
                     request,
                     if grant { "approved" } else { "denied" },
@@ -942,6 +968,9 @@ async fn apply(effects: &Effects<'_>, saved: &PendingApprovalDecision) -> Result
                 )
                 .await?
                 .context("That request no longer exists.")?;
+                if let Some(org) = org {
+                    crate::account_broker::tell_requester(org, &settled).await;
+                }
             }
             return Ok(());
         }

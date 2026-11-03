@@ -2805,7 +2805,9 @@ impl OrgIntel {
                SELECT message.id,message.from_actor,message.to_actor,COALESCE(revision.body,message.body) AS body, \
                       message.created_at,message.read_at \
                FROM messages message LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
-               WHERE message.room_id=room.id AND message.deleted_at IS NULL ORDER BY message.id DESC LIMIT 1 \
+               WHERE message.room_id=room.id AND message.deleted_at IS NULL \
+                 AND NOT EXISTS (SELECT 1 FROM work_progress progress WHERE progress.posted_message_id=message.id) \
+               ORDER BY message.id DESC LIMIT 1 \
              ) latest ON latest.from_actor=wanted.actor_id"
         ).bind(agents).bind(keys).bind(human_actor).fetch_all(&self.pool).await?)
     }

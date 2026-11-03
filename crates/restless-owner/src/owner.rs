@@ -37,6 +37,8 @@ mod document_decisions_api;
 mod documents_api;
 #[path = "owner_event_transport.rs"]
 mod event_transport;
+#[path = "owner_exec_inbox.rs"]
+mod exec_inbox_api;
 #[path = "owner_for_you.rs"]
 mod for_you_api;
 #[path = "owner_handoff_decisions.rs"]
@@ -727,9 +729,6 @@ struct CompanyCatalogEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     logo_url: Option<String>,
 }
-
-/// How long the companies list waits for any one company's card.
-const PORTFOLIO_CARD_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// The one high-value owner read model. This remains a projection: every
 /// field is assembled from its authoritative plane immediately before the
@@ -2009,6 +2008,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .merge(handoff_decisions_api::routes())
         .merge(document_decisions_api::routes())
         .merge(approval_decisions_api::routes())
+        .merge(exec_inbox_api::routes())
         .route(
             "/companies/{company}/handoffs/{handoff}/review",
             post(review_outcome),
@@ -2135,6 +2135,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/library/content",
             get(review_api::library_file_content),
+        )
+        .route(
+            "/companies/{company}/library/image",
+            get(review_api::library_image),
         )
         .route(
             "/companies/{company}/messages/{message}/reference",
@@ -3099,6 +3103,7 @@ fn is_company_library_read(method: &Method, path: &str) -> bool {
         (method.clone(), tail.as_slice()),
         (Method::POST, ["library", "open"])
             | (Method::GET | Method::HEAD, ["library", "content"])
+            | (Method::GET | Method::HEAD, ["library", "image"])
             // The Library screen asks every viewer; a member gets an empty map from the handler.
             | (Method::GET, ["library", "modified"])
     )
@@ -5764,11 +5769,12 @@ async fn grant_owner_connection(
     if should_make_default {
         follow_company_default(&state, &config, &default_before).await;
     }
-    // A new credential for this provider: a cooldown the old one earned no longer applies.
+    // A new connection for this provider: the refusals the old one earned (a rejected key,
+    // used-up credit, usage or rate limits) no longer apply (S109 blockers audit, finding 15).
     if let Err(error) = state
         .daemon
         .authority
-        .clear_provider_credential_cooldowns(&config.name, &connection.provider)
+        .clear_provider_refusal_cooldowns(&config.name, &connection.provider)
         .await
     {
         tracing::warn!(%error, "could not clear the replaced credential's cooldown");
@@ -7161,32 +7167,27 @@ async fn company_catalog(
         };
         configs.push((config, "archived"));
     }
-    let runtime_statuses = runtime::cockpit_company_statuses(
-        &configs
-            .iter()
-            .map(|(config, _)| config.clone())
-            .collect::<Vec<_>>(),
-    )
-    .await
-    .ok();
-    let cards = futures_util::future::join_all(configs.iter().map(|(config, lifecycle)| {
-        let daemon = state.daemon.clone();
-        let company = config.name.clone();
-        let active = *lifecycle == "active";
-        async move {
-            if !active {
-                return None;
+    let plain_configs = configs
+        .iter()
+        .map(|(config, _)| config.clone())
+        .collect::<Vec<_>>();
+    // The Docker inventory and the cards are independent reads: run them side by side, so the
+    // list costs the slower of them, not both.
+    let (runtime_statuses, cards) = tokio::join!(
+        runtime::cockpit_company_statuses(&plain_configs),
+        futures_util::future::join_all(configs.iter().map(|(config, lifecycle)| {
+            let daemon = state.daemon.clone();
+            let company = config.name.clone();
+            let active = *lifecycle == "active";
+            async move {
+                if !active {
+                    return None;
+                }
+                crate::company_projection::portfolio_card(&daemon, &company).await
             }
-            tokio::time::timeout(
-                PORTFOLIO_CARD_TIMEOUT,
-                crate::company_projection::card_for(&daemon, &company),
-            )
-            .await
-            .ok()
-            .and_then(Result::ok)
-        }
-    }))
-    .await;
+        }))
+    );
+    let runtime_statuses = runtime_statuses.ok();
     let mut catalog = Vec::with_capacity(configs.len());
     for ((config, lifecycle), card) in configs.into_iter().zip(cards) {
         let status = runtime_statuses
@@ -7572,6 +7573,12 @@ async fn attention_view(
                 view.work_graph = None;
             }
             let mut output = serde_json::json!(view);
+            // What Exec changed from the owner's chat, beside the items it changed.
+            if principal.membership_role() == "owner" {
+                if let Some(org) = org.as_ref() {
+                    exec_inbox_api::decorate(org, &mut output).await;
+                }
+            }
             output["pending_handoff_decisions"] = serde_json::json!(pending_ids);
             output["pending_document_decisions"] = serde_json::json!(pending_document_ids);
             output["pending_approval_decisions"] = serde_json::json!(pending_approval_ids);
@@ -8952,6 +8959,16 @@ async fn recover_company_computer(
     };
     match company_projection::recover(&state.daemon, &config, action, principal.actor_id()).await {
         Ok(outcome) => Json(outcome).into_response(),
+        // The monthly hours cap refuses a start; "Try again" can never help, the limit can
+        // (S109 blockers audit). Same words as waking the desktop.
+        Err(error) if format!("{error:#}").contains("monthly Runtime") => api_error(
+            StatusCode::CONFLICT,
+            "runtime_hours",
+            logged(
+                error,
+                "This month's computer hours are used up, so it cannot start. Raise or clear the limit in Company → Resources.",
+            ),
+        ),
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "recovery",
@@ -11826,6 +11843,14 @@ async fn send_actor_message(
                     {
                         tracing::error!(%error, %attention_id, message_id, "Attention context event was not recorded after message delivery");
                     }
+                }
+            }
+            // The owner has moved on from what Exec already showed them: each of Exec's Inbox
+            // changes is applied once it has been open 30 seconds, rather than at its two-minute
+            // ceiling. A change still in a streaming reply keeps waiting to be shown.
+            if created && actor == "exec" && principal.membership_role() == "owner" {
+                if let Err(error) = org.owner_moved_on_from_exec_inbox_actions().await {
+                    tracing::warn!(%error, %company, "Exec's Inbox changes kept their full Undo window");
                 }
             }
             if created {

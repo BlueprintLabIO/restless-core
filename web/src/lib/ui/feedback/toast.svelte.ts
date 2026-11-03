@@ -18,6 +18,8 @@ export type Toast = {
 	persist?: boolean;
 	/** A source-owned deadline is never extended by hovering or focus. */
 	expiresAt?: number;
+	/** Show how long is left before expiresAt ("1:52 left"), for an Undo with a long window. */
+	showTimeLeft?: boolean;
 	/** Called only for an explicit dismissal, never automatic eviction. */
 	onDismiss?: () => unknown;
 };
@@ -73,7 +75,10 @@ function schedule(id: number) {
 /** Say what happened. Pass undo when the action can be reversed; it runs once, then the toast goes. */
 export function toast(
 	text: string,
-	options: Pick<Toast, 'undo' | 'action' | 'persist' | 'expiresAt' | 'onDismiss' | 'dedupeKey'> & {
+	options: Pick<
+		Toast,
+		'undo' | 'action' | 'persist' | 'expiresAt' | 'showTimeLeft' | 'onDismiss' | 'dedupeKey'
+	> & {
 		tone?: ToastTone;
 	} = {}
 ) {
@@ -150,6 +155,17 @@ export function toastWhile(read: () => ToastMessage | null | undefined | false |
 			return Boolean(message);
 		}
 	};
+}
+
+/** Move a showing toast's source-owned deadline (the source shortened or lengthened its window).
+ * False when that toast has gone. */
+export function retimeToast(id: number, expiresAt: number): boolean {
+	const item = toasts.list.find((entry) => entry.id === id);
+	if (!item) return false;
+	if (item.expiresAt === expiresAt) return true;
+	toasts.list = toasts.list.map((entry) => (entry.id === id ? { ...entry, expiresAt } : entry));
+	schedule(id);
+	return true;
 }
 
 /** Take back the newest action that still offers Undo. False when none does. */

@@ -110,11 +110,18 @@
 				><a href="#tools">Tools</a><a href="#computer">Computer</a>
 			</nav>{/if}
 	{/snippet}
+	<!-- Compute and AI usage read their own sources, so they mount with the page rather than after
+	     the company view answers: their reads run beside it instead of after it (3 Nov walkthrough:
+	     the page waited on principal, then the company, then compute, one after another). -->
 	{#if principal.view && !owner}
 		<CompanyLimits section="spend" />
-	{:else if view}
-		{#if owner}<CompanyCompute {companyId} runtime={view.computer.runtime} />
+	{:else}
+		{#if owner && (view || !source.failure)}<CompanyCompute
+				{companyId}
+				runtime={view?.computer.runtime}
+			/>
 			<CompanyAiUsage {companyId} />{/if}
+		{#if view}
 		<CompanyLimits section="spend" />
 		{#if owner}<CompanyLimits section="authority" />
 
@@ -164,14 +171,15 @@
 			{/if}
 
 			<CompanyLimits section="computer" />{/if}
-	{:else if source.failure}
-		<FailureNotice
-			error={source.failure}
-			subject="limits"
-			variant="block"
-			onretry={source.refresh}
-		/>
-	{:else}<Skeleton label="Reading limits…" variant="page" count={4} />{/if}
+		{:else if source.failure}
+			<FailureNotice
+				error={source.failure}
+				subject="limits"
+				variant="block"
+				onretry={source.refresh}
+			/>
+		{:else}<Skeleton label="Reading limits…" variant="page" count={4} />{/if}
+	{/if}
 </Page>
 
 <style>

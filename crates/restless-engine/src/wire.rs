@@ -633,6 +633,9 @@ pub struct Request {
     /// Exec's direction and permission operation (S80).
     #[serde(default)]
     pub direction_operation: Option<crate::direction::DirectionOperation>,
+    /// Exec's change to the owner's Inbox, on the owner's word (`restless attention <verb>`).
+    #[serde(default)]
+    pub attention_action: Option<crate::exec_inbox::AttentionAction>,
     /// A typed decision a company actor asks for (`restless decide`): `state` and `questions`.
     #[serde(default)]
     pub decision: Option<serde_json::Value>,
@@ -648,6 +651,15 @@ pub struct Request {
     /// A Goal's due date, YYYY-MM-DD; empty clears it.
     #[serde(default)]
     pub due: Option<String>,
+    /// A Work progress estimate's overall percent (`restless work progress --percent`).
+    #[serde(default)]
+    pub percent: Option<i16>,
+    /// What is left of the Work, in one line (`restless work progress --next`).
+    #[serde(default)]
+    pub next: Option<String>,
+    /// Why the Work is blocked, in place of a number (`restless work progress --blocked`).
+    #[serde(default)]
+    pub blocked: Option<String>,
 }
 
 const ENVELOPE_FIELDS: &[&str] = &["cmd", "company", "principal", "session_capability"];
@@ -719,6 +731,11 @@ impl Request {
 /// This is a decoder allowlist, not a second command algebra: the dispatcher
 /// remains the only command behaviour and source owner. Each row merely names
 /// the already-existing fields that cross its concrete domain boundary.
+/// Whether the daemon accepts this command at all.
+pub(crate) fn is_command(command: &str) -> bool {
+    command_fields(command).is_some()
+}
+
 fn command_fields(command: &str) -> Option<&'static [&'static str]> {
     Some(match command {
         "appliance-drain"
@@ -787,6 +804,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "document-operation" => &["actor", "document_operation"],
         "sheet-operation" => &["actor", "sheet_operation"],
         "direction-operation" => &["actor", "direction_operation"],
+        "attention-act" => &["as_actor", "source_message_id", "attention_action"],
         "apps-search" => &["body"],
         "account-ask" => &["actor", "tool", "body"],
         "capabilities" => &["actor"],
@@ -944,6 +962,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         ],
         "work-handoff-resolve" => &["id", "state", "resolution", "as_actor", "source_message_id"],
         "work-interrupt" | "work-resume" | "work-abandon" => &["id", "as_actor", "reason"],
+        "work-progress" => &["id", "as_actor", "percent", "next", "blocked"],
         "work-review" => &["id", "state", "resolution"],
         "inbox" => &["actor", "as_actor"],
         "message" => &["from", "to", "id", "body"],
@@ -1025,6 +1044,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "effect-reconcile" => &["key"],
         "mandate-list" => &[],
         "mandate-permit" => &["mandate_id", "mandate_proposal", "actor"],
+        "mandate-propose" => &["mandate_proposal", "purpose", "actor"],
         "email-preview" | "email-send" => &["email_request", "actor"],
         "email-observe" => &["actor", "email_observe_list", "email_observe_after"],
         "identity-evidence-add" => &[
@@ -1314,7 +1334,10 @@ pub const OWNER_ONLY: &[&str] = &[
 /// Actor-owned Opportunity mutations. The owner has a separate, future
 /// administrative path and cannot impersonate Exec through these commands.
 const COMPANY_EXEC_ONLY: &[&str] = &[
+    // The owner changes their own Inbox in the cockpit; this is Exec acting on their chat.
+    "attention-act",
     "mandate-permit",
+    "mandate-propose",
     "finance-payee-propose",
     "setting-propose",
     "email-send",
@@ -1327,10 +1350,15 @@ const COMPANY_EXEC_ONLY: &[&str] = &[
 
 pub fn authorize(principal: Principal, cmd: &str) -> std::result::Result<Principal, String> {
     if principal != Principal::Owner && OWNER_ONLY.contains(&cmd) {
-        return Err(format!(
+        let refusal = format!(
             "{cmd} is an act of owner authority; principal {} may not perform it",
             principal.as_str()
-        ));
+        );
+        // Name the agent's way out, so the refusal is never a dead end (S109 blockers audit).
+        return Err(match crate::doors::owner_only_door(cmd) {
+            Some(door) => crate::doors::refusal_with_door(refusal, door),
+            None => refusal,
+        });
     }
     if principal != Principal::CompanyExec && COMPANY_EXEC_ONLY.contains(&cmd) {
         return Err(format!(
@@ -1717,6 +1745,7 @@ mod tests {
             "work-interrupt",
             "work-resume",
             "work-abandon",
+            "work-progress",
             "work-review",
             "inbox",
             "message",
@@ -1736,6 +1765,7 @@ mod tests {
             "watch",
             "document-review-request",
             "direction-operation",
+            "attention-act",
             "apps-search",
             "account-ask",
             "capabilities",

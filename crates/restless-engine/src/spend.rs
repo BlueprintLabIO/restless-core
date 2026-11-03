@@ -323,6 +323,30 @@ pub fn native_limit_reason(config: &CompanyConfig, usage: &NativeUsage) -> Optio
     None
 }
 
+/// Whether a `[budget]` refusal came from [`native_limit_reason`] rather than the spend limit.
+pub fn is_native_limit_reason(reason: &str) -> bool {
+    reason.starts_with("[budget] ")
+        && (reason.contains("native-harness turns this month")
+            || reason.contains("native-harness tokens this month")
+            || reason.contains("native turns without reported token usage"))
+}
+
+#[cfg(test)]
+mod native_limit_reason_tests {
+    #[test]
+    fn a_native_cap_is_told_apart_from_the_spend_limit() {
+        assert!(super::is_native_limit_reason(
+            "[budget] acme has used 500 of its 500 native-harness turns this month; raise or clear the limit before native work continues"
+        ));
+        assert!(super::is_native_limit_reason(
+            "[budget] acme has native turns without reported token usage this month, so its token limit cannot be checked."
+        ));
+        assert!(!super::is_native_limit_reason(
+            "[budget] spend limit reached: $50.00 of $50.00 this month"
+        ));
+    }
+}
+
 /// Codex or Claude on their own sign-in or key, outside the host relay.
 fn is_native_route(model: &str) -> bool {
     model.starts_with("native-")

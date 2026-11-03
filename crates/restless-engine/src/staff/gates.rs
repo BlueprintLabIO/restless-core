@@ -1316,19 +1316,36 @@ mod tests {
             ),
         )
         .await;
-        let mismatch = ensure_worktree(&config, &wrong.work, Some(&base_a), wrong.attempt_id, &org)
-            .await
-            .unwrap_err();
-        assert!(
-            mismatch
-                .to_string()
-                .contains("materialized workspace differs from requested source"),
-            "unexpected mismatch evidence: {mismatch:#}"
+        // S109 blockers audit, item 8: a worktree left at another commit is preserved under
+        // refs/restless/preserved/<attempt> and reset to the exact requested source, instead of
+        // refusing every successor.
+        let recovered =
+            ensure_worktree(&config, &wrong.work, Some(&base_a), wrong.attempt_id, &org)
+                .await
+                .expect("a worktree left elsewhere is recovered");
+        assert_eq!(
+            observe_workspace(&container, &recovered)
+                .await
+                .source_commit
+                .as_deref(),
+            Some(base_a.as_str())
+        );
+        assert_eq!(
+            command(
+                &container,
+                &format!(
+                    "set -eu; git -C /company/repos/{repo} rev-parse refs/restless/preserved/{}",
+                    wrong.attempt_id
+                ),
+            )
+            .await,
+            base_b,
+            "the old tip stays reachable"
         );
         org.finish_work_attempt(
             wrong.attempt_id,
             WorkAttemptState::Failed,
-            "Runtime refused wrong source before model launch",
+            "fixture ends after the recovered workspace was checked",
         )
         .await
         .unwrap();

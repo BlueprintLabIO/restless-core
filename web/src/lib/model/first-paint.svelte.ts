@@ -12,9 +12,9 @@
 
 import { useQueryClient } from '@tanstack/svelte-query';
 import { onMount } from 'svelte';
-import { holdsReveal } from './first-paint-hold.ts';
+import { holdsReveal, surfaceOf } from './first-paint-hold.ts';
 
-export function firstPaint(companyId: () => string) {
+export function firstPaint(companyId: () => string, pathname: () => string = () => '') {
 	const client = useQueryClient();
 	let ready = $state(false);
 	let company = '';
@@ -25,7 +25,7 @@ export function firstPaint(companyId: () => string) {
 		client
 			.getQueryCache()
 			.findAll()
-			.some((query) => holdsReveal(query, companyId()));
+			.some((query) => holdsReveal(query, companyId(), surfaceOf(pathname(), companyId())));
 
 	onMount(() => {
 		let frame = 0;

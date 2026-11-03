@@ -30,6 +30,7 @@ mod document_copies;
 mod document_decisions;
 mod documents;
 mod events;
+mod exec_inbox;
 mod for_you;
 mod goals_work;
 mod handoff_decisions;
@@ -43,6 +44,7 @@ mod notice_digest;
 mod notifications;
 mod owner_ready;
 mod pending_shares;
+mod progress;
 mod responsibility;
 mod review;
 mod rooms;
@@ -51,6 +53,7 @@ mod sheet_comments;
 mod sheet_search;
 mod sheets;
 mod skills;
+mod stalled_work;
 mod substrate;
 mod types;
 mod visual;
@@ -60,6 +63,7 @@ mod work_collaboration;
 pub use access::*;
 pub use accounting::*;
 pub use actor_context::*;
+pub use attempts::INTERRUPTION_RESUMES_PER_REVISION;
 pub use attention_dismissals::*;
 pub use comment_search::*;
 pub use completion_repairs::*;
@@ -68,6 +72,7 @@ pub use document_copies::*;
 pub use document_decisions::*;
 pub use documents::*;
 pub use events::EventReplayPage;
+pub use exec_inbox::*;
 pub use for_you::*;
 pub use handoff_decisions::*;
 pub use human_decisions::*;
@@ -79,6 +84,10 @@ pub use notice_digest::notice_digest_body;
 pub use notifications::*;
 pub use owner_ready::*;
 pub use pending_shares::*;
+pub use progress::{
+    current_percent, goal_progress, progress_line, progress_moves_enough, progress_owed_section,
+    rounded_percent, GoalProgress, ProgressReport, PROGRESS_HISTORY, PROGRESS_POST_STEP,
+};
 pub use responsibility::*;
 pub use schedules::{
     validate_calendar_days, ScheduleChange, MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS,
@@ -87,6 +96,7 @@ pub use sheet_comments::*;
 pub use sheet_search::*;
 pub use sheets::*;
 pub use skills::*;
+pub use stalled_work::*;
 pub use types::*;
 
 /// Resolve the canonical direct Room for one durable Message write, creating

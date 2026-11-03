@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ExecNote from '$lib/components/inbox/ExecNote.svelte';
 	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { askExec } from '$lib/model/ask-exec';
 	import { failureSentence } from '$lib/model/failure';
@@ -47,6 +48,7 @@
 	import { getOwnershipHandover, handoverNotice, type OwnershipHandover } from '$lib/model/members';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import { fetchDecisionHistory, issueDesktopTicket, stopNotice } from '$lib/model/attention';
+	import { decidedNotice, RESOLVED_ELSEWHERE } from '$lib/model/owner-copy';
 	import { DesktopControl } from '$lib/model/desktop-control.svelte';
 	import { dropComputerFile } from '$lib/model/computer-files';
 	import type { LibraryArtifact } from '$lib/model/library-files';
@@ -168,7 +170,11 @@
 	});
 	const handoverStatus = $derived(handoverNotice(handover, principal?.actor_id));
 	const queueClear = $derived(
-		inboxFilter === 'open' && attentionClear && !forYou?.items.length && forYou?.filter === 'all' && !handoverStatus
+		inboxFilter === 'open' &&
+			attentionClear &&
+			!forYou?.items.length &&
+			forYou?.filter === 'all' &&
+			!handoverStatus
 	);
 	/* Preload office assets on desktop; a clear phone Inbox can still open the floor. */
 	let compactScreen = $state(false);
@@ -205,10 +211,12 @@
 	/* The queue starts collapsed until its source answers, so an idle
 	 * company's office is never squeezed and released; when items do arrive,
 	 * the queue opens with the same motion as any later change. */
-	const currentVisibleItems = $derived((visibleItems ?? items).flatMap((row) => {
-		const current = items.find((candidate) => candidate.id === row.id);
-		return current ? [current] : [];
-	}));
+	const currentVisibleItems = $derived(
+		(visibleItems ?? items).flatMap((row) => {
+			const current = items.find((candidate) => candidate.id === row.id);
+			return current ? [current] : [];
+		})
+	);
 	const selectedItem = $derived.by(() => {
 		if (selectedUpdateId) return null;
 		if (selectedItemId) {
@@ -235,19 +243,33 @@
 	$effect(() => {
 		if (nextItem) prefetchReviewTicket(companyId, nextItem);
 	});
-	let missingNotice = $state('');
-	let missingDecisionHref = $state('');
+	/* An old link to a settled item says what became of it, in the platform's words by state
+	 * (owner-copy.ts); the record's own reason stays behind "See it in Activity". It shows once,
+	 * when the record is read, so it never opens with one sentence and swaps to another. */
+	let missingNotice = $state<{
+		title: string;
+		text: string;
+		activityHref?: string;
+		replacementHref?: string;
+	} | null>(null);
 	let explaining = '';
 	async function explainMissing(company: string, itemId: string) {
 		explaining = itemId;
 		const history = await fetchDecisionHistory(company).catch(() => null);
+		if (explaining !== itemId) return;
 		const decision = history?.decisions.find((row) => row.itemId === itemId);
-		if (!decision || explaining !== itemId || !missingNotice) return;
-		const what = decision.recordedDecision.trim() || 'It was decided.';
-		missingNotice = decision.decidedBy
-			? `${decision.decidedBy} already decided “${decision.title}”: ${what}`
-			: `“${decision.title}” was already decided: ${what}`;
-		missingDecisionHref = `/${encodeURIComponent(company)}/company/activity?show=decisions&open=${encodeURIComponent(decision.id)}`;
+		if (!decision) {
+			missingNotice = { title: '', text: RESOLVED_ELSEWHERE };
+			return;
+		}
+		const replacement = decision.replacementItemId
+			? items.find((item) => item.id === decision.replacementItemId)
+			: undefined;
+		missingNotice = {
+			...decidedNotice(decision, { viewerIsOwner: owner, replacementInInbox: !!replacement }),
+			activityHref: `/${encodeURIComponent(company)}/company/activity?show=decisions&open=${encodeURIComponent(decision.id)}`,
+			replacementHref: replacement ? itemHref(replacement.id) : undefined
+		};
 	}
 	let missingItemRedirect = $state('');
 	let resolvedHere = '';
@@ -276,17 +298,13 @@
 			!items.some((item) => item.id === selectedItemId)
 		) {
 			missingItemRedirect = selectedItemId;
-			missingNotice =
-				(resolvedHere === selectedItemId || view?.pendingDecisionItems?.includes(selectedItemId))
-					? ''
-					: 'That item has been resolved or is no longer in the Inbox.';
-			missingDecisionHref = '';
-			/* An old link to an item someone already answered says who decided and what. */
-			if (resolvedHere !== selectedItemId && !view?.pendingDecisionItems?.includes(selectedItemId)) void explainMissing(companyId, selectedItemId);
+			missingNotice = null;
+			explaining = '';
+			/* An old link to an item someone already answered says what became of it. */
+			if (resolvedHere !== selectedItemId && !view?.pendingDecisionItems?.includes(selectedItemId))
+				void explainMissing(companyId, selectedItemId);
 			const previousIndex = Math.max(0, previousItemOrder.indexOf(selectedItemId));
-			const next = currentVisibleItems[
-				Math.min(previousIndex, currentVisibleItems.length - 1)
-			];
+			const next = currentVisibleItems[Math.min(previousIndex, currentVisibleItems.length - 1)];
 			void goto(next ? itemHref(next.id) : baseHref, {
 				replaceState: true,
 				noScroll: true
@@ -481,7 +499,10 @@
 		if (!item || finishingStep) return;
 		const rows = visibleItems ?? items;
 		const others = rows.filter((row) => row.id !== item.id);
-		const index = Math.max(0, rows.findIndex((row) => row.id === item.id));
+		const index = Math.max(
+			0,
+			rows.findIndex((row) => row.id === item.id)
+		);
 		const next = others[Math.min(index, others.length - 1)] ?? null;
 		finishingStep = true;
 		try {
@@ -784,10 +805,15 @@
 				>
 			</div>{/if}
 		{#if missingNotice}<div class="attention-resolution-notice" role="status">
-				{missingNotice}{#if missingDecisionHref}
-					<a href={missingDecisionHref}>See it in Activity</a>{/if}<button
-					aria-label="Dismiss notification"
-					onclick={() => (missingNotice = '')}>×</button
+				<span
+					>{#if missingNotice.title}<strong class="notice-title">{missingNotice.title}</strong
+						>{/if}{missingNotice.text}</span
+				>{#if missingNotice.replacementHref}<a href={missingNotice.replacementHref}
+						>Open the new one</a
+					>{/if}{#if missingNotice.activityHref}<a href={missingNotice.activityHref}
+						>See it in Activity</a
+					>{/if}<button aria-label="Dismiss notification" onclick={() => (missingNotice = null)}
+					>×</button
 				>
 			</div>{/if}
 		{#if error}
@@ -837,7 +863,9 @@
 				type="button"
 				aria-hidden={!(showClear && paneEmpty)}
 				tabindex={showClear && paneEmpty ? 0 : -1}
-				title={showClear && paneEmpty ? 'No decision is waiting on you. Check again now.' : undefined}
+				title={showClear && paneEmpty
+					? 'No decision is waiting on you. Check again now.'
+					: undefined}
 				onclick={() => void refresh()}
 			>
 				<span class="attention-clear-glyph" aria-hidden="true">
@@ -846,7 +874,9 @@
 				<span>No decisions</span>
 			</button>
 			{#if queueClear && paneEmpty}<div class="attention-set-aside">
-					{#if owner}<a href={`/${companyId}?filter=all`} class="attention-archived">All Inbox items</a>{/if}
+					{#if owner}<a href={`/${companyId}?filter=all`} class="attention-archived"
+							>All Inbox items</a
+						>{/if}
 					{#if forYou}<button
 							type="button"
 							class="attention-archived"
@@ -953,6 +983,7 @@
 					>Company › Charter</a
 				>
 			</header>
+			<ExecNote {companyId} {item} {owner} />
 			{#if charterCompany.view}
 				<CharterPurpose
 					{companyId}
@@ -971,6 +1002,8 @@
 		<DirectionRequestDetail
 			{companyId}
 			request={item.directionRequest}
+			attention={item}
+			{owner}
 			preview={previewTarget ? previewContent : undefined}
 			onresolved={(result) => {
 				resolvedHere = item.id;
@@ -979,12 +1012,14 @@
 			}}
 		/>
 	{:else}
-		{#snippet outcomeContent(reviewedItem: AttentionItem)}{#key JSON.stringify(reviewedItem.reviewVersion)}<OutcomePreview
-				{companyId}
-				item={reviewedItem}
-				{artifacts}
-				onrefresh={source.refresh}
-			/>{/key}{/snippet}
+		{#snippet outcomeContent(
+			reviewedItem: AttentionItem
+		)}{#key JSON.stringify(reviewedItem.reviewVersion)}<OutcomePreview
+					{companyId}
+					item={reviewedItem}
+					{artifacts}
+					onrefresh={source.refresh}
+				/>{/key}{/snippet}
 		<InboxDetail
 			{companyId}
 			{item}
@@ -1012,7 +1047,10 @@
 				if (result.error) throw result.error;
 			}}
 			onresolved={(result) => {
-				if (result.pending) { sent = null; return; }
+				if (result.pending) {
+					sent = null;
+					return;
+				}
 				/* From the answer just given, before the detail closes around it. */
 				celebrate(document.activeElement);
 				resolvedHere = item.id;
@@ -1071,6 +1109,19 @@
 		border-radius: 6px;
 		box-shadow: var(--shadow-soft);
 		font-size: var(--t-body);
+		/* Never wider than the pane, so a long title wraps instead of running off a phone. */
+		max-width: min(560px, calc(100% - 32px));
+		flex-wrap: wrap;
+		align-items: baseline;
+	}
+	.attention-resolution-notice > span {
+		flex: 1 1 240px;
+		min-width: 0;
+	}
+	.attention-resolution-notice .notice-title {
+		display: block;
+		font-weight: 600;
+		overflow-wrap: anywhere;
 	}
 	.attention-resolution-notice button {
 		background: none;

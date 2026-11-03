@@ -33,6 +33,8 @@
 	import { presence } from '$lib/model/presence.svelte';
 	import { desktopNotify, notifyPortfolio } from '$lib/model/desktop-notify.svelte';
 	import { ASK_EXEC_EVENT, SHOW_CONVERSATION_EVENT, type ExecReply } from '$lib/model/ask-exec';
+	import { SHOW_MESSAGE_EVENT } from '$lib/model/exec-inbox';
+	import ExecInboxNotices from '$lib/components/inbox/ExecInboxNotices.svelte';
 	import { cockpitContextPath, stopNotice } from '$lib/model/attention';
 	import type { StopOutcome } from '$lib/primitives/Composer.svelte';
 	import { isOutcomeReview } from '$lib/model/attention-presentation';
@@ -64,7 +66,8 @@
 		companiesQuery,
 		companyChangeStream,
 		companyPrincipalQuery,
-		conversationQuery
+		conversationQuery,
+		turnProgressing
 	} from '$lib/model/queries.svelte';
 	import {
 		agentRouteState,
@@ -108,6 +111,7 @@
 	} from '$lib/model/attachments';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { keepCompanyTabTitle } from '$lib/model/company-tab-title';
+	import { keepCompanyFavicon } from '$lib/model/company-favicon';
 	import { forYouSentence, getInboxMarks, newlyUnread, unreadMarks } from '$lib/model/for-you';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { directionDigestQuery } from '$lib/model/direction';
@@ -118,7 +122,10 @@
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
-	const entry = firstPaint(() => companyId);
+	const entry = firstPaint(
+		() => companyId,
+		() => page.url.pathname
+	);
 	/* Each settled company page leaves its layout for the next cold load's loading screen
 	 * (shell-snapshot.ts): once revealed, after each navigation, and as the tab is left. */
 	$effect(() => {
@@ -610,7 +617,8 @@
 			() => !!principal,
 			railViewerId,
 			true,
-			true
+			true,
+			() => ownerAccess
 		)
 	);
 	const railActorName = $derived(
@@ -620,7 +628,19 @@
 	const providerIssue = $derived(
 		companies.find((company) => company.id === companyId)?.unstartable_reason ?? ''
 	);
-	const railRouteState = $derived(agentRouteState(intelligence.view, railActorId));
+	/* Live proof the rail's agent can think: one of its turns, or the Work it runs, is under way.
+	 * While it is, the chat never says the model can't reply (3 Nov 2026). */
+	const railProgressing = $derived(
+		turnProgressing(railConversation.activeTurn) ||
+			turnProgressing(railConversation.ambientTurn) ||
+			turnProgressing(railConversation.workTurn) ||
+			!!(ownerAccess ? cockpit?.people : collaboration.view?.people)?.some(
+				(person) => person.actor_id === railActorId && person.session_running
+			)
+	);
+	const railRouteState = $derived(
+		agentRouteState(intelligence.view, railActorId, railProgressing)
+	);
 	const railConnectionStatus = $derived.by(() => {
 		/* A member has no owner cockpit projection; whether Exec can think is the model route. */
 		if (!ownerAccess) {
@@ -1122,6 +1142,11 @@
 
 	/* Nested pages may set their own title; the tab always identifies the company. */
 	$effect(() => keepCompanyTabTitle(companyName || rememberedName(companyId) || 'Restless'));
+	/* ...and its icon is the company's mark, the same one the top bar and the account rail show. */
+	const companyLogo = $derived(
+		companies.find((company) => company.id === companyId)?.logo_url ?? null
+	);
+	$effect(() => keepCompanyFavicon(companyId, companyLogo));
 
 	/* The Apps dot: a sign-in to renew, a tool to review, or an app Exec asked
 	 * for. Checked on arrival, on every move and once a minute. Know-how
@@ -1226,11 +1251,15 @@
 		const show = () => {
 			execRailOpen = true;
 		};
+		/* "From your chat" on an Inbox item: the Exec conversation, at the owner's message. */
+		const showMessage = () => askPerson('exec');
 		window.addEventListener(SHOW_CONVERSATION_EVENT, show);
 		window.addEventListener(ASK_EXEC_EVENT, ask);
+		window.addEventListener(SHOW_MESSAGE_EVENT, showMessage);
 		return () => {
 			window.removeEventListener(ASK_EXEC_EVENT, ask);
 			window.removeEventListener(SHOW_CONVERSATION_EVENT, show);
+			window.removeEventListener(SHOW_MESSAGE_EVENT, showMessage);
 		};
 	});
 	/* Blank until the people list names the viewer: a placeholder letter that later changes is
@@ -1807,6 +1836,7 @@
 <PendingHandoffDecisions {companyId} />
 <PendingDocumentDecisions {companyId} />
 <PendingApprovalDecisions {companyId} />
+{#if ownerAccess}<ExecInboxNotices {companyId} />{/if}
 
 {#snippet executiveRail(wide = false, header?: Snippet<[Snippet, Snippet]>)}
 	{#if ExecutiveRail}
@@ -1820,6 +1850,8 @@
 			participantRole={railActorRole}
 			turn={railConversation.activeTurn}
 			ambientTurn={railConversation.ambientTurn}
+			workTurn={railConversation.workTurn}
+			progressing={railProgressing}
 			hasEarlier={railConversation.hasEarlier}
 			onloadearlier={() => railConversation.loadEarlier()}
 			{companyId}

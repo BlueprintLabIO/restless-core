@@ -11,7 +11,7 @@ import { getApplianceStatus } from './appliance';
 import { nextFollow, turnUnderWay } from './queued-sends';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 import { onMount, untrack } from 'svelte';
-import type { QueryClient } from '@tanstack/svelte-query';
+import type { Query, QueryClient } from '@tanstack/svelte-query';
 import {
 	getActorConversation,
 	getAttention,
@@ -601,6 +601,17 @@ export function turnWorking(turn: ActiveAgentTurn | null | undefined): boolean {
 	);
 }
 
+/** A turn that is thinking, acting or replying right now: live proof that the actor's model
+ * answers. A queued turn proves nothing; it may be waiting on that very model. */
+export function turnProgressing(turn: ActiveAgentTurn | null | undefined): boolean {
+	const phase = turn?.live?.phase;
+	return (
+		!!turn &&
+		turn.transport !== 'idle' &&
+		(phase === 'thinking' || phase === 'acting' || phase === 'responding')
+	);
+}
+
 /**
  * One conversation query plus, only while needed, one SSE subscription. There
  * is no client Map, second transcript cache, timer or synthetic completion
@@ -625,7 +636,10 @@ function trackedConversationQuery(
 	viewerActorId = 'owner',
 	followLiveActivity: QueryEnabled = true,
 	/** Also follow the actor's ambient turns (only the rail does: one more open connection). */
-	followAmbient: QueryEnabled = false
+	followAmbient: QueryEnabled = false,
+	/** Also follow the Work the actor runs now, streamed text and all, as the Work panel does
+	 * for the owner. Only the owner's rail asks. */
+	followWork: QueryEnabled = false
 ) {
 	const client = useQueryClient();
 	const key = queryKeys.conversation(companyId, actorId, workId);
@@ -788,6 +802,46 @@ function trackedConversationQuery(
 		};
 	});
 
+	/* The Work the actor is running now, followed in its conversation, so the person's chat shows
+	 * them at work where their next reply will appear rather than only in the Work panel
+	 * (owner, 3 Nov 2026). The Work's stream stays open from one Attempt to the next; it closes
+	 * when the conversation says the actor is no longer on that Work. */
+	let onWork = $state<AgentActivityState | null>(null);
+	let onWorkTransport = $state<ActivityTransport>('idle');
+	const busyWorkId = $derived(
+		queryEnabled(enabled) &&
+			queryEnabled(followLiveActivity) &&
+			queryEnabled(followWork) &&
+			typeof EventSource !== 'undefined'
+			? ((query.data as ActorConversation | undefined)?.busy_work?.id ?? null)
+			: null
+	);
+	$effect(() => {
+		const workOn = busyWorkId;
+		onWork = null;
+		onWorkTransport = 'idle';
+		if (!workOn) return;
+		onWorkTransport = 'connecting';
+		let ended = false;
+		const close = openAgentActivityStream(
+			companyId,
+			actorId,
+			{ workId: workOn },
+			(state) => {
+				onWork = state;
+				onWorkTransport = 'live';
+				const terminal =
+					state.phase === 'complete' || state.phase === 'failed' || state.phase === 'unavailable';
+				/* A run that ended: read the conversation again, for its reply and whether the actor
+				 * is still on this Work. */
+				if (terminal && !ended) void client.invalidateQueries({ queryKey: key });
+				ended = terminal;
+			},
+			() => (onWorkTransport = 'reconnecting')
+		);
+		return () => close();
+	});
+
 	/* The query holds the newest 100 messages; earlier ones are paged in on request and kept
 	 * here. Messages that later fall out of the newest 100 join them, so no gap opens. */
 	const PAGE = 100;
@@ -890,6 +944,25 @@ function trackedConversationQuery(
 				since: current.startedAt ?? current.updatedAt,
 				live: current,
 				transport: 'live'
+			};
+		},
+		/** The Work the actor is running now, while a run of it thinks, acts or writes. */
+		get workTurn(): ActiveAgentTurn | null {
+			const current = onWork;
+			if (
+				!current ||
+				!(
+					current.phase === 'thinking' ||
+					current.phase === 'acting' ||
+					current.phase === 'responding'
+				)
+			)
+				return null;
+			return {
+				triggerMessageId: 0,
+				since: current.startedAt ?? current.updatedAt,
+				live: current,
+				transport: onWorkTransport
 			};
 		},
 		get uploadProgress() {
@@ -1190,13 +1263,27 @@ export function companyChangeStream(companyId: () => string, enabled: QueryEnabl
 				flush = undefined;
 				const kinds = [...pending];
 				pending = new Set();
+				const refetchType = document.hidden ? 'none' : 'active';
+				const touched = (query: Query) =>
+					query.queryKey.includes(company) &&
+					!ROOM_STREAM_OWNED.has(String(query.queryKey[0])) &&
+					hintTouches(kinds, query.queryKey);
+				/* A read still fetching its first answer is not cancelled and started again: the page's
+				 * own arrival (its presence, its first reads) sends hints within a second, and
+				 * restarting the Inbox read then held a cold page's first paint for a second read
+				 * (3 Nov walkthrough). It finishes, then reads once more for what the hint named. */
+				const first = (query: Query) =>
+					query.state.data === undefined && query.state.fetchStatus === 'fetching';
 				void client.invalidateQueries({
-					predicate: (query) =>
-						query.queryKey.includes(company) &&
-						!ROOM_STREAM_OWNED.has(String(query.queryKey[0])) &&
-						hintTouches(kinds, query.queryKey),
-					refetchType: document.hidden ? 'none' : 'active'
+					predicate: (query) => touched(query) && !first(query),
+					refetchType
 				});
+				for (const query of client.getQueryCache().findAll({ predicate: (query) => touched(query) && first(query) }))
+					void query.promise
+						?.catch(() => undefined)
+						.then(() =>
+							client.invalidateQueries({ queryKey: query.queryKey, exact: true, refetchType })
+						);
 			}, HINT_GATHER_MS);
 		});
 		return () => {

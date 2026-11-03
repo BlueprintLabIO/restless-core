@@ -51,6 +51,8 @@ test('a read that started before a local write cannot land over it', async () =>
 test('handoff decision hints refresh receipts and Inbox without refreshing unrelated screens', () => {
 	assert.equal(hintTouches(['handoff_decision_changed'], ['handoff-decisions', 'acme']), true);
 	assert.equal(hintTouches(['handoff_decision_changed'], ['attention', 'acme']), true);
+	// Exec's changes from the owner's chat ride the same hint, so their notice lands in its window.
+	assert.equal(hintTouches(['handoff_decision_changed'], ['exec-inbox-actions', 'acme']), true);
 	assert.equal(hintTouches(['handoff_decision_changed'], ['documents', 'acme']), false);
 	assert.equal(hintTouches(['handoff_decision_changed'], ['company-principal', 'acme']), false);
 });

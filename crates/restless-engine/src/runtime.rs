@@ -81,6 +81,35 @@ static COMPANY_STATUSES_CACHE: LazyLock<
     >,
 > = LazyLock::new(Default::default);
 
+/// Slots with a refresh running behind a stale answer, by address.
+static REFRESHING_SLOTS: LazyLock<std::sync::Mutex<std::collections::HashSet<usize>>> =
+    LazyLock::new(Default::default);
+
+/// Read a new value for a health cache slot in the background, unless one is already being read.
+/// The slot is locked only to store the answer, so readers keep getting the last one meanwhile
+/// rather than queueing behind the probe.
+fn refresh_behind<T: Send + 'static>(
+    slot: HealthCacheSlot<T>,
+    read: impl std::future::Future<Output = Result<T>> + Send + 'static,
+) {
+    let key = Arc::as_ptr(&slot) as usize;
+    let starts = REFRESHING_SLOTS
+        .lock()
+        .map(|mut running| running.insert(key))
+        .unwrap_or(false);
+    if !starts {
+        return;
+    }
+    tokio::spawn(async move {
+        if let Ok(result) = read.await {
+            *slot.lock().await = Some((Instant::now(), result));
+        }
+        if let Ok(mut running) = REFRESHING_SLOTS.lock() {
+            running.remove(&key);
+        }
+    });
+}
+
 async fn invalidate_cockpit_health(company: &str) {
     COCKPIT_DOCTOR_CACHE.lock().await.remove(company);
     BROWSER_HEALTH_CACHE.lock().await.remove(company);
@@ -3036,6 +3065,20 @@ pub async fn cockpit_company_statuses(
         if at.elapsed() < Duration::from_secs(10) {
             return Ok(result.clone());
         }
+        // A company page's first paint waits on the company list, and a Docker inventory can
+        // take most of a second on a busy host. A recent one answers now while a new one is read
+        // behind it; an explicit lifecycle change clears the cache, so a start or stop is never
+        // shown late (3 Nov walkthrough).
+        if at.elapsed() < Duration::from_secs(600) {
+            let stale = result.clone();
+            drop(cached);
+            let configs = configs.to_vec();
+            refresh_behind(
+                slot,
+                async move { configured_company_statuses(&configs).await },
+            );
+            return Ok(stale);
+        }
     }
     let result = configured_company_statuses(configs).await?;
     *cached = Some((Instant::now(), result.clone()));
@@ -3812,6 +3855,17 @@ pub async fn cockpit_browser_health(
         if at.elapsed() < Duration::from_secs(10) {
             return Ok(result.clone());
         }
+        // Every Inbox read carries this probe, and the Inbox holds a company page's first paint:
+        // after ten idle seconds a cold page waited up to two seconds on a browser probe (3 Nov
+        // walkthrough). A recent observation answers now while a new one is read behind it. A
+        // start, stop or browser restart clears the cache, so those are never shown late.
+        if at.elapsed() < Duration::from_secs(600) {
+            let stale = result.clone();
+            drop(cached);
+            let company = company.to_string();
+            refresh_behind(slot, async move { browser_health(&company).await });
+            return Ok(stale);
+        }
     }
     let result = browser_health(company).await?;
     *cached = Some((Instant::now(), result.clone()));
@@ -4410,6 +4464,68 @@ pub async fn read_runtime_text_file(company: &str, value: &str) -> Result<String
         bail!("the file is larger than {MAX_REVIEW_TEXT_BYTES} bytes");
     }
     String::from_utf8(output.stdout).context("the file is not UTF-8 text")
+}
+
+/// The largest picture an agent's message, Inbox item or document shows in place.
+pub const MAX_COMPANY_IMAGE_BYTES: usize = 24 * 1024 * 1024;
+
+/// A raster picture's type from its leading bytes, never from its name. SVG can carry script, so
+/// it opens in the Library viewer's isolated origin instead.
+pub fn sniff_raster_image(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+/// Why a company picture cannot be shown, in words the cockpit can say as they are.
+#[derive(Debug)]
+pub enum CompanyImageRefusal {
+    NotInCompany,
+    Missing,
+    TooLarge,
+    NotRaster,
+}
+
+impl std::fmt::Display for CompanyImageRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::NotInCompany => "This picture is not in the company's files.",
+            Self::Missing => "This picture is not on the company computer.",
+            Self::TooLarge => "This picture is too large to show here.",
+            Self::NotRaster => "This file is not a picture the cockpit shows in place.",
+        })
+    }
+}
+impl std::error::Error for CompanyImageRefusal {}
+
+/// One picture beneath `/company`, read whole and bounded, with its sniffed raster type. An agent
+/// names pictures by their company path in chat, Inbox items and documents; this is how the owner
+/// sees them without a review ticket per picture.
+pub async fn read_company_image(company: &str, value: &str) -> Result<(&'static str, Vec<u8>)> {
+    validate_company_name(company)?;
+    let Ok(path) = company_file_path(value) else {
+        return Err(CompanyImageRefusal::NotInCompany.into());
+    };
+    let output = read_company_file(company, path, MAX_COMPANY_IMAGE_BYTES as u64 + 1).await?;
+    if !output.status.success() {
+        if output.status.code() == Some(67) {
+            return Err(CompanyImageRefusal::NotInCompany.into());
+        }
+        return Err(CompanyImageRefusal::Missing.into());
+    }
+    if output.stdout.len() > MAX_COMPANY_IMAGE_BYTES {
+        return Err(CompanyImageRefusal::TooLarge.into());
+    }
+    let media_type = sniff_raster_image(&output.stdout).ok_or(CompanyImageRefusal::NotRaster)?;
+    Ok((media_type, output.stdout))
 }
 
 fn runtime_review_text_path(value: &str) -> Result<&Path> {

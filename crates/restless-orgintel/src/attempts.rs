@@ -4,6 +4,10 @@
 
 use super::*;
 
+/// How many times one Work revision resumes on its own after interrupted turns. Twice covers a
+/// slow tool or a busy host; a third silence in the same revision is the lead's to judge.
+pub const INTERRUPTION_RESUMES_PER_REVISION: i64 = 2;
+
 struct QualifiedOutcomeReview {
     target_uri: String,
     title: String,
@@ -19,6 +23,63 @@ type SupervisorNoticeFact = (
     i64,
     String,
 );
+
+/// Work that requires abandoned Work can never start: readiness waits for a completed upstream.
+/// Nothing used to say so (Frankensurf's "Prove which agent tools actually work" sat proposed
+/// from 18 Oct with no Attempt; S109 blockers audit). Tell whoever leads each open dependent,
+/// in the abandoning transaction, with the two ways forward.
+async fn tell_dependents_of_abandoned_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    work_id: Uuid,
+    by: &str,
+) -> Result<()> {
+    let upstream_title: String = sqlx::query_scalar("SELECT title FROM work WHERE id=$1")
+        .bind(work_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    let dependents = sqlx::query(
+        "SELECT w.id, w.title, w.owner_id FROM work_edges e JOIN work w ON w.id = e.to_work_id \
+         WHERE e.from_work_id = $1 AND e.kind = 'requires' \
+           AND w.status NOT IN ('completed','abandoned') ORDER BY w.created_at",
+    )
+    .bind(work_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    for dependent in dependents {
+        let dependent_id: Uuid = dependent.get("id");
+        let title: String = dependent.get("title");
+        let owner_id: String = dependent.get("owner_id");
+        let to = if matches!(owner_id.as_str(), "owner" | "world" | "daemon") {
+            "exec".to_string()
+        } else {
+            owner_id
+        };
+        let both_exist: bool =
+            sqlx::query_scalar("SELECT (SELECT count(*) FROM actors WHERE id IN ($1,$2)) = 2")
+                .bind(by)
+                .bind(&to)
+                .fetch_one(&mut **tx)
+                .await?;
+        if to == by || !both_exist {
+            continue;
+        }
+        let body = format!(
+            "Work {dependent_id} (\"{title}\") requires Work {work_id} (\"{upstream_title}\"), which {by} \
+             abandoned, so it can never start as it is. Either drop the requirement with `restless work \
+             edge --from {work_id} --to {dependent_id} --kind requires --remove --reason <why>`, or abandon \
+             it too."
+        );
+        let room_id = ensure_direct_message_room_in_tx(tx, by, Some(&to)).await?;
+        sqlx::query("INSERT INTO messages (room_id,from_actor,to_actor,body) VALUES ($1,$2,$3,$4)")
+            .bind(room_id)
+            .bind(by)
+            .bind(&to)
+            .bind(&body)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
 
 fn looks_like_exact_git_commit(value: &str) -> bool {
     (7..=64).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
@@ -1045,6 +1106,7 @@ impl OrgIntel {
                     .bind(&effective_summary)
                     .execute(&mut *tx)
                     .await?;
+                    crate::progress::record_done_progress_in_tx(&mut tx, work_id).await?;
                 }
             }
             WorkAttemptState::ChangesRequested => {
@@ -1055,6 +1117,7 @@ impl OrgIntel {
                     .bind(&effective_summary)
                     .execute(&mut *tx)
                     .await?;
+                crate::progress::record_done_progress_in_tx(&mut tx, work_id).await?;
                 let targets = sqlx::query_scalar::<_, Uuid>(
                     "SELECT to_work_id FROM work_edges \
                      WHERE from_work_id = $1 AND kind = 'revises' ORDER BY to_work_id",
@@ -1089,6 +1152,7 @@ impl OrgIntel {
                     .bind(&effective_summary)
                     .execute(&mut *tx)
                     .await?;
+                tell_dependents_of_abandoned_in_tx(&mut tx, work_id, &attempt_actor).await?;
             }
             WorkAttemptState::Superseded => {}
             WorkAttemptState::Running => unreachable!(),
@@ -1390,6 +1454,65 @@ impl OrgIntel {
         Ok(true)
     }
 
+    /// Resume Work whose Attempt a platform watchdog cut (silence, a wedged turn, a stopped
+    /// session) with nothing wrong in the Work itself. The staff summary promised "the next wake
+    /// continues from durable state", but blocked Work is never claimed again, so Sprint 107 sat
+    /// blocked for five days with no card (S109 blockers audit). Bounded like the restart
+    /// resume: at most [`INTERRUPTION_RESUMES_PER_REVISION`] times per revision, never past a
+    /// pending owner handoff, and each one is an event.
+    pub async fn resume_after_interruption(&self, work_id: Uuid, cause: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query("SELECT status, revision FROM work WHERE id=$1 FOR UPDATE")
+            .bind(work_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let status: WorkStatus = row.get("status");
+        let revision: i64 = row.get("revision");
+        if status != WorkStatus::Blocked {
+            return Ok(false);
+        }
+        let (pending_handoff, resumed): (bool, i64) = {
+            let row = sqlx::query(
+                "SELECT EXISTS(SELECT 1 FROM owner_handoffs WHERE work_id=$1 AND state='pending') AS pending, \
+                        (SELECT count(*) FROM events WHERE kind='work_resumed_after_interruption' \
+                          AND body->>'work_id'=$1::text AND (body->>'revision')::bigint=$2) AS resumed",
+            )
+            .bind(work_id)
+            .bind(revision)
+            .fetch_one(&mut *tx)
+            .await?;
+            (row.get("pending"), row.get("resumed"))
+        };
+        if pending_handoff || resumed >= INTERRUPTION_RESUMES_PER_REVISION {
+            return Ok(false);
+        }
+        sqlx::query(
+            "UPDATE work SET status='active', \
+                    resolution='resumed by the daemon after an interrupted turn', \
+                    attempt_limit=CASE WHEN attempt_limit IS NOT NULL \
+                                            AND attempt_limit < 2147483647 \
+                                            AND (SELECT count(*) FROM work_attempts \
+                                                 WHERE work_id=$1 AND revision=$2 \
+                                                   AND state <> 'superseded') >= attempt_limit \
+                                       THEN attempt_limit + 1 ELSE attempt_limit END \
+             WHERE id=$1",
+        )
+        .bind(work_id)
+        .bind(revision)
+        .execute(&mut *tx)
+        .await?;
+        let cause: String = cause.chars().take(500).collect();
+        sqlx::query(
+            "INSERT INTO events (kind, actor_id, body) \
+             VALUES ('work_resumed_after_interruption','daemon',$1)",
+        )
+        .bind(serde_json::json!({"work_id": work_id, "revision": revision, "cause": cause}))
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
     /// Resume a repaired Work node. The reason is operational evidence of
     /// what changed; retrying the same vague instruction is deliberately not
     /// an automatic scheduler behaviour.
@@ -1557,6 +1680,7 @@ impl OrgIntel {
             .bind(serde_json::json!({ "work_id": work_id, "reason": reason.trim() }))
             .execute(&mut *tx)
             .await?;
+        tell_dependents_of_abandoned_in_tx(&mut tx, work_id, by).await?;
         tx.commit().await?;
         Ok(())
     }

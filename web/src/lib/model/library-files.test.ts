@@ -30,8 +30,18 @@ test('agents’ plans, journals and scratch files are working notes; outputs are
 	assert.equal(note('/company/repos/site/NOTES.md'), true);
 	assert.equal(note('/company/outputs/scratch/draft.html', 'site'), true);
 	assert.equal(note('/company/outputs/q4/wip/chart.png', 'image'), true);
-	assert.equal(note('/company/outputs/meeting-notes.md'), false);
 	assert.equal(note('/company/downloads/brief.txt'), false);
+	/* Library redesign (3 November): agents' notes, reviews and reports beside delivered files. */
+	assert.equal(note('/company/outputs/meeting-notes.md'), true);
+	assert.equal(note('/company/outputs/lazarus-cc-notes.md'), true);
+	assert.equal(note('/company/outputs/concept-a1000-upgrade-report.md'), true);
+	assert.equal(note('/company/outputs/sites/aleon/v2/review.md'), true);
+	assert.equal(note('/company/outputs/sites/aleon/v2/notes.md'), true);
+	assert.equal(note('/company/outputs/run/build.log'), true);
+	assert.equal(note('/company/outputs/site/.cache/thumb.png', 'image'), true);
+	assert.equal(note('/company/outputs/q4/report.pdf', 'pdf'), false);
+	assert.equal(note('/company/outputs/pricing-proposal.md'), false);
+	assert.equal(note('/company/outputs/reviews/index.html', 'site'), false);
 	assert.equal(note('/company/repos/site/dist/index.html', 'site'), false);
 	assert.equal(note('http://127.0.0.1:8650/', 'site'), false);
 });

@@ -143,9 +143,157 @@ pub struct DecisionContinuation {
     /// The Inbox item this answered, so an old link to it can say what happened.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub item_id: Option<String>,
-    /// Who decided, when the record names them.
+    /// Who decided, by display name, when the record names someone other than
+    /// the owner. Never an actor id: an unknown decider is left unnamed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decided_by: Option<String>,
+    /// How it ended, so owner-facing copy is written by the platform per state
+    /// rather than quoting `details`.
+    pub outcome: DecisionOutcome,
+    /// The owner made this decision themselves.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub by_owner: bool,
+    /// The owner answered in their chat and Exec recorded it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub via_chat: bool,
+    /// The Inbox item that replaced this one, when it is still waiting there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replacement_item_id: Option<String>,
+    /// The source record's own words (an agent's reason, the owner's note).
+    /// Shown only in Activity's details, never as a notice or status line.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub details: String,
+}
+
+/// How an owner decision ended. Owner-facing copy is chosen from this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecisionOutcome {
+    Approved,
+    Declined,
+    ChangesRequested,
+    /// A human step (sign-in, attestation, payment confirmation) was done.
+    Completed,
+    Revoked,
+    Withdrawn,
+    Replaced,
+    Expired,
+}
+
+/// The parts of a settled owner handoff that owner-facing copy is built from.
+/// The resolution itself is free text (often an agent's) and is only ever
+/// shown as Activity details.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HandoffOutcome {
+    outcome: DecisionOutcome,
+    by_owner: bool,
+    via_chat: bool,
+    decided_by: Option<String>,
+}
+
+fn handoff_outcome(
+    state: restless_orgintel::OwnerHandoffState,
+    category: restless_orgintel::OwnerHandoffCategory,
+    resolution: &str,
+    replaced: bool,
+) -> HandoffOutcome {
+    use restless_orgintel::{OwnerHandoffCategory as Category, OwnerHandoffState as State};
+    let text = resolution.trim();
+    let lower = text.to_lowercase();
+    // Exec records an answer the owner gave in conversation, quoting it.
+    let via_chat = lower.contains("the owner, in conversation");
+    // An outcome review names its reviewer first: "<who> accepted …" or
+    // "<who> requested changes: …"; "Owner" is the owner.
+    let reviewer = ["accepted the prepared outcome", "requested changes"]
+        .iter()
+        .find_map(|verb| {
+            text.find(&format!(" {verb}"))
+                .map(|at| text[..at].trim().to_string())
+        })
+        .filter(|who| !who.is_empty() && !who.contains(':') && who.split_whitespace().count() <= 4);
+    let by_owner = via_chat || reviewer.as_deref().is_some_and(|who| who == "Owner");
+    let decided_by = if via_chat {
+        Some("Exec".to_string())
+    } else {
+        reviewer.filter(|who| who != "Owner" && !looks_like_actor_id(who))
+    };
+    let outcome = match state {
+        State::Withdrawn if replaced => DecisionOutcome::Replaced,
+        State::Withdrawn | State::Pending | State::Preparing => DecisionOutcome::Withdrawn,
+        State::Declined if lower.contains("requested changes") => DecisionOutcome::ChangesRequested,
+        State::Declined => DecisionOutcome::Declined,
+        State::Resolved if category == Category::OwnerJudgement => DecisionOutcome::Approved,
+        State::Resolved => DecisionOutcome::Completed,
+    };
+    let settled_by_someone = matches!(
+        outcome,
+        DecisionOutcome::Withdrawn | DecisionOutcome::Replaced
+    );
+    HandoffOutcome {
+        outcome,
+        by_owner: by_owner && !settled_by_someone,
+        via_chat: via_chat && !settled_by_someone,
+        decided_by: decided_by.filter(|_| !settled_by_someone),
+    }
+}
+
+/// A withdrawal that names a newer version: the reason mentions replacing or
+/// superseding, whatever else it says.
+fn reason_names_replacement(resolution: &str) -> bool {
+    let lower = resolution.to_lowercase();
+    [
+        "supersed",
+        "replaced",
+        "replacing",
+        "replacement",
+        "rewrite",
+        "rewritten",
+        "new version",
+    ]
+    .iter()
+    .any(|word| lower.contains(word))
+}
+
+/// A handoff category as the owner says it, never its Rust name.
+fn handoff_category_words(category: restless_orgintel::OwnerHandoffCategory) -> &'static str {
+    use restless_orgintel::OwnerHandoffCategory as Category;
+    match category {
+        Category::Identity => "identity check",
+        Category::Captcha => "human verification",
+        Category::Mfa => "sign-in code",
+        Category::LegalAttestation => "legal confirmation",
+        Category::PaymentConfirmation => "payment confirmation",
+        Category::OwnerJudgement => "decision",
+    }
+}
+
+/// An id-shaped name (`reno-supervisor`, `human-bodhi`, `exec`) rather than a
+/// person's display name.
+fn looks_like_actor_id(name: &str) -> bool {
+    !name.contains(' ')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+}
+
+/// The platform's own line for a settled handoff: what Activity shows as the
+/// outcome, and the only text a notice may build on.
+fn handoff_outcome_line(outcome: &HandoffOutcome) -> &'static str {
+    match outcome.outcome {
+        DecisionOutcome::Approved if outcome.via_chat => "Approved in your chat with Exec.",
+        DecisionOutcome::Approved => "Approved.",
+        DecisionOutcome::Declined if outcome.via_chat => "Declined in your chat with Exec.",
+        DecisionOutcome::Declined => "Declined.",
+        DecisionOutcome::ChangesRequested if outcome.via_chat => {
+            "Changes asked for in your chat with Exec."
+        }
+        DecisionOutcome::ChangesRequested => "Changes asked for.",
+        DecisionOutcome::Completed => "Done.",
+        DecisionOutcome::Revoked => "Approval taken back.",
+        DecisionOutcome::Withdrawn => "Withdrawn: no longer needed.",
+        DecisionOutcome::Replaced => "Replaced by an updated version.",
+        DecisionOutcome::Expired => "Expired before it was decided.",
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -448,7 +596,11 @@ async fn conversation_requests(
         let message_id = message.id;
         let created_at = message.created_at;
         if let Some((body, review)) = crate::transcript::conversation_owner_review(&message) {
-            // A finished result is an Inbox item the owner opens, not only a chat message.
+            // A finished result is an Inbox item the owner opens, not only a chat message. It
+            // carries what the message links (the pack, its pictures, the live sites), and it
+            // stands beside any question the same message asks: on 3 November a pack sent with
+            // a question about ordering magnets reached the Inbox only as that question.
+            let evidence = message_evidence(&body);
             let href = format!("/{company}/people?person={}&focus={message_id}", actor.id);
             requests.push(ConversationRequest {
                 handoff_id: None,
@@ -481,9 +633,9 @@ async fn conversation_requests(
                     brief_status: "source-authored",
                     brief_author: Some(actor.clone()),
                     briefed_at: Some(created_at),
-                    evidence: Vec::new(),
+                    evidence,
                     review_sources: Vec::new(),
-                    responsible_actor: Some(actor),
+                    responsible_actor: Some(actor.clone()),
                     runtime_attach: None,
                     review_target: None,
                     review_version: None,
@@ -508,7 +660,6 @@ async fn conversation_requests(
                     created_at,
                 },
             });
-            continue;
         }
         let Some(crate::transcript::OwnerNeed {
             body,
@@ -829,7 +980,7 @@ fn spend_warning_item(
             role: "inspect",
             consequence: "Opens Company › Resources, where the limit and its warning are set.".into(),
             next_state: "The warning clears when spend falls below it, the limit changes, or a new month starts.".into(),
-            href: Some(format!("/{}/company/limits#spend", config.name)),
+            href: Some(format!("/{}/company/resources#spend", config.name)),
         }],
         can_continue: true,
         preparing: false,
@@ -909,11 +1060,51 @@ fn spend_stopped_item(
             role: "inspect",
             consequence: "Opens Company › Resources, where the limit is set.".into(),
             next_state: "Raising the limit above spend tells Exec to resume the stopped work.".into(),
-            href: Some(format!("/{}/company/limits#spend", config.name)),
+            href: Some(format!("/{}/company/resources#spend", config.name)),
         }],
         can_continue: false,
         preparing: false,
         created_at,
+    }
+}
+
+/// The company's monthly native-harness cap (turns or tokens on its own Codex or Claude sign-in)
+/// has stopped Exec. Only raising or clearing that cap lifts it, so the card says so and opens it;
+/// raising it tells Exec to carry on.
+fn native_limit_stopped_item(
+    config: &CompanyConfig,
+    what_happened: String,
+    created_at: DateTime<Utc>,
+) -> AttentionItem {
+    AttentionItem {
+        id: "authority:native_limit_stopped".into(),
+        source: AttentionSource {
+            plane: "authority",
+            kind: "native_limit_stopped".into(),
+            reference: "native_limit".into(),
+            party: None,
+            call_key: None,
+        },
+        title: "Work on your own sign-in stopped at its monthly cap".into(),
+        why_it_matters: "No new turn on the company's own Codex or Claude sign-in starts until \
+                         the cap is raised or cleared, or the month ends; work waits."
+            .into(),
+        recommendation: "Raise or clear the native usage limit if the work is worth it. The \
+                         spend limit does not affect this cap."
+            .into(),
+        requested_action: "Raise or clear the native usage limit.".into(),
+        if_no_action: "Native work stays stopped until the limit is raised or a new month starts."
+            .into(),
+        actions: vec![AttentionAction {
+            id: "open-native-limit".into(),
+            label: "Raise native limit".into(),
+            role: "inspect",
+            consequence: "Opens Company › Resources, where the native usage limit is set.".into(),
+            next_state: "Raising or clearing it above this month's use tells Exec to carry on."
+                .into(),
+            href: Some(format!("/{}/company/resources#spend", config.name)),
+        }],
+        ..spend_stopped_item(config, what_happened, created_at)
     }
 }
 
@@ -1020,6 +1211,95 @@ async fn account_headroom_item(
         preparing: false,
         created_at: Utc::now(),
     }))
+}
+
+/// An agent needed a home site (one reached from the owner's own computer) and no computer that
+/// carries it was online. Raised from the refusal itself and kept for a day while no helper is
+/// online; the agent was told the owner has this card (S109 blockers audit).
+async fn home_helper_offline_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> Option<AttentionItem> {
+    let (host, refused_at) = crate::home_egress::recent_refusal(&config.name)?;
+    if crate::machines::online_helper(pool, &config.name).await.is_some() {
+        return None;
+    }
+    let assigned = crate::machines::company_assignments(pool, &config.name)
+        .await
+        .map(|assignments| {
+            assignments
+                .iter()
+                .any(|assignment| assignment.role == crate::machines::ROLE_HELPER)
+        })
+        .unwrap_or(true);
+    let (title, what_happened, requested_action) = if assigned {
+        (
+            "Your computer that carries home sites is offline".to_string(),
+            format!(
+                "An agent needed {host}, which goes through your own computer so the site sees a \
+                 home address, and that computer is offline."
+            ),
+            "Turn that computer on and let Restless run on it.".to_string(),
+        )
+    } else {
+        (
+            "No computer of yours carries home sites".to_string(),
+            format!(
+                "An agent needed {host}, which this company reaches only through one of your own \
+                 computers, and none is set up to carry it."
+            ),
+            "Add one of your computers as a helper, or stop treating the site as a home site."
+                .to_string(),
+        )
+    };
+    Some(AttentionItem {
+        id: format!("authority:home_helper_offline:{}", config.name),
+        work_id: None,
+        source: AttentionSource {
+            plane: "authority",
+            kind: "home_helper_offline".into(),
+            reference: host.clone(),
+            party: None,
+            call_key: None,
+        },
+        category: "blocker".into(),
+        title,
+        what_happened,
+        why_it_matters: format!(
+            "Work that needs {host} waits; it is never sent from the cloud's address instead."
+        ),
+        recommendation: requested_action.clone(),
+        requested_action,
+        if_no_action: format!("Agents can't reach {host} until a computer that carries it is online."),
+        uncertainty: None,
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: Some(refused_at),
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: None,
+        runtime_attach: None,
+        review_target: None,
+        review_version: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        account_use: None,
+        account_request: None,
+        request_fields: None,
+        setting_proposal: None,
+        owner_replies: Vec::new(),
+        actions: vec![AttentionAction {
+            id: "open-company-computer".into(),
+            label: "Open Computer".into(),
+            role: "inspect",
+            consequence: "Opens the company's computers, where helpers and home sites are set.".into(),
+            next_state: "Once a computer that carries the site is online, this leaves the Inbox."
+                .into(),
+            href: Some(format!("/{}/company/computer", config.name)),
+        }],
+        can_continue: false,
+        preparing: false,
+        created_at: refused_at,
+    })
 }
 
 /// The company's computer runs on one of the owner's machines, and that machine is offline or
@@ -1147,6 +1427,8 @@ fn model_cooldown_items(
     cooldowns
         .iter()
         .filter(|cooldown| matches!(cooldown.kind.as_str(), "quota" | "credential" | "model"))
+        // A rate limit clears by itself within minutes; there is nothing for the owner to do.
+        .filter(|cooldown| !crate::health::is_rate_limit(&cooldown.reason))
         .map(|cooldown| {
             // "[quota] provider refused … owner action required: 402 AI credit is used up. …": the
             // provider's own words, first line only.
@@ -1183,7 +1465,7 @@ fn model_cooldown_items(
                     label: "Top up".into(),
                     role: "inspect",
                     consequence: "Opens your plan and credit.".into(),
-                    next_state: "Work resumes within minutes of a top-up.".into(),
+                    next_state: "Within minutes of a top-up, new turns run and Work the refusal stopped goes on.".into(),
                     href: Some(url),
                 });
             }
@@ -1571,7 +1853,7 @@ async fn account_items(
                 "Add it",
                 "Opens Company › Vault.",
                 "A key saved there under the service's name answers the request.",
-                Some(format!("/{company}/vault")),
+                Some(format!("/{company}/company/vault")),
             ));
         } else {
             item.actions.push(action(
@@ -1965,6 +2247,136 @@ async fn stranded_agent_items(
         });
     }
     items
+}
+
+/// Said on a judgement card whose Work changed after it was briefed.
+const STALE_BRIEF_NOTE: &str = "This was briefed for an earlier version of the Work, which has changed since. Its lead has been asked to brief it again; ask them in chat if it still holds.";
+
+/// One card per Work item stopped for over a day with nobody asked: blocked with no pending
+/// handoff, or requiring abandoned Work. It names who the Work waits on and the way through, and
+/// opens the Work, whose page has Resume and Stop for good (S109 blockers audit, finding 10).
+async fn stalled_work_items(
+    config: &runtime::CompanyConfig,
+    org: &OrgIntel,
+) -> Result<Vec<AttentionItem>> {
+    let stalled = org.stalled_work(restless_orgintel::STALLED_AFTER).await?;
+    if stalled.is_empty() {
+        return Ok(Vec::new());
+    }
+    let actors: HashMap<String, (String, String)> = org
+        .list_actors()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|actor| (actor.id, (actor.display, actor.role)))
+        .collect();
+    Ok(stalled
+        .into_iter()
+        .map(|work| stalled_work_item(&config.name, &actors, work))
+        .collect())
+}
+
+fn stalled_work_item(
+    company: &str,
+    actors: &HashMap<String, (String, String)>,
+    work: restless_orgintel::StalledWork,
+) -> AttentionItem {
+    let lead = actors
+        .get(&work.lead)
+        .map(|(display, role)| AttentionActorRef {
+            id: work.lead.clone(),
+            display: display.clone(),
+            role: role.clone(),
+        });
+    let lead_name = lead
+        .as_ref()
+        .map(|lead| lead.display.clone())
+        .unwrap_or_else(|| work.lead.clone());
+    let since = work.since.format("%-d %b");
+    let way_through = work.way_through();
+    let (title, what_happened, requested_action, replies) = match &work.cause {
+        restless_orgintel::StallCause::Blocked { reason } => {
+            let reason = reason.trim();
+            (
+                format!("Stuck since {since}: {}", work.title),
+                format!(
+                    "Blocked since {since}, and nobody has been asked to unblock it. It waits on \
+                     {lead_name}, who leads it. The block said: {}",
+                    if reason.is_empty() {
+                        "nothing (no reason was recorded)."
+                    } else {
+                        reason
+                    }
+                ),
+                "Resume it once the cause is fixed, or stop it for good.".to_string(),
+                vec!["Resume it".to_string(), "Stop it for good".to_string()],
+            )
+        }
+        restless_orgintel::StallCause::AbandonedRequirement { upstream_title, .. } => (
+            format!("Can't start: {}", work.title),
+            format!(
+                "It requires \"{upstream_title}\", which was abandoned on {since}, so it can never \
+                 start as it is. It waits on {lead_name}, who leads it, to drop that requirement."
+            ),
+            "Have its lead drop the requirement, or stop it for good.".to_string(),
+            vec![
+                "Drop the requirement".to_string(),
+                "Stop it for good".to_string(),
+            ],
+        ),
+    };
+    AttentionItem {
+        id: format!("orgintel:work-stalled:{}:{}", work.work_id, work.revision),
+        work_id: Some(work.work_id),
+        source: AttentionSource {
+            plane: "orgintel",
+            kind: "work_stalled".into(),
+            reference: format!("{}:{}", work.work_id, work.revision),
+            party: None,
+            call_key: None,
+        },
+        category: "blocker".into(),
+        title,
+        what_happened,
+        why_it_matters: "Nothing moves it on its own: blocked Work is never picked up again until \
+                         someone resumes it."
+            .into(),
+        recommendation: way_through,
+        requested_action,
+        if_no_action: "The Work stays stopped, and anything that requires it waits too.".into(),
+        uncertainty: None,
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: Some(work.since),
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: lead,
+        runtime_attach: None,
+        review_target: None,
+        review_version: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        account_use: None,
+        account_request: None,
+        request_fields: None,
+        setting_proposal: None,
+        // Answered in the card: the owner's answer goes to the lead, who resumes, drops the
+        // requirement or stops it (S101: every card is completed inside the card).
+        owner_replies: replies,
+        actions: vec![AttentionAction {
+            id: "open-work".into(),
+            label: "Open the Work".into(),
+            role: "inspect",
+            consequence: "Opens the Work, where you can resume it or stop it for good.".into(),
+            next_state: "Resuming, stopping or unblocking it clears this card.".into(),
+            href: Some(format!("/{company}/work/{}", work.work_id)),
+        }],
+        can_continue: false,
+        preparing: false,
+        created_at: work.since,
+    }
 }
 
 /// Open direction requests routed to `viewer` (the owner sees every one), and approved ones that
@@ -2886,14 +3298,12 @@ async fn project_queue(
             continue;
         }
         let brief_current = handoff.owner_brief_is_current(item.revision);
-        if judgement && !brief_current {
-            tracing::warn!(
-                handoff = %handoff.id,
-                work = %handoff.work_id,
-                "ordinary judgement was in the owner queue without a current authored brief; withholding it from Attention"
-            );
-            continue;
-        }
+        // A judgement whose Work changed after it was briefed used to vanish from the Inbox with
+        // only a log line, while the handoff stayed pending and the Work stayed blocked (S109
+        // blockers audit, finding 18). It stays, carried over and marked as written for an earlier
+        // version; its briefer is asked to re-brief it, and a stale outcome review can't be
+        // accepted until they have.
+        let stale_judgement = judgement && !brief_current;
         let brief = handoff.owner_brief.as_ref();
         let mut evidence = Vec::new();
         let mut seen = HashSet::new();
@@ -3036,8 +3446,10 @@ async fn project_queue(
                 )
             })
             .flatten();
-        let outcome_review = brief
-            .is_some_and(|brief| brief.kind == restless_orgintel::OwnerBriefKind::OutcomeReview);
+        let outcome_review = !stale_judgement
+            && brief.is_some_and(|brief| {
+                brief.kind == restless_orgintel::OwnerBriefKind::OutcomeReview
+            });
         let review_version = Some(restless_orgintel::OwnerReviewVersion {
             handoff: handoff.conversation_input(),
             work_revision: item.revision,
@@ -3376,7 +3788,7 @@ async fn project_queue(
                 "The company is preparing the current instructions for your next step. There is nothing for you to do until they are ready.".into()
             } else {
                 payment_situation.unwrap_or_else(|| brief.map_or_else(
-                    || format!("The company prepared the final {:?} step and cannot perform it on your behalf.", handoff.category),
+                    || format!("The company prepared the final {} step and cannot perform it on your behalf.", handoff_category_words(handoff.category)),
                     |brief| brief.situation.clone(),
                 ))
             },
@@ -3408,7 +3820,11 @@ async fn project_queue(
                 || format!("Work remains paused until: {}", handoff.resume_condition),
                 |brief| brief.no_action.clone(),
             )),
-            uncertainty: brief.and_then(|brief| brief.uncertainty.clone()),
+            uncertainty: if stale_judgement {
+                Some(STALE_BRIEF_NOTE.into())
+            } else {
+                brief.and_then(|brief| brief.uncertainty.clone())
+            },
             deadline: brief.and_then(|brief| brief.deadline.clone()),
             brief_status: if brief_current { "current" } else { "human-fallback" },
             brief_author,
@@ -3658,7 +4074,13 @@ async fn project_queue(
                     if !what_happened.ends_with('.') {
                         what_happened.push('.');
                     }
-                    items.push(spend_stopped_item(config, what_happened, event.created_at));
+                    // A native-harness cap is its own limit: the spend card's editor can't lift
+                    // it (S109 blockers audit, finding 16).
+                    items.push(if crate::spend::is_native_limit_reason(reason) {
+                        native_limit_stopped_item(config, what_happened, event.created_at)
+                    } else {
+                        spend_stopped_item(config, what_happened, event.created_at)
+                    });
                 }
                 if let Some(true) = exec_startup_failure(reason) {
                     if let Some(provider_issue) =
@@ -3860,6 +4282,17 @@ async fn project_queue(
     // Owner-only: an agent whose model connection no longer reaches the company (Sprint 86).
     if assignee.is_none() {
         items.extend(stranded_agent_items(config, org).await);
+    }
+    // Owner-only: Work stopped for over a day with nobody asked (S109 blockers audit, 10).
+    if assignee.is_none() {
+        if let Some(org) = org {
+            match stalled_work_items(config, org).await {
+                Ok(stalled) => items.extend(stalled),
+                Err(error) => {
+                    tracing::warn!(company = config.name, "stalled Work unavailable: {error:#}")
+                }
+            }
+        }
     }
     if let Some(org) = org {
         match direction_items(authority, &config.name, org, assignee.unwrap_or("owner")).await {
@@ -4102,20 +4535,8 @@ async fn project_queue(
                     }
                 };
                 // Already true: answered by someone changing it in Settings, so nothing to ask.
-                let settled = match &proposal.change {
-                    crate::setting_proposals::SettingChange::SpendLimit { ceiling_usd } => {
-                        (config.spend_ceiling_usd.as_usd() - ceiling_usd).abs() < 0.005
-                    }
-                    crate::setting_proposals::SettingChange::ReasoningEffort { effort } => {
-                        config.reasoning_effort == *effort
-                    }
-                    crate::setting_proposals::SettingChange::Model { model } => {
-                        config.configured_model() == Some(model.as_str())
-                    }
-                    crate::setting_proposals::SettingChange::LegalProfile { .. }
-                    | crate::setting_proposals::SettingChange::Schedule { .. }
-                    | crate::setting_proposals::SettingChange::Notifications { .. } => false,
-                };
+                // The next proposal for the setting closes it as superseded.
+                let settled = crate::setting_proposals::settled(&proposal.change, config);
                 if settled {
                     continue;
                 }
@@ -4195,6 +4616,7 @@ async fn project_queue(
         Ok(offline) => items.extend(offline),
         Err(error) => tracing::warn!(%error, "machine placement unavailable"),
     }
+    items.extend(home_helper_offline_item(config, authority.pool()).await);
     if !items
         .iter()
         .any(|item| item.source.kind == "exec_startup_blocked")
@@ -4256,6 +4678,15 @@ async fn project_queue(
         .any(|item| item.source.kind == "exec_startup_blocked")
     {
         items.retain(|item| item.source.kind != "overdue_dispatch_blocked");
+    }
+    // What Exec added to the owner's Inbox from their chat (3 November owner decision).
+    if assignee.is_none() {
+        if let Some(org) = org {
+            match org.open_exec_inbox_items().await {
+                Ok(added) => items.extend(added.iter().map(crate::exec_inbox::added_item)),
+                Err(error) => tracing::warn!(%error, "items Exec added are unavailable"),
+            }
+        }
     }
     // Set aside by the owner as not needed, until it is raised again.
     let mut set_aside = Vec::new();
@@ -4411,6 +4842,41 @@ fn handoff_decisions(
         .filter_map(|handoff| {
             let item = *work.get(&handoff.work_id)?;
             let payment = payments.get(&handoff.id);
+            // A newer owner ask on the same Work, or on Work that revises it,
+            // is the replacement of a withdrawn one.
+            let replacement = (handoff.state == restless_orgintel::OwnerHandoffState::Withdrawn)
+                .then(|| {
+                    graph
+                        .handoffs
+                        .iter()
+                        .filter(|newer| {
+                            newer.assigned_to.is_none()
+                                && newer.created_at > handoff.created_at
+                                && matches!(
+                                    newer.state,
+                                    restless_orgintel::OwnerHandoffState::Pending
+                                        | restless_orgintel::OwnerHandoffState::Preparing
+                                )
+                                && (newer.work_id == handoff.work_id
+                                    || graph.edges.iter().any(|edge| {
+                                        edge.kind == restless_orgintel::WorkEdgeKind::Revises
+                                            && edge.from_work_id == newer.work_id
+                                            && edge.to_work_id == handoff.work_id
+                                    }))
+                        })
+                        .max_by_key(|newer| newer.created_at)
+                })
+                .flatten();
+            let ended = handoff_outcome(
+                handoff.state,
+                handoff.category,
+                &handoff.resolution,
+                replacement.is_some() || reason_names_replacement(&handoff.resolution),
+            );
+            let settled_without_answer = matches!(
+                ended.outcome,
+                DecisionOutcome::Withdrawn | DecisionOutcome::Replaced
+            );
             let successor = graph
                 .edges
                 .iter()
@@ -4463,7 +4929,10 @@ fn handoff_decisions(
                         .unwrap_or_default()
                 )
             });
-            let what_it_unlocked = if let Some(successor) = released_successor {
+            let what_it_unlocked = if settled_without_answer {
+                // Nobody answered it, so it unlocked nothing.
+                String::new()
+            } else if let Some(successor) = released_successor {
                 format!(
                     "Started the next work: “{}”. It is {}.",
                     successor.title,
@@ -4498,14 +4967,10 @@ fn handoff_decisions(
                 id: format!("orgintel:handoff:{}", handoff.id),
                 work_id: Some(handoff.work_id),
                 title,
-                recorded_decision: if handoff.resolution.trim().is_empty() {
-                    format!("Handoff recorded as {:?}.", handoff.state)
-                } else {
-                    handoff.resolution.clone()
-                },
+                recorded_decision: handoff_outcome_line(&ended).into(),
                 what_it_unlocked,
                 current_state: provider_state
-                    .unwrap_or_else(|| format!("{work_state}; {attempt_state}")),
+                    .unwrap_or_else(|| format!("{work_state} {attempt_state}")),
                 observed_outcome: payment.map_or_else(
                     || work_state,
                     |payment| {
@@ -4518,7 +4983,13 @@ fn handoff_decisions(
                 responsible_actor,
                 observed_at: handoff.resolved_at.expect("filtered above"),
                 item_id: Some(format!("orgintel:handoff:{}", handoff.id)),
-                decided_by: None,
+                decided_by: ended.decided_by,
+                outcome: ended.outcome,
+                by_owner: ended.by_owner,
+                via_chat: ended.via_chat,
+                replacement_item_id: replacement
+                    .map(|newer| format!("orgintel:handoff:{}", newer.id)),
+                details: handoff.resolution.trim().to_string(),
             })
         })
         .collect()
@@ -4545,19 +5016,18 @@ async fn authority_decisions(
             .and_then(|actor| actors.get(actor))
             .cloned()
     };
+    // The owner, or someone else by display name. An actor the roster no
+    // longer knows stays unnamed rather than shown by id.
+    let by_owner =
+        |record: &crate::authority::AuthorityRecord| record.actor_id.as_deref() == Some("owner");
     let decider = |record: &crate::authority::AuthorityRecord| {
-        record.actor_id.as_deref().map(|actor| {
-            actors
-                .get(actor)
-                .map(|known| known.display.clone())
-                .unwrap_or_else(|| {
-                    if actor == "owner" {
-                        "The owner".into()
-                    } else {
-                        actor.to_string()
-                    }
-                })
-        })
+        record
+            .actor_id
+            .as_deref()
+            .filter(|actor| *actor != "owner")
+            .and_then(|actor| actors.get(actor))
+            .map(|known| known.display.clone())
+            .filter(|display| !looks_like_actor_id(display))
     };
     let mut rows = Vec::new();
     for kind in approval::DECISION_KINDS {
@@ -4576,6 +5046,12 @@ async fn authority_decisions(
                         .and_then(Value::as_str)
                         .is_some_and(|candidate| normalize_party(candidate) == party)
             });
+            let outcome = match kind {
+                "approval_granted" => DecisionOutcome::Approved,
+                "approval_declined" if changes => DecisionOutcome::ChangesRequested,
+                "approval_declined" => DecisionOutcome::Declined,
+                _ => DecisionOutcome::Revoked,
+            };
             let (decision, unlocked) = match kind {
                 "approval_granted" => (
                     "Allowed first contact.",
@@ -4620,6 +5096,11 @@ async fn authority_decisions(
                     )
                 }),
                 decided_by: decider(&record),
+                outcome,
+                by_owner: by_owner(&record),
+                via_chat: false,
+                replacement_item_id: None,
+                details: String::new(),
             });
         }
     }
@@ -4697,6 +5178,17 @@ async fn authority_decisions(
                 observed_at: record.created_at,
                 item_id: Some(format!("authority:tool-call:{key}")),
                 decided_by: decider(&record),
+                outcome: if allowed {
+                    DecisionOutcome::Approved
+                } else if changes {
+                    DecisionOutcome::ChangesRequested
+                } else {
+                    DecisionOutcome::Declined
+                },
+                by_owner: by_owner(&record),
+                via_chat: false,
+                replacement_item_id: None,
+                details: String::new(),
             });
         }
     }
@@ -4733,6 +5225,15 @@ async fn authority_decisions(
                 .and_then(Value::as_str)
                 .map(|id| format!("authority:email_mandate_proposal:{id}")),
             decided_by: decider(&record),
+            outcome: if approve {
+                DecisionOutcome::Approved
+            } else {
+                DecisionOutcome::Declined
+            },
+            by_owner: by_owner(&record),
+            via_chat: false,
+            replacement_item_id: None,
+            details: String::new(),
         });
     }
     Ok(rows)
@@ -5033,6 +5534,72 @@ fn extract_urls(text: &str) -> Vec<String> {
 
 fn is_url(value: &str) -> bool {
     value.starts_with("https://") || value.starts_with("http://")
+}
+
+/// The files, pictures and pages a finished result's message links, as the item's evidence: a
+/// company path opens in the Library viewer, a public page in a new tab. Markdown link syntax is
+/// a fixed grammar, so it is parsed, not judged. Addresses only the company computer can open
+/// and folders are left out; the message itself still shows them.
+fn message_evidence(body: &str) -> Vec<AttentionEvidence> {
+    const MOST: usize = 40;
+    let mut evidence = Vec::new();
+    let mut seen = HashSet::new();
+    let mut rest = body;
+    while let Some(at) = rest.find("](") {
+        let (before, after) = rest.split_at(at);
+        rest = &after[2..];
+        let Some(open) = before.rfind('[') else {
+            continue;
+        };
+        let label = before[open + 1..].trim();
+        if label.contains(']') {
+            continue;
+        }
+        let Some(close) = rest.find(')') else {
+            break;
+        };
+        let target = rest[..close]
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim_matches(|c| c == '<' || c == '>');
+        rest = &rest[close + 1..];
+        let target = target.strip_prefix("file://").unwrap_or(target);
+        let (uri, content, kind) = if target.starts_with("/company/") {
+            let path = target.split(['?', '#']).next().unwrap_or_default();
+            if path.ends_with('/') {
+                continue;
+            }
+            (None, Some(path.to_string()), "artifact")
+        } else if is_url(target) && !is_runtime_local_url(target) {
+            (Some(target.to_string()), None, "url")
+        } else {
+            continue;
+        };
+        let key = uri.clone().or_else(|| content.clone()).unwrap_or_default();
+        if !seen.insert(key) {
+            continue;
+        }
+        let label = if label.is_empty() {
+            content
+                .as_deref()
+                .and_then(|path| path.rsplit('/').next())
+                .unwrap_or("Open link")
+                .to_string()
+        } else {
+            label.to_string()
+        };
+        evidence.push(AttentionEvidence {
+            label,
+            uri,
+            content,
+            kind,
+        });
+        if evidence.len() == MOST {
+            break;
+        }
+    }
+    evidence
 }
 
 fn is_runtime_local_url(value: &str) -> bool {
@@ -5388,7 +5955,114 @@ mod tests {
             read().await.unwrap().is_empty(),
             "the owner's reply clears the review"
         );
+        // 3 November, Reno: a send pack delivered with a question about ordering magnets reached
+        // the Inbox only as the question. The pack is its own item, carrying what it links.
+        let pack = "The send pack is ready.\n\n- [Final send pack](/company/outputs/final-send-pack.md)\n- ![Magnet](file:///company/outputs/magnet/preview.png)\n- [Screenshots](/company/outputs/final-send-pack-evidence/)\n- [Aleon live site](https://concepts.example.au/aleon/)\n- [Preview](http://localhost:4173/)\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Pack ready\",\"ownerNeed\":\"Order 250 magnets?\",\"ownerReview\":\"Final send pack\"}-->";
+        org.send_message(&contact.id, None, pack).await.unwrap();
+        let both = read().await.unwrap();
+        assert_eq!(
+            both.len(),
+            2,
+            "the result and the question are both in the Inbox"
+        );
+        let review = both
+            .iter()
+            .find(|item| item.source.kind == "conversation_owner_review")
+            .expect("the pack is an Inbox item");
+        assert_eq!(review.title, "Ready for you: Final send pack");
+        let evidence: Vec<_> = review
+            .evidence
+            .iter()
+            .map(|row| {
+                (
+                    row.kind,
+                    row.uri.as_deref().or(row.content.as_deref()).unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            evidence,
+            [
+                ("artifact", "/company/outputs/final-send-pack.md"),
+                ("artifact", "/company/outputs/magnet/preview.png"),
+                ("url", "https://concepts.example.au/aleon/"),
+            ],
+            "files and public pages are evidence; a folder and a local preview are not"
+        );
+        assert!(both
+            .iter()
+            .any(|item| item.source.kind == "conversation_owner_need"
+                && item.requested_action == "Order 250 magnets?"));
         org.drop_schema().await.unwrap();
+    }
+
+    #[test]
+    fn a_settled_handoff_is_told_by_state_never_by_its_reason() {
+        use restless_orgintel::{OwnerHandoffCategory as Category, OwnerHandoffState as State};
+        let abandoned = "Withdrawn because Work was abandoned by reno-supervisor: Owner msg 1513 \
+                         supersedes the v3 digests this delivery was bound to; replaced by \
+                         rewrite 44b3016c, check 4 a81cc8b2 and a new delivery node.";
+        assert!(reason_names_replacement(abandoned));
+        let replaced = handoff_outcome(State::Withdrawn, Category::OwnerJudgement, abandoned, true);
+        assert_eq!(replaced.outcome, DecisionOutcome::Replaced);
+        assert_eq!(replaced.decided_by, None);
+        assert!(!replaced.by_owner);
+        assert_eq!(
+            handoff_outcome_line(&replaced),
+            "Replaced by an updated version."
+        );
+
+        let withdrawn = handoff_outcome(
+            State::Withdrawn,
+            Category::OwnerJudgement,
+            "Withdrawn because Work was abandoned by reno-supervisor: dupe of 9f3e21aa",
+            false,
+        );
+        assert_eq!(withdrawn.outcome, DecisionOutcome::Withdrawn);
+        assert_eq!(
+            handoff_outcome_line(&withdrawn),
+            "Withdrawn: no longer needed."
+        );
+
+        let chat = handoff_outcome(
+            State::Resolved,
+            Category::OwnerJudgement,
+            "Owner accepted the prepared outcome: The owner, in conversation (message 1513): go",
+            false,
+        );
+        assert_eq!(chat.outcome, DecisionOutcome::Approved);
+        assert!(chat.by_owner && chat.via_chat);
+        assert_eq!(chat.decided_by.as_deref(), Some("Exec"));
+
+        let lead = handoff_outcome(
+            State::Declined,
+            Category::OwnerJudgement,
+            "Avery Holt requested changes: tighten the opener",
+            false,
+        );
+        assert_eq!(lead.outcome, DecisionOutcome::ChangesRequested);
+        assert_eq!(lead.decided_by.as_deref(), Some("Avery Holt"));
+        assert!(!lead.by_owner);
+
+        let slug = handoff_outcome(
+            State::Resolved,
+            Category::OwnerJudgement,
+            "reno-supervisor accepted the prepared outcome",
+            false,
+        );
+        assert_eq!(
+            slug.decided_by, None,
+            "an actor id is never shown as a name"
+        );
+
+        let step = handoff_outcome(
+            State::Resolved,
+            Category::Identity,
+            "The person completed their prepared step.",
+            false,
+        );
+        assert_eq!(step.outcome, DecisionOutcome::Completed);
+        assert_eq!(handoff_outcome_line(&step), "Done.");
     }
 
     #[test]
@@ -6097,7 +6771,9 @@ mod person_queue_tests {
             .await
             .unwrap();
 
-        // A judgement climbs designer -> lead -> Exec (with its brief) -> Kit.
+        // A judgement climbs designer -> lead -> Exec (with its brief) -> Kit. Choosing between two
+        // prepared images is a decision: an outcome review would need its prepared preview linked
+        // before it can reach a person (S109 A4), which is not what this scenario is about.
         let kits_work = work_for(&org, "site-design", "Choose the hero image").await;
         let kits = org
             .request_owner_handoff(NewOwnerHandoff {
@@ -6122,7 +6798,7 @@ mod person_queue_tests {
             kits,
             "exec",
             OwnerBrief {
-                kind: OwnerBriefKind::OutcomeReview,
+                kind: OwnerBriefKind::Decision,
                 headline: "Choose the hero image".into(),
                 situation: "The team prepared two images.".into(),
                 impact: "The page ships with the chosen one.".into(),

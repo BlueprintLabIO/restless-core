@@ -12,6 +12,7 @@
 		label,
 		meta,
 		note,
+		noteLeading,
 		href,
 		download = false,
 		onclick,
@@ -40,6 +41,9 @@
 		onclick?: (event: MouseEvent) => void;
 		selected?: boolean;
 		unread?: boolean;
+		/** Something drawn at the start of the note's line, such as a progress estimate. It shares the
+		 * line's fixed height, so it never grows the row. */
+		noteLeading?: Snippet;
 		/** Finished or archived: present but quiet. */
 		dim?: boolean;
 		/** Title over meta, the title on up to two lines: for narrow lists such as the Inbox, where
@@ -79,9 +83,12 @@
 		<span class="item-main">
 			<span class="item-title" use:truncatedTitle={title}>{title}</span>
 			{#if meta}<span class="item-meta" use:truncatedTitle={meta}>{meta}</span>{/if}
-			{#if note !== undefined && note !== null}<span class="item-note" use:truncatedTitle={note}
-					>{note}</span
-				>{/if}
+			{#if note !== undefined && note !== null}{#if noteLeading}<span class="item-note-line"
+						><span class="item-note-leading">{@render noteLeading()}</span><span
+							class="item-note"
+							use:truncatedTitle={note}>{note}</span
+						></span
+					>{:else}<span class="item-note" use:truncatedTitle={note}>{note}</span>{/if}{/if}
 		</span>
 		{#if trailing}<span class="item-trailing">{@render trailing()}</span>{/if}
 		{#if actions}<span class="item-actions">{@render actions()}</span>{/if}
@@ -169,9 +176,21 @@
 		white-space: nowrap;
 	}
 	/* The note takes a line of its own under the title and meta, always one line high. */
+	/* A grid, not a wrapping flex line: a long title shortens with an ellipsis beside its meta
+	 * instead of pushing the meta onto a line of its own and growing the row. */
 	.noted .item-main {
-		flex-wrap: wrap;
+		display: grid;
+		grid-template-columns: minmax(0, max-content) minmax(min(7ch, 30%), 1fr);
+		align-items: baseline;
+		column-gap: 10px;
 		row-gap: 1px;
+	}
+	.noted .item-main > :is(.item-note, .item-note-line) {
+		grid-column: 1 / -1;
+	}
+	/* Stacked rows lay out as a column of their own. */
+	.noted.stacked .item-main {
+		display: flex;
 	}
 	.item-note {
 		flex: 1 0 100%;
@@ -183,6 +202,34 @@
 		line-height: 1.4;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	/* With a leading mark, the note's line holds both, still one line high. The mark takes at most a
+	 * little over half; why the row waits keeps the rest. */
+	.item-note-line {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex: 1 0 100%;
+		height: 1.4em;
+		min-width: 0;
+		overflow: hidden;
+	}
+	.item-note-line > .item-note {
+		flex: 1 1 0;
+	}
+	.item-note-leading {
+		display: flex;
+		flex: 0 1 auto;
+		min-width: 0;
+		max-width: 55%;
+		overflow: hidden;
+	}
+	.item-note-leading:has(+ .item-note:empty) {
+		max-width: 100%;
+	}
+	/* A snippet that draws nothing takes no room, so the note stays where it always sits. */
+	.item-note-leading:not(:has(*)) {
+		display: none;
 	}
 	.item-trailing {
 		display: flex;
@@ -249,7 +296,9 @@
 		display: none;
 	}
 	@container page (max-width: 560px) {
-		.item-main {
+		.item-main,
+		.noted .item-main {
+			display: flex;
 			flex-direction: column;
 			gap: 1px;
 			align-items: stretch;
@@ -257,8 +306,12 @@
 		/* In a column a zero flex-basis with hidden overflow is zero height: the meta vanished on
 		 * phones (Vault's "Used by", every settings row's value). It takes its own line instead. */
 		.item-meta,
-		.item-note {
+		.item-note,
+		.item-note-line {
 			flex: none;
+		}
+		.item-note-line > .item-note {
+			flex: 1 1 0;
 		}
 		.item-row {
 			padding-left: 14px;
@@ -289,7 +342,8 @@
 		white-space: normal;
 		overflow-wrap: anywhere;
 	}
-	.stacked .item-note {
+	.stacked .item-note,
+	.stacked .item-note-line {
 		flex: none;
 	}
 	.stacked .item-meta {

@@ -16,6 +16,8 @@
 // a rule with a tool step then a text step calls the tool, gets its result, then replies. A step may
 // also carry `delay_ms` (between streamed pieces), `error` (an HTTP status to answer with) and
 // `message` (that error's text). With no matching rule the mock answers "Mock reply: <their text>".
+// A tool step's strings may name the rule's capture groups as `{{1}}`, `{{2}}`…, taken from its
+// latest match, so a check can make Exec cite the very message that matched ("message (\\d+)…").
 // Every request is appended to --log as one JSON line, for checks to read.
 import { createServer } from 'node:http';
 import { readFileSync, appendFileSync } from 'node:fs';
@@ -100,25 +102,43 @@ function chooseStep(messages) {
 	/* Exec's prompt carries older messages too, so the rule whose words appear latest wins: the
 	 * newest message decides, not the first rule an old one happens to match. */
 	let chosen = null;
+	let groups = [];
 	let at = -1;
 	for (const rule of scenario()) {
 		const pattern = new RegExp(rule.match ?? '.*', 'gi');
 		let match;
 		let last = -1;
+		let lastGroups = [];
 		while ((match = pattern.exec(text))) {
 			last = match.index;
+			lastGroups = [...match];
 			if (match[0] === '') pattern.lastIndex++;
 		}
 		if (last > at) {
 			at = last;
 			chosen = rule;
+			groups = lastGroups;
 		}
 	}
 	if (chosen) {
 		const steps = chosen.steps ?? [{ text: chosen.reply ?? '' }];
-		return { step: steps[Math.min(toolResults, steps.length - 1)], text };
+		return { step: withGroups(steps[Math.min(toolResults, steps.length - 1)], groups), text };
 	}
 	return { step: { text: `Mock reply: ${text.slice(0, 400)}` }, text };
+}
+
+/* `{{N}}` in a tool step's strings becomes the rule's Nth capture group. */
+function withGroups(step, groups) {
+	if (!step.tool || !groups.length) return step;
+	const fill = (value) =>
+		typeof value === 'string'
+			? value.replace(/\{\{(\d+)\}\}/g, (_, n) => groups[Number(n)] ?? '')
+			: Array.isArray(value)
+				? value.map(fill)
+				: value && typeof value === 'object'
+					? Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, fill(inner)]))
+					: value;
+	return { ...step, tool: fill(step.tool) };
 }
 
 const words = (text) => text.match(/\S+\s*/g) ?? [''];
