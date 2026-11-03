@@ -972,8 +972,10 @@ mod tests {
         let package = assemble(&quiet);
         let bytes = package.system_prompt.len() + package.user_prompt.len();
         eprintln!("exec fixed prompt: {bytes} bytes");
-        // 80,590 bytes before Sprint 99 split tool procedures into a skill; 70,702 after.
-        assert!(bytes <= 74_000, "Exec fixed prompt grew to {bytes} bytes");
+        // 80,590 bytes before Sprint 99 split tool procedures into a skill; 70,702 after. 74,233 on
+        // 3 November after two owner-decided abilities (Exec manages the Inbox from chat, #593;
+        // every refusal names its way out, #599), with the Inbox paragraph already tightened.
+        assert!(bytes <= 75_000, "Exec fixed prompt grew to {bytes} bytes");
     }
 
     /// S109 D3: Exec checks what Restless has before stating it, and files Restless faults.
