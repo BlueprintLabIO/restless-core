@@ -1177,6 +1177,15 @@ async fn run_ready_exec_session(
     org.emit_event("model_session_ready", Some("exec"), readiness)
         .await?;
     session.set_live_observer_enabled(true);
+    // A resumed session already holds the recent owner conversation as its own history; sending
+    // it again re-wrote up to twelve messages into the prompt cache on every wake.
+    let trimmed;
+    let turn_context = if resumed && !reconstructed {
+        trimmed = crate::context::without_recent_conversation(turn_context);
+        trimmed.as_str()
+    } else {
+        turn_context
+    };
     run_turn(
         session,
         turn_context,

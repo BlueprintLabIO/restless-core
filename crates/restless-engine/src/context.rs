@@ -143,6 +143,24 @@ pub struct ContextSnapshot {
     pub roster: Vec<String>,
 }
 
+const RECENT_CONVERSATION_HEADING: &str = "# Recent conversation in this focus";
+
+/// The wake's turn without its recent owner conversation, for a session that resumed with that
+/// conversation already in its history. The heading stays and says where it is.
+pub fn without_recent_conversation(turn: &str) -> String {
+    let Some(start) = turn.find(RECENT_CONVERSATION_HEADING) else {
+        return turn.to_string();
+    };
+    let Some(end) = turn[start..].find("\n# Current human boundary") else {
+        return turn.to_string();
+    };
+    format!(
+        "{}{RECENT_CONVERSATION_HEADING}\n(earlier in this session)\n{}",
+        &turn[..start],
+        &turn[start + end..]
+    )
+}
+
 /// One line per active team (lead, members, owning person) and one for the agents in no team.
 pub fn roster_lines(
     actors: &[restless_orgintel::ActorRow],
@@ -804,19 +822,12 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          (buying a domain, a government registration) is an owner handoff whose --action holds the \
          exact page address: the owner does it on the company computer inside their Inbox card. \
          Reconcile prior sends and unknown outcomes before proposing; never retry an uncertain \
-         external effect. A provider-accepted send is not proof of delivery. Use `restless email \
-         observe -c <company>` for typed, host-side, read-only inbound/outbound/suppression metadata; \
-         each list is bounded to 100 and reports has_more/next_after. If has_more is true, continue \
-         that exact list with `restless email observe --list <inbound|outbound|suppressions> \
-         --after <next_after> -c <company>`; do not claim full reconciliation before the final page. \
-         Each page has a durable observation receipt. The Resend credential stays on the host. \
-         You must use judgement to decide what provider evidence means and whether the mandate \
-         should be enforced for a proposed send; provider metadata may be incomplete and your \
-         judgement can be mistaken, so state uncertainty and never present inference as observed \
-         fact. `restless email observe` is read-only provider access and remains available when an \
-         email mandate is active; it needs no send permit. The mandate governs outbound sends. Do \
-         not route Resend observation through the generic effect child, which is closed for a \
-         company's Resend credential while its email mandate is active. For other material external \
+         external effect. A provider-accepted send is not proof of delivery. `restless email \
+         observe [--list inbound|outbound|suppressions --after <next_after>]` reads provider \
+         metadata in pages of 100 (follow has_more before claiming full reconciliation); it needs \
+         no permit, and Resend is never observed through `restless effect`. Judge what that \
+         evidence means and whether the mandate covers a send; it may be incomplete, so state \
+         uncertainty and never present inference as observed fact. For other material external \
          argv, use \
          restless effect --class <class> --purpose <why> [--party <party>] \
          [--artifact <path-or-url>] [--secret ENV=<binding>] --key <key> -- \
@@ -1142,7 +1153,8 @@ mod tests {
         // owner briefs, running the business, align and learn, sourcing) moved into built-in
         // skills loaded on demand, taking it from 75,320 to 54,359 bytes.
         // 4 November (token parity): instructions for reading each wake moved into the cached system
-        // prompt and empty input sections are left out; 54,595 bytes, of which 52,672 cached.
+        // prompt, empty input sections are left out and the email-observe paragraph is shorter;
+        // 54,466 bytes, of which 52,543 cached.
         assert!(bytes <= 54_800, "Exec fixed prompt grew to {bytes} bytes");
     }
 
@@ -1191,6 +1203,18 @@ mod tests {
         assert!(package.user_prompt.contains("# People and teams now"));
         assert!(package.user_prompt.contains("in no team: ops-solo"));
         assert_eq!(package.system_prompt, assemble(&snapshot()).system_prompt);
+    }
+
+    /// A resumed session is not sent the recent conversation it already holds; the owner's new
+    /// input and everything after it stay.
+    #[test]
+    fn a_resumed_session_is_not_resent_its_recent_conversation() {
+        let turn = "# Company state now\nx\n# Recent conversation in this focus [historical]\n- owner message 1: old words\n\n# Current human boundary\nowner\n\n# Owner input\n- owner message 2: new words\n";
+        let trimmed = without_recent_conversation(turn);
+        assert!(!trimmed.contains("old words"));
+        assert!(trimmed.contains("(earlier in this session)"));
+        assert!(trimmed.ends_with("# Current human boundary\nowner\n\n# Owner input\n- owner message 2: new words\n"));
+        assert_eq!(without_recent_conversation("no such section"), "no such section");
     }
 
     /// S109 D3: Exec checks what Restless has before stating it, and files Restless faults.
