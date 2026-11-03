@@ -334,20 +334,38 @@
 		grid-template-columns: minmax(0, 1fr);
 	}
 
-	.conversation-message.owner :is(.message-meta, .message-body) {
+	.conversation-message.owner .message-meta {
+		grid-area: 1 / 1;
 		justify-self: end;
 	}
 
-	/* The owner's toolbar rides the top edge too, on every input: it overlays the gap above the
-	 * bubble instead of taking width beside it or a row beneath, so showing it moves nothing. */
+	.conversation-message.owner .message-body {
+		grid-area: 2 / 1;
+		justify-self: end;
+	}
+
+	/* The owner's toolbar floats on the bubble's top edge, on every input, dipping only into the
+	 * bubble's padding so even a one-word bubble stays readable under it. It shares the bubble's
+	 * row at no height and hangs over the gap above, so it takes no width beside the bubble and no
+	 * row beneath: showing it moves nothing. */
 	.conversation-message.owner .message-footer {
-		position: absolute;
+		position: relative;
 		z-index: 2;
-		top: -10px;
-		right: 12px;
+		grid-area: 2 / 1;
+		align-self: start;
+		justify-self: end;
+		height: 0;
 		min-height: 0;
-		margin: 0;
-		padding: 0;
+		margin: 0 6px 0 0;
+		align-items: flex-start;
+	}
+	.conversation-message.owner .message-actions {
+		margin-top: -24px;
+	}
+	/* A room clips each row to itself (content-visibility), and a continued bubble starts at the
+	 * row's top edge: there the toolbar sits just inside the bubble's corner instead. */
+	.conversation-message.owner.embedded.continued .message-actions {
+		margin-top: 2px;
 	}
 
 	/* Your own bubble shows no name or avatar, but a screen reader still hears whose words they are. */
