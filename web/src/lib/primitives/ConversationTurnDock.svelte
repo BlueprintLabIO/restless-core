@@ -1,33 +1,19 @@
 <script lang="ts">
-	import {
-		replyIsError,
-		turnFailureFix,
-		turnFailureReason,
-		turnStopped
-	} from '$lib/model/turn-failure';
+	import { turnFailureFix, turnFailureReason, turnStopped } from '$lib/model/turn-failure';
 	import { page } from '$app/state';
 	import Check from '@lucide/svelte/icons/check';
 	import CircleAlert from '@lucide/svelte/icons/circle-alert';
 	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
 	import type { AgentActivityItem } from '$lib/model/attention';
-	import Markdown from './Markdown.svelte';
-
-	type TimelineItem =
-		| { kind: 'text'; id: string; text: string }
-		| { kind: 'activity'; id: string; activity: AgentActivityItem };
 
 	let {
 		participantName,
 		turn,
 		onstop = null,
-		onretry = null,
-		preview = true
+		onretry = null
 	}: {
 		participantName: string;
 		turn: ActiveAgentTurn;
-		/** Stream the reply under the line. Off where the line only points at a conversation that
-		 * shows it in full (the Work panel beside the person's chat). */
-		preview?: boolean;
 		/** Stops the reply in progress without sending anything; resolves to an error sentence. */
 		onstop?: (() => Promise<string | null>) | null;
 		/** Answers the same message again after a failed reply; resolves to an error sentence. */
@@ -55,7 +41,6 @@
 	const phase = $derived(turn.live?.phase ?? 'queued');
 	const terminal = $derived(phase === 'complete' || phase === 'failed' || phase === 'unavailable');
 	const working = $derived(!terminal && turn.transport !== 'idle');
-	const reply = $derived(turn.live?.reply ?? '');
 	const stopped = $derived(phase === 'failed' && turnStopped(turn.live?.error));
 	/* A turn that stopped or failed waits on the owner; one still working can be stopped. */
 	const action = $derived(
@@ -90,32 +75,9 @@
 			? `/${encodeURIComponent(turn.live.company)}/work/${encodeURIComponent(turn.live.workId)}`
 			: null
 	);
-	const timeline = $derived.by((): TimelineItem[] => {
-		const characters = Array.from(reply);
-		const items: TimelineItem[] = [];
-		let cursor = 0;
-		for (const [index, activity] of allActivity.entries()) {
-			const requested = Number.isFinite(activity.replyOffset) ? activity.replyOffset : 0;
-			const offset = Math.max(cursor, Math.min(characters.length, requested));
-			if (offset > cursor) {
-				items.push({
-					kind: 'text',
-					id: `text-${index}-${cursor}`,
-					text: characters.slice(cursor, offset).join('')
-				});
-			}
-			items.push({ kind: 'activity', id: activity.id, activity });
-			cursor = offset;
-		}
-		if (cursor < characters.length) {
-			items.push({
-				kind: 'text',
-				id: `text-tail-${cursor}`,
-				text: characters.slice(cursor).join('')
-			});
-		}
-		return items;
-	});
+	/* The reply's text is the message above this line (StreamedReply, placed by the host where the
+	 * saved reply lands); opened, the line shows what was done around it, in order (S110). */
+	const timeline = $derived<AgentActivityItem[]>(allActivity);
 	const failure = $derived.by(() => {
 		if (phase !== 'failed' || stopped) return '';
 		const reason = turnFailureReason(turn.live?.error);
@@ -241,7 +203,7 @@
 				class="turn-summary"
 				title={terminal
 					? 'View activity from this reply. This status does not indicate whether delegated work is complete.'
-					: 'Show or hide live tools and activity. Reply text streams below.'}
+					: 'Show or hide live tools and activity.'}
 				aria-expanded={expanded}
 				aria-controls={`turn-${turn.triggerMessageId}`}
 				onclick={toggleExpanded}
@@ -310,54 +272,44 @@
 		{/if}
 		{#if actionError}<p class="turn-action-error" role="alert">{actionError}</p>{/if}
 
-		{#if preview && reply && !expanded && turn.transport !== 'idle' && !turn.replyLanded && !(phase === 'failed' && replyIsError(reply, turn.live?.error))}
-			<article
-				class="streamed-reply visible-reply"
-				aria-label={`${participantName} streaming reply`}
-				aria-busy={working}
-			>
-				<div class="streamed-copy"><Markdown text={reply} streaming={working} /></div>
-				{#if working}<span class="stream-caret" aria-hidden="true"></span>{/if}
-			</article>
-		{/if}
-
 		<div id={`turn-${turn.triggerMessageId}`} class="turn-disclosure" aria-hidden={!expanded}>
 			<div class="turn-clip">
 				<div class="turn-body">
 					{#if expanded && timeline.length}
-						<article class="streamed-reply" data-live={working}>
+						<article class="live-notes" data-live={working}>
 							<header><strong>{participantName}</strong><span>live notes</span></header>
 							<div class="live-sequence" aria-label="Chronological live activity">
-								{#each timeline as item (item.id)}
-									{#if item.kind === 'text'}
-										<div class="streamed-copy">
-											<Markdown text={item.text} streaming={working} />
-										</div>
-									{:else if item.activity.kind === 'thinking'}
+								{#each timeline as activity (activity.id)}
+									{#if activity.kind === 'thinking'}
 										<details class="trace-thinking">
-											<summary>{item.activity.label || 'Thinking'}</summary>
-											{#if item.activity.detail && item.activity.detail !== item.activity.label}
-												<p>{item.activity.detail}</p>
+											<summary>{activity.label || 'Thinking'}</summary>
+											{#if activity.detail && activity.detail !== activity.label}
+												<p>{activity.detail}</p>
 											{/if}
 										</details>
 									{:else}
-										<div class="trace-row" class:active={item.activity.status === 'active'}>
+										<div class="trace-row" class:active={activity.status === 'active'}>
 											<span class="trace-state" aria-hidden="true"></span>
 											<span class="trace-copy">
-												<strong>{item.activity.label}</strong>
-												{#if item.activity.detail && item.activity.detail !== item.activity.label}
-													<small>{item.activity.detail}</small>
+												<strong>{activity.label}</strong>
+												{#if activity.detail && activity.detail !== activity.label}
+													<small>{activity.detail}</small>
 												{/if}
 											</span>
-											<small class="trace-status">{activityStatus(item.activity.status)}</small>
+											<small class="trace-status">{activityStatus(activity.status)}</small>
 										</div>
 									{/if}
 								{/each}
 							</div>
-							{#if working}<span class="stream-caret" aria-hidden="true"></span>{/if}
 						</article>
 					{:else if allActivity.length === 0 && phase !== 'failed'}
-						<p class="turn-awaiting">The first live update will appear here.</p>
+						<!-- The reply's text is the message above; finished with no tools, there is
+						     nothing else to show. -->
+						<p class="turn-awaiting">
+							{terminal
+								? 'No tools or steps in this reply.'
+								: 'The first live update will appear here.'}
+						</p>
 					{/if}
 				</div>
 			</div>
@@ -665,77 +617,29 @@
 		white-space: nowrap;
 	}
 
-	.streamed-reply {
+	.live-notes {
 		position: relative;
 		padding: 10px 14px 13px;
 		border-top: 1px solid var(--border);
 		background: transparent;
 	}
-	/* The reply as it streams sits where its finished message will: under the author's name
-	 * (ConversationMessage's 31px), at the same width, so every line breaks in the same place
-	 * and nothing rewraps sideways when it lands (S110). */
-	.streamed-reply.visible-reply .streamed-copy {
-		padding-left: 31px;
-	}
-	.streamed-reply.visible-reply .stream-caret {
-		margin-left: 31px;
-	}
 
-	.streamed-reply header {
+	.live-notes header {
 		display: flex;
 		align-items: baseline;
 		gap: 7px;
 		margin-bottom: 5px;
 	}
 
-	.streamed-reply header strong {
+	.live-notes header strong {
 		color: var(--ink);
 		font-size: var(--t-label);
 	}
 
-	.streamed-reply header span {
+	.live-notes header span {
 		color: var(--text-tertiary);
 		font: 500 var(--t-label) var(--font-ui);
 		font-variant-numeric: tabular-nums;
-	}
-
-	.streamed-copy {
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-		line-height: 1.5;
-		overflow-wrap: anywhere;
-	}
-
-	/* The same reading measure as the finished message (ConversationMessage), so a reply does not
-	 * stream wide and then snap narrow when it lands (21 October). */
-	.streamed-copy :global(.md > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6)) {
-		max-width: 80ch;
-	}
-
-	/* The finished message's rhythm (ConversationMessage, --chat-space-*), so nothing re-spaces
-	 * when the reply lands. */
-	.streamed-copy :global(.md :is(p, ul, ol)) {
-		margin: 0 0 var(--chat-space-block);
-	}
-	.streamed-copy :global(.md li) {
-		margin: var(--chat-space-item) 0;
-	}
-
-	.streamed-copy :global(.md > :first-child) {
-		margin-top: 0;
-	}
-
-	.streamed-copy :global(.md > :last-child) {
-		margin-bottom: 0;
-	}
-
-	.stream-caret {
-		display: inline-block;
-		width: 5px;
-		height: 13px;
-		margin-top: 3px;
-		background: var(--intent-conversation);
-		animation: turn-caret 850ms steps(2, jump-none) infinite;
 	}
 
 	.turn-awaiting {
@@ -788,17 +692,10 @@
 		}
 	}
 
-	@keyframes turn-caret {
-		50% {
-			opacity: 0.25;
-		}
-	}
-
 	@media (prefers-reduced-motion: reduce) {
 		.pixel-glimmer.working i,
 		.turn-status.shimmer,
-		.trace-row.active .trace-state,
-		.stream-caret {
+		.trace-row.active .trace-state {
 			animation: none;
 		}
 		.turn-status.shimmer {

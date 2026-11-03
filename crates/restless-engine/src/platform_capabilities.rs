@@ -784,15 +784,11 @@ mod tests {
 
     async fn test_pool() -> Option<PgPool> {
         let url = std::env::var("RESTLESS_TEST_DATABASE_URL").ok()?;
-        let pool = PgPool::connect(&url).await.unwrap();
-        sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority")
-            .execute(&pool)
-            .await
-            .unwrap();
-        crate::accounts::ensure_schema(&pool).await.unwrap();
-        crate::account_broker::ensure_schema(&pool).await.unwrap();
-        ensure_schema(&pool).await.unwrap();
-        Some(pool)
+        Some(
+            crate::authority::AuthorityStore::test_pool(&url)
+                .await
+                .unwrap(),
+        )
     }
 
     #[tokio::test]

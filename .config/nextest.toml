@@ -1,0 +1,26 @@
+# cargo-nextest settings. `qualify` is the PR and release check of the engine and orgintel suites
+# (.dagger/src/index.ts, engineTests): every test in its own process and its own database, all
+# failures reported at the end, and a hung test killed instead of holding the check until its
+# timeout. It needs RESTLESS_TEST_ADMIN_URL (a disposable server) and psql. Wrapper scripts are
+# still experimental in nextest; the check pins its version (NEXTEST_VERSION in index.ts).
+experimental = ["wrapper-scripts"]
+
+[profile.qualify]
+fail-fast = false
+retries = 0
+status-level = "fail"
+final-status-level = "slow"
+failure-output = "final"
+slow-timeout = { period = "60s", terminate-after = 5 }
+
+[scripts.wrapper.own-database]
+command = { command-line = ".config/nextest/own-database.sh", relative-to = "workspace-root" }
+
+[[profile.qualify.scripts]]
+filter = "all()"
+run-wrapper = "own-database"
+
+# The longest test (about 90 s: seven native-cap scenarios) starts first, so it never sets the tail.
+[[profile.qualify.overrides]]
+filter = "test(native_staff_rechecks_before_completion_and_records_unknown_turns)"
+priority = 100
