@@ -16,6 +16,8 @@ The runtime flow is:
 4. As authenticated Exec, run restless mandate permit --mandate ID --proposal-file PROPOSAL.json. The proposal binds the preview digest, sender, recipient and effect key, and includes rationale, evidence references and an expiry within five minutes.
 5. Put the returned permit ID in the email JSON and run restless email send --request-file EMAIL.json once. If the outcome is unknown, reconcile against Resend before any new outreach. Do not replay the send.
 
+Steps 1 and 3-5, plus a read of the provider's outbound record, are one call: `restless email send --request-file EMAIL.json --rationale '<why>' [--evidence REF]...`. The CLI composes the same daemon commands, each with its own checks, so a model spends one tool call per email instead of five or more. Exec is told to use this form.
+
 The email JSON has from, optional from_name, to, subject, text or html, effect_key, permit_id, optional in_reply_to (the Message-ID being answered; it becomes the In-Reply-To and References headers and is part of the digest), and optional declared attachments with reference, filename, and content_type. Declared files may be in productive company folders including /company/releases; the host checks the opened file target. Reply-To is the sending mailbox. Preview may omit permit_id; sending requires the issued ID. The permit proposal JSON has sender, recipient, payload_sha256, effect_key, rationale, evidence_refs, and expires_at.
 
 Authority records are the canonical decision and effect trail. The owner mandate view shows quota use, recent recipient decisions, provider references and uncertain outcomes. The company external-action view and Exec receipt summary include typed sends; neither treats a reservation as a completed send.
