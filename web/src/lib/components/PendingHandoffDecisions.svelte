@@ -16,8 +16,9 @@
 		queryFn: ({ signal }) => readHandoffDecisions(companyId, signal),
 		enabled: Boolean(companyId && principal.view),
 		// A pending decision needs its result promptly even while ordinary change hints are live.
+		// Nothing pending: only a repair. While the change stream was down this read once a second.
 		refetchInterval: (query) =>
-			query.state.data?.items.some((item) => item.state === 'pending') ? 1000 : pollEvery(1000)(),
+			query.state.data?.items.some((item) => item.state === 'pending') ? 1000 : pollEvery(15_000)(),
 		retry: 1
 	}));
 	$effect(() => {
