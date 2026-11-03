@@ -1690,6 +1690,8 @@ mod tests {
             max_total: 100,
             timezone: "UTC".into(),
             expires_at: Utc::now() + chrono::Duration::days(30),
+            one_email_per_recipient: false,
+            own_addresses: Vec::new(),
         };
         let first = fx
             .authority
