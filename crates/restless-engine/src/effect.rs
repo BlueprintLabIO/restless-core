@@ -1687,6 +1687,26 @@ mod tests {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
 
+    #[tokio::test]
+    async fn restart_does_not_replay_an_effect_with_unknown_outcome() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Authority restart scenario");
+            return;
+        };
+        let company = format!("effectrestart{}_test", uuid::Uuid::new_v4().simple());
+        let authority = crate::authority::AuthorityStore::connect(&url).await.unwrap();
+        authority.emit(&company, "effect_intent", Some("staff"), serde_json::json!({
+            "idempotency_key": "send-once",
+            "command_digest": "digest",
+            "execution_no": 1
+        })).await.unwrap();
+        drop(authority);
+        let restarted = crate::authority::AuthorityStore::connect(&url).await.unwrap();
+        let error = prior_execution(&restarted, &company, "email", "digest", "send-once", "staff")
+            .await.expect_err("an unresolved external effect must not execute again");
+        assert!(error.to_string().contains("unknown outcome"));
+    }
+
     #[test]
     fn governance_identifiers_and_paths_are_bounded() {
         assert!(valid_identifier("customer-contact.email"));
