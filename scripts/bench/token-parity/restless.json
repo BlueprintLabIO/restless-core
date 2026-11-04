@@ -33,6 +33,29 @@
 			]
 		},
 		{
+			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-TEAM",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "restless commission --lead docs-writer --role 'writer' --team Docs --charter 'The company documents customers read.' --title 'Delivery policy' --outcome 'BENCH-WORK: a one-page delivery policy (zones, fees, cut-off times) at /company/outputs/delivery-policy.md' --reason 'The owner asked for a delivery policy.' --expected-artifact /company/outputs/delivery-policy.md" } } },
+				{ "text": "The docs lead is writing the delivery policy; I will bring it to you when it is ready.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"The docs lead is on the delivery policy.\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"The docs lead has the Work.\"}-->" }
+			]
+		},
+		{
+			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-CHAIN",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "restless commission --lead docs-writer --role 'writer' --team Docs --charter 'The company documents customers read.' --title 'Delivery policy, drafted then checked' --outcome 'BENCH-STEP: draft a one-page delivery policy (zones, fees, cut-off times) at /company/outputs/delivery-policy.md, then add the Work that checks it' --reason 'The owner asked for a checked delivery policy.' --expected-artifact /company/outputs/delivery-policy.md" } } },
+				{ "text": "The docs lead is drafting the delivery policy and will have it checked; I will bring it to you when it is ready.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"The docs lead is on the delivery policy.\"}-->\n<!--restless-turn:{\"decision\":\"continue\",\"reason\":\"The docs lead is drafting it; I will check back.\"}-->" }
+			]
+		},
+		{
+			"match": "# Work ([0-9a-f-]{36}) revision[^]*BENCH-STEP",
+			"scope": "all",
+			"steps": [
+				{ "delay_ms": 2500, "tool": { "name": "bash", "input": { "command": "mkdir -p /company/outputs && cat > /company/outputs/delivery-policy.md <<'D'\n# Delivery policy\n\nWe deliver within 10 km of the bakery. Orders placed by 8 pm arrive the next morning. Delivery is $5, free over $40.\nD" } } },
+				{ "delay_ms": 2500, "tool": { "name": "bash", "input": { "command": "restless work add --owner docs-writer --title 'Check the delivery policy' --outcome 'BENCH-WORK: check /company/outputs/delivery-policy.md against the brief (zones, fees, cut-off times)' --expected-artifact /company/outputs/delivery-policy.md --requires {{1}}" } } },
+				{ "text": "Drafted the delivery policy at /company/outputs/delivery-policy.md; its check is the next Work.\n<!--restless-turn:{\"decision\":\"outcome_met\",\"reason\":\"The draft is written and its check is commissioned.\"}-->" }
+			]
+		},
+		{
 			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-QA",
 			"steps": [
 				{ "text": "One piece of work is done: the delivery policy is waiting for your look.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Nothing else is in progress.\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"Answered the owner.\"}-->" }

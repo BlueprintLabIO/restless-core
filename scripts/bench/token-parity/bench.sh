@@ -55,7 +55,7 @@ trap cleanup EXIT
 # The stack's own launcher, on the mock: any key works there and none is real.
 BENCH_MOCK_KEY=bench-mock-not-a-secret \
 RESTLESS_ANTHROPIC_BASE_URL="http://127.0.0.1:${port}/v1" \
-RESTLESS_DEV_MODEL=anthropic/claude-sonnet-5-5 \
+RESTLESS_DEV_MODEL="${BENCH_MODEL:-anthropic/claude-sonnet-5-5}" \
 RESTLESS_DEV_CREDENTIAL_REFERENCE=env:BENCH_MOCK_KEY \
   setsid bash "$checkout/scripts/restless-dev" "$company" --reconcile >"$work/stack.log" 2>&1 &
 stack_pid=$!
@@ -74,9 +74,27 @@ offset="$(awk '$1 == "OFFSET" {print $2; exit}' "$work/stack.log")"
 namespace="$(awk '$1 == "NAMESPACE" {print $2; exit}' "$work/stack.log")"
 owner_url="http://127.0.0.1:$((7788 + offset))"
 web_url="http://127.0.0.1:$((5173 + offset))"
+cli() {
+  RESTLESS_PROFILE=dev RESTLESS_RESOURCE_NAMESPACE="$namespace" RESTLESS_PORT_OFFSET="$offset" \
+    RESTLESS_HOME="$home" RESTLESS_OWNER_URL="$owner_url" \
+    "${RESTLESS_DEV_TARGET_DIR:-$checkout/target-dev}/debug/restless" "$@"
+}
+# BENCH_ROUTE=subscription: the owner's companies run on a Claude sign-in (`omp-oauth:anthropic`),
+# served through OMP's host gateway on the pi-native wire rather than the Messages relay. The
+# stack's broker gets a scripted sign-in (seed-sign-in.mjs) and the company is switched to it.
+if [ "${BENCH_ROUTE:-api}" = subscription ]; then
+  profile="$HOME/.omp/profiles/restless-model-broker$([ "$offset" = 0 ] || printf -- '-%s' "$offset")"
+  broker="http://127.0.0.1:$((7789 + offset))"
+  node "$here/seed-sign-in.mjs" --broker "$broker" --token-file "$profile/auth-broker.token"
+  cli company set -c "$company" credentials.model.inference omp-oauth:anthropic
+  node "$here/seed-sign-in.mjs" --broker "$broker" --token-file "$profile/auth-broker.token" --wait 300
+fi
+for setting in ${BENCH_COMPANY_SETTINGS:-}; do # key=value, e.g. everyday_model=anthropic/claude-sonnet-5-5
+  cli company set -c "$company" "${setting%%=*}" "${setting#*=}"
+done
 # Let first-start turns (if any) finish before measuring.
 sleep "${BENCH_WARMUP_SECONDS:-60}"
 
 node "$here/run.mjs" --origin "$web_url" --company "$company" --mock "http://127.0.0.1:${port}" \
-  --out "$out" ${BENCH_RUN_ARGS:-}
+  --route "${BENCH_ROUTE:-api}" --log "$work/calls.jsonl" --out "$out" ${BENCH_RUN_ARGS:-}
 printf '\nresult %s\n' "$out"
