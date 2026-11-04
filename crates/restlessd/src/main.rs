@@ -578,14 +578,23 @@ async fn run() -> Result<()> {
                     match inventory {
                         Ok(observations) => {
                             let mut candidates = Vec::new();
+                            let mut observation_error = None;
                             for observed in observations {
-                                if let Ok(org) = recovery_daemon.orgintel.get(&observed.company).await {
-                                    if org.list_running_work_attempts().await.is_ok_and(|work| !work.is_empty()) {
-                                        candidates.push(observed);
-                                    }
+                                let lookup = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                                    let org = recovery_daemon.orgintel.get(&observed.company).await?;
+                                    Ok::<_, anyhow::Error>(org.list_running_work_attempts().await?)
+                                }).await;
+                                match lookup {
+                                    Ok(Ok(work)) if !work.is_empty() => candidates.push(observed),
+                                    Ok(Ok(_)) => {},
+                                    Ok(Err(error)) => { observation_error = Some(format!("{}: {error:#}", observed.company)); break; }
+                                    Err(_) => { observation_error = Some(format!("{}: Work observation timed out", observed.company)); break; }
                                 }
                             }
-                            if let Some(blocker) = candidates.into_iter().max_by_key(|row| row.runtime_bytes.saturating_add(row.computer_bytes.unwrap_or(0))) {
+                            if let Some(error) = observation_error {
+                                company::note_roll_forward_stage("memory_deadline_unresolved", Some(format!("Work inventory unavailable: {error}")));
+                                tracing::error!("memory deadline Work inventory failed: {error}");
+                            } else if let Some(blocker) = candidates.into_iter().max_by_key(|row| row.runtime_bytes.saturating_add(row.computer_bytes.unwrap_or(0))) {
                                 company::note_roll_forward_stage("memory_deadline_restart", Some(format!("restarting {} after ten minutes waiting for memory", blocker.company)));
                                 tracing::warn!(company = %blocker.company, "startup recovery memory deadline reached; restarting runtime");
                                 if let Err(error) = runtime::restart_memory_blocker(&blocker).await {
