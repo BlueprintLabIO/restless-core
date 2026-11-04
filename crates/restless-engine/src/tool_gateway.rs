@@ -1676,7 +1676,7 @@ impl ToolCaller<'_> {
                 usable.account.label
             ));
         }
-        let Some(_lease) = self.lifecycle.try_enter() else {
+        let Some(_lease) = self.lifecycle.try_enter_company(self.company()) else {
             return text_error("Nothing was sent: new work is paused for a restart or update; retry once it is back.");
         };
         let connection = format!("account_{}", usable.account.id);
@@ -1818,7 +1818,7 @@ impl ToolCaller<'_> {
                 // An update or restart drains counted work before it replaces the plane, so an
                 // effect holds a lease until its outcome is recorded, and none starts once the
                 // drain has closed admission.
-                let Some(_lease) = self.lifecycle.try_enter() else {
+                let Some(_lease) = self.lifecycle.try_enter_company(self.company()) else {
                     return Ok(text_error(
                         "Nothing was sent: new work is paused for a restart or update; retry once it is back.",
                     ));

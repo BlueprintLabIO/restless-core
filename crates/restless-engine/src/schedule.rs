@@ -427,7 +427,9 @@ fn configured_companies(daemon: &Arc<Daemon>) -> Option<Vec<String>> {
             continue;
         }
         if let Some(company) = path.file_stem().and_then(|value| value.to_str()) {
-            companies.push(company.to_string());
+            if !daemon.lifecycle.company_is_recovering(company) {
+                companies.push(company.to_string());
+            }
         }
     }
     companies.sort();
@@ -614,7 +616,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     // Hold one admission lease across observation, claim and dispatch. A
     // replacement therefore sees either this scan or the actor it launched,
     // never a false idle gap between them.
-    let Some(_lifecycle_lease) = daemon.lifecycle.try_enter() else {
+    let Some(_lifecycle_lease) = daemon.lifecycle.try_enter_company(company) else {
         return;
     };
     let Ok(config) = CompanyConfig::load(&daemon.root, company) else {
@@ -1741,7 +1743,7 @@ async fn run_exec_turn_with_lease(
 
 /// Fire a free-form Exec conversation. It never owns or mutates Work.
 async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, reason: &str) {
-    let Some(_lifecycle_lease) = daemon.lifecycle.try_enter() else {
+    let Some(_lifecycle_lease) = daemon.lifecycle.try_enter_company(company) else {
         return;
     };
     if daemon.staff.is_actor_running(company, "exec") {
@@ -1893,7 +1895,8 @@ mod tests {
         );
         // The turn decision rides on the last line and is taken off; its intent line stays.
         let turn = "<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"The lead is writing it.\"}-->";
-        let intent = "<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"I asked the lead.\"}-->";
+        let intent =
+            "<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"I asked the lead.\"}-->";
         let kept = exec_owner_update(Some(&format!("Asked the lead.\n\n{intent}\n{turn}")), true)
             .unwrap()
             .unwrap()
@@ -1908,7 +1911,9 @@ mod tests {
         let decision = decision.unwrap();
         assert_eq!(decision.termination, crate::exec::Termination::Continue);
         assert_eq!(decision.retry_after_seconds, None);
-        assert!(crate::exec::take_turn_marker("<!--restless-turn:nope-->").1.is_none());
+        assert!(crate::exec::take_turn_marker("<!--restless-turn:nope-->")
+            .1
+            .is_none());
         // A provider error streamed as text never reaches the owner.
         assert!(exec_owner_update(
             Some("429 Rate limit exceeded: free-models-per-min.  retry-after-ms=54287"),
