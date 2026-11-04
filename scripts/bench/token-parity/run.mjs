@@ -91,8 +91,15 @@ const TASKS = [
 		id: 'd_team_work',
 		message:
 			'BENCH-TEAM: please have someone write a one-page delivery policy (zones, fees, cut-off times) and bring it to me.'
+	},
+	/* Two linked Work items (a draft, then the Work that requires it) while Exec said it would
+	 * check back ("continue"): the wakes an intermediate result and a self-scheduled check cost. */
+	{
+		id: 'e_work_chain',
+		message:
+			'BENCH-CHAIN: please have a delivery policy drafted and then checked by someone else before it comes to me.'
 	}
-];
+].filter((task) => !args.tasks || args.tasks.split(',').includes(task.id));
 
 /* The baseline: one agent, one session, the same scripted moves a direct Claude Code run takes. Its
  * fixed prefix is a Claude Code-sized system prompt plus tool schemas, cached for 5 minutes as
@@ -111,6 +118,11 @@ const BASELINE_TASKS = {
 		{ text: 'Wrote and reviewed the one-page delivery policy at outputs/delivery-policy.md.' }
 	],
 	/* A direct harness has no team: the one session writes and checks it, as in b. */
+	e_work_chain: [
+		{ tool: 'cat > outputs/delivery-policy.md <<D … D', result: '' },
+		{ tool: 'cat outputs/delivery-policy.md', result: '# Delivery policy\n\nWe deliver within 10 km of the bakery. Orders placed by 8 pm arrive the next morning. Delivery is $5, free over $40.' },
+		{ text: 'Drafted and checked the one-page delivery policy at outputs/delivery-policy.md.' }
+	],
 	d_team_work: [
 		{ tool: 'cat > outputs/delivery-policy.md <<D … D', result: '' },
 		{ tool: 'cat outputs/delivery-policy.md', result: '# Delivery policy\n\nWe deliver within 10 km of the bakery. Orders placed by 8 pm arrive the next morning. Delivery is $5, free over $40.' },
