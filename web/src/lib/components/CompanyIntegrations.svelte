@@ -13,6 +13,9 @@
 	import Inbox from '@lucide/svelte/icons/inbox';
 	import ShieldCheck from '@lucide/svelte/icons/shield-check';
 	import Globe from '@lucide/svelte/icons/globe';
+	import Reply from '@lucide/svelte/icons/reply';
+	import MailCheck from '@lucide/svelte/icons/mail-check';
+	import AtSign from '@lucide/svelte/icons/at-sign';
 	import { formatRelative } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
 	import { settingQuery } from '$lib/model/setting.svelte';
@@ -21,10 +24,15 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import {
 		EMAIL_STATE,
+		INCOMING_STATE,
+		checkLine,
+		checkPending,
+		connectIncoming,
 		integrationsKey,
 		lastSendLine,
 		readIntegrations,
 		sendEmailTest,
+		testIncoming,
 		whoSends
 	} from '$lib/model/integrations';
 
@@ -40,6 +48,51 @@
 	const email = $derived(source.view?.email ?? null);
 	const shown = $derived(email ? EMAIL_STATE[email.state] : null);
 	const root = $derived(`/${encodeURIComponent(companyId)}`);
+	const incoming = $derived(source.view?.incoming ?? null);
+	const incomingShown = $derived(incoming ? INCOMING_STATE[incoming.state] : null);
+
+	/* Incoming email: Connect registers (or registers again) the company's Resend webhook; Test
+	 * sends the company an email from itself and watches it come back. While it is on its way the
+	 * status is read again every few seconds. */
+	let incomingBusy = $state<'connect' | 'test' | null>(null);
+	async function runIncoming(kind: 'connect' | 'test') {
+		if (incomingBusy) return;
+		incomingBusy = kind;
+		try {
+			const { incoming: next } = await (kind === 'connect'
+				? connectIncoming(companyId)
+				: testIncoming(companyId));
+			if (kind === 'connect')
+				toast(
+					next.state === 'failing'
+						? (next.action ?? next.detail)
+						: next.state === 'not_connected'
+							? 'Add the Resend key first.'
+							: 'Incoming email is connected.',
+					next.state === 'failing' || next.state === 'not_connected' ? { tone: 'failure' } : {}
+				);
+			else toast('Test sent. It should come back within a minute.');
+			await source.refresh();
+		} catch (cause) {
+			toast(
+				failureSentence(
+					cause,
+					kind === 'connect' ? 'Incoming email was not connected.' : 'The test was not sent.'
+				),
+				{ tone: 'failure' }
+			);
+		} finally {
+			incomingBusy = null;
+		}
+	}
+	$effect(() => {
+		if (!checkPending(incoming)) return;
+		const timer = setInterval(() => source.refresh(), 5_000);
+		return () => clearInterval(timer);
+	});
+	const incomingLine = $derived(
+		incoming ? (incoming.action ? `${incoming.detail} ${incoming.action}` : incoming.detail) : ''
+	);
 
 	let testing = $state(false),
 		busy = $state(false),
@@ -170,6 +223,67 @@
 				{#snippet leading()}<ShieldCheck size={15} strokeWidth={1.8} />{/snippet}
 			</Item>
 		</Section>
+		{#if incoming && incomingShown}
+			<Section
+				title="Incoming email"
+				info="Replies to the company's email reach Exec as they arrive, through the company's own Resend account."
+			>
+				{#snippet actions()}
+					<span class="state" title={incomingLine}>
+						<Dot show tone={incomingShown.tone} label={incomingShown.label} />
+					</span>
+					{#if owner}<button
+							class="btn small"
+							disabled={!!incomingBusy || email.state === 'not_connected'}
+							title={email.state === 'not_connected'
+								? 'Add the Resend key first'
+								: incoming.state === 'connected'
+									? 'Register the webhook again, with a new signing secret'
+									: 'Let replies reach the company'}
+							onclick={() => runIncoming('connect')}
+							><span class="swap"
+								><span class:inactive={incomingBusy === 'connect'}
+									>{incoming.state === 'connected' ? 'Reconnect' : 'Connect'}</span
+								><span class:inactive={incomingBusy !== 'connect'}>Connecting…</span></span
+							></button
+						><button
+							class="btn small"
+							disabled={!!incomingBusy ||
+								!['connected', 'polling', 'failing'].includes(incoming.state) ||
+								!incoming.domains.length}
+							title="Send the company an email from itself and watch it come back"
+							onclick={() => runIncoming('test')}
+							><span class="swap"
+								><span class:inactive={incomingBusy === 'test'}>Test</span><span
+									class:inactive={incomingBusy !== 'test'}>Sending…</span
+								></span
+							></button
+						>{/if}
+				{/snippet}
+				<Item title="Status" meta={incomingLine}>
+					{#snippet leading()}<Reply size={15} strokeWidth={1.8} />{/snippet}
+				</Item>
+				<Item
+					title="Receives for"
+					meta={incoming.domains.length ? incoming.domains.join(', ') : 'Not known yet'}
+				>
+					{#snippet leading()}<AtSign size={15} strokeWidth={1.8} />{/snippet}
+				</Item>
+				<Item
+					title="Last delivery"
+					meta={incoming.last_event_at
+						? formatRelative(incoming.last_event_at)
+						: incoming.last_poll_at
+							? `None yet · checked ${formatRelative(incoming.last_poll_at).toLowerCase()}`
+							: 'None yet'}
+				>
+					{#snippet leading()}<Inbox size={15} strokeWidth={1.8} />{/snippet}
+				</Item>
+				<Item title="Test" meta={checkLine(incoming, (at) => formatRelative(at).toLowerCase())}>
+					{#snippet leading()}<MailCheck size={15} strokeWidth={1.8} />{/snippet}
+				</Item>
+			</Section>
+		{/if}
 		{#if testing && owner}
 			<Section title="Send a test">
 				<form class="form plain" onsubmit={sendTest}>
