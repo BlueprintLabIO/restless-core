@@ -1,8 +1,9 @@
 <script lang="ts">
 	/* Company › Intelligence › Models by job (S107): which model does which job. The main model
-	 * thinks for the Exec, team leads, repairs and reviews; a cheaper everyday model takes Staff
-	 * chat and routine first tasks; a small decision model spares the Exec wake-ups for routine
-	 * results. Three fixed rows; each editor opens below its row. */
+	 * thinks for the Exec, first planning, owner work, repairs and reviews; a cheaper everyday
+	 * model takes Staff chat, routine first tasks and (owner, 4 Nov) team leads' routine turns,
+	 * which a switch can keep on the main model; a small decision model spares the Exec wake-ups
+	 * for routine results. Four fixed rows; each editor opens below its row. */
 	import { Section, Item, Notice } from '$lib/ui/page';
 	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
@@ -10,12 +11,21 @@
 	import Cpu from '@lucide/svelte/icons/cpu';
 	import Feather from '@lucide/svelte/icons/feather';
 	import Signpost from '@lucide/svelte/icons/signpost';
+	import Users from '@lucide/svelte/icons/users';
+	import Toggle from '$lib/ui/page/Toggle.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { modelLabel } from '$lib/model/intelligence-labels';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { modelJobsQuery } from '$lib/model/model-jobs.svelte';
-	import { decisionDetail, decisionFix, decisionLine, everydayLine } from '$lib/model/model-jobs';
+	import {
+		decisionDetail,
+		decisionFix,
+		decisionLine,
+		everydayLine,
+		leadsDetail,
+		leadsLine
+	} from '$lib/model/model-jobs';
 	import { watchIntelligenceChanges, affectsCompany } from '$lib/model/intelligence-events';
 	import { onMount, untrack } from 'svelte';
 	import EditorForm from './editors/EditorForm.svelte';
@@ -30,6 +40,7 @@
 	let editing = $state<'' | 'everyday' | 'decisions'>('');
 	let notice = $state(''),
 		error = $state('');
+	let savingLeads = $state(false);
 
 	onMount(() =>
 		watchIntelligenceChanges((changed) => {
@@ -58,7 +69,19 @@
 		}));
 	});
 
-	async function save(body: { everyday_model?: string; decision_model?: string }, receipt: string) {
+	async function saveLeads(allowed: boolean) {
+		savingLeads = true;
+		await save(
+			{ leads_use_everyday: allowed },
+			allowed ? 'Leads use the everyday model for routine turns' : 'Leads stay on the main model'
+		);
+		savingLeads = false;
+	}
+
+	async function save(
+		body: { everyday_model?: string; decision_model?: string; leads_use_everyday?: boolean },
+		receipt: string
+	) {
 		error = '';
 		try {
 			await jobs.save(body);
@@ -86,7 +109,7 @@
 		<Item
 			title="Main"
 			meta={view
-				? `${view.primary_model ? modelLabel(view.primary_model) : 'Not chosen yet'} · Exec, team leads, repairs and reviews`
+				? `${view.primary_model ? modelLabel(view.primary_model) : 'Not chosen yet'} · Exec, planning, owner work, repairs and reviews`
 				: null}
 		>
 			{#snippet leading()}<Cpu size={15} strokeWidth={1.8} />{/snippet}
@@ -101,7 +124,7 @@
 		</Item>
 		<Item
 			title="Everyday"
-			meta={view ? `${everydayLine(view)} · Staff chat and routine first tasks` : null}
+			meta={view ? `${everydayLine(view)} · Staff chat and routine tasks` : null}
 			selected={editing === 'everyday'}
 		>
 			{#snippet leading()}<Feather size={15} strokeWidth={1.8} />{/snippet}
@@ -123,6 +146,27 @@
 					/>
 				</EditorForm>
 			{/if}
+		</Item>
+		<!-- Owner, 4 Nov: leads' routine turns on the everyday model, on by default. With no everyday
+		     model the switch has nothing to do, so it says so and the Change button above is the way. -->
+		<Item title="Leads may use the everyday model" meta={view ? leadsLine(view) : null}>
+			{#snippet leading()}<Users size={15} strokeWidth={1.8} />{/snippet}
+			{#snippet trailing()}
+				{#if !view}<span class="hold" aria-hidden="true"></span>{:else}
+					<InfoTip text={leadsDetail(view)} />
+					<Toggle
+						checked={view.leads_use_everyday}
+						label="Leads may use the everyday model"
+						title={!view.everyday || view.everyday_model === 'off'
+							? 'Choose an everyday model above first'
+							: view.leads_use_everyday
+								? 'Keep every lead turn on the main model'
+								: 'Let leads use the everyday model for routine turns'}
+						disabled={savingLeads || !view.everyday || view.everyday_model === 'off'}
+						onchange={(next) => void saveLeads(next)}
+					/>
+				{/if}
+			{/snippet}
 		</Item>
 		<Item
 			title="Decisions"

@@ -22,7 +22,11 @@ export function modelJobsQuery(company: string) {
 		},
 		refresh: () => client.invalidateQueries({ queryKey: key(company) }),
 		/** Save one job's model against the current revision; the view takes the answer. */
-		save: async (body: { everyday_model?: string; decision_model?: string }) => {
+		save: async (body: {
+			everyday_model?: string;
+			decision_model?: string;
+			leads_use_everyday?: boolean;
+		}) => {
 			const fresh = await readModelJobs(company);
 			const saved = await saveModelJobs(company, { ...body, revision: fresh.revision });
 			client.setQueryData(key(company), (before: ModelJobs | undefined) => ({

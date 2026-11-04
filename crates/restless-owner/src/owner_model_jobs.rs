@@ -1,6 +1,7 @@
-//! Models by job (S102, S107): the everyday model that takes Staff chat and routine first tasks,
-//! and the decision model that lets a routine result skip an Exec wake. Written exactly as
-//! `restless company set` writes them; owner only, like every other model setting.
+//! Models by job (S102, S107): the everyday model that takes Staff chat, routine first tasks and
+//! (owner, 4 Nov) team leads' routine turns, whether leads may use it, and the decision model that
+//! lets a routine result skip an Exec wake. Written exactly as `restless company set` writes them;
+//! owner only, like every other model setting.
 
 use super::*;
 
@@ -29,6 +30,7 @@ pub(super) fn view(config: &runtime::CompanyConfig) -> serde_json::Value {
         "everyday_model": config.everyday_model,
         "everyday": primary.everyday(),
         "suggested_everyday": runtime::everyday_sibling(&primary.model),
+        "leads_use_everyday": config.leads_may_use_everyday(),
         "decision_model": config.decision_model,
         "decision_mode": decision_mode,
         "included_decisions": relay,
@@ -63,6 +65,9 @@ pub(super) struct ModelJobsInput {
     /// `included`, an OpenRouter provider/model, or empty for the default (the relay in shadow).
     #[serde(default)]
     decision_model: Option<String>,
+    /// Whether team leads' routine turns may use the everyday model.
+    #[serde(default)]
+    leads_use_everyday: Option<bool>,
     revision: String,
 }
 
@@ -106,6 +111,10 @@ pub(super) async fn update(
                 ),
             );
         }
+    }
+    if let Some(allowed) = input.leads_use_everyday {
+        // Unset is the default (on); only "off" is stored.
+        config.leads_use_everyday = (!allowed).then_some(false);
     }
     if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
         return api_error(

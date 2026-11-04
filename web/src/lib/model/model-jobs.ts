@@ -18,6 +18,8 @@ export type DecisionSummary = {
 		pending: number;
 	};
 	work_tier: { everyday: number; primary: number };
+	/** Team leads' turns as routed (owner, 4 Nov), and those escalated to the main model. */
+	lead_tier?: { everyday: number; main: number; escalated: number };
 };
 
 export type ModelJobs = {
@@ -29,6 +31,8 @@ export type ModelJobs = {
 	everyday: string | null;
 	/** The primary's cheaper sibling, used while the owner has not chosen. */
 	suggested_everyday: string | null;
+	/** Whether team leads' routine turns may use the everyday model (on by default). */
+	leads_use_everyday: boolean;
 	/** `included`, `off`, an OpenRouter provider/model, or null (included, watching only). */
 	decision_model: string | null;
 	decision_mode: DecisionMode;
@@ -47,7 +51,12 @@ export function readModelJobs(company: string, signal?: AbortSignal) {
 
 export function saveModelJobs(
 	company: string,
-	body: { everyday_model?: string; decision_model?: string; revision: string }
+	body: {
+		everyday_model?: string;
+		decision_model?: string;
+		leads_use_everyday?: boolean;
+		revision: string;
+	}
 ) {
 	return ownerRequest<ModelJobs>(path(company), { method: 'PUT', json: body });
 }
@@ -77,6 +86,28 @@ export function everydayLine(jobs: ModelJobs): string {
 	return jobs.everyday_model
 		? modelLabel(jobs.everyday)
 		: `${modelLabel(jobs.everyday)}, chosen for you`;
+}
+
+/** The lead row's line: what leads do now, and how their routed turns split. */
+export function leadsLine(jobs: ModelJobs): string {
+	if (!jobs.everyday || jobs.everyday_model === EVERYDAY_OFF)
+		return 'Main model · no everyday model';
+	if (!jobs.leads_use_everyday) return 'Main model for every lead turn';
+	const tier = jobs.decisions?.lead_tier;
+	const routed = tier ? tier.everyday + tier.main : 0;
+	if (!tier || !routed) return 'Routine turns on the everyday model';
+	return `${Math.round((100 * tier.everyday) / routed)}% of lead turns everyday`;
+}
+
+/** The lead row's tooltip: the rule, in plain words. */
+export function leadsDetail(jobs: ModelJobs): string {
+	const rule =
+		'Routine lead turns run on the everyday model: reading a finished result and handing on the next step, status updates, routing a message, re-planning after a finished step. First planning of a new goal, anything for the owner, reviews and repairs stay on the main model, and so does anything the decision model says is not routine. If an everyday turn fails or the lead asks to think harder, the same turn reruns on the main model, and that Work stays there.';
+	if (!jobs.everyday || jobs.everyday_model === EVERYDAY_OFF)
+		return `${rule} Choose an everyday model above to use it.`;
+	const tier = jobs.decisions?.lead_tier;
+	if (!tier || !(tier.everyday + tier.main)) return rule;
+	return `${rule} So far: ${tier.everyday} of ${tier.everyday + tier.main} lead turns on the everyday model, ${tier.escalated} escalated.`;
 }
 
 /** The Decisions row's state, one short phrase. */
