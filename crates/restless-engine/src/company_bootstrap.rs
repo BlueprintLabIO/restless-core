@@ -482,6 +482,7 @@ impl CompanyBootstrapService {
         if stored.request_fingerprint != request_fingerprint
             || stored.config_fingerprint != config_fingerprint
         {
+            completion.rollback().await.map_err(unavailable)?;
             return Err(BootstrapFailure::Conflict);
         }
         let ready_receipt = if stored.status == "ready" {
@@ -531,9 +532,15 @@ impl CompanyBootstrapService {
             cell_id: request.cell_id,
         };
         match org.company_access_identity().await.map_err(unavailable)? {
-            Some(bound) if bound != expected_access => return Err(BootstrapFailure::Conflict),
+            Some(bound) if bound != expected_access => {
+                completion.rollback().await.map_err(unavailable)?;
+                return Err(BootstrapFailure::Conflict);
+            }
             Some(_) => {}
-            None if already_admitted => return Err(BootstrapFailure::Conflict),
+            None if already_admitted => {
+                completion.rollback().await.map_err(unavailable)?;
+                return Err(BootstrapFailure::Conflict);
+            }
             None => org
                 .ensure_company_access_identity(expected_access)
                 .await
@@ -582,6 +589,7 @@ impl CompanyBootstrapService {
         let receipt = CompanyBootstrapReceipt::from(&request);
         let receipt_bytes = serde_json::to_vec(&receipt).map_err(unavailable)?;
         if receipt_bytes.len() > MAX_RECEIPT_BYTES {
+            completion.rollback().await.map_err(unavailable)?;
             return Err(BootstrapFailure::Unavailable(anyhow::anyhow!(
                 "company-bootstrap receipt exceeds {MAX_RECEIPT_BYTES} bytes"
             )));
@@ -598,6 +606,7 @@ impl CompanyBootstrapService {
         .await
         .map_err(unavailable)?;
         if updated.rows_affected() != 1 {
+            completion.rollback().await.map_err(unavailable)?;
             return Err(BootstrapFailure::Conflict);
         }
         completion.commit().await.map_err(unavailable)?;
@@ -821,12 +830,14 @@ async fn reserve_operation(
         if stored.request_fingerprint != request_fingerprint
             || stored.config_fingerprint != config_fingerprint
         {
+            tx.rollback().await.map_err(unavailable)?;
             return Err(BootstrapFailure::Conflict);
         }
         let reservation = match stored.status.as_str() {
             "provisioning" => Reservation::Provisioning,
             "ready" => {
                 if stored.receipt_bytes.is_none() {
+                    tx.rollback().await.map_err(unavailable)?;
                     return Err(unavailable(anyhow::anyhow!(
                         "ready bootstrap has no receipt"
                     )));
@@ -834,6 +845,7 @@ async fn reserve_operation(
                 Reservation::Ready
             }
             _ => {
+                tx.rollback().await.map_err(unavailable)?;
                 return Err(unavailable(anyhow::anyhow!(
                     "company bootstrap contains an unknown state"
                 )))
