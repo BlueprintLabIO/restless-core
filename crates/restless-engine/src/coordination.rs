@@ -364,7 +364,12 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 }
             }
             let asked = format!("{}: {}", site.trim().chars().take(120).collect::<String>(), reason.trim().chars().take(800).collect::<String>());
-            match crate::account_broker::create_request(pool, company, None, Some(kind), None, &asked, actor).await {
+            // The Work the asker is running, so the request leaves the Inbox when that Work ends.
+            let work_id = match daemon.orgintel.get(company).await {
+                Ok(org) => org.running_work_for_actor(actor).await.ok().flatten(),
+                Err(_) => None,
+            };
+            match crate::account_broker::create_request(pool, company, None, Some(kind), None, &asked, actor, work_id).await {
                 Ok(request) => Response::ok(match (kind, credential::vault_name_for_service(site)) {
                     // An API key is the company's own: the owner adds it to Company › Vault.
                     ("api", Some(name)) => serde_json::json!({
