@@ -742,6 +742,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if stored.0 != objective.trim() || stored.1 != policy {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "responsibility versions are immutable; use a new version".into(),
             ));
@@ -902,6 +903,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         let Some(responsibility_policy) = responsibility_policy else {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "opportunity claim expired, was superseded, or already settled".into(),
             ));
@@ -918,6 +920,7 @@ impl OrgIntel {
                         )
                     })?;
                 if area_evidence.len() != required_areas.len() {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(
                         "completed responsibility needs one linked Work for each required outcome area".into(),
                     ));
@@ -942,6 +945,7 @@ impl OrgIntel {
                         || !seen_areas.insert(area)
                         || !seen_work.insert(work_id)
                     {
+                        tx.rollback().await?;
                         return Err(OrgIntelError::InvalidWork(
                             "area evidence must cover each required area with distinct Work".into(),
                         ));
@@ -955,6 +959,7 @@ impl OrgIntel {
                     .fetch_one(&mut *tx)
                     .await?;
                     if !completed {
+                        tx.rollback().await?;
                         return Err(OrgIntelError::InvalidWork(
                             "area evidence must name completed Work linked to this Opportunity"
                                 .into(),
@@ -1055,18 +1060,21 @@ impl OrgIntel {
                     _ => false,
                 };
                 if !exists {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(
                         "terminal outcome references missing or unrelated evidence".into(),
                     ));
                 }
             }
             if state == "completed" && !grounded_completion_evidence {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "completed requires an available linked ArtifactRef or a completed linked Work"
                         .into(),
                 ));
             }
             if state == "needs_human" && !required_areas.is_empty() && !pending_human_handoff {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "needs_human requires a pending owner handoff linked to this Opportunity"
                         .into(),
@@ -1210,6 +1218,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if stored.0 != objective.trim() || stored.1 != policy {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "responsibility versions are immutable; use a new version".into(),
             ));
@@ -1263,6 +1272,7 @@ impl OrgIntel {
             || existing.catch_up_grace_seconds != catch_up_grace_seconds
             || existing.machine_requirement != machine_requirement
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "the recurring schedule already exists with missed policy `{}`; update that schedule explicitly",
                 existing.missed_policy
@@ -1271,6 +1281,7 @@ impl OrgIntel {
         if existing.responsibility_id != Some(responsibility_id)
             || existing.responsibility_version != Some(version)
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "the recurring schedule already exists with a different responsibility binding; cancel it before creating a replacement".into(),
             ));
@@ -1339,6 +1350,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if stored.0 != objective.trim() || stored.1 != policy {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "responsibility versions are immutable; use a new version".into(),
             ));
@@ -1383,6 +1395,7 @@ impl OrgIntel {
             || existing.catch_up_grace_seconds != Some(i64::from(interval_seconds))
             || existing.machine_requirement != "local_mac"
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "the recurring interval already exists with a different schedule policy".into(),
             ));
@@ -1390,6 +1403,7 @@ impl OrgIntel {
         if existing.responsibility_id != Some(responsibility_id)
             || existing.responsibility_version != Some(version)
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "the recurring interval already exists with a different responsibility binding; cancel it before creating a replacement".into(),
             ));
@@ -1458,6 +1472,7 @@ impl OrgIntel {
                 || existing.responsibility_id != Some(responsibility_id)
                 || existing.responsibility_version != Some(version)
             {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "the exact schedule already exists with different responsibility intent; cancel it before creating a replacement".into(),
                 ));
@@ -1471,11 +1486,13 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if stored.0 != objective.trim() || stored.1 != policy {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "responsibility versions are immutable; use a new version".into(),
                 ));
             }
             if existing.cancelled_at.is_some() {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "the exact schedule was cancelled; create a new time opportunity with a new reason or instant".into(),
                 ));
@@ -1511,6 +1528,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if stored.0 != objective.trim() || stored.1 != policy {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "responsibility versions are immutable; use a new version".into(),
             ));
@@ -1572,6 +1590,7 @@ impl OrgIntel {
         .await?
         .rows_affected();
         if paused != 1 {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "a Work time dependency requires existing, unsettled Work".into(),
             ));
@@ -1689,9 +1708,11 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?
         else {
+            tx.rollback().await?;
             return Ok(None);
         };
         if row.fire_at != expected_fire_at || row.paused_at.is_some() != expected_paused {
+            tx.rollback().await?;
             return Ok(None);
         }
         let ScheduleChange {
@@ -1704,12 +1725,14 @@ impl OrgIntel {
         } = change;
         let calendar_change = local_time.is_some() || timezone.is_some() || calendar_days.is_some();
         if interval_seconds.is_some() && calendar_change {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "Change either the interval or the time of day, not both".into(),
             ));
         }
         if let Some(seconds) = interval_seconds {
             if !(MIN_INTERVAL_SECONDS..=MAX_INTERVAL_SECONDS).contains(&seconds) {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork("Choose a cadence between five minutes and thirty days for an interval schedule".into()));
             }
         }
@@ -1727,6 +1750,7 @@ impl OrgIntel {
             let local = local_time.or(row.local_time);
             let zone = timezone.clone().or_else(|| row.timezone.clone());
             let (Some(local), Some(zone)) = (local, zone) else {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "Only a weekday schedule runs at a time of day; choose a time and a time zone"
                         .into(),
@@ -1776,6 +1800,7 @@ impl OrgIntel {
                     row.calendar_days.as_deref(),
                 )?,
                 _ => {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(
                         "This recurrence cannot be resumed".into(),
                     ))
@@ -1790,6 +1815,7 @@ impl OrgIntel {
         let mut version = row.responsibility_version;
         if let Some(text) = reason.as_deref().filter(|text| *text != row.reason) {
             if text.is_empty() || text.chars().count() > 2_000 {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "Say what Exec should do in at most 2,000 characters".into(),
                 ));
@@ -2308,16 +2334,19 @@ impl OrgIntel {
         .await?
         .ok_or_else(|| OrgIntelError::InvalidWork("no such schedule occurrence".into()))?;
         if occurrence.0 != "skipped" {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only a skipped schedule occurrence can be recovered".into(),
             ));
         }
         if occurrence.1 != actor_id {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "schedule occurrence belongs to a different actor".into(),
             ));
         }
         if occurrence.3.is_some() {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "Work-linked schedules must be recovered through Work".into(),
             ));
@@ -2412,6 +2441,7 @@ impl OrgIntel {
         .await?
         .ok_or_else(|| OrgIntelError::InvalidWork("recover the skipped occurrence first".into()))?;
         if schedule_actor != actor_id {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "schedule recovery belongs to a different actor".into(),
             ));
@@ -2453,6 +2483,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if expected_prior != prior_message_id {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "recovery retry is stale; latest wake message is {expected_prior}"
             )));

@@ -625,12 +625,14 @@ pub async fn queue(
             || saved.target != target
             || saved.decision != *decision
         {
+            tx.rollback().await?;
             bail!("This decision ID already names a different request.");
         }
         tx.commit().await?;
         return Ok(saved);
     }
     let Some(digest) = waiting_digest(authority, company, &target).await? else {
+        tx.rollback().await?;
         bail!("This request is no longer waiting.");
     };
     if let (ApprovalTarget::AccountRequest { request }, ApprovalDecision::Grant { .. }) =
@@ -644,6 +646,7 @@ pub async fn queue(
         .fetch_one(&mut *tx)
         .await?;
         if named.is_none() {
+            tx.rollback().await?;
             bail!("Choose which account to grant: approve it with limits.");
         }
     }
@@ -762,6 +765,7 @@ pub async fn acknowledge(
         .filter(|saved| saved.company == company)
         .context("This decision was not found.")?;
     if !saved.principal.same_person(principal) || saved.state == "pending" {
+        tx.rollback().await?;
         bail!("This result is not yours to acknowledge.");
     }
     sqlx::query(&format!(

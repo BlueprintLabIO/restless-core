@@ -72,6 +72,7 @@ impl OrgIntel {
             .await?
         {
             if work_id != input.work_id || committed_digest != payload_sha256 {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomCommandConflict(
                     "the Work audience command id already names different intent".into(),
                 ));
@@ -95,11 +96,13 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !actor_active {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "a Work audience change needs an active Actor".into(),
             ));
         }
         if current.2 != input.expected_revision {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "Work audience changed from revision {} to {}",
                 input.expected_revision, current.2
@@ -120,6 +123,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !target_visible {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomAccessDenied(
                     "the acting Actor must be an active participant of the Work audience Room"
                         .into(),
@@ -232,6 +236,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !active {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomAccessDenied(
                 "a shared Work projection needs an active Actor".into(),
             ));
