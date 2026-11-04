@@ -911,9 +911,23 @@ pub(crate) fn prompt_cache_ttl(
     }
 }
 
+/// The cache lifetime each Claude route asks for.
+///
+/// - A metered key writes five-minute entries; the Messages relay lifts the stable head (tools,
+///   system) to one hour (`keep_stable_head_for_an_hour`).
+/// - A Claude sign-in asks for one-hour entries on every breakpoint, head and conversation, as
+///   Claude Code does on a Pro/Max seat. Its request is built by OMP's host gateway from the
+///   pi-native wire, which carries this option; the gateway only defaulted to one hour, so a
+///   `PI_CACHE_RETENTION` in its environment or a changed default would silently drop the route
+///   back to five minutes, re-writing the whole head and history on every wake more than five
+///   minutes apart. Wakes on a sign-in are usually further apart than that.
 fn omp_runtime_config(model: &str, billing: crate::model_gateway::ModelBilling) -> String {
     if crate::model_gateway::is_metered_anthropic(model, billing) {
         format!("{RESTLESS_OMP_CONFIG}\nproviders:\n  cacheRetention: short\n")
+    } else if model.starts_with("anthropic/")
+        && billing == crate::model_gateway::ModelBilling::Subscription
+    {
+        format!("{RESTLESS_OMP_CONFIG}\nproviders:\n  cacheRetention: long\n")
     } else {
         RESTLESS_OMP_CONFIG.to_string()
     }
@@ -3225,6 +3239,29 @@ mod tests {
             ),
             None
         );
+    }
+
+    /// A Claude sign-in asks for one-hour cache entries itself rather than relying on the host
+    /// gateway's default; a metered key keeps five minutes; other providers are left alone.
+    #[test]
+    fn each_claude_route_names_its_cache_lifetime() {
+        use crate::model_gateway::ModelBilling;
+        let sign_in =
+            super::omp_runtime_config("anthropic/claude-opus-5-5", ModelBilling::Subscription);
+        assert!(sign_in.ends_with("providers:\n  cacheRetention: long\n"));
+        let metered =
+            super::omp_runtime_config("anthropic/claude-opus-5-5", ModelBilling::MeteredApi);
+        assert!(metered.ends_with("providers:\n  cacheRetention: short\n"));
+        for (model, billing) in [
+            ("openai-codex/gpt-6-sol", ModelBilling::Subscription),
+            ("zai/glm-5.3-flash", ModelBilling::MeteredApi),
+        ] {
+            assert!(!super::omp_runtime_config(model, billing).contains("cacheRetention"));
+        }
+        // One providers map, appended to an overlay that has none of its own.
+        for config in [&sign_in, &metered] {
+            assert_eq!(config.matches("\nproviders:").count(), 1);
+        }
     }
 
     #[test]
