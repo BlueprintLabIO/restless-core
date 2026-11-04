@@ -1256,7 +1256,7 @@ mod tests {
         let new = mock.receive(
             "new@customer.example",
             "A question",
-            Utc::now() - chrono::TimeDelta::seconds(5),
+            Utc::now(),
         );
         assert_eq!(poll(&daemon, &company).await.unwrap(), 1);
         assert_eq!(
