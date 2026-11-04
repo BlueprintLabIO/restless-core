@@ -746,6 +746,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         | "doctor"
         | "doctor-collaboration"
         | "company-show"
+        | "platform-recover"
         | "credential-check"
         | "legal-show"
         | "legal-probe"
@@ -1292,6 +1293,7 @@ impl Principal {
 /// Commands that widen authority, change company lifecycle, or resolve the
 /// owner's review boundary. This is a finite V0 list, not a policy DSL.
 pub const OWNER_ONLY: &[&str] = &[
+    "platform-recover",
     "doctor-collaboration",
     "schedule-test",
     "schedule-responsibility-put",

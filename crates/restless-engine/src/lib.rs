@@ -27,6 +27,7 @@ pub mod collaboration_doctor;
 pub mod company;
 pub mod company_bootstrap;
 pub mod company_lifecycle;
+mod company_rollout;
 pub mod compute_history;
 pub mod connections;
 pub mod context;

@@ -744,12 +744,15 @@ fn build_observation(
 ) -> CellReadinessObservation {
     let all_ready = checks.iter().all(|check| check.status == "ready");
     let any_failed = checks.iter().any(|check| check.status == "failed");
-    let status = observation_status(
-        all_ready,
-        any_failed,
-        service.daemon.lifecycle.is_recovering(),
-        service.daemon.lifecycle.is_draining(),
-    );
+    let status =
+        observation_status(
+            all_ready,
+            any_failed,
+            service.daemon.lifecycle.company_is_recovering(
+                &crate::company_bootstrap::company_handle(request.company_id),
+            ),
+            service.daemon.lifecycle.is_draining(),
+        );
     let observed_at = Utc::now();
     CellReadinessObservation {
         contract_version: CONTRACT_VERSION,

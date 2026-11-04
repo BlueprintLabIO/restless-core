@@ -34,6 +34,7 @@ pub struct LifecycleGate {
     /// starts, while owner chat and effects stay open. Never persisted.
     tasks_paused: Arc<AtomicBool>,
     active: Arc<AtomicUsize>,
+    companies_recovering: Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
 }
 
 impl LifecycleGate {
@@ -43,6 +44,7 @@ impl LifecycleGate {
             recovering: Arc::new(AtomicBool::new(false)),
             tasks_paused: Arc::new(AtomicBool::new(false)),
             active: Arc::new(AtomicUsize::new(0)),
+            companies_recovering: Arc::new(std::sync::Mutex::new(Default::default())),
         }
     }
 
@@ -66,6 +68,42 @@ impl LifecycleGate {
             return None;
         }
         Some(LifecycleLease { gate: self.clone() })
+    }
+
+    /// A cell's recovery closes only that cell. The second check fences a
+    /// recovery starting between admission and accounting, as for plane drain.
+    pub fn try_enter_company(&self, company: &str) -> Option<LifecycleLease> {
+        if self.company_is_recovering(company) {
+            return None;
+        }
+        let lease = self.try_enter()?;
+        if self.company_is_recovering(company) {
+            return None;
+        }
+        Some(lease)
+    }
+
+    pub fn begin_company_recovery(&self, company: &str) {
+        self.companies_recovering
+            .lock()
+            .expect("company recovery gate")
+            .insert(company.into());
+    }
+
+    pub fn finish_company_recovery(&self, company: &str) {
+        self.companies_recovering
+            .lock()
+            .expect("company recovery gate")
+            .remove(company);
+    }
+
+    pub fn company_is_recovering(&self, company: &str) -> bool {
+        self.is_recovering()
+            || self
+                .companies_recovering
+                .lock()
+                .map(|companies| companies.contains(company))
+                .unwrap_or(true)
     }
 
     pub fn begin_drain(&self) {
@@ -807,6 +845,22 @@ mod tests {
         assert_eq!(gate.active(), 0);
         gate.resume();
         assert!(gate.try_enter().is_some());
+    }
+
+    #[test]
+    fn one_recovering_company_cannot_close_its_neighbours() {
+        let gate = LifecycleGate::default();
+        gate.begin_company_recovery("heavy_test");
+        assert!(gate.try_enter_company("heavy_test").is_none());
+        assert!(gate.try_enter_company("healthy_test").is_some());
+        assert!(!gate.is_recovering());
+        gate.begin_drain();
+        assert!(gate.try_enter_company("healthy_test").is_none());
+        gate.resume();
+        assert!(gate.try_enter_company("heavy_test").is_none());
+        gate.finish_company_recovery("heavy_test");
+        assert!(gate.try_enter_company("heavy_test").is_some());
+        assert_eq!(gate.active(), 0);
     }
 
     #[test]

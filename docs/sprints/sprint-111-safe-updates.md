@@ -1,6 +1,23 @@
 # Sprint 111: safe updates
 
-**Status: planned, not started (owner, 4 Nov 2026).**
+**Status: implementation and isolated verification complete; production rollout and operator staging proof in progress (5 Nov 2026).**
+
+Implemented per-company recovery gates, bounded inventory/orphan/start/drain waits,
+five-minute Work drain, ten-minute measured-memory recovery, durable half-budget
+owner/operator notices, and a least-busy-first Runtime canary with a real Exec
+turn. A failed Runtime canary restores its observed previous image and stops the
+remaining rollout; company data volumes stay in place. Repeated bootstrap calls
+are limited to two Authority transactions, leaving connections for entry and
+readiness, with a thirty-second overall deadline and one-second dependency probes.
+
+Validation: `scripts/verify-safe-update.py` ran against real Docker and isolated
+PostgreSQL with two disposable companies and a local scripted provider. The broken
+image rolled back, its neighbour retained the old image, both durable volume
+markers survived, then a good canary made a real Exec inference before both
+companies updated. Both authenticated test-company principal reads passed and
+fixture cleanup left no resources. Recovery deadline tests prove the half-budget
+alert fires once and even a stuck alert cannot extend the deadline. Production
+entry is a separate check and is not established by these results.
 
 The bar is the industry standard for a platform that updates twice a day: an update never takes
 every company down at once, no step waits forever, and when something does stick, the owner sees
@@ -83,6 +100,7 @@ token was refused and there is no break-glass access to owner planes.
 - Multi-plane failover.
 - Zero-downtime database migrations beyond what the current schema steps already do.
 
-## Open questions for the owner
-- The drain budget before Work is interrupted: 2, 5 or 10 minutes?
-- Should the account page offer "Restart this company" to the owner, or only to operators?
+## Operational defaults
+- Work drains for five minutes; shared-memory recovery acts after ten minutes.
+- Existing Company → Computer owner recovery remains available. Emergency
+  `platform-recover` is restricted to the authenticated local operator.

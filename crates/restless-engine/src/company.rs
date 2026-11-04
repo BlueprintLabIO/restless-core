@@ -2332,7 +2332,7 @@ fn action_copy(action: RecoveryAction) -> DoctorAction {
 /// Whether a company computer runs a different release image than this plane's target. Only an
 /// exact image-ID difference counts: a missing computer, an unknown image or a local source-build
 /// drift is not a release roll and stays with the owner's recovery.
-pub fn runtime_image_drifted(doctor: &runtime::RuntimeDoctor) -> bool {
+pub(crate) fn runtime_image_drifted(doctor: &runtime::RuntimeDoctor) -> bool {
     // An image rebuilt from the same inputs is the same computer (S104 A1).
     doctor.container != runtime::ContainerStatus::Absent
         && !doctor.same_build_inputs
@@ -2348,76 +2348,7 @@ pub fn runtime_image_drifted(doctor: &runtime::RuntimeDoctor) -> bool {
 /// bridge refuse it, and the Exec stops answering. Observed on owner-ee54fb58bcde23cf, 2026-10-06.
 /// One company failing is logged and never blocks another or the plane.
 pub async fn roll_forward_runtimes(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
-    // Without the target image locally its id is unknown and every computer would look current.
-    // Observed on Cloud, 6 October: a plane booted on 800d207 skipped its rebuild for this reason.
-    //
-    // Look again after a rollout settles. A rolling deploy briefly runs the previous plane beside
-    // this one: it can replace a computer onto its own image while this boot's look finds the
-    // container mid-replacement (absent, so not lagging). Observed on Cloud, 6 October 22:29.
-    //
-    // Each look first makes sure the image is here. If this plane cannot pull it (on Cloud the VM
-    // agent prefetches it with registry credentials the plane does not hold), a later look finds it
-    // once it lands. Observed on Cloud, 7 October: a private image failed the plane's only pull.
-    //
-    // A computer in use is not replaced under the owner: a company that is busy waits for a quiet
-    // moment (see `company_busy`), looked for every ten minutes after the four looks, for up to
-    // six hours, after which it is rebuilt regardless so no company stays on an old release.
-    const DELAYS: [u64; 4] = [0, 60, 300, 900];
-    let mut fetched = false;
-    for (look, delay) in DELAYS.into_iter().enumerate() {
-        tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
-        note_roll_forward_stage(
-            "fetching_image",
-            Some(format!("look {} of {}", look + 1, DELAYS.len())),
-        );
-        if let Err(error) = runtime::fetch_company_image().await {
-            note_roll_forward_stage(
-                "fetch_failed",
-                Some(format!("look {} of {}: {error:#}", look + 1, DELAYS.len())),
-            );
-            tracing::warn!(
-                "release roll-forward could not fetch this release's company image: {error:#}"
-            );
-            fetched = false;
-            continue;
-        }
-        fetched = true;
-        note_roll_forward_stage(
-            "looking",
-            Some(format!(
-                "look {} of {}, {} companies",
-                look + 1,
-                DELAYS.len(),
-                configs.len()
-            )),
-        );
-        roll_forward_once(daemon, configs).await;
-    }
-    while fetched && roll_forward_deferred() {
-        note_roll_forward_stage(
-            "waiting_for_quiet",
-            Some("a company is in use; looking again in 10 minutes".into()),
-        );
-        tokio::time::sleep(std::time::Duration::from_secs(600)).await;
-        roll_forward_once(daemon, configs).await;
-    }
-    // A last look that could not fetch keeps its fetch_failed stage, with the reason.
-    if fetched {
-        note_roll_forward_stage("done", None);
-    }
-}
-
-/// When each company's rebuild was first held back because it was in use.
-static DEFERRED_SINCE: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::BTreeMap<String, chrono::DateTime<Utc>>>,
-> = std::sync::LazyLock::new(Default::default);
-const MAX_DEFERRAL_HOURS: i64 = 6;
-
-fn roll_forward_deferred() -> bool {
-    DEFERRED_SINCE
-        .lock()
-        .map(|deferred| !deferred.is_empty())
-        .unwrap_or(false)
+    crate::company_rollout::run(daemon, configs).await;
 }
 
 /// Why a company's computer should not be replaced right now, if it should not: Exec is mid-turn,
@@ -2510,7 +2441,7 @@ pub fn roll_forward_report() -> serde_json::Value {
     serde_json::json!({ "stage": stage, "companies": companies })
 }
 
-fn note_roll_forward(company: &str, outcome: &str, detail: Option<String>) {
+pub fn note_company_roll_forward(company: &str, outcome: &str, detail: Option<String>) {
     if let Ok(mut report) = ROLL_FORWARD.lock() {
         report.insert(
             company.to_string(),
@@ -2519,79 +2450,49 @@ fn note_roll_forward(company: &str, outcome: &str, detail: Option<String>) {
     }
 }
 
-async fn roll_forward_once(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
-    for config in configs {
-        let drifted = match runtime::doctor(&config.name).await {
-            Ok(doctor) => {
-                let drifted = runtime_image_drifted(&doctor);
-                if !drifted {
-                    note_roll_forward(
-                        &config.name,
-                        "current",
-                        Some(format!(
-                            "container {:?} {:?}, target {:?}",
-                            doctor.container, doctor.container_image_id, doctor.target_image_id
-                        )),
-                    );
-                }
-                drifted
-            }
-            Err(error) => {
-                note_roll_forward(&config.name, "not_inspected", Some(format!("{error:#}")));
-                tracing::warn!(company = %config.name, "release roll-forward could not inspect the computer: {error:#}");
-                continue;
-            }
-        };
-        if !drifted {
-            if let Ok(mut deferred) = DEFERRED_SINCE.lock() {
-                deferred.remove(&config.name);
-            }
-            continue;
-        }
-        let busy = match company_busy(daemon, &config.name).await {
-            None if runtime::automatic_start_waits_for_memory() => {
-                Some("the account is short of memory".to_string())
-            }
-            busy => busy,
-        };
-        if let Some(reason) = busy {
-            let since = DEFERRED_SINCE
-                .lock()
-                .map(|mut deferred| *deferred.entry(config.name.clone()).or_insert_with(Utc::now))
-                .unwrap_or_else(|_| Utc::now());
-            if Utc::now() - since < chrono::Duration::hours(MAX_DEFERRAL_HOURS) {
-                note_roll_forward(&config.name, "waiting_for_quiet", Some(reason));
-                continue;
-            }
-        }
-        if let Ok(mut deferred) = DEFERRED_SINCE.lock() {
-            deferred.remove(&config.name);
-        }
-        // An asleep company is brought onto the release without waking it.
-        match runtime::retire_stale_stopped(config).await {
-            Ok(true) => {
-                note_roll_forward(&config.name, "retired_while_asleep", None);
-                tracing::info!(company = %config.name, "asleep company computer retired; it wakes on this release");
-                continue;
-            }
-            Ok(false) => {}
-            Err(error) => {
-                note_roll_forward(&config.name, "failed", Some(format!("{error:#}")));
-                tracing::warn!(company = %config.name, "could not retire the asleep company computer: {error:#}");
-                continue;
-            }
-        }
-        tracing::info!(company = %config.name, "rebuilding the company computer on this plane's release");
-        match recover(daemon, config, RecoveryAction::Reconcile, "daemon").await {
-            Ok(_) => {
-                note_roll_forward(&config.name, "rebuilt", None);
-                tracing::info!(company = %config.name, "company computer rebuilt on this plane's release")
-            }
-            Err(error) => {
-                note_roll_forward(&config.name, "failed", Some(format!("{error:#}")));
-                tracing::error!(company = %config.name, "release roll-forward failed; the owner's Rebuild remains: {error:#}")
-            }
-        }
+/// A delayed platform operation is both an operator event and a durable owner
+/// notice. The caller owns deduplication (one notice per half-deadline).
+pub async fn update_alert(daemon: &Daemon, company: &str, message: &str) {
+    tracing::warn!(company, message, "platform update delayed");
+    if tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        deliver_update_alert(daemon, company, message),
+    )
+    .await
+    .is_err()
+    {
+        tracing::error!(
+            company,
+            "owner update notice exceeded five seconds; operator alert was logged"
+        );
+    }
+}
+
+async fn deliver_update_alert(daemon: &Daemon, company: &str, message: &str) {
+    let _ = daemon
+        .authority
+        .emit(
+            company,
+            "lifecycle",
+            Some("daemon"),
+            serde_json::json!({"action":"update_delayed", "message":message, "at":Utc::now()}),
+        )
+        .await;
+    if let Ok(org) = daemon.orgintel.get(company).await {
+        let _ = org
+            .emit_event(
+                "platform_update_delayed",
+                Some("exec"),
+                serde_json::json!({"message":message}),
+            )
+            .await;
+        let owner = org
+            .current_membership_owner_actor_id()
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "owner".into());
+        let _ = org.send_message("exec", Some(&owner), message).await;
     }
 }
 
@@ -2663,6 +2564,18 @@ pub async fn recover(
             return Err(error).context("Company computer recovery failed");
         }
     };
+    if daemon.lifecycle.company_is_recovering(&config.name) && !daemon.lifecycle.is_recovering() {
+        let companies = vec![config.name.clone()];
+        tokio::time::timeout(std::time::Duration::from_secs(120), async {
+            crate::effect::sweep_orphans(&companies).await;
+            crate::staff::sweep_orphans(&daemon.orgintel, &daemon.staff, &companies, &companies)
+                .await;
+        })
+        .await
+        .context("company recovery cleanup exceeded two minutes")?;
+        daemon.lifecycle.finish_company_recovery(&config.name);
+        daemon.schedule_wake.notify_one();
+    }
     let after = runtime::doctor(&config.name)
         .await
         .context("re-probe Company computer after recovery")?;
@@ -2696,6 +2609,85 @@ pub async fn recover(
         message,
         doctor: after,
     })
+}
+
+/// An explicit platform interruption continues saved Work through the same
+/// bounded restart path as daemon recovery, never by replaying external effects.
+pub async fn platform_restart(daemon: &Daemon, company: &str) -> Result<()> {
+    runtime::CompanyConfig::load(&daemon.root, company)?;
+    let org = daemon.orgintel.get(company).await?;
+    let interrupted = org.list_running_work_attempts().await?;
+    daemon
+        .authority
+        .emit(
+            company,
+            "lifecycle",
+            Some("operator"),
+            serde_json::json!({"action":"platform_restart", "state":"requested"}),
+        )
+        .await?;
+    daemon.lifecycle.begin_company_recovery(company);
+    note_company_roll_forward(
+        company,
+        "recovering",
+        Some("Restarting this company's processes; saved Work and files are preserved.".into()),
+    );
+    let operation = async {
+        for actor in daemon.staff.running_actors(company) {
+            daemon.staff.interrupt(company, &actor);
+        }
+        runtime::restart_recovery_containers(company).await?;
+        anyhow::ensure!(
+            crate::coordination::await_stopped_company_idle(daemon, company).await,
+            "actor shutdown did not settle in thirty seconds"
+        );
+        let companies = vec![company.to_string()];
+        crate::effect::sweep_orphans(&companies).await;
+        crate::staff::sweep_orphans(&daemon.orgintel, &daemon.staff, &companies, &companies).await;
+        for attempt in interrupted {
+            org.resume_after_platform_restart(attempt.work_id).await?;
+        }
+        crate::materialize_runtime_bridge(daemon, company).await?;
+        anyhow::Ok(())
+    };
+    let result = match tokio::time::timeout(std::time::Duration::from_secs(150), operation).await {
+        Ok(result) => result,
+        Err(_) => Err(anyhow::anyhow!(
+            "company restart exceeded its 150-second deadline"
+        )),
+    };
+    match result {
+        Ok(()) => {
+            daemon.lifecycle.finish_company_recovery(company);
+            daemon.schedule_wake.notify_one();
+            note_company_roll_forward(
+                company,
+                "recovered",
+                Some("Company restarted; interrupted Work is eligible to continue.".into()),
+            );
+            daemon
+                .authority
+                .emit(
+                    company,
+                    "lifecycle",
+                    Some("operator"),
+                    serde_json::json!({"action":"platform_restart", "state":"succeeded"}),
+                )
+                .await?;
+            Ok(())
+        }
+        Err(error) => {
+            note_company_roll_forward(
+                company,
+                "recovery_failed",
+                Some(format!(
+                    "Company restart failed: {error:#}. Other companies remain available."
+                )),
+            );
+            daemon.authority.emit(company, "lifecycle", Some("operator"), serde_json::json!({"action":"platform_restart", "state":"failed", "error":format!("{error:#}")})).await?;
+            Err(error)
+        }
+    }
 }
 
 fn execution_no(body: &serde_json::Value) -> i64 {

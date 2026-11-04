@@ -97,14 +97,25 @@ where
         // drain or recovery still refuses it, as owed demand.
         let _lifecycle_lease = if matches!(
             request.cmd.as_str(),
-            "appliance-drain" | "appliance-resume" | "status" | "sleep"
+            "appliance-drain"
+                | "appliance-resume"
+                | "platform-recover"
+                | "status"
+                | "sleep"
+                | "people"
         ) {
             None
         } else {
-            match daemon.lifecycle.try_enter() {
+            match request.company.as_deref().map_or_else(
+                || daemon.lifecycle.try_enter(),
+                |company| daemon.lifecycle.try_enter_company(company),
+            ) {
                 Some(lease) => Some(lease),
                 None => {
-                    let (kind, message) = if daemon.lifecycle.is_recovering() {
+                    let (kind, message) = if request.company.as_deref().map_or_else(
+                        || daemon.lifecycle.is_recovering(),
+                        |company| daemon.lifecycle.company_is_recovering(company),
+                    ) {
                         (
                             "recovering",
                             "the appliance is recovering Runtime state; read-only owner surfaces remain available and work admission will reopen automatically",
@@ -971,6 +982,10 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Err(error) => Response::err(format!("{error:#}")),
             }
         }
+        "platform-recover" => match crate::company::platform_restart(daemon, company).await {
+            Ok(()) => Response::ok("Company restarted; saved Work is eligible to continue."),
+            Err(error) => Response::err(format!("{error:#}")),
+        },
         "up" => match runtime::CompanyConfig::load(&daemon.root, company) {
             Ok(mut config) => {
                 let _reconcile_guard = if request.lifecycle.reconcile {
@@ -6212,8 +6227,18 @@ mod tests {
             .iter()
             .find(|item| item.source.kind == "email_mandate_proposal")
             .unwrap();
-        assert!(card.what_happened.starts_with("exec asks for standing permission"), "{}", card.what_happened);
-        assert!(card.requested_action.contains("up to 5 emails a day, 5 in total"), "{}", card.requested_action);
+        assert!(
+            card.what_happened
+                .starts_with("exec asks for standing permission"),
+            "{}",
+            card.what_happened
+        );
+        assert!(
+            card.requested_action
+                .contains("up to 5 emails a day, 5 in total"),
+            "{}",
+            card.requested_action
+        );
 
         // Declined: no mandate, no card, and Exec cannot permit a send under it.
         let declined = daemon

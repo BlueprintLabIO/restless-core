@@ -13,6 +13,8 @@ use tokio::net::UnixListener;
 use restless_engine::*;
 use restless_owner::owner;
 
+mod startup_recovery;
+
 /// Reconcile one bounded attachment-stage batch per configured company. This
 /// runs after startup inventory and periodically even when no browser uploads
 /// arrive, so a crash cannot make linked receipts or abandoned stages live
@@ -38,6 +40,7 @@ async fn reconcile_owner_attachments(daemon: &Daemon, configs: &[runtime::Compan
     }
 }
 
+#[cfg(test)]
 fn recovery_memory_detail(company: &str, admission: &runtime::WorkloadAdmission) -> String {
     let subject = if admission.scope == "shared" {
         "account workload pool".to_string()
@@ -502,64 +505,50 @@ async fn run() -> Result<()> {
         let running_companies = if hosted_runtime {
             Vec::new()
         } else {
-            loop {
-                let attempt_started = std::time::Instant::now();
-                match runtime::running_configured_companies(&recovery_configs).await {
-                    Ok(companies) => {
-                        tracing::info!(
-                            elapsed_ms = attempt_started.elapsed().as_millis(),
-                            running = companies.len(),
-                            "runtime recovery inventory complete"
-                        );
-                        break companies;
-                    }
-                    Err(error) => {
-                        if release_plane {
-                            company::note_roll_forward_stage(
-                                "waiting_for_startup_recovery",
-                                Some(format!("Docker inventory deferred: {error:#}")),
-                            );
-                        }
-                        tracing::warn!(
-                            elapsed_ms = attempt_started.elapsed().as_millis(),
-                            "runtime recovery inventory deferred: {error:#}"
-                        );
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    }
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(60),
+                runtime::running_configured_companies(&recovery_configs),
+            )
+            .await
+            {
+                Ok(Ok(companies)) => companies,
+                result => {
+                    company::note_roll_forward_stage(
+                        "startup_inventory_failed",
+                        Some(format!(
+                            "Docker inventory exceeded its 60-second recovery budget: {result:?}"
+                        )),
+                    );
+                    tracing::error!(
+                        "startup inventory failed; exiting so the release supervisor can roll back"
+                    );
+                    std::process::exit(1);
                 }
             }
         };
-
-        // Old orphan processes own the memory recovery must reclaim. Reap
-        // them before admitting new work; waiting for their memory here
-        // deadlocked every company after the 4 November release.
-
-        // Effect and cognitive orphan domains are disjoint. Sweep them in
-        // parallel after the one shared inventory instead of multiplying slow
-        // Docker round trips across the appliance readiness path.
-        let sweep_started = std::time::Instant::now();
+        // Recovery is a cell boundary. A memory-heavy orphan must be reaped
+        // before asking for its memory back, and must never close other cells.
         if !hosted_runtime {
-            let companies = recovery_configs
-                .iter()
-                .map(|config| config.name.clone())
-                .collect::<Vec<_>>();
-            tokio::join!(
-                effect::sweep_orphans(&running_companies),
-                staff::sweep_orphans(
-                    &recovery_daemon.orgintel,
-                    &recovery_daemon.staff,
-                    &companies,
-                    &running_companies,
-                )
-            );
+            for config in &recovery_configs {
+                recovery_daemon
+                    .lifecycle
+                    .begin_company_recovery(&config.name);
+            }
         }
-        tracing::info!(
-            elapsed_ms = sweep_started.elapsed().as_millis(),
-            "runtime orphan recovery complete"
-        );
-
+        runtime::finish_startup_recovery();
+        recovery_daemon.lifecycle.finish_recovery();
+        recovery_ready_tx.send_replace(true);
         if !hosted_runtime {
-            reconcile_owner_attachments(&recovery_daemon, &recovery_configs).await;
+            startup_recovery::recover_companies(
+                &recovery_daemon,
+                &recovery_configs,
+                &running_companies,
+            )
+            .await;
+            tokio::spawn(startup_recovery::watch_memory(
+                recovery_daemon.clone(),
+                recovery_configs.clone(),
+            ));
         }
 
         // Published services are provider-owned processes, not Runtime
@@ -592,9 +581,6 @@ async fn run() -> Result<()> {
             "published-service recovery complete"
         );
 
-        runtime::finish_startup_recovery();
-        recovery_daemon.lifecycle.finish_recovery();
-        recovery_ready_tx.send_replace(true);
         tracing::info!(
             elapsed_ms = recovery_started.elapsed().as_millis(),
             "startup recovery barrier opened"
@@ -1049,8 +1035,10 @@ mod recovery_memory_status_tests {
     #[test]
     fn shared_pressure_does_not_blame_the_first_company_checked() {
         let mut sample = runtime::WorkloadAdmission {
-            scope: "shared", waiting_for_memory: true,
-            working_set_bytes: 900, resume_below_bytes: 800,
+            scope: "shared",
+            waiting_for_memory: true,
+            working_set_bytes: 900,
+            resume_below_bytes: 800,
         };
         let detail = recovery_memory_detail("unrelated", &sample);
         assert!(detail.contains("account workload pool"));

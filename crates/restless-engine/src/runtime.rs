@@ -590,6 +590,26 @@ async fn workload_container_scope(name: &str) -> Result<Option<PathBuf>> {
     ))
 }
 
+/// Observe a company's running Runtime directly, even when the shared pool is under pressure.
+/// This is a measurement, not proof that restarting it will resolve the pressure.
+pub async fn company_runtime_working_set(company: &str) -> Result<Option<u64>> {
+    validate_company_name(company)?;
+    match workload_container_scope(&container_name(company)).await? {
+        Some(path) => working_set_from_cgroup(&path).map(Some),
+        None => Ok(None),
+    }
+}
+
+/// Observe the separate company computer when it is running. Callers must first inventory
+/// running computers; a missing or unobservable container is an error, not a zero reading.
+pub async fn company_computer_working_set(company: &str) -> Result<Option<u64>> {
+    validate_company_name(company)?;
+    match workload_container_scope(&computer_container_name(company)).await? {
+        Some(path) => working_set_from_cgroup(&path).map(Some),
+        None => Ok(None),
+    }
+}
+
 pub async fn workload_admission(company: &str) -> Result<Option<WorkloadAdmission>> {
     validate_company_name(company)?;
     let Some(shared) = shared_workload_admission()? else {
@@ -630,7 +650,8 @@ pub fn pool_admission(root: &Path) -> Result<WorkloadAdmission> {
     admission_from_cgroup(root)
 }
 
-fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
+/// Measure the non-reclaimable working set even for an uncapped company cgroup.
+fn working_set_from_cgroup(root: &Path) -> Result<u64> {
     let read = |name: &str| -> Result<u64> {
         std::fs::read_to_string(root.join(name))?
             .trim()
@@ -638,7 +659,6 @@ fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
             .with_context(|| format!("host workload {name} is unavailable"))
     };
     let current = read("memory.current")?;
-    let maximum = read("memory.max")?;
     // Clean mapped/active file cache is reclaimable too. Counting only the
     // inactive list stranded an idle Runtime after a long conversation.
     // Keep tmpfs/shared, dirty/writeback and pinned memory charged.
@@ -658,6 +678,18 @@ fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
         .saturating_add(counter("file_writeback")?)
         .saturating_add(counter("unevictable")?);
     let reclaimable = counter("file")?.saturating_sub(protected);
+    Ok(current.saturating_sub(reclaimable))
+}
+
+fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
+    let read = |name: &str| -> Result<u64> {
+        std::fs::read_to_string(root.join(name))?
+            .trim()
+            .parse()
+            .with_context(|| format!("host workload {name} is unavailable"))
+    };
+    let maximum = read("memory.max")?;
+    let working_set_bytes = working_set_from_cgroup(root)?;
     let high = std::fs::read_to_string(root.join("memory.high"))?;
     let high = if high.trim() == "max" {
         maximum / 10 * 9
@@ -671,7 +703,6 @@ fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
     // 768 MiB limit is less than one normal harness startup.
     let reserve = (high / 10).max(256 * 1024 * 1024).min(high / 2);
     let resume_below_bytes = high.saturating_sub(reserve);
-    let working_set_bytes = current.saturating_sub(reclaimable);
     Ok(WorkloadAdmission {
         scope: "shared",
         waiting_for_memory: working_set_bytes >= resume_below_bytes,
@@ -3165,6 +3196,39 @@ pub async fn status(company: &str) -> Result<ContainerStatus> {
     })
 }
 
+/// Restart replaceable processes; retain the named volume and company DB.
+/// The caller fences work and reconciles the interrupted Attempts.
+pub async fn restart_recovery_containers(company: &str) -> Result<()> {
+    validate_company_name(company)?;
+    let _guard = company_start_guard(company).await;
+    let computer = computer_container_name(company);
+    let runtime = container_name(company);
+    let computer_running = inspect_value(&["inspect", "-f", "{{.State.Running}}", &computer])
+        .await?
+        .as_deref()
+        == Some("true");
+    if computer_running {
+        let out = docker_bounded(
+            &["stop", "--time", "10", &computer],
+            Duration::from_secs(30),
+        )
+        .await?;
+        anyhow::ensure!(out.status.success(), "company computer stop failed");
+    }
+    let out = docker_bounded(
+        &["restart", "--time", "10", &runtime],
+        Duration::from_secs(45),
+    )
+    .await?;
+    if computer_running {
+        let started = docker_bounded(&["start", &computer], Duration::from_secs(30)).await?;
+        anyhow::ensure!(started.status.success(), "company computer did not restart");
+    }
+    anyhow::ensure!(out.status.success(), "company Runtime did not restart");
+    invalidate_cockpit_health(company).await;
+    Ok(())
+}
+
 /// Observe all running configured Runtime shells with one Docker round trip.
 /// Startup cost therefore stays constant when the owner retains many stopped
 /// or historical company definitions.
@@ -3184,6 +3248,69 @@ pub async fn running_configured_companies(configs: &[CompanyConfig]) -> Result<V
         configs,
         &String::from_utf8_lossy(&output.stdout),
     ))
+}
+
+/// One company's observed running workload, used by recovery to explain shared pressure.
+/// A missing reading is an error: it must not silently make a company appear cheap.
+#[derive(Debug, PartialEq, Eq)]
+pub struct RecoveryMemoryObservation {
+    pub company: String,
+    pub runtime_bytes: u64,
+    pub computer_bytes: Option<u64>,
+}
+
+pub async fn recovery_memory_inventory(
+    configured: &[String],
+) -> Result<Vec<RecoveryMemoryObservation>> {
+    let output = docker_bounded(&["ps", "--format", "{{.Names}}"], Duration::from_secs(30)).await?;
+    anyhow::ensure!(
+        output.status.success(),
+        "could not inventory running company containers"
+    );
+    let names = String::from_utf8(output.stdout).context("invalid Docker inventory")?;
+    let entries = recovery_container_inventory(configured, &names)?;
+    let mut observations = Vec::new();
+    for (company, computer_running) in entries {
+        let runtime_bytes = company_runtime_working_set(&company)
+            .await?
+            .context("running company Runtime is outside the measured workload pool")?;
+        let computer_bytes = if computer_running {
+            Some(
+                company_computer_working_set(&company)
+                    .await?
+                    .context("running company computer is outside the measured workload pool")?,
+            )
+        } else {
+            None
+        };
+        observations.push(RecoveryMemoryObservation {
+            company,
+            runtime_bytes,
+            computer_bytes,
+        });
+    }
+    Ok(observations)
+}
+
+fn recovery_container_inventory(
+    configured: &[String],
+    docker_names: &str,
+) -> Result<Vec<(String, bool)>> {
+    let names: std::collections::HashSet<&str> = docker_names.lines().collect();
+    let mut result = Vec::new();
+    for company in configured {
+        validate_company_name(company)?;
+        let runtime_running = names.contains(container_name(company).as_str());
+        let computer_running = names.contains(computer_container_name(company).as_str());
+        anyhow::ensure!(
+            runtime_running || !computer_running,
+            "company computer is running without its Runtime: {company}"
+        );
+        if runtime_running {
+            result.push((company.clone(), computer_running));
+        }
+    }
+    Ok(result)
 }
 
 /// Observe the entire owner catalogue in one Docker round trip. Catalogue
@@ -3329,6 +3456,28 @@ pub async fn up_automatically(config: &CompanyConfig) -> Result<Option<String>> 
 }
 
 async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
+    up_locked_image(config, reconcile, None).await
+}
+
+/// A failed canary returns to the exact previously observed immutable image.
+/// Reuse normal reconciliation so its volume, attachments and desktop survive.
+pub async fn restore_company_image(config: &CompanyConfig, previous: &str) -> Result<String> {
+    anyhow::ensure!(
+        previous
+            .strip_prefix("sha256:")
+            .is_some_and(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit()))
+            || is_immutable_image_digest(previous),
+        "rollback requires an immutable observed image"
+    );
+    let _guard = company_start_guard(&config.name).await;
+    up_locked_image(config, true, Some(previous)).await
+}
+
+async fn up_locked_image(
+    config: &CompanyConfig,
+    reconcile: bool,
+    previous: Option<&str>,
+) -> Result<String> {
     let company = &config.name;
     let mut current = config.clone();
     if let Ok(latest) = CompanyConfig::load(&state_root(), company) {
@@ -3342,7 +3491,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     };
     // The computer must boot before native sign-in can happen. Model admission
     // belongs to the session boundary, not to creation of the company computer.
-    let image = company_image();
+    let image = previous.map(str::to_owned).unwrap_or_else(company_image);
     let mut fetched = false;
     let mut replaced = false;
     workload_cgroup_parent()?;
@@ -3354,7 +3503,7 @@ async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     if reconcile {
         fetched = ensure_image_available(&image).await?;
         if status(company).await? != ContainerStatus::Absent
-            && (container_uses_old_image(company).await?
+            && (container_uses_different_image(company, &image).await?
                 || !container_uses_company_volume(company).await?
                 || !container_mounts_attachments(company).await?
                 || !container_uses_workload_parent(&container_name(company)).await?)
@@ -5430,6 +5579,10 @@ async fn ensure_image_available(image: &str) -> Result<bool> {
 
 async fn container_uses_old_image(company: &str) -> Result<bool> {
     let image = company_image();
+    container_uses_different_image(company, &image).await
+}
+
+async fn container_uses_different_image(company: &str, image: &str) -> Result<bool> {
     let name = container_name(company);
     let container_id = inspect_value(&["inspect", "-f", "{{.Image}}", &name]).await?;
     let target_id = inspect_value(&["image", "inspect", "-f", "{{.Id}}", &image]).await?;
@@ -6274,6 +6427,52 @@ mod kept_files_e2e {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    #[ignore = "requires two explicitly owned disposable containers in a temporary workload pool"]
+    async fn recovery_inventory_reads_real_runtime_and_computer_cgroups() {
+        let company = std::env::var("RESTLESS_TEST_RESOURCE_COMPANY").unwrap();
+        assert!(company.starts_with("s111probe") && company.ends_with("_test"));
+        let observations = super::recovery_memory_inventory(&[company.clone()])
+            .await
+            .unwrap();
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].company, company);
+        assert!(observations[0].runtime_bytes > 0);
+        assert!(observations[0].computer_bytes.unwrap() > 0);
+    }
+
+    #[test]
+    fn recovery_inventory_distinguishes_runtime_computer_and_orphans() {
+        let configured = vec!["alpha_test".to_string(), "beta_test".to_string()];
+        let entries = super::recovery_container_inventory(&configured,
+            "restless-co-alpha_test\nrestless-pc-alpha_test\nrestless-co-beta_test\nrestless-pc-unrelated\n").unwrap();
+        assert_eq!(
+            entries,
+            vec![("alpha_test".into(), true), ("beta_test".into(), false)]
+        );
+        assert!(
+            super::recovery_container_inventory(&configured, "restless-pc-alpha_test\n").is_err()
+        );
+        assert!(super::recovery_container_inventory(&["../bad".into()], "").is_err());
+    }
+
+    #[test]
+    fn working_set_does_not_require_a_memory_limit() {
+        let root = std::env::temp_dir().join(format!(
+            "recovery_memory_{}_test",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("memory.current"), "1000").unwrap();
+        std::fs::write(
+            root.join("memory.stat"),
+            "file 300\nshmem 20\nfile_dirty 10\nfile_writeback 0\nunevictable 0\n",
+        )
+        .unwrap();
+        assert_eq!(super::working_set_from_cgroup(&root).unwrap(), 730);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn clean_mapped_cache_does_not_strand_an_idle_actor() {
         let root = std::env::temp_dir().join(format!(
