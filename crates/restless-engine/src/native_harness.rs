@@ -209,7 +209,10 @@ pub async fn session_access(
     } else {
         runtime::AgentHarness::ClaudeAgent
     };
-    if config.native_model(selected).as_deref() != Some(model) {
+    // The connection's own model, or the everyday model on the same connection (S102).
+    if config.native_model(selected).as_deref() != Some(model)
+        && config.native_everyday_model(selected).as_deref() != Some(model)
+    {
         bail!("Harness settings changed; retry with the current model");
     }
     let (token_env, token, billing) = match connection.mode.as_str() {
@@ -331,6 +334,77 @@ pub async fn startup_doctor(
 
 #[cfg(test)]
 mod tests {
+    /// Owner, 4 Nov: on the owner's Claude login an Opus company's routine turns should run on
+    /// Sonnet over the same sign-in, and an everyday model the login cannot serve is refused.
+    #[test]
+    fn everyday_model_runs_on_the_same_login() {
+        use crate::runtime::{AgentHarness, CompanyConfig};
+        let mut config: CompanyConfig = toml::from_str(
+            r#"
+name = "native_everyday_test"
+model = "anthropic/claude-opus-5-5"
+worker_harness = "claude-agent"
+[credentials]
+"model.inference.anthropic" = "omp-oauth:anthropic@0123abcd"
+[native_harnesses.claude-agent]
+mode = "oauth"
+model = "claude-opus-5-5"
+[native_harnesses.codex]
+mode = "oauth"
+model = "gpt-6-sol"
+"#,
+        )
+        .unwrap();
+        // Unset: the sibling on the same sign-in, for both native harnesses.
+        assert_eq!(
+            config
+                .native_everyday_model(AgentHarness::ClaudeAgent)
+                .as_deref(),
+            Some("native-claude-oauth/claude-sonnet-5-5")
+        );
+        assert_eq!(
+            config.native_everyday_model(AgentHarness::Codex).as_deref(),
+            Some("native-codex-oauth/gpt-6-terra")
+        );
+        assert!(config
+            .native_everyday_model(AgentHarness::RestlessManaged)
+            .is_none());
+        // The owner's choice from the same provider.
+        config
+            .set_everyday_model("anthropic/claude-haiku-5-5")
+            .unwrap();
+        assert_eq!(
+            config
+                .native_everyday_model(AgentHarness::ClaudeAgent)
+                .as_deref(),
+            Some("native-claude-oauth/claude-haiku-5-5")
+        );
+        // An Anthropic choice says nothing about the Codex login's own sibling.
+        assert!(config.native_everyday_model(AgentHarness::Codex).is_none());
+        // Off: every turn on the connection's own model.
+        config.set_everyday_model("off").unwrap();
+        assert!(config
+            .native_everyday_model(AgentHarness::ClaudeAgent)
+            .is_none());
+        // A provider the company has no login for would fail every turn: refused.
+        let refused = config
+            .set_everyday_model("openai/gpt-6-terra")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("not on this company's AI login"),
+            "{refused}"
+        );
+        assert_eq!(config.everyday_model.as_deref(), Some("off"));
+        // A provider it does have a connection for is fine.
+        config
+            .credentials
+            .insert("model.inference.openai".into(), "env:OPENAI_TEST".into());
+        config.set_everyday_model("openai/gpt-6-terra").unwrap();
+        assert!(config.can_reach_model("anthropic/claude-sonnet-5-5"));
+        assert!(!config.can_reach_model("google/gemini-3-flash"));
+    }
+
     #[test]
     fn native_harness_models_and_credentials_are_independent() {
         use crate::runtime::{AgentHarness, CompanyConfig};

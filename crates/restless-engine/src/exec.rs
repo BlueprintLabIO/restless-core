@@ -2133,6 +2133,11 @@ async fn staffing_routes(org: &OrgIntel, config: &CompanyConfig) -> String {
     lines.join("\n")
 }
 
+/// Whether Staff are running Work, or have Work ready to run, whose result will wake Exec.
+async fn staff_are_working(org: &OrgIntel) -> Result<bool> {
+    Ok(!org.list_running_work_attempts().await?.is_empty() || org.has_ready_work().await?)
+}
+
 /// Record the conversation wake. Work status changes only through an Attempt;
 /// this free-form Exec turn cannot secretly complete or block a graph node.
 async fn record_outcome(org: &OrgIntel, report: &WakeReport) -> Result<()> {
@@ -2162,10 +2167,17 @@ async fn record_outcome(org: &OrgIntel, report: &WakeReport) -> Result<()> {
         if claimed_opportunity {
             return Ok(());
         }
+        let recovery = report.reason.starts_with("termination decision")
+            || report.reason.starts_with("[transport]");
+        // "Continue" while Staff run Work (an Attempt running, or Work ready for one, such as the
+        // Work this turn just commissioned): each result already wakes Exec when it lands, so a
+        // second wake a minute from now usually found nothing new and answered "still waiting"
+        // with the whole context re-sent.
+        if !recovery && staff_are_working(org).await? {
+            return Ok(());
+        }
         let fire_at = chrono::Utc::now() + chrono::Duration::seconds(i64::from(seconds));
-        let schedule_reason = if report.reason.starts_with("termination decision")
-            || report.reason.starts_with("[transport]")
-        {
+        let schedule_reason = if recovery {
             "recover interrupted Exec substrate".to_string()
         } else {
             format!(
