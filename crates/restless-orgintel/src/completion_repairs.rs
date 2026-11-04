@@ -95,6 +95,7 @@ impl OrgIntel {
         .await?;
         if let Some((prior_attempt, prior_fingerprint)) = prior_command {
             if prior_attempt != attempt_id || prior_fingerprint != fingerprint {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "completion repair command id was reused for a different reservation".into(),
                 ));

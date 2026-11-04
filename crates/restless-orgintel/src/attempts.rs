@@ -653,6 +653,7 @@ impl OrgIntel {
             return Ok(None);
         }
         if state != WorkAttemptState::Running {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "Attempt {attempt_id} is {state:?}, not an unknown execution awaiting recovery"
             )));
@@ -1414,6 +1415,7 @@ impl OrgIntel {
         let status: WorkStatus = row.get("status");
         let revision: i64 = row.get("revision");
         if status != WorkStatus::Blocked {
+            tx.rollback().await?;
             return Ok(false);
         }
         let held: bool = sqlx::query_scalar(
@@ -1426,6 +1428,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if held {
+            tx.rollback().await?;
             return Ok(false);
         }
         sqlx::query(
@@ -1536,6 +1539,7 @@ impl OrgIntel {
         let owner_id: String = row.get("owner_id");
         let status: WorkStatus = row.get("status");
         if status != WorkStatus::Blocked {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only blocked Work can be resumed after repair".into(),
             ));
@@ -1543,6 +1547,7 @@ impl OrgIntel {
         let accountability =
             crate::actors::lock_work_accountability_in_tx(&mut tx, work_id).await?;
         if accountability.owner_id != owner_id || accountability.status != status {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "Work accountability changed while resume was being admitted".into(),
             ));
@@ -1553,6 +1558,7 @@ impl OrgIntel {
             || accountability.lead_actor_id.as_deref() == Some(by)
             || accountability.responsible_actor_id.as_deref() == Some(by);
         if !allowed {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "{by:?} is not the Work owner, its lead, the person who owns its team, the Exec, or the owner"
             )));
@@ -1564,6 +1570,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if ready_handoff {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork("Work still awaits its owner handoff. If a human-step prompt expired or failed, use work refresh-handoff --preparing to repair that same request; do not resolve an uncompleted human step.".into()));
         }
         let exhausted: bool = sqlx::query_scalar(
@@ -1622,6 +1629,7 @@ impl OrgIntel {
         let owner_id: String = row.get("owner_id");
         let status: WorkStatus = row.get("status");
         if matches!(status, WorkStatus::Completed | WorkStatus::Abandoned) {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "completed or already-abandoned Work keeps its recorded outcome".into(),
             ));
@@ -1629,6 +1637,7 @@ impl OrgIntel {
         let accountability =
             crate::actors::lock_work_accountability_in_tx(&mut tx, work_id).await?;
         if accountability.owner_id != owner_id || accountability.status != status {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "Work accountability changed while abandonment was being admitted".into(),
             ));
@@ -1639,6 +1648,7 @@ impl OrgIntel {
             || accountability.lead_actor_id.as_deref() == Some(by)
             || accountability.responsible_actor_id.as_deref() == Some(by);
         if !allowed {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "{by:?} is not the Work owner, its lead, the person who owns its team, the Exec, or the owner"
             )));
@@ -1650,6 +1660,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if running {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "Work has a running Attempt; stop and observe that process before abandoning it"
                     .into(),
@@ -1701,6 +1712,7 @@ impl OrgIntel {
         let mut tx = self.pool.begin().await?;
         let status = admit_work_steer(&mut tx, work_id, by).await?;
         if !matches!(status, WorkStatus::Proposed | WorkStatus::Active) {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only Work that is planned or in progress can be paused".into(),
             ));
@@ -1713,11 +1725,13 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if running {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "someone is working on this right now; pause it once the current run ends".into(),
             ));
         }
         if pending {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "this Work is waiting on a decision; answer or decline it instead".into(),
             ));
@@ -1749,6 +1763,7 @@ impl OrgIntel {
         let mut tx = self.pool.begin().await?;
         let status = admit_work_steer(&mut tx, work_id, by).await?;
         if status != WorkStatus::Abandoned {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only stopped Work can be restored".into(),
             ));
@@ -1799,6 +1814,7 @@ impl OrgIntel {
         let mut tx = self.pool.begin().await?;
         let status = admit_work_steer(&mut tx, work_id, by).await?;
         if status != WorkStatus::Completed {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only done Work can be sent back for changes".into(),
             ));

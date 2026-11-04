@@ -268,6 +268,7 @@ impl OrgIntel {
                 .await?;
             }
             Some(_) => {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidSkill(format!(
                     "a company skill named {} already exists; choose another name or ask the owner to retire it",
                     skill.name
@@ -341,6 +342,7 @@ impl OrgIntel {
                 .await?
                 .rows_affected();
         if updated == 0 {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidSkill(format!(
                 "no company skill named {name}"
             )));
@@ -570,6 +572,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
         if !exists {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!("no Work {work_id}")));
         }
         let selected =

@@ -59,6 +59,7 @@ impl OrgIntel {
                     == status_digest
                 && row.get::<Option<i32>, _>("terminal_dirty_entries") == Some(dirty_entries);
             if !matches {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "Attempt {attempt_id} terminal coordinates are already frozen"
                 )));
@@ -68,6 +69,7 @@ impl OrgIntel {
         }
         let state: WorkAttemptState = row.get("state");
         if state != WorkAttemptState::Running {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "Attempt {attempt_id} is not running"
             )));
@@ -118,6 +120,7 @@ impl OrgIntel {
         .await?;
         let state: WorkAttemptState = row.get("state");
         if state != WorkAttemptState::Running {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "Attempt {attempt_id} is not running"
             )));
@@ -132,6 +135,7 @@ impl OrgIntel {
                 && row.get::<Option<String>, _>("source_tree").as_deref() == source_tree
                 && row.get::<String, _>("environment_fingerprint") == environment_fingerprint;
             if !matches {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "Attempt {attempt_id} materialisation differs from its frozen execution coordinates"
                 )));
@@ -185,6 +189,7 @@ impl OrgIntel {
             && lead_id.as_deref() != Some(requested_by)
             && requested_by != "daemon"
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "{requested_by:?} cannot interrupt Work {work_id}"
             )));

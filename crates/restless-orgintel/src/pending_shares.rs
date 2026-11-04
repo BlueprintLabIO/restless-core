@@ -79,7 +79,10 @@ impl OrgIntel {
             ShareTarget::Sheet(id) => match may_share(&mut tx, id, actor).await {
                 Ok(allowed) => allowed,
                 Err(SheetError::Unavailable) => false,
-                Err(error) => return Err(sheet_error(error)),
+                Err(error) => {
+                    tx.rollback().await?;
+                    return Err(sheet_error(error));
+                }
             },
         };
         tx.rollback().await?;

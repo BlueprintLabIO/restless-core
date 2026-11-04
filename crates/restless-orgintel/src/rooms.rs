@@ -1383,6 +1383,7 @@ impl OrgIntel {
         .await?
         {
             if prior_digest != payload_sha256 {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomCommandConflict(format!(
                     "Room command {client_command_id:?} was already used with different semantics"
                 )));
@@ -1416,6 +1417,7 @@ impl OrgIntel {
         .fetch_all(&mut *tx)
         .await?;
         if active_actor_ids != participant_values {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "every Room participant must be an active durable Actor".into(),
             ));
@@ -1463,6 +1465,7 @@ impl OrgIntel {
             }
         };
         if room.kind != kind {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "canonical Room kind does not match the requested audience".into(),
             ));
@@ -1475,6 +1478,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if active_owned_rooms > MAX_ACTIVE_ROOMS_CREATED_PER_ACTOR {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidRoom(format!(
                     "an Actor may own at most {MAX_ACTIVE_ROOMS_CREATED_PER_ACTOR} active Rooms"
                 )));
@@ -1503,17 +1507,20 @@ impl OrgIntel {
             .collect::<BTreeSet<_>>();
 
             if kind == RoomKind::Direct && current != participants {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidRoom(
                     "a canonical direct Room has an immutable two-Actor audience".into(),
                 ));
             }
             let additions = participants.difference(&current).count();
             if additions > 0 && requester_role != RoomParticipantRole::Owner {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomAccessDenied(
                     "only the Room owner may add participants".into(),
                 ));
             }
             if current.len() + additions > MAX_ROOM_PARTICIPANTS {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidRoom(format!(
                     "a Room may have at most {MAX_ROOM_PARTICIPANTS} active participants"
                 )));
@@ -1908,6 +1915,7 @@ impl OrgIntel {
         .fetch_all(&mut *tx)
         .await?;
         if active_actors != command_actors {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "the Room owner and new participant must be active durable Actors".into(),
             ));
@@ -1918,11 +1926,13 @@ impl OrgIntel {
             .await?;
         let (kind, requester_role) = active_room_access(&mut tx, room_id, requesting_actor).await?;
         if kind == RoomKind::Direct {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "a direct Room audience is immutable".into(),
             ));
         }
         if requester_role != RoomParticipantRole::Owner {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomAccessDenied(
                 "only the Room owner may add participants".into(),
             ));
@@ -1946,6 +1956,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if active_count >= MAX_ROOM_PARTICIPANTS as i64 {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(format!(
                 "a Room may have at most {MAX_ROOM_PARTICIPANTS} active participants"
             )));
@@ -2004,6 +2015,7 @@ impl OrgIntel {
         .fetch_all(&mut *tx)
         .await?;
         if durable_actors != command_actors {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "the Room owner and selected participant must be durable Actors".into(),
             ));
@@ -2014,23 +2026,27 @@ impl OrgIntel {
             .await?;
         let (kind, requester_role) = active_room_access(&mut tx, room_id, requesting_actor).await?;
         if kind == RoomKind::Direct {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "a direct Room audience is immutable".into(),
             ));
         }
         let leaving = actor_id == requesting_actor;
         if !leaving && requester_role != RoomParticipantRole::Owner {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomAccessDenied(
                 "only the Room owner may remove participants".into(),
             ));
         }
         if leaving && requester_role == RoomParticipantRole::Owner {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "the Room owner cannot remove itself; archive the Room instead".into(),
             ));
         }
         // The company Room is everyone's; only a group can be left.
         if leaving && kind != RoomKind::Group {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "only a group Room can be left".into(),
             ));
@@ -2101,6 +2117,7 @@ impl OrgIntel {
         .fetch_all(&mut *tx)
         .await?;
         if humans != command_actors {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "a Room passes only between active people".into(),
             ));
@@ -2111,11 +2128,13 @@ impl OrgIntel {
             .await?;
         let (kind, requester_role) = active_room_access(&mut tx, room_id, requesting_actor).await?;
         if kind != RoomKind::Group {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "only a group Room can be handed over".into(),
             ));
         }
         if requester_role != RoomParticipantRole::Owner {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomAccessDenied(
                 "only the Room owner may hand it over".into(),
             ));
@@ -2239,6 +2258,7 @@ impl OrgIntel {
         let kind =
             Self::lock_owned_shared_room(&mut tx, requesting_actor, room_id, "archive").await?;
         if kind != RoomKind::Group {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "only a group Room can be archived".into(),
             ));
@@ -2328,11 +2348,13 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         let Some(room) = room.filter(|_| active.is_some() && owns) else {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomAccessDenied(
                 "only the Room owner may restore it".into(),
             ));
         };
         if room.kind != RoomKind::Group {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "only a group Room can be restored".into(),
             ));
@@ -2348,6 +2370,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if active_owned_rooms >= MAX_ACTIVE_ROOMS_CREATED_PER_ACTOR {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(format!(
                 "an Actor may own at most {MAX_ACTIVE_ROOMS_CREATED_PER_ACTOR} active Rooms"
             )));
@@ -2572,6 +2595,7 @@ impl OrgIntel {
 
         if let Some(claim_token) = resolution_claim_token {
             let Some(mention_id) = resolves_mention_id else {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomAccessDenied(
                     "a Runtime mention claim may only authorize its exact resolving reply".into(),
                 ));
@@ -2590,6 +2614,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !lease_live {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomAccessDenied(
                     "the Actor cognitive-session lease no longer owns this mention".into(),
                 ));
@@ -2634,6 +2659,7 @@ impl OrgIntel {
                 [first, second] if first == author_actor => Some(second.clone()),
                 [first, second] if second == author_actor => Some(first.clone()),
                 _ => {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidRoom(
                         "an active direct Room must contain its author and exactly one peer".into(),
                     ))
@@ -2677,6 +2703,7 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
                 if prior_digest != payload_sha256 {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::RoomCommandConflict(format!(
                         "command {client_command_id:?} was concurrently used for another message"
                     )));
@@ -2723,6 +2750,7 @@ impl OrgIntel {
             .await?
             .rows_affected();
             if attached != attachment_ids.len() as u64 {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidRoom(
                     "These files can no longer be attached: a file is attached once, by the person who added it. Add them again, then send."
                         .into(),
@@ -2742,6 +2770,7 @@ impl OrgIntel {
 
         if let Some(mention_id) = resolves_mention_id {
             let Some(parent_message_id) = parent_message_id else {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidRoom(
                     "a mention can only be resolved by an explicit reply in its Thread".into(),
                 ));
@@ -2766,6 +2795,7 @@ impl OrgIntel {
             .fetch_optional(&mut *tx)
             .await?;
             let Some(target) = target else {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidRoom(
                     "the mention selected for resolution does not exist".into(),
                 ));
@@ -2778,17 +2808,20 @@ impl OrgIntel {
                 || mentioned_actor_id != author_actor
                 || mention_thread_root != thread_root_message_id.unwrap_or(parent_message_id)
             {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomAccessDenied(
                     "only the mentioned Actor may resolve it with a reply in the exact Room and Thread"
                         .into(),
                 ));
             }
             if prior_resolution.is_some() {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomCommandConflict(
                     "the selected mention was already resolved by another reply".into(),
                 ));
             }
             if target.get::<Option<i64>, _>("cancelled_event_id").is_some() {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomCommandConflict(
                     "the selected mention was cancelled and cannot be resolved".into(),
                 ));
@@ -2797,6 +2830,7 @@ impl OrgIntel {
             let durable_claim_token: Option<Uuid> = target.get("claim_token");
             if actor_class == "human" {
                 if resolution_claim_token.is_some() {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::RoomAccessDenied(
                         "a human mention is resolved by its authenticated human, not a Runtime lease"
                             .into(),
@@ -2807,6 +2841,7 @@ impl OrgIntel {
                 || !target.get::<bool, _>("claim_live")
                 || !target.get::<bool, _>("lease_live")
             {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomAccessDenied(
                     "an agent mention reply requires its exact live Actor cognitive-session lease"
                         .into(),
@@ -3064,6 +3099,7 @@ impl OrgIntel {
         .ok_or_else(|| OrgIntelError::InvalidRoom("Room message does not exist".into()))?;
         let author_actor: String = message.get("from_actor");
         if author_actor != editor_actor {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomAccessDenied(
                 "only the original Message author may append a revision".into(),
             ));
@@ -3072,12 +3108,14 @@ impl OrgIntel {
             .get::<Option<DateTime<Utc>>, _>("deleted_at")
             .is_some()
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomCommandConflict(
                 "a deleted Room Message cannot be edited".into(),
             ));
         }
         let current_revision_number: i64 = message.get("revision_number");
         if current_revision_number != expected_revision_number {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomCommandConflict(format!(
                 "expected Message revision {expected_revision_number}, current revision is {current_revision_number}"
             )));
@@ -3087,6 +3125,7 @@ impl OrgIntel {
             .as_deref()
             == Some(body)
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "a Message edit must change the visible body".into(),
             ));
@@ -3234,6 +3273,7 @@ impl OrgIntel {
         let may_moderate =
             room_kind != RoomKind::Direct && requester_role == RoomParticipantRole::Owner;
         if author_actor != deleting_actor && !may_moderate {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomAccessDenied(
                 "only the Message author may delete it in a direct Room; other Rooms also permit their owner to moderate".into(),
             ));
@@ -3242,6 +3282,7 @@ impl OrgIntel {
             .get::<Option<DateTime<Utc>>, _>("deleted_at")
             .is_some()
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomCommandConflict(
                 "the Room Message already has a deletion tombstone".into(),
             ));
@@ -3368,6 +3409,7 @@ impl OrgIntel {
         active_room_access(&mut tx, room_id, requesting_actor).await?;
         let message = room_message_in_tx(&mut tx, room_id, message_id).await?;
         if message.deleted_at.is_some() {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "revision history is unavailable for a deleted Room Message".into(),
             ));
@@ -4119,6 +4161,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         let Some((claimed_until, prior_focus)) = live_lease else {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomCommandConflict(
                 "the Actor cognitive-session lease is no longer current".into(),
             ));
@@ -4250,6 +4293,7 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
         if !valid_message {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "a Room read cursor must name a message in that Room".into(),
             ));

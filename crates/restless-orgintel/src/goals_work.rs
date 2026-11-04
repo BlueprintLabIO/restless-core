@@ -46,6 +46,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !creator_exists {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "Goal creator {created_by:?} is not an existing active actor"
             )));
@@ -182,6 +183,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !actor_exists {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "Goal assignment actor {changed_by:?} is not an existing active actor"
             )));
@@ -192,6 +194,7 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
         if !goal_exists {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "Goal {goal_id} does not exist in this company"
             )));
@@ -257,6 +260,7 @@ impl OrgIntel {
         let brief_changes = outcome.is_some() || expected.is_some();
         if brief_changes {
             if matches!(status, WorkStatus::Completed | WorkStatus::Abandoned) {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "settled Work keeps the brief it was done to; send it back for changes instead"
                         .into(),
@@ -269,6 +273,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if running {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "someone is working to this brief right now; send a correction in chat, or edit it once the run ends"
                         .into(),
@@ -281,6 +286,7 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
             if !exists {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "Goal {goal_id} does not exist in this company"
                 )));
@@ -654,6 +660,7 @@ impl OrgIntel {
                 )
                 || !opportunity.7.is_some_and(|deadline_at| deadline_at > now)
             {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "scheduled Opportunity needs the current commissioner lease, matching responsibility and open deadline".into(),
                 ));
@@ -702,6 +709,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !valid_source {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "external source message {message_id} is not addressed to commissioning lead {commissioned_by:?}"
                 )));
@@ -713,6 +721,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if already_linked {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "external source message {message_id} already commissioned Work"
                 )));
@@ -742,12 +751,14 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         let Some(owner_team_id) = locked_owner_team else {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "Work owner {:?} is not an existing active actor; inspect People and commission one durable specialist if none fits",
                 work.owner_id
             )));
         };
         if owner_team_id != candidate_team_id {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "Work owner responsibility changed while commissioning was admitted".into(),
             ));
@@ -764,6 +775,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !commissioner_exists {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "Work commissioner {commissioned_by:?} is not an existing active actor"
             )));
@@ -782,6 +794,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !commissioner_owns_team {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "external-message Work owner {:?} is not Staff under commissioning lead {commissioned_by:?}",
                     work.owner_id
@@ -795,6 +808,7 @@ impl OrgIntel {
                     .fetch_one(&mut *tx)
                     .await?;
             if !goal_exists {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "Goal {goal_id} does not exist in this company"
                 )));
@@ -811,6 +825,7 @@ impl OrgIntel {
                 .as_deref()
                 .is_some_and(|value| !valid_runtime_slug(value))
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "repo and worktree must be lowercase runtime slugs".into(),
             ));
@@ -826,11 +841,13 @@ impl OrgIntel {
                 .as_deref()
                 .is_some_and(|value| !valid_git_ref(value))
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "base and integration branch must be bounded Git refs".into(),
             ));
         }
         if gates.len() > 32 {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "Work may declare at most 32 deterministic gates".into(),
             ));
@@ -847,17 +864,20 @@ impl OrgIntel {
                     .iter()
                     .any(|part| part.contains('\0') || part.chars().count() > 8_192)
             {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "an initial Work gate needs a unique 1-120 character name and 1-128 bounded NUL-free argv values".into(),
                 ));
             }
             if !gate_names.insert(name) {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "initial Work gate name {name:?} is duplicated"
                 )));
             }
         }
         if owner_review_required && !gate_names.contains(REVIEW_TARGET_LIVE_PROBE_GATE) {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "review-required Work needs a {REVIEW_TARGET_LIVE_PROBE_GATE:?} gate"
             )));
@@ -878,6 +898,7 @@ impl OrgIntel {
                         .fetch_one(&mut *tx)
                         .await?;
                 if !exists {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(format!(
                         "initial {kind:?} target {target} does not exist"
                     )));
@@ -892,6 +913,7 @@ impl OrgIntel {
             .iter()
             .find(|target| !required_targets.contains(target))
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "review Work that may revise {unpaired} must require that same producer in the atomic creation call"
             )));
@@ -974,11 +996,13 @@ impl OrgIntel {
             contracts.voice.is_some() || contracts.visual.is_some() || contracts.culture.is_some()
         });
         if has_constitution_contract && identity_release.is_none() {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "Company Constitution contracts need an owner-released identity".into(),
             ));
         }
         if has_constitution_contract && accountable_lead.as_deref() != Some(&commissioned_by) {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the accountable lead may select initial Company Constitution contracts"
                     .into(),
@@ -1085,6 +1109,7 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
                 if abandoned {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(format!(
                         "Work {from} is abandoned, so new Work that requires it could never start; require its replacement instead"
                     )));
@@ -1107,6 +1132,7 @@ impl OrgIntel {
                     .iter()
                     .any(|resource| !matches!(resource.as_str(), "port" | "display"))
             {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "initial gate stage, timeout or resources are invalid".into(),
                 ));
@@ -1210,11 +1236,13 @@ impl OrgIntel {
         let previous_owner: String = row.get("owner_id");
         let status: WorkStatus = row.get("status");
         if matches!(status, WorkStatus::Completed | WorkStatus::Abandoned) {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "settled Work is historical; revise it instead of rewriting its owner".into(),
             ));
         }
         if previous_owner == new_owner_id {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "Work is already assigned to that actor".into(),
             ));
@@ -1290,6 +1318,7 @@ impl OrgIntel {
                 ))
             })?;
         if locked_new_owner.2.is_some() || locked_new_owner.1 != new_owner_team {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "new Work owner {new_owner_id:?} changed responsibility while reassignment was being admitted"
             )));
@@ -1303,6 +1332,7 @@ impl OrgIntel {
                 ))
             })?;
         if locked_previous_owner.2.is_some() || locked_previous_owner.1 != previous_owner_team {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "current Work owner {previous_owner:?} changed responsibility while reassignment was being admitted"
             )));
@@ -1316,6 +1346,7 @@ impl OrgIntel {
                 ))
             })?;
         if coordinating_actor.2.is_some() {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "coordinating actor {changed_by:?} is not active"
             )));
@@ -1343,6 +1374,7 @@ impl OrgIntel {
                 }
             }
             if led_team.is_none() || previous_owner_team != led_team || new_owner_team != led_team {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "a lead may only reassign Work between active members of its own team".into(),
                 ));
@@ -1355,6 +1387,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if attempt_running {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "stop or settle the running Attempt before reassigning its Work".into(),
             ));
@@ -1420,12 +1453,14 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if abandoned {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "Work {from} is abandoned, so Work that requires it could never start; require its replacement instead"
                 )));
             }
         }
         if !runnable_exists {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "Work {runnable_work_id} does not exist"
             )));
@@ -1436,6 +1471,7 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
         if has_attempt {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "cannot add a {kind:?} edge after Work {runnable_work_id} has started; create initial edges atomically or create a revised Work node"
             )));
@@ -1450,6 +1486,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !paired_requirement {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "review Work {from} may revise {to} only after the paired requires edge {to} -> {from} exists"
                 )));
@@ -1471,6 +1508,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if closes_cycle {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "requires edge {from} -> {to} closes a hard dependency cycle; use a revises edge for feedback"
                 )));
@@ -1516,6 +1554,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !leads_or_owns_a_team {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "only the owner, Exec, the team's lead or the person who owns the team may repair graph edges"
                         .into(),
@@ -1537,6 +1576,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !within_team {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "a lead or team owner may only repair dependencies between Work owned by its own team".into(),
                 ));
@@ -1551,6 +1591,7 @@ impl OrgIntel {
         .execute(&mut *tx)
         .await?;
         if changed.rows_affected() != 1 {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "that Work edge does not exist".into(),
             ));

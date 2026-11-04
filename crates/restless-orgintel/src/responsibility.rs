@@ -78,6 +78,7 @@ impl OrgIntel {
             "owner" => {}
             "exec" => {
                 let Some(message_id) = cited_message_id else {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(
                         "only the owner decides who owns a team: Exec must cite the owner's message"
                             .into(),
@@ -91,6 +92,7 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
                 if !from_owner {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(
                         "only the owner decides who owns a team: the cited message is not the \
                          owner's message to Exec"
@@ -99,6 +101,7 @@ impl OrgIntel {
                 }
             }
             _ => {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "only the owner decides who owns a team".into(),
                 ));
@@ -112,12 +115,14 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         let Some(previous) = previous else {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "team {team_id} is not active"
             )));
         };
         if let Some(person) = person {
             if person == "owner" {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "the owner already answers for every team nobody else owns; release the \
                      team instead"
@@ -132,6 +137,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !human {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "{person:?} is not a current person in this company; agents run teams as \
                      leads, people own them"
@@ -139,6 +145,7 @@ impl OrgIntel {
             }
         }
         if previous.as_deref() == person {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(match person {
                 Some(_) => "that person already owns this team".into(),
                 None => "the owner already holds this team".into(),
@@ -223,6 +230,7 @@ impl OrgIntel {
                 .fetch_optional(&mut *tx)
                 .await?;
         let Some(current) = current else {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "goal {goal_id} does not exist"
             )));
@@ -235,6 +243,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !live {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "team {team_id} is not active"
                 )));
@@ -257,6 +266,7 @@ impl OrgIntel {
             let from_ok = current.is_none() || owns(current).await?;
             let to_ok = team_id.is_none() || owns(team_id).await?;
             if !(from_ok && to_ok) || (current.is_none() && team_id.is_none()) {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "a person moves goals only between teams they own; the owner and Exec \
                      organise the rest"
