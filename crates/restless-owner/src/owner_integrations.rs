@@ -8,7 +8,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{credential, runtime};
-use restless_engine::email_integration;
+use restless_engine::{email_integration, hooks, incoming_email};
 
 use super::{api_error, OwnerState, RequestPrincipal};
 
@@ -53,7 +53,69 @@ pub(super) async fn integrations(
     if !matches!(principal.membership_role(), "owner" | "admin") {
         email.key = None;
     }
-    Json(serde_json::json!({ "email": email })).into_response()
+    let incoming = match hooks::endpoint(
+        state.daemon.authority.pool(),
+        &company,
+        hooks::Provider::Resend,
+    )
+    .await
+    {
+        Ok(endpoint) => incoming_email::status(endpoint.as_ref(), chrono::Utc::now()),
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "integrations",
+                "Email status could not be read. Try again.",
+            )
+        }
+    };
+    Json(serde_json::json!({ "email": email, "incoming": incoming })).into_response()
+}
+
+/// The owner connects incoming email, or connects it again: Restless registers the company's
+/// Resend webhook (replacing one that exists) and records the domains it receives for.
+pub(super) async fn connect_incoming(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "integrations",
+            "Only the owner connects incoming email.",
+        );
+    }
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
+        return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist.");
+    }
+    match incoming_email::connect(&state.daemon, &company, true).await {
+        Ok(incoming) => Json(serde_json::json!({ "incoming": incoming })).into_response(),
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "integrations",
+            "Incoming email could not be connected. Try again.",
+        ),
+    }
+}
+
+/// The owner's test: the company emails itself and the status shows when it came back.
+pub(super) async fn test_incoming(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "integrations",
+            "Only the owner tests incoming email.",
+        );
+    }
+    match incoming_email::send_check(&state.daemon, &company).await {
+        Ok(incoming) => Json(serde_json::json!({ "incoming": incoming })).into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "integrations", error.to_string()),
+    }
 }
 
 #[derive(Deserialize)]

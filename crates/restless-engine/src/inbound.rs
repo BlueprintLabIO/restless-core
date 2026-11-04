@@ -108,6 +108,11 @@ pub async fn accept_resend(
         }
     }
     let (authority_id, inserted, body) = record_authority(&daemon.authority, &event).await?;
+    if let Err(error) =
+        crate::incoming_email::after_record(daemon, &event, endpoint.as_ref(), via, inserted).await
+    {
+        tracing::warn!(company = %event.company, "incoming email health not updated: {error:#}");
+    }
     if let Err(error) = project_authority_body(daemon, &event.company, authority_id, &body).await {
         tracing::warn!(
             company = %event.company,
@@ -176,6 +181,19 @@ pub(crate) fn address_domain(address: &str) -> Option<String> {
     bare.rsplit_once('@')
         .map(|(_, domain)| domain.trim().to_ascii_lowercase())
         .filter(|domain| !domain.is_empty())
+}
+
+/// The bare lowercase address of `Name <user@example.com>`.
+pub(crate) fn bare_address(address: &str) -> Option<String> {
+    let bare = address
+        .rsplit('<')
+        .next()
+        .unwrap_or(address)
+        .trim()
+        .trim_end_matches('>')
+        .trim()
+        .to_ascii_lowercase();
+    bare.contains('@').then_some(bare)
 }
 
 /// The Authority dedupe key. A received email is one fact whichever path brought it, so its key
@@ -313,6 +331,17 @@ async fn project_authority_body(
     // response is the bounded native source for body and headers; lifecycle
     // events continue to use their signed webhook metadata.
     let data = retrieved.as_ref().unwrap_or(webhook_data);
+    // The owner's own Test (Company › Integrations › Email) proves the path; it is not mail for
+    // the Exec.
+    if crate::incoming_email::is_own_check(
+        daemon.authority.pool(),
+        company,
+        &first_string(data, &["subject"]).unwrap_or_default(),
+    )
+    .await
+    {
+        return Ok(());
+    }
     let from = bounded_optional(first_string(data, &["from", "sender", "email"]), 500);
     let recipient = bounded_optional(first_string(data, &["to", "recipient"]), 500);
     let subject = bounded_optional(first_string(data, &["subject"]), 500).unwrap_or_default();
@@ -556,14 +585,15 @@ async fn retrieve_received_email(
         anyhow::bail!("Resend email id is not a bounded provider identifier");
     }
     let config = crate::runtime::CompanyConfig::load(&daemon.root, company)?;
-    let api_key = crate::credential::resolve(&config, "resend.production")
+    let api_key = crate::credential::resolve_resend_send(&config)
         .await
         .context("resolve host-only Resend receiving credential")?;
     let response = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
         .build()?
         .get(format!(
-            "https://api.resend.com/emails/receiving/{email_id}"
+            "{}/emails/receiving/{email_id}",
+            crate::email::resend_api_base()
         ))
         .bearer_auth(api_key.trim())
         .send()
