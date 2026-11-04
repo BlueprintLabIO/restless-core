@@ -55,6 +55,8 @@ mod sheets;
 mod skills;
 mod stalled_work;
 mod substrate;
+#[cfg(test)]
+mod transaction_lint;
 mod types;
 mod visual;
 mod voice;

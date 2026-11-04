@@ -149,6 +149,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !may_change {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the owner or Exec may change an actor's model preference".into(),
             ));
@@ -232,6 +233,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !may_create {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the owner, Exec, or an appointed live team lead may create a specialist"
                     .into(),
@@ -258,6 +260,7 @@ impl OrgIntel {
         .execute(&mut *tx)
         .await?;
         if changed.rows_affected() != 1 {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "actor {id:?} already exists; assign Work to that durable identity or choose a genuinely new specialist"
             )));
@@ -325,6 +328,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         if active.is_none() {
+            tx.rollback().await?;
             return Ok(None);
         }
         Ok(Some(tx))
@@ -353,6 +357,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !may_retire {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the owner or Exec may retire a durable actor".into(),
             ));
@@ -369,6 +374,7 @@ impl OrgIntel {
             OrgIntelError::InvalidWork(format!("active actor {actor_id:?} does not exist"))
         })?;
         if row.get::<bool, _>("leads_team") {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "appoint another lead or disband the team before retiring its lead".into(),
             ));
@@ -381,6 +387,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if owns_open_work {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "reassign or close the actor's open Work before retiring it".into(),
             ));
@@ -392,6 +399,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if owes_judgement {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "resolve or escalate the actor's pending judgement before retiring it".into(),
             ));
@@ -472,6 +480,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !may_restore {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the owner or Exec may re-hire a retired actor".into(),
             ));
@@ -485,6 +494,7 @@ impl OrgIntel {
                     OrgIntelError::InvalidWork(format!("actor {actor_id:?} does not exist"))
                 })?;
         if !retired {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "{actor_id} is not retired"
             )));
@@ -558,6 +568,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !commissioner_exists {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the owner or Exec may commission a team".into(),
             ));
@@ -576,11 +587,13 @@ impl OrgIntel {
             ))
         })?;
         if lead.get::<String, _>("actor_class") != "agent" {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "an accountable team lead must be an active agent Actor".into(),
             ));
         }
         if lead.get::<Option<Uuid>, _>("team_id").is_some() || lead.get::<bool, _>("leads_team") {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "a commissioned lead must be unassigned and must not already lead a team".into(),
             ));
@@ -593,6 +606,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if owns_unsettled_work {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "reassign or settle an actor's existing Work before appointing it as a team lead"
                     .into(),
@@ -618,6 +632,7 @@ impl OrgIntel {
         .execute(&mut *tx)
         .await?;
         if joined.rows_affected() != 1 {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "lead assignment changed while the team was being commissioned".into(),
             ));
@@ -703,6 +718,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !may_override {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the owner or Exec may change a team's name or charter".into(),
             ));
@@ -719,6 +735,7 @@ impl OrgIntel {
         let new_name = name.unwrap_or(&old_name);
         let new_brief = brief.unwrap_or(&old_brief);
         if new_name == old_name && new_brief == old_brief {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "the proposed team name and charter are unchanged".into(),
             ));
@@ -782,12 +799,14 @@ impl OrgIntel {
         })?;
         let previous_team: Option<Uuid> = member.get("team_id");
         if member.get::<bool, _>("leads_team") {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "a live lead cannot be released or poached; replace the lead explicitly first"
                     .into(),
             ));
         }
         if previous_team == team_id {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "the actor already has that team assignment".into(),
             ));
@@ -801,6 +820,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !exists {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "no live team with that id".into(),
                 ));
@@ -824,6 +844,7 @@ impl OrgIntel {
         if !override_roster {
             let led_team: Option<Uuid> = coordinator.get("led_team");
             let Some(led_team) = led_team else {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "only the owner, Exec, or this roster's appointed lead may change it".into(),
                 ));
@@ -831,6 +852,7 @@ impl OrgIntel {
             let is_claim = previous_team.is_none() && team_id == Some(led_team);
             let is_release = previous_team == Some(led_team) && team_id.is_none();
             if !is_claim && !is_release {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "a lead may only claim an unassigned actor into its own team or release one of its direct members"
                         .into(),
@@ -845,6 +867,7 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
                 if owns_open_work {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(
                         "reassign or settle the member's open Work before releasing it".into(),
                     ));
@@ -905,6 +928,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !may_override {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the owner or Exec may replace an accountable lead".into(),
             ));
@@ -916,11 +940,13 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         let Some(previous_lead) = previous_lead else {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "no live team with that id".into(),
             ));
         };
         if previous_lead == lead_actor_id {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "that actor already leads this team".into(),
             ));
@@ -939,17 +965,20 @@ impl OrgIntel {
             ))
         })?;
         if new_lead.get::<String, _>("actor_class") != "agent" {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "an accountable team lead must be an active agent Actor".into(),
             ));
         }
         if new_lead.get::<bool, _>("leads_team") {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "one lead cannot lead another lead or a second team".into(),
             ));
         }
         let previous_team: Option<Uuid> = new_lead.get("team_id");
         if previous_team.is_some() {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "a replacement lead must be unassigned; release or move the actor explicitly before appointment"
                     .into(),
@@ -963,6 +992,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if owns_unsettled_work {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "reassign or settle an actor's existing Work before appointing it as a team lead"
                     .into(),
@@ -1048,6 +1078,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !may_override {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the owner or Exec may disband a team".into(),
             ));
@@ -1059,6 +1090,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         let Some(lead_actor_id) = lead_actor_id else {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "no live team with that id".into(),
             ));
@@ -1068,6 +1100,7 @@ impl OrgIntel {
             .execute(&mut *tx)
             .await?;
         if changed.rows_affected() != 1 {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "no live team with that id".into(),
             ));
@@ -1242,6 +1275,7 @@ impl OrgIntel {
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(if with_owner {
                 "that handoff is already waiting on the owner and shows in their Inbox; there is nothing above it to escalate to".into()
             } else {
@@ -1289,6 +1323,7 @@ impl OrgIntel {
                     accountability.revision,
                 );
                 if brief.is_none() || recorded.as_deref() != Some(current.as_str()) {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(
                         "owner attention admission refused: prepare a current owner brief before escalating ordinary judgement"
                             .into(),
@@ -1323,6 +1358,7 @@ impl OrgIntel {
                 .await?;
                 if let Some(attempt_id) = running {
                     if row.get::<Option<Uuid>, _>("attempt_id") != Some(attempt_id) {
+                        tx.rollback().await?;
                         return Err(OrgIntelError::InvalidWork(
                             "The running Attempt no longer matches this review.".into(),
                         ));
@@ -1363,6 +1399,7 @@ impl OrgIntel {
         .execute(&mut *tx)
         .await?;
         if changed.rows_affected() != 1 {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "no pending handoff is assigned to that actor".into(),
             ));
@@ -1386,6 +1423,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !member {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "a handoff can be handed only to an active member or admin of the company".into(),
             ));
@@ -1401,6 +1439,7 @@ impl OrgIntel {
         .execute(&mut *tx)
         .await?;
         if changed.rows_affected() != 1 {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only a pending handoff waiting on the owner can be handed on".into(),
             ));

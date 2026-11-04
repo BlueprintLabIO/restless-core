@@ -213,6 +213,7 @@ impl OrgIntel {
         .await?
         {
             if !same(&saved, document, request, principal, decision) {
+                tx.rollback().await?;
                 return Err(changed());
             }
             principal_current(&mut tx, principal).await?;
@@ -247,6 +248,7 @@ impl OrgIntel {
         .await?
         .ok_or(DocumentError::Unavailable)?;
         if saved.principal != *principal {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         principal_current(&mut tx, principal).await?;
@@ -309,6 +311,7 @@ impl OrgIntel {
         .ok_or(DocumentError::Unavailable)?;
         principal_current(&mut tx, principal).await?;
         if !saved.principal.same_person(principal) || saved.state == "pending" {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         sqlx::query("UPDATE owner_document_decisions SET seen_at=COALESCE(seen_at,clock_timestamp()) WHERE id=$1").bind(id).execute(&mut *tx).await?;

@@ -566,11 +566,13 @@ pub async fn reserve(
     .await?
     {
         if row.get::<String, _>("fingerprint") != fingerprint {
+            tx.rollback().await?;
             bail!(
                 "payment idempotency key {:?} was already used with different authority fields",
                 input.idempotency_key
             );
         }
+        tx.rollback().await?;
         return Ok(Reservation {
             intent: intent_from_row(&row)?,
             replayed: true,
@@ -588,9 +590,11 @@ pub async fn reserve(
     .context("no owner-set money envelope exists for this currency")?;
     let envelope = envelope_from_row(&envelope)?;
     if envelope.limits.frozen {
+        tx.rollback().await?;
         bail!("financial effects are frozen for {}", input.currency);
     }
     if input.source_account_ref != envelope.limits.source_account_ref {
+        tx.rollback().await?;
         bail!("payment source account is outside the owner-set envelope");
     }
     if !envelope
@@ -599,9 +603,11 @@ pub async fn reserve(
         .iter()
         .any(|beneficiary| beneficiary == &input.provider_beneficiary_ref)
     {
+        tx.rollback().await?;
         bail!("payment beneficiary is outside the owner-set envelope");
     }
     if input.amount_minor > envelope.limits.per_payment_limit_minor {
+        tx.rollback().await?;
         bail!("payment exceeds the per-payment envelope");
     }
     let committed: i64 = sqlx::query_scalar(
@@ -616,6 +622,7 @@ pub async fn reserve(
     .fetch_one(&mut *tx)
     .await?;
     if committed.saturating_add(input.amount_minor) > envelope.limits.aggregate_limit_minor {
+        tx.rollback().await?;
         bail!("payment would exceed the aggregate reserved/settled envelope");
     }
 
@@ -759,6 +766,7 @@ pub async fn confirm_provider_state(
         .as_deref()
         .is_some_and(|existing| existing != provider_transfer_id)
     {
+        tx.rollback().await?;
         bail!("payment provider transfer id changed");
     }
     let effective_approval_url = approval_url
