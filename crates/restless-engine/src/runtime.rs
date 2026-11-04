@@ -3224,12 +3224,11 @@ pub struct RecoveryMemoryObservation {
     pub computer_bytes: Option<u64>,
 }
 
-pub async fn recovery_memory_inventory(configs: &[CompanyConfig]) -> Result<Vec<RecoveryMemoryObservation>> {
+pub async fn recovery_memory_inventory(configured: &[String]) -> Result<Vec<RecoveryMemoryObservation>> {
     let output = docker_bounded(&["ps", "--format", "{{.Names}}"], Duration::from_secs(30)).await?;
     anyhow::ensure!(output.status.success(), "could not inventory running company containers");
     let names = String::from_utf8(output.stdout).context("invalid Docker inventory")?;
-    let configured = configs.iter().map(|config| config.name.clone()).collect::<Vec<_>>();
-    let entries = recovery_container_inventory(&configured, &names)?;
+    let entries = recovery_container_inventory(configured, &names)?;
     let mut observations = Vec::new();
     for (company, computer_running) in entries {
         let runtime_bytes = company_runtime_working_set(&company).await?
@@ -6345,6 +6344,18 @@ mod kept_files_e2e {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    #[ignore = "requires two explicitly owned disposable containers in a temporary workload pool"]
+    async fn recovery_inventory_reads_real_runtime_and_computer_cgroups() {
+        let company = std::env::var("RESTLESS_TEST_RESOURCE_COMPANY").unwrap();
+        assert!(company.starts_with("s111probe") && company.ends_with("_test"));
+        let observations = super::recovery_memory_inventory(&[company.clone()]).await.unwrap();
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].company, company);
+        assert!(observations[0].runtime_bytes > 0);
+        assert!(observations[0].computer_bytes.unwrap() > 0);
+    }
+
     #[test]
     fn recovery_inventory_distinguishes_runtime_computer_and_orphans() {
         let configured = vec!["alpha_test".to_string(), "beta_test".to_string()];
