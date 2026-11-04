@@ -29,6 +29,47 @@ fn conversation_effort(configured: &str) -> &str {
     }
 }
 
+/// How many turns a lead gets to record what follows from a result before it passes to Exec.
+const LEAD_TERMINAL_DECISION_TURNS: u32 = 3;
+
+type TerminalDecisionKey = (String, String, Vec<i64>);
+static OWED_TERMINAL_DECISIONS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<TerminalDecisionKey, u32>>,
+> = std::sync::LazyLock::new(Default::default);
+
+/// Whether a lead has now ended `LEAD_TERMINAL_DECISION_TURNS` turns in a row on the same unread
+/// result notices without recording a decision. Each such turn left the notices unread and the
+/// lead re-woke on a 30 s → 5 min backoff, forever: a whole lead context re-sent every five
+/// minutes for a decision it was not making. Counted in memory: a restart starts the count over,
+/// which only delays the hand-off.
+fn owed_terminal_decision_exhausted(
+    company: &str,
+    actor: &str,
+    notices: &[i64],
+    owed: bool,
+) -> bool {
+    let Ok(mut owed_turns) = OWED_TERMINAL_DECISIONS.lock() else {
+        return false;
+    };
+    owed_turns.retain(|(held_company, held_actor, _), _| {
+        held_company != company || held_actor != actor || owed
+    });
+    if !owed {
+        return false;
+    }
+    let mut ids = notices.to_vec();
+    ids.sort_unstable();
+    let key = (company.to_string(), actor.to_string(), ids);
+    owed_turns.retain(|held, _| held.0 != key.0 || held.1 != key.1 || held.2 == key.2);
+    let turns = owed_turns.entry(key.clone()).or_default();
+    *turns += 1;
+    if *turns >= LEAD_TERMINAL_DECISION_TURNS {
+        owed_turns.remove(&key);
+        return true;
+    }
+    false
+}
+
 fn is_material_supervisor_notice(message: &MessageRow) -> bool {
     message.from_actor == "daemon"
         && message
@@ -1036,7 +1077,7 @@ pub async fn dispatch_actor_conversation(
         );
         match &outcome {
             Ok(outcome) if outcome.termination != Termination::Blocked => {
-                let continuation_owed = if terminal_notice_ids.is_empty() {
+                let owed = if terminal_notice_ids.is_empty() {
                     false
                 } else {
                     match terminal_decision_is_durable(
@@ -1059,6 +1100,13 @@ pub async fn dispatch_actor_conversation(
                         }
                     }
                 };
+                let escalate = owed_terminal_decision_exhausted(
+                    &company,
+                    &actor,
+                    &terminal_notice_ids.iter().copied().collect::<Vec<_>>(),
+                    owed,
+                );
+                let continuation_owed = owed && !escalate;
                 let consumed_message_ids = message_ids
                     .iter()
                     .filter(|id| !continuation_owed || !terminal_notice_ids.contains(id))
@@ -1122,6 +1170,22 @@ pub async fn dispatch_actor_conversation(
                         }),
                     )
                     .await;
+                if escalate {
+                    let body = format!(
+                        "{actor} has read the result notices {terminal_notice_ids:?} {} times without recording what follows (next Work, a blocker, a request to you, or the charter complete). They are now yours: decide the next step or ask {actor} directly.",
+                        LEAD_TERMINAL_DECISION_TURNS
+                    );
+                    if let Err(error) = org.send_message(&actor, Some("exec"), &body).await {
+                        tracing::warn!(company = %company, actor = %actor, "could not hand the undecided results to Exec: {error:#}");
+                    }
+                    let _ = org
+                        .emit_event(
+                            "lead_terminal_decision_escalated",
+                            Some(&actor),
+                            serde_json::json!({ "terminal_message_ids": terminal_notice_ids }),
+                        )
+                        .await;
+                }
                 if continuation_owed {
                     usable = false;
                     let _ = org
@@ -1580,5 +1644,29 @@ mod tests {
         ));
         // The lead's own escalation contract must survive the extraction.
         assert!(task.contains("--as offer-strategy --reason <evidence and smallest decision>"));
+    }
+
+    #[test]
+    fn an_undecided_result_passes_to_exec_after_three_lead_turns() {
+        use super::{owed_terminal_decision_exhausted as owed, LEAD_TERMINAL_DECISION_TURNS};
+        assert_eq!(LEAD_TERMINAL_DECISION_TURNS, 3);
+        let company = "owed_turns_test";
+        assert!(!owed(company, "lead", &[7, 3], true));
+        assert!(!owed(company, "lead", &[3, 7], true));
+        assert!(
+            owed(company, "lead", &[7, 3], true),
+            "the third owed turn escalates"
+        );
+        // Counting starts over afterwards, and for new notices.
+        assert!(!owed(company, "lead", &[3, 7], true));
+        assert!(!owed(company, "lead", &[9], true));
+        assert!(!owed(company, "lead", &[9], true));
+        // A turn that decided clears the count.
+        assert!(!owed(company, "lead", &[9], false));
+        assert!(!owed(company, "lead", &[9], true));
+        assert!(!owed(company, "lead", &[9], true));
+        assert!(owed(company, "lead", &[9], true));
+        // Another lead keeps its own count.
+        assert!(!owed(company, "other", &[9], true));
     }
 }

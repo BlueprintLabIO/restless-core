@@ -1362,6 +1362,62 @@ async fn account_headroom_item(
     }))
 }
 
+/// Incoming email needs the owner (ADR 0017): it isn't connected, the webhook missed replies the
+/// poll then found, or deliveries are failing. One card per kind of problem, gone once it is fixed.
+async fn incoming_email_item(config: &CompanyConfig, pool: &sqlx::PgPool) -> Option<AttentionItem> {
+    let warning = crate::incoming_email::warning(&config.name, pool).await?;
+    let href = format!("/{}/company/integrations", config.name);
+    Some(AttentionItem {
+        id: format!("authority:incoming_email:{}:{}", config.name, warning.key),
+        work_id: None,
+        source: AttentionSource {
+            plane: "authority",
+            kind: "incoming_email".into(),
+            reference: warning.key.to_string(),
+            party: None,
+            call_key: None,
+        },
+        category: "risk".into(),
+        title: warning.title.to_string(),
+        what_happened: warning.detail,
+        why_it_matters: "Customers who answer the company's email wait until this is fixed.".into(),
+        recommendation: warning.action.clone(),
+        requested_action: warning.action,
+        if_no_action: "Restless keeps checking for replies every two minutes while the key works, so mail arrives late rather than not at all.".into(),
+        uncertainty: None,
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: Some(warning.at),
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: None,
+        runtime_attach: None,
+        review_target: None,
+        review_version: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        account_use: None,
+        account_request: None,
+        request_fields: None,
+        setting_proposal: None,
+        owner_replies: Vec::new(),
+        actions: vec![AttentionAction {
+            id: "open-integrations".into(),
+            label: "Open Integrations".into(),
+            role: "inspect",
+            consequence: "Opens Company › Integrations, where incoming email is connected and tested."
+                .into(),
+            next_state: "Once replies arrive by webhook again, this leaves the Inbox.".into(),
+            href: Some(href),
+        }],
+        can_continue: false,
+        preparing: false,
+        created_at: warning.at,
+    })
+}
+
 /// An agent needed a home site (one reached from the owner's own computer) and no computer that
 /// carries it was online. Raised from the refusal itself and kept for a day while no helper is
 /// online; the agent was told the owner has this card (S109 blockers audit).
@@ -4927,6 +4983,7 @@ async fn project_queue(
         Err(error) => tracing::warn!(%error, "machine placement unavailable"),
     }
     items.extend(home_helper_offline_item(config, authority.pool()).await);
+    items.extend(incoming_email_item(config, authority.pool()).await);
     if !items
         .iter()
         .any(|item| item.source.kind == "exec_startup_blocked")

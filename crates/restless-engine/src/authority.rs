@@ -462,6 +462,8 @@ impl AuthorityStore {
         crate::member_access::ensure_schema(pool).await?;
         crate::direction_authority::ensure_schema(pool).await?;
         crate::approval_decisions::ensure_schema(pool).await?;
+        crate::hooks::ensure_schema(pool).await?;
+        crate::sent_import::ensure_schema(pool).await?;
         Ok(())
     }
 

@@ -15,6 +15,24 @@ use uuid::Uuid;
 const RESEND_EMAILS_URL: &str = "https://api.resend.com/emails";
 const RESEND_RECEIVING_URL: &str = "https://api.resend.com/emails/receiving";
 const RESEND_SUPPRESSIONS_URL: &str = "https://api.resend.com/suppressions";
+
+/// Resend's API, or a local stand-in for the end-to-end check (`scripts/verify-incoming-email.py`).
+/// `RESTLESS_TEST_RESEND_API_BASE` is honoured only for a loopback `http://127.0.0.1:<port>`
+/// address, so it can never carry a company's key anywhere else.
+/// Tests that point Resend at their own stand-in hold this, one at a time.
+#[cfg(test)]
+pub(crate) static TEST_RESEND_BASE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+pub fn resend_api_base() -> String {
+    std::env::var("RESTLESS_TEST_RESEND_API_BASE")
+        .ok()
+        .map(|base| base.trim().trim_end_matches('/').to_string())
+        .filter(|base| {
+            base.strip_prefix("http://127.0.0.1:")
+                .is_some_and(|port| !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .unwrap_or_else(|| "https://api.resend.com".to_string())
+}
 const OBSERVATION_PAGE_SIZE: u8 = 100;
 const MAX_SUBJECT_CHARS: usize = 998;
 const MAX_BODY_BYTES: usize = 1_000_000;
@@ -190,7 +208,7 @@ impl PreparedEmail {
             .build()
             .context("create Resend client")?;
         let response = match client
-            .post(RESEND_EMAILS_URL)
+            .post(format!("{}/emails", resend_api_base()))
             .bearer_auth(resend_production_key)
             .header("Idempotency-Key", &self.effect_key)
             .json(&self.provider_payload)

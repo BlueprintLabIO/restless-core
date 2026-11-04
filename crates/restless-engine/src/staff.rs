@@ -657,7 +657,8 @@ pub async fn dispatch_claimed_work(
         // S102: a routine first Attempt starts on the everyday model, with the primary behind it
         // as failover. A repair, a review, feedback, a team lead's Work, an agent with its own
         // model or any doubt keeps the primary (S107).
-        let candidates = if config.everyday().is_some()
+        let candidates = if (config.everyday().is_some()
+            || config.native_everyday_model(config.worker_harness).is_some())
             && !crate::model_gateway::has_own_model(config, &actor)
             && claimed.attempt_no == 1
             && claimed.review_targets.is_empty()

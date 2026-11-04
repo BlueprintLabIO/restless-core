@@ -789,6 +789,12 @@ async fn run() -> Result<()> {
         }
     });
 
+    // Incoming email (ADR 0017): connect each company's Resend webhook once it has a key, and
+    // poll the Receiving API behind it so a missed delivery still arrives within minutes.
+    tokio::spawn(restless_engine::incoming_email::run(std::sync::Arc::clone(
+        &daemon,
+    )));
+
     // Finance webhooks use Airwallex's own timestamp+body HMAC and trigger a
     // direct authenticated provider read. The listener is independent of the
     // Resend/Svix rail so one provider's credential outage cannot disable the
