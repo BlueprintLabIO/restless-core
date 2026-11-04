@@ -266,16 +266,19 @@ fn plane_id() -> Option<String> {
 /// network hostname. `None` for a local-only install: nothing on the internet can call it, and
 /// incoming email arrives by polling instead.
 pub fn public_base() -> Option<String> {
+    public_base_from(|name| std::env::var(name).ok())
+}
+
+fn public_base_from(var: impl Fn(&str) -> Option<String>) -> Option<String> {
     let trimmed = |name: &str| {
-        std::env::var(name)
-            .ok()
+        var(name)
             .map(|value| value.trim().trim_end_matches('/').to_string())
             .filter(|value| !value.is_empty())
     };
     if let Some(base) = trimmed("RESTLESS_HOOKS_PUBLIC_BASE") {
         return Some(base);
     }
-    if std::env::var("RESTLESS_ENTRY_MODE").as_deref() != Ok("network") {
+    if var("RESTLESS_ENTRY_MODE").as_deref() != Some("network") {
         return None;
     }
     if let Some(origin) = trimmed("RESTLESS_PUBLIC_ORIGIN") {
@@ -939,41 +942,36 @@ mod tests {
 
     #[test]
     fn the_public_base_prefers_the_explicit_then_the_one_address_then_the_plane() {
-        // Pure on the values the function reads; set and restore in one test so no other test
-        // in this binary observes them.
-        let names = [
-            "RESTLESS_HOOKS_PUBLIC_BASE",
-            "RESTLESS_ENTRY_MODE",
-            "RESTLESS_PUBLIC_ORIGIN",
-            "RESTLESS_ENTRY_HOST",
+        let base = |vars: &[(&str, &str)]| {
+            let vars: HashMap<String, String> = vars
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect();
+            public_base_from(|name| vars.get(name).cloned())
+        };
+        assert_eq!(base(&[]), None);
+        assert_eq!(
+            base(&[("RESTLESS_ENTRY_HOST", "owner-ab.restless.run")]),
+            None
+        );
+        let plane = [
+            ("RESTLESS_ENTRY_MODE", "network"),
+            ("RESTLESS_ENTRY_HOST", "owner-ab.restless.run"),
         ];
-        let saved: Vec<_> = names.iter().map(|name| std::env::var_os(name)).collect();
-        // SAFETY: test-local variables that only `public_base` reads.
-        unsafe {
-            for name in names {
-                std::env::remove_var(name);
-            }
-            assert_eq!(public_base(), None);
-            std::env::set_var("RESTLESS_ENTRY_MODE", "network");
-            std::env::set_var("RESTLESS_ENTRY_HOST", "owner-ab.restless.run");
-            assert_eq!(
-                public_base().as_deref(),
-                Some("https://owner-ab.restless.run")
-            );
-            std::env::set_var("RESTLESS_PUBLIC_ORIGIN", "https://restless.run/");
-            assert_eq!(public_base().as_deref(), Some("https://restless.run"));
-            std::env::set_var("RESTLESS_HOOKS_PUBLIC_BASE", "https://tunnel.example.test");
-            assert_eq!(
-                public_base().as_deref(),
-                Some("https://tunnel.example.test")
-            );
-            for (name, value) in names.iter().zip(saved) {
-                match value {
-                    Some(value) => std::env::set_var(name, value),
-                    None => std::env::remove_var(name),
-                }
-            }
-        }
+        assert_eq!(
+            base(&plane).as_deref(),
+            Some("https://owner-ab.restless.run")
+        );
+        let routed = [
+            plane[0],
+            plane[1],
+            ("RESTLESS_PUBLIC_ORIGIN", "https://restless.run/"),
+        ];
+        assert_eq!(base(&routed).as_deref(), Some("https://restless.run"));
+        assert_eq!(
+            base(&[("RESTLESS_HOOKS_PUBLIC_BASE", "https://tunnel.example.test")]).as_deref(),
+            Some("https://tunnel.example.test")
+        );
         assert_eq!(
             public_url("https://restless.run", Provider::Resend, "abc"),
             "https://restless.run/hooks/resend/abc"
