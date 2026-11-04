@@ -1282,6 +1282,29 @@ impl OrgIntel {
                     .await?;
                 continue;
             }
+            // A result that open Work still requires is an intermediate step: the Work after it
+            // carries it on, and that Work's own result reaches Exec. Telling Exec now cost a
+            // whole wake to conclude "internal step, stay quiet" (the notice asked for exactly
+            // that), once per link in every chain.
+            if produced {
+                let feeds_open_work: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM work_edges e JOIN work w ON w.id = e.to_work_id \
+                     WHERE e.from_work_id = $1 AND e.kind = 'requires' \
+                       AND w.status NOT IN ('completed','abandoned'))",
+                )
+                .bind(work_id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if feeds_open_work {
+                    sqlx::query(
+                        "UPDATE work_attempts SET supervisor_notice_owed=false WHERE id=$1",
+                    )
+                    .bind(attempt_id)
+                    .execute(&mut *tx)
+                    .await?;
+                    continue;
+                }
+            }
             let accountability =
                 crate::actors::lock_work_accountability_in_tx(&mut tx, work_id).await?;
             let coordinator = if produced {
