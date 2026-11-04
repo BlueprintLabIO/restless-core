@@ -600,6 +600,16 @@ pub async fn company_runtime_working_set(company: &str) -> Result<Option<u64>> {
     }
 }
 
+/// Observe the separate company computer when it is running. Callers must first inventory
+/// running computers; a missing or unobservable container is an error, not a zero reading.
+pub async fn company_computer_working_set(company: &str) -> Result<Option<u64>> {
+    validate_company_name(company)?;
+    match workload_container_scope(&computer_container_name(company)).await? {
+        Some(path) => working_set_from_cgroup(&path).map(Some),
+        None => Ok(None),
+    }
+}
+
 pub async fn workload_admission(company: &str) -> Result<Option<WorkloadAdmission>> {
     validate_company_name(company)?;
     let Some(shared) = shared_workload_admission()? else {
