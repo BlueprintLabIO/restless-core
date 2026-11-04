@@ -5581,6 +5581,7 @@ mission = "Choose native intelligence"
                 approved_parties: Vec::new(),
                 everyday_model: None,
                 decision_model: None,
+                leads_use_everyday: None,
             },
         )
         .unwrap();
@@ -5973,6 +5974,7 @@ mission = "Choose native intelligence"
             approved_parties: Vec::new(),
             everyday_model: None,
             decision_model: None,
+            leads_use_everyday: None,
         };
         assert_eq!(
             runtime_pinned_models(&[&config]).unwrap(),
@@ -6013,6 +6015,7 @@ mission = "Choose native intelligence"
             approved_parties: Vec::new(),
             everyday_model: None,
             decision_model: None,
+            leads_use_everyday: None,
         };
         let configs = vec![
             // Primary resolves; one failover candidate does not.
@@ -6153,6 +6156,7 @@ mission = "Choose native intelligence"
             approved_parties: Vec::new(),
             everyday_model: None,
             decision_model: None,
+            leads_use_everyday: None,
         };
         let oauth = BTreeMap::from([("anthropic".into(), ProviderCredential::OmpOauth)]);
         assert!(admit(std::slice::from_ref(&config), &oauth)
@@ -7201,6 +7205,7 @@ mission = "Choose native intelligence"
             approved_parties: Vec::new(),
             everyday_model: None,
             decision_model: None,
+            leads_use_everyday: None,
         };
         let ordered = ordered_candidates(&config, Some("moonshot/kimi-k3")).unwrap();
         assert_eq!(ordered, ["moonshot/kimi-k3", "anthropic/claude-sonnet-4-5"]);
@@ -7356,6 +7361,7 @@ mission = "Choose native intelligence"
             approved_parties: Vec::new(),
             everyday_model: None,
             decision_model: None,
+            leads_use_everyday: None,
         };
         assert_eq!(
             actor_candidates(&config, Some("openai-codex/gpt-5.6-terra")).unwrap(),

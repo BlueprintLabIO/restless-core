@@ -1268,6 +1268,7 @@ mod tests {
             approved_parties: Vec::new(),
             everyday_model: None,
             decision_model: None,
+            leads_use_everyday: None,
         };
         let base_a = command(
             &container,

@@ -1497,6 +1497,10 @@ pub const TERMINATION_PROMPT: &str = "The turn is ending now. Based on everythin
 /// for it (token parity, 4 November 2026). Without a valid marker the separate ask still runs.
 pub const TURN_MARKER: &str = "<!--restless-turn:";
 
+/// The reason of a `{"decision":"escalate"}` turn end: an actor on the everyday model asked for
+/// the main model. Only the everyday model is told it may (see `lead_tier`).
+pub const ESCALATE_PREFIX: &str = "[escalate] ";
+
 /// The text without its turn markers, and the decision the last valid one held.
 pub fn take_turn_marker(text: &str) -> (String, Option<TerminationDecision>) {
     if !text.contains(TURN_MARKER) {
@@ -1685,14 +1689,22 @@ pub fn parse_termination(text: &str) -> Option<TerminationDecision> {
                     "changes_requested" => Termination::ChangesRequested,
                     "outcome_met" => Termination::OutcomeMet,
                     "abandon" => Termination::Abandon,
+                    // A lead on the everyday model asking for the main model (owner, 4 Nov). It
+                    // ends this attempt; the Runtime reruns the same turn on the main model.
+                    "escalate" => Termination::Blocked,
                     _ => continue,
                 };
                 if recognized.is_some() {
                     return None;
                 }
+                let reason = if output.decision == "escalate" {
+                    format!("{ESCALATE_PREFIX}{}", output.reason)
+                } else {
+                    output.reason
+                };
                 recognized = Some(TerminationDecision {
                     termination,
-                    reason: output.reason,
+                    reason,
                     retry_after_seconds: (termination == Termination::Continue && !waiting)
                         .then_some(CONTINUE_WAKE_DELAY_SECONDS),
                 });

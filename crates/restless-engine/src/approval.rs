@@ -950,6 +950,7 @@ mod tests {
             approved_parties: approved.iter().map(|s| (*s).to_string()).collect(),
             everyday_model: None,
             decision_model: None,
+            leads_use_everyday: None,
         }
     }
 

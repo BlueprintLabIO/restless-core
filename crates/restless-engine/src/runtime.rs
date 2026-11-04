@@ -1412,6 +1412,11 @@ pub struct CompanyConfig {
     /// the hosted relay decides in shadow when this plane has one; otherwise no decisions run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_model: Option<String>,
+    /// "Leads may use the everyday model" (owner, 4 Nov). Unset or true: a team lead's routine
+    /// turns run on the everyday model, the main model behind them (see `lead_tier`). False: every
+    /// lead turn stays on the main model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leads_use_everyday: Option<bool>,
     /// Named binding → `credential_reference`, e.g.
     /// `resend.production = "infisical:/companies/aris/RESEND_API_KEY"`.
     /// Only a governed child process that names the binding receives it.
@@ -1857,6 +1862,20 @@ impl CompanyConfig {
         }
         self.everyday_model = setting;
         Ok(())
+    }
+
+    /// Whether a team lead's routine turns may run on the everyday model (default on).
+    pub fn leads_may_use_everyday(&self) -> bool {
+        self.leads_use_everyday != Some(false)
+    }
+
+    /// The everyday model a turn on `harness` would take: on a native harness its sibling on the
+    /// same sign-in, otherwise the company's everyday model. None when every turn runs on the main.
+    pub fn everyday_for(&self, harness: AgentHarness) -> Option<String> {
+        if self.native_model(harness).is_some() {
+            return self.native_everyday_model(harness);
+        }
+        self.everyday().map(std::borrow::Cow::into_owned)
     }
 
     /// Set the decision model exactly as `company set decision_model` and an applied setting
@@ -7750,6 +7769,7 @@ worker_harness = "claude_agent"
             approved_parties: Vec::new(),
             everyday_model: None,
             decision_model: None,
+            leads_use_everyday: None,
         };
         CompanyConfig::save(&root, &config).unwrap();
 

@@ -1218,12 +1218,25 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                         // `included` is the relay's decision model, active; any other value is
                         // an OpenRouter model id.
                         "decision_model" => config.set_decision_model(value),
+                        // Owner, 4 Nov: whether team leads' routine turns may use the everyday
+                        // model. On by default; `false` keeps every lead turn on the main model.
+                        "leads_use_everyday" => match value.trim() {
+                            "true" | "on" | "" => {
+                                config.leads_use_everyday = None;
+                                Ok(())
+                            }
+                            "false" | "off" => {
+                                config.leads_use_everyday = Some(false);
+                                Ok(())
+                            }
+                            _ => Err(anyhow::anyhow!("leads_use_everyday is true or false")),
+                        },
                         _ if key.starts_with("credentials.") => {
                             config.credentials.insert(credential::canonical_binding(&key[12..]).to_string(), value.to_string());
                             Ok(())
                         }
                         _ => Err(anyhow::anyhow!(
-                            "unknown company key {key:?}; use mission, model, model_failover, everyday_model, decision_model, coordination_harness, worker_harness, reasoning_effort, spend_ceiling_usd, or credentials.<binding>"
+                            "unknown company key {key:?}; use mission, model, model_failover, everyday_model, decision_model, leads_use_everyday, coordination_harness, worker_harness, reasoning_effort, spend_ceiling_usd, or credentials.<binding>"
                         )),
                     };
                     match result.and_then(|()| runtime::CompanyConfig::save(&daemon.root, &config))
