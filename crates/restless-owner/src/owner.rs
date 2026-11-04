@@ -65,6 +65,8 @@ mod oauth_login_api;
 mod owner_integrations;
 #[path = "owner_hooks.rs"]
 mod hooks_api;
+#[path = "owner_sent_import.rs"]
+mod sent_import_api;
 #[path = "owner_vault.rs"]
 mod owner_vault;
 #[path = "owner_pending_shares.rs"]
@@ -1718,6 +1720,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/hooks/{provider}",
             post(hooks_api::endpoint_url),
+        )
+        .route(
+            "/companies/{company}/email/import-sent",
+            post(sent_import_api::import_sent),
         )
         .route(
             "/companies/{company}/integrations/email/incoming/connect",

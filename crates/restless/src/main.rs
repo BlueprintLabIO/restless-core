@@ -816,6 +816,14 @@ enum EmailCommand {
         #[arg(long = "evidence", requires = "rationale")]
         evidence: Vec<String>,
     },
+    /// Attach emails sent outside Restless (a script, Resend's dashboard) to the company by their
+    /// Resend ids, so replies to them reach Exec with what they answer. Run by the owner from a
+    /// signed-in terminal (`restless login`); each id is read back from Resend first.
+    ImportSent {
+        /// Resend email ids, as Resend returned them when each email was sent.
+        #[arg(required = true, num_args = 1..)]
+        ids: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2681,6 +2689,10 @@ fn main() -> Result<()> {
         Command::Ask { company, message } => return remote::ask(company, &message.join(" ")),
         Command::Connect { target } => return remote::connect(target.clone()),
         Command::Ssh { company } => return remote::ssh(company),
+        Command::Email {
+            company,
+            command: EmailCommand::ImportSent { ids },
+        } => return remote::import_sent(company.as_deref(), ids),
         _ => {}
     }
     // Host commands must name a coherent appliance profile before they can
@@ -3081,7 +3093,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 }));
             }
             let (cmd, request_file) = match command {
-                EmailCommand::Observe { .. } => unreachable!("handled above"),
+                EmailCommand::Observe { .. } | EmailCommand::ImportSent { .. } => {
+                    unreachable!("handled above")
+                }
                 EmailCommand::Preview { request_file } => ("email-preview", request_file),
                 EmailCommand::Send { request_file, .. } => {
                     let actor = acting_actor();

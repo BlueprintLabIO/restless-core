@@ -1157,6 +1157,7 @@ mod tests {
             );
             return;
         };
+        let _resend = crate::email::TEST_RESEND_BASE.lock().await;
         let mock = MockResend::default();
         let base = mock.serve().await;
         // SAFETY: only Resend calls read these, and nothing else in this binary sets them.
@@ -1253,11 +1254,7 @@ mod tests {
 
         // New mail after connecting: delivered whoever sent it, and once, even when the webhook
         // brings it again.
-        let new = mock.receive(
-            "new@customer.example",
-            "A question",
-            Utc::now(),
-        );
+        let new = mock.receive("new@customer.example", "A question", Utc::now());
         assert_eq!(poll(&daemon, &company).await.unwrap(), 1);
         assert_eq!(
             poll(&daemon, &company).await.unwrap(),

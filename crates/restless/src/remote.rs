@@ -538,6 +538,51 @@ pub fn ask(company: &str, message: &str) -> Result<()> {
     Ok(())
 }
 
+/// Attach emails sent outside Restless to a company, by their Resend ids, so replies to them reach
+/// Exec with what they answer. The plane reads each one back from Resend with the company's key.
+pub fn import_sent(company: Option<&str>, ids: &[String]) -> Result<()> {
+    let (_, context) = require_current()?;
+    let company =
+        company.context("name the company: restless email import-sent -c <company> <id>...")?;
+    let id = resolve_company(&context, company)?;
+    let response = client(Some(&context), Duration::from_secs(180))?
+        .post(api(
+            &context.url,
+            &format!("/api/companies/{id}/email/import-sent"),
+        )?)
+        .json(&serde_json::json!({ "ids": ids }))
+        .send()
+        .with_context(|| format!("could not reach {}", context.url))?;
+    if !response.status().is_success() {
+        return Err(failure(response, "attaching the emails"));
+    }
+    let answer: serde_json::Value = response.json().context("the plane answered oddly")?;
+    let rows = answer["imported"].as_array().cloned().unwrap_or_default();
+    let mut refused = 0;
+    for row in &rows {
+        let outcome = row["outcome"].as_str().unwrap_or("unknown");
+        if outcome == "refused" {
+            refused += 1;
+            println!(
+                "refused\t{}\t{}",
+                row["resend_id"].as_str().unwrap_or_default(),
+                row["detail"].as_str().unwrap_or_default()
+            );
+        } else {
+            println!(
+                "{outcome}\t{}\t{}\t{}",
+                row["resend_id"].as_str().unwrap_or_default(),
+                row["recipient"].as_str().unwrap_or_default(),
+                row["subject"].as_str().unwrap_or_default()
+            );
+        }
+    }
+    if refused > 0 {
+        bail!("{refused} of {} emails were not attached", rows.len());
+    }
+    Ok(())
+}
+
 /// A pairing code for this context's plane, and the plane's own connect command for it.
 pub fn pairing(label: &str) -> Result<(String, String)> {
     let (_, context) = require_current()?;
