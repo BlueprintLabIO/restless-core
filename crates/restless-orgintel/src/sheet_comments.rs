@@ -476,6 +476,7 @@ impl OrgIntel {
             || view.cell != cell
             || view.worksheet_id != worksheet_id
         {
+            tx.rollback().await?;
             return Err(SheetError::Conflict("thread id reused".into()));
         }
         view.comments = sqlx::query_as(&format!(
@@ -621,6 +622,7 @@ impl OrgIntel {
         .await?
         .rows_affected();
         if changed != 1 {
+            tx.rollback().await?;
             return Err(SheetError::Unavailable);
         }
         tx.commit().await?;

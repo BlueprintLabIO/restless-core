@@ -505,6 +505,7 @@ impl OrgIntel {
             .await?
         {
             if prior.client_payload_sha256 != payload_sha256 {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "model invocation command id was reused with different launch semantics".into(),
                 ));
@@ -673,6 +674,7 @@ impl OrgIntel {
             || prior.actor_id != admission.row.actor_id
             || prior.client_payload_sha256 != admission.row.client_payload_sha256
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "model invocation settlement permit does not match its durable admission".into(),
             ));
@@ -680,6 +682,7 @@ impl OrgIntel {
         match prior.state {
             ModelInvocationState::Settled => {
                 if prior.settlement_payload_sha256.as_deref() != Some(&payload_sha256) {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(
                         "model invocation settlement was replayed with different evidence".into(),
                     ));
@@ -691,6 +694,7 @@ impl OrgIntel {
                 });
             }
             ModelInvocationState::Expired => {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "expired model invocation admission cannot be settled".into(),
                 ));

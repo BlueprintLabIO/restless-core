@@ -39,6 +39,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !permitted {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only Exec, the producer, Work owner, commissioning lead, or the company's owner may retire this artifact"
                     .into(),
@@ -88,6 +89,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         let Some((work_id, kind, uri, retired_by, state)) = row else {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "the file is not one Work recorded".into(),
             ));
@@ -108,11 +110,13 @@ impl OrgIntel {
         .await?;
         let is_owner = |actor: &str| actor == "owner" || owners.iter().any(|owner| owner == actor);
         if !is_owner(restored_by) {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the company's owner may restore an archived file".into(),
             ));
         }
         if state != ArtifactRefState::Superseded || !retired_by.as_deref().is_some_and(is_owner) {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only a file the owner archived can be restored; Work replaced this one".into(),
             ));
@@ -127,6 +131,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if taken {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "a newer version of this file is already in the Library".into(),
             ));
@@ -200,6 +205,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !matches {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "artifact producer, Attempt and Work do not match".into(),
                 ));

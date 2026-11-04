@@ -68,6 +68,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         if current != expected {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork("Identity changed while you were editing. Reload the saved identity before trying again.".into()));
         }
         let existing = sqlx::query_as::<_, IdentityEvidenceRow>(&format!(
@@ -78,6 +79,7 @@ impl OrgIntel {
         .fetch_all(&mut *tx)
         .await?;
         if existing.len() != kept.len() {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "A statement you edited no longer exists. Reload the saved identity before trying again.".into(),
             ));
@@ -100,17 +102,20 @@ impl OrgIntel {
                             | VisualEvidenceKind::TypographyRole
                             | VisualEvidenceKind::ImageryDirection
                     ) {
+                        tx.rollback().await?;
                         return Err(OrgIntelError::InvalidWork(
                             "Visual settings are colours, typefaces or reference images.".into(),
                         ));
                     }
                     let (role, value) = (token.role.trim(), token.value.trim());
                     if role.is_empty() || value.is_empty() {
+                        tx.rollback().await?;
                         return Err(OrgIntelError::InvalidWork(
                             "Each visual setting needs a name and a value.".into(),
                         ));
                     }
                     if role.len() > 200 || value.len() > 2000 {
+                        tx.rollback().await?;
                         return Err(OrgIntelError::InvalidWork(
                             "A visual setting is too long.".into(),
                         ));
@@ -128,6 +133,7 @@ impl OrgIntel {
                 (text, _) => text,
             };
             if text.len() > 16000 {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "Each identity statement must be at most 16,000 bytes.".into(),
                 ));
@@ -239,6 +245,7 @@ impl OrgIntel {
             ids.push(id);
         }
         if ids.is_empty() {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "Add at least one identity statement before saving.".into(),
             ));
@@ -342,6 +349,7 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
         if present != evidence_ids.len() as i64 {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "company identity proposal cites missing evidence".into(),
             ));
@@ -403,6 +411,7 @@ impl OrgIntel {
         .await?
         .ok_or_else(|| OrgIntelError::InvalidWork("company identity proposal not found".into()))?;
         if proposal.get::<IdentityProposalState, _>("state") != IdentityProposalState::Pending {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "company identity proposal is already decided".into(),
             ));
@@ -414,6 +423,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         if current != expected {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "company identity proposal is stale against the effective release".into(),
             ));
@@ -435,6 +445,7 @@ impl OrgIntel {
                 .map(|row| row.get::<String, _>("claim_key"))
                 .collect::<Vec<_>>()
                 .join(", ");
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "company identity has unresolved truth conflicts: {keys}"
             )));
@@ -450,6 +461,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if expired_exception {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "company identity proposal contains an expired exception".into(),
             ));
