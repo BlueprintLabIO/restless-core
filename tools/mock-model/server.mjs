@@ -157,12 +157,30 @@ const tokens = (text) => Math.ceil(String(text ?? '').length / 4);
  * (5 minutes, or 1 hour for `ttl: "1h"`), reads it from cache; the rest of the prefix up to the
  * last breakpoint is written. Totals are served at GET /stats and reset by DELETE /stats. */
 const cache = new Map(); // prefix hash -> expiry (ms)
-const stats = { calls: 0, input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 0 };
+const freshStats = () => ({
+	calls: 0,
+	input_tokens: 0,
+	cache_read_input_tokens: 0,
+	cache_creation_input_tokens: 0,
+	cache_creation_1h_input_tokens: 0,
+	output_tokens: 0,
+	request_bytes: 0,
+	by_model: {},
+	ttl_breakpoints: {}
+});
+let stats = freshStats();
+/* A Claude sign-in request (OMP's gateway in Claude Code mode) opens its system prompt with an
+ * `x-anthropic-billing-header:` block whose attestation differs per request. Anthropic does not let
+ * it break the prompt cache (Claude Code's own caching depends on that), so it is left out here. */
+const BILLING_HEADER = 'x-anthropic-billing-header:';
 function prefixBlocks(body) {
 	const blocks = [];
 	for (const tool of body.tools ?? []) blocks.push(tool);
 	const system = typeof body.system === 'string' ? [{ type: 'text', text: body.system }] : (body.system ?? []);
-	for (const block of system) blocks.push(block);
+	for (const block of system) {
+		if (typeof block.text === 'string' && block.text.startsWith(BILLING_HEADER)) continue;
+		blocks.push(block);
+	}
 	for (const message of body.messages ?? []) {
 		const content = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : (message.content ?? []);
 		content.forEach((block, index) => blocks.push(index === 0 ? { role: message.role, ...block } : block));
@@ -178,6 +196,11 @@ function account(body) {
 	let total = 0;
 	let read = 0;
 	let lastBreak = 0;
+	let longBreak = 0; // the prefix written under the last one-hour breakpoint
+	const ttls = [];
+	/* Writes land when the request completes: a later breakpoint in the same request does not read
+	 * what an earlier one is writing (the first request of a session reads nothing). */
+	const writes = [];
 	for (const block of prefixBlocks(body)) {
 		const { cache_control: control, ...plain } = block;
 		const text = JSON.stringify(plain);
@@ -192,19 +215,47 @@ function account(body) {
 			}
 		}
 		const ttl = control.ttl === '1h' ? 3_600_000 : 300_000;
-		const key = boundaries.at(-1).key;
-		cache.set(key, Math.max(cache.get(key) ?? 0, now + ttl));
+		ttls.push(control.ttl ?? '5m');
+		if (control.ttl === '1h') longBreak = total;
+		writes.push([boundaries.at(-1).key, now + ttl]);
 		lastBreak = total;
 	}
+	for (const [key, until] of writes) cache.set(key, Math.max(cache.get(key) ?? 0, until));
 	const written = Math.max(0, lastBreak - read);
-	return { input_tokens: total - read - written, cache_read_input_tokens: read, cache_creation_input_tokens: written };
+	return {
+		input_tokens: total - read - written,
+		cache_read_input_tokens: read,
+		cache_creation_input_tokens: written,
+		cache_creation: {
+			ephemeral_1h_input_tokens: Math.max(0, longBreak - read),
+			ephemeral_5m_input_tokens: written - Math.max(0, longBreak - read)
+		},
+		ttls
+	};
 }
-function record(input, outputTokens) {
+function record(input, outputTokens, body, bytes) {
 	stats.calls += 1;
 	stats.input_tokens += input.input_tokens;
 	stats.cache_read_input_tokens += input.cache_read_input_tokens;
 	stats.cache_creation_input_tokens += input.cache_creation_input_tokens;
+	stats.cache_creation_1h_input_tokens += input.cache_creation.ephemeral_1h_input_tokens;
 	stats.output_tokens += outputTokens;
+	stats.request_bytes += bytes;
+	const model = body.model ?? 'unknown';
+	stats.by_model[model] = (stats.by_model[model] ?? 0) + 1;
+	for (const ttl of input.ttls) stats.ttl_breakpoints[ttl] = (stats.ttl_breakpoints[ttl] ?? 0) + 1;
+}
+/* The usage a response reports: Anthropic's fields, without the mock's own bookkeeping. */
+const usageOf = ({ ttls: _ttls, ...usage }) => usage;
+/* A sign-in request may carry a tool under a prefixed wire name (OMP's Claude Code mode); answer
+ * with the name the request declared, so the caller maps it back. */
+function wireToolName(body, name) {
+	const names = (body.tools ?? []).map((tool) => tool.name).filter(Boolean);
+	if (names.includes(name)) return name;
+	return (
+		names.find((candidate) => candidate.replace(/^_+/, '').toLowerCase() === name.toLowerCase()) ??
+		name
+	);
 }
 const outputOf = (step) => (step.tool ? tokens(JSON.stringify(step.tool)) : Math.max(1, tokens(step.text ?? '')));
 
@@ -219,7 +270,7 @@ async function stream(response, model, step, input) {
 	const delay = step.delay_ms ?? 20;
 	send('message_start', {
 		type: 'message_start',
-		message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, usage: { ...input, output_tokens: 0 } }
+		message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, usage: { ...usageOf(input), output_tokens: 0 } }
 	});
 	if (step.tool) {
 		const input = JSON.stringify(step.tool.input ?? {});
@@ -261,7 +312,7 @@ function whole(response, model, step, input) {
 		content,
 		stop_reason: step.tool ? 'tool_use' : 'end_turn',
 		stop_sequence: null,
-		usage: { ...input, output_tokens: outputOf(step) }
+		usage: { ...usageOf(input), output_tokens: outputOf(step) }
 	});
 }
 
@@ -281,13 +332,14 @@ const server = createServer(async (request, response) => {
 		? createHash('sha256').update(String(credential)).digest('hex').slice(0, 8)
 		: null;
 	if (url.pathname === '/stats') {
-		if (request.method === 'DELETE') for (const name of Object.keys(stats)) stats[name] = 0;
+		if (request.method === 'DELETE') stats = freshStats();
 		return json(response, 200, stats);
 	}
 	const isCall = request.method === 'POST' && url.pathname.endsWith('/messages');
-	const step = isCall ? chooseStep(body).step : null;
+	let step = isCall ? chooseStep(body).step : null;
+	if (step?.tool) step = { ...step, tool: { ...step.tool, name: wireToolName(body, step.tool.name) } };
 	const input = isCall ? account(body) : null;
-	if (isCall && !step.error) record(input, outputOf(step));
+	if (isCall && !step.error) record(input, outputOf(step), body, Buffer.byteLength(raw));
 	if (log)
 		appendFileSync(
 			log,

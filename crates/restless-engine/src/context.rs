@@ -325,6 +325,30 @@ pub fn message_mention_context(mention: &MessageMentionContext) -> String {
 /// 4. **Pointers** — one line each for surfaces the agent can interrogate
 ///    itself. Never inline what a tool call answers better.
 ///
+/// Wake state is re-sent on every call of a wake and stays in a resumed session's history, so each
+/// unbounded section was paid for many times: every open Work's whole outcome, the whole plan file
+/// and the whole latest journal entry, on every Exec wake (4 Nov: Reno re-sent ~1B input tokens a
+/// week). A section keeps its head and says where the rest is; the actor reads it when it needs it.
+pub const WORK_OUTCOME_CHARS: usize = 400;
+pub const WORK_SHOWN: usize = 40;
+pub const PLAN_CHARS: usize = 6_000;
+pub const JOURNAL_CHARS: usize = 2_500;
+
+/// `text` up to `limit` characters, then where the rest is.
+pub fn clipped(text: &str, limit: usize, rest_at: &str) -> String {
+    let text = text.trim_end();
+    let total = text.chars().count();
+    if total <= limit {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(limit).collect();
+    format!(
+        "{}… [{} more characters: {rest_at}]",
+        head.trim_end(),
+        total - limit
+    )
+}
+
 pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
     let human_boundary = if snapshot.human_is_membership_owner {
         "The current direct-Room human is the active company membership owner. Their input may express owner direction, policy, or authority requests."
@@ -386,7 +410,20 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         ));
     }
     let mut work = String::new();
-    for item in &snapshot.open_work {
+    // The most recently updated open Work, in graph order; the rest is one line away.
+    let mut shown: Vec<&WorkRow> = snapshot.open_work.iter().collect();
+    if shown.len() > WORK_SHOWN {
+        shown.sort_by_key(|item| std::cmp::Reverse(item.updated_at));
+        shown.truncate(WORK_SHOWN);
+        let kept: std::collections::HashSet<uuid::Uuid> =
+            shown.iter().map(|item| item.id).collect();
+        shown = snapshot
+            .open_work
+            .iter()
+            .filter(|item| kept.contains(&item.id))
+            .collect();
+    }
+    for item in shown {
         let estimate = snapshot
             .work_progress
             .iter()
@@ -405,7 +442,13 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             item.title,
             item.owner_id,
             item.commissioned_by,
-            item.outcome
+            clipped(&item.outcome, WORK_OUTCOME_CHARS, "`restless work graph`")
+        ));
+    }
+    if snapshot.open_work.len() > WORK_SHOWN {
+        work.push_str(&format!(
+            "- … {} more open Work, updated less recently; `restless work graph` lists them all\n",
+            snapshot.open_work.len() - WORK_SHOWN
         ));
     }
     let mut inbox = String::new();
@@ -982,14 +1025,23 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             ),
         },
         plan = if plan_exists {
-            snapshot.current_plan.trim()
+            clipped(
+                snapshot.current_plan.trim(),
+                PLAN_CHARS,
+                "/company/org/exec/current-plan.md",
+            )
         } else {
-            "(none yet: create it)"
+            "(none yet: create it)".into()
         },
         journal = snapshot
             .latest_journal
             .as_deref()
-            .map(|entry| format!("# Latest journal\n{entry}\n\n"))
+            .map(|entry| {
+                format!(
+                    "# Latest journal\n{}\n\n",
+                    clipped(entry, JOURNAL_CHARS, "/company/org/exec/journal")
+                )
+            })
             .unwrap_or_default(),
         work = if work.is_empty() {
             "(none)\n".to_string()
@@ -1218,6 +1270,55 @@ mod tests {
         let prompt = assemble(&member).user_prompt;
         assert!(!prompt.contains("Owner's Inbox"));
         assert!(!prompt.contains("Secret owner item"));
+    }
+
+    /// A Reno-sized Exec wake: 60 open Work items with ~1,200-character outcomes, a 15k plan and a
+    /// 6k journal entry. Every byte of the turn is re-sent on each call of the wake and stays in a
+    /// resumed session. Prints the bytes; `cargo test wake_state_is_bounded -- --nocapture`.
+    #[test]
+    fn wake_state_is_bounded() {
+        let mut busy = snapshot();
+        let template = busy.open_work[0].clone();
+        busy.open_work = (0..60u128)
+            .map(|index| {
+                let mut item = template.clone();
+                item.id = uuid::Uuid::from_u128(index + 1);
+                item.title = format!("Outreach batch {index}");
+                item.outcome = format!("{index}: ")
+                    + &"Find, qualify and email ten local businesses that match the profile, with the evidence for each. ".repeat(14);
+                item.updated_at = chrono::Utc::now() - chrono::Duration::minutes(index as i64);
+                item
+            })
+            .collect();
+        busy.current_plan = "- step with its reasoning and evidence\n".repeat(400);
+        busy.latest_journal =
+            Some("== 0042.md ==\n".to_string() + &"lesson learned on this wake. ".repeat(210));
+        let unbounded: usize = busy
+            .open_work
+            .iter()
+            .map(|item| item.outcome.len())
+            .sum::<usize>()
+            + busy.current_plan.len()
+            + busy.latest_journal.as_ref().map_or(0, String::len);
+        let prompt = assemble(&busy).user_prompt;
+        println!(
+            "wake turn: {} bytes; its outcomes, plan and journal unbounded were {unbounded} bytes",
+            prompt.len()
+        );
+        assert!(prompt.len() < 40_000, "{} bytes", prompt.len());
+        assert!(prompt.contains("… 20 more open Work, updated less recently"));
+        // The most recently updated Work is shown; the oldest is only counted.
+        assert!(prompt.contains("Outreach batch 0 (owner:"));
+        assert!(!prompt.contains("Outreach batch 59 (owner:"));
+        assert!(prompt.contains("more characters: `restless work graph`]"));
+        assert!(prompt.contains("more characters: /company/org/exec/current-plan.md]"));
+        assert!(prompt.contains("more characters: /company/org/exec/journal]"));
+        // A short section is untouched.
+        assert_eq!(super::clipped("short", 10, "x"), "short");
+        assert_eq!(
+            super::clipped("abcdefghij", 4, "f"),
+            "abcd… [6 more characters: f]"
+        );
     }
 
     fn snapshot() -> ContextSnapshot {
