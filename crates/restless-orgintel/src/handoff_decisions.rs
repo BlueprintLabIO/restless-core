@@ -109,6 +109,7 @@ impl OrgIntel {
         .await?
         {
             if !same_request(&saved, principal, expected, decision) {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "This decision ID already names a different request.".into(),
                 ));
@@ -145,17 +146,20 @@ impl OrgIntel {
                         || accountability.responsible_actor_id.as_deref() == Some(assigned))
             });
         if !owns {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "This request is waiting on someone else.".into(),
             ));
         }
         if handoff_version_in_tx(&mut tx, &row, accountability.revision).await? != *expected {
+            tx.rollback().await?;
             return Err(OrgIntelError::ReviewChanged);
         }
         match decision {
             HandoffDecision::CompleteHumanStep
                 if row.category == OwnerHandoffCategory::OwnerJudgement =>
             {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "Use this review's decision rather than Mark done.".into(),
                 ));
@@ -166,6 +170,7 @@ impl OrgIntel {
                     .as_ref()
                     .is_some_and(|brief| brief.kind == OwnerBriefKind::OutcomeReview) =>
             {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "Use the review actions for this prepared outcome.".into(),
                 ));
@@ -174,6 +179,7 @@ impl OrgIntel {
                 let running: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work_attempts WHERE work_id=$1 AND state='running')")
                     .bind(work_id).fetch_one(&mut *tx).await?;
                 if running {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(
                         "The outcome is still being prepared.".into(),
                     ));
@@ -186,6 +192,7 @@ impl OrgIntel {
                         .is_some_and(|brief| brief.kind == OwnerBriefKind::OutcomeReview)
                     || expected.artifact_id.is_none()
                 {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(
                         "Open a current review with its prepared preview before accepting.".into(),
                     ));
@@ -199,6 +206,7 @@ impl OrgIntel {
             "SELECT * FROM owner_handoff_decisions WHERE id=COALESCE((SELECT decision_id FROM owner_handoff_decision_requests WHERE id=$1),$1) OR (handoff_id=$2 AND state='pending') ORDER BY created_at LIMIT 1",
         ).bind(id).bind(handoff_id).fetch_optional(&mut *tx).await? {
             if !same_request(&saved, principal, expected, decision) {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork("Another decision is already waiting for Undo.".into()));
             }
             remember_request(&mut tx, id, saved.id).await?;
@@ -234,6 +242,7 @@ impl OrgIntel {
         .await?
         .ok_or_else(|| OrgIntelError::InvalidWork("This decision was not found.".into()))?;
         if saved.principal != *principal {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "This decision belongs to someone else or an older membership.".into(),
             ));
@@ -432,6 +441,7 @@ impl OrgIntel {
         .ok_or_else(|| OrgIntelError::InvalidWork("This decision was not found.".into()))?;
         check_decision_principal_in_tx(&mut tx, principal).await?;
         if !saved.principal.same_person(principal) || saved.state == "pending" {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "This result is not yours to acknowledge.".into(),
             ));

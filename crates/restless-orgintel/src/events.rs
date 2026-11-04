@@ -192,6 +192,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
         if through_event_id > current_cursor {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidEventCursor(format!(
                 "compaction cursor {through_event_id} is newer than stream cursor {current_cursor}"
             )));

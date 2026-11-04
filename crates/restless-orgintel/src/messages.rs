@@ -237,6 +237,7 @@ impl OrgIntel {
                 if prior_digest != payload_sha256
                     || prior_recipient.as_deref() != expected_recipient
                 {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::RoomCommandConflict(
                         "the cognitive-session finalization key was reused with different semantics"
                             .into(),
@@ -271,11 +272,13 @@ impl OrgIntel {
                 .iter()
                 .any(|(role, status)| role == "owner" && status == "active");
         if !recipient_is_active {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomAccessDenied(
                 "the human reply audience no longer has active company access".into(),
             ));
         }
         if recipient_is_membership_owner != expected_membership_owner {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomAccessDenied(
                 "the human reply audience's membership-owner role changed during the turn".into(),
             ));
@@ -299,6 +302,7 @@ impl OrgIntel {
                 accountability.lead_actor_id.as_deref(),
                 &lease.actor_id,
             ) {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(format!(
                     "Work {work_id} belongs to {:?}; its accountable lead is {:?}, not replying actor {:?}",
                     accountability.owner_id, accountability.lead_actor_id, lease.actor_id
@@ -334,6 +338,7 @@ impl OrgIntel {
             .fetch_all(&mut *tx)
             .await?;
             if still_owed != sorted_messages {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomCommandConflict(
                     "the cognitive-session inputs are no longer all owed to this Actor".into(),
                 ));
@@ -347,11 +352,13 @@ impl OrgIntel {
             .fetch_all(&mut *tx)
             .await?;
             if owner_reply.is_none() && !human_senders.is_empty() {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomCommandConflict(
                     "a human message cannot be consumed by a quiet background decision".into(),
                 ));
             }
             if human_senders.iter().any(|sender| sender != reply_to_actor) {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomCommandConflict(
                     "a cognitive reply cannot consume another human's direct-Room input".into(),
                 ));
@@ -402,6 +409,7 @@ impl OrgIntel {
                             }
                     });
             if !all_handled_by_this_turn {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomCommandConflict(
                     "the cognitive-session handoffs were not all handled by this exact Actor turn"
                         .into(),
@@ -440,6 +448,7 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
                 if prior_digest != payload_sha256 {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::RoomCommandConflict(
                         "the cognitive-session finalization key was reused with different semantics"
                             .into(),
@@ -808,6 +817,7 @@ impl OrgIntel {
             .await?
         {
             if prior_digest != client_payload_sha256 {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomCommandConflict(format!(
                     "conversation command {client_command_id:?} was already used with different semantics"
                 )));
@@ -844,6 +854,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !sender_is_human {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomAccessDenied(
                 "the authenticated sender is not an active human Actor".into(),
             ));
@@ -894,6 +905,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if prior_digest != client_payload_sha256 {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomCommandConflict(format!(
                     "conversation command {client_command_id:?} was concurrently used with different semantics"
                 )));
@@ -1275,6 +1287,7 @@ impl OrgIntel {
         if retained_files.saturating_add(attachments.len() as i64) > max_retained_files
             || retained_bytes.saturating_add(incoming_bytes) > max_retained_bytes
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "retained attachment storage is full; remove retained company evidence before uploading more"
                     .into(),
@@ -1283,6 +1296,7 @@ impl OrgIntel {
         if staged_files.saturating_add(attachments.len() as i64) > max_staged_files
             || staged_bytes.saturating_add(incoming_bytes) > max_staged_bytes
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "attachment staging is full; retry the same command after prior delivery receipts settle"
                     .into(),
@@ -1291,6 +1305,7 @@ impl OrgIntel {
         if principal_files.saturating_add(attachments.len() as i64) > max_principal_retained_files
             || principal_bytes.saturating_add(incoming_bytes) > max_principal_retained_bytes
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "this principal's retained attachment quota is full".into(),
             ));
@@ -1366,6 +1381,7 @@ impl OrgIntel {
         .await?
         .rows_affected();
         if kept != attachment_ids.len() as u64 {
+            tx.rollback().await?;
             return Err(OrgIntelError::RoomCommandConflict(
                 "attachment staging changed before the files were kept".into(),
             ));
@@ -1431,6 +1447,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         let Some((purge_requested, _)) = state else {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidRoom(
                 "the retained attachment does not exist".into(),
             ));
@@ -1821,6 +1838,7 @@ impl OrgIntel {
             .await?
             {
                 if prior_digest != client_payload_sha256 {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::RoomCommandConflict(format!(
                         "conversation command {:?} was already used with different semantics",
                         client_command_id.trim()
@@ -1837,6 +1855,7 @@ impl OrgIntel {
         let owner: String = work.get("owner_id");
         let status: WorkStatus = work.get("status");
         if matches!(status, WorkStatus::Completed | WorkStatus::Abandoned) {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "settled Work cannot accept new linked conversation input".into(),
             ));
@@ -1872,6 +1891,7 @@ impl OrgIntel {
             .map(|(actor_id, _)| actor_id)
             .ne(required_actors.iter())
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "Work conversation target is no longer an active Actor".into(),
             ));
@@ -1881,6 +1901,7 @@ impl OrgIntel {
             .find(|(actor_id, _)| actor_id == &owner)
             .and_then(|(_, team_id)| *team_id);
         if locked_owner_team != owner_team_id {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "Work owner responsibility changed while conversation admission was being checked"
                     .into(),
@@ -1889,6 +1910,7 @@ impl OrgIntel {
         // Exec discusses portfolio decisions without becoming the Work's producer.
         // Actor liveness and any exact pending handoff are still checked under the same locks.
         if !work_conversation_actor(&owner, accountable_lead.as_deref(), to) {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "Work {work_id} belongs to {owner:?}; its accountable lead is {:?}, not message recipient {to:?}",
                 accountable_lead
@@ -1927,6 +1949,7 @@ impl OrgIntel {
                     .as_ref()
                     != Some(expected_handoff)
             {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "the expected Attention handoff changed, was resolved, or is no longer pending for this Actor"
                         .into(),
@@ -1945,6 +1968,7 @@ impl OrgIntel {
             )
             .await?;
         } else if !attachment_ids.is_empty() {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "owner attachment staging requires an idempotent conversation command".into(),
             ));
@@ -1997,6 +2021,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if prior_digest != idempotency.expect("idempotency exists").1 {
+                tx.rollback().await?;
                 return Err(OrgIntelError::RoomCommandConflict(
                     "conversation command was concurrently used with different semantics".into(),
                 ));
@@ -2289,6 +2314,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         if !work_conversation_actor(&owner, accountable_lead.as_deref(), from) {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "Work {work_id} belongs to {owner:?}; its accountable lead is {:?}, not replying actor {from:?}",
                 accountable_lead
@@ -3041,6 +3067,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !theirs {
+                tx.rollback().await?;
                 return Ok(ConversationStop::NotTheirs);
             }
             tx.commit().await?;

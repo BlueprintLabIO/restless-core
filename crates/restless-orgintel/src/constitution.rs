@@ -244,6 +244,7 @@ impl OrgIntel {
             && row.native_evidence == *input.native_evidence
             && row.constitution_digest == input.constitution_digest.trim();
         if !same_binding {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "accepted artifact identity binding is immutable; create a new artifact version"
                     .into(),
@@ -258,6 +259,7 @@ impl OrgIntel {
         .into_iter()
         .collect::<BTreeSet<_>>();
         if !inserted && existing != requested {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "accepted artifact identity dependencies are immutable; create a new artifact version"
                     .into(),

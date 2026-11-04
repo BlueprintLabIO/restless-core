@@ -305,6 +305,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         if bound != Some((expected.company_id, expected.cell_id)) {
+            tx.rollback().await?;
             return Err(OrgIntelError::CompanyAccessMismatch(
                 "Runtime activity coordinates differ from the immutable company/cell binding"
                     .into(),
@@ -378,6 +379,7 @@ impl OrgIntel {
             Some((company_id, cell_id))
                 if company_id == expected.company_id && cell_id == expected.cell_id => {}
             Some(_) => {
+                tx.rollback().await?;
                 return Err(OrgIntelError::CompanyAccessMismatch(
                     "hosted bootstrap coordinates differ from the immutable company/cell binding"
                         .into(),
@@ -475,11 +477,13 @@ impl OrgIntel {
             Some((company_id, cell_id))
                 if company_id == context.company_id && cell_id == context.cell_id => {}
             Some(_) => {
+                tx.rollback().await?;
                 return Err(OrgIntelError::CompanyAccessMismatch(
                     "signed company/cell coordinates differ from the immutable binding".into(),
                 ));
             }
             None => {
+                tx.rollback().await?;
                 return Err(OrgIntelError::CompanyAccessMismatch(
                     "company has not been bound by hosted bootstrap".into(),
                 ));
@@ -517,11 +521,13 @@ impl OrgIntel {
         .await?;
         if let Some((denied_subject, denied_version)) = denial {
             if denied_subject != context.subject {
+                tx.rollback().await?;
                 return Err(OrgIntelError::PrincipalBindingConflict(
                     "membership denial belongs to another human principal".into(),
                 ));
             }
             if context.membership_version <= denied_version {
+                tx.rollback().await?;
                 return Err(OrgIntelError::CompanyAccessMismatch(
                     "entry assertion is not newer than the terminal membership control".into(),
                 ));
@@ -616,6 +622,7 @@ impl OrgIntel {
                     && (context.membership_role != prior_membership_role
                         || prior_membership_status != "active"))
             {
+                tx.rollback().await?;
                 return Err(OrgIntelError::CompanyAccessMismatch(
                     "entry assertion carries stale or conflicting membership state".into(),
                 ));
@@ -642,11 +649,15 @@ impl OrgIntel {
                         .as_database_error()
                         .is_some_and(|db| db.is_unique_violation()) =>
                 {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::PrincipalBindingConflict(
                         "membership is already bound to another human principal".into(),
                     ));
                 }
-                Err(error) => return Err(error.into()),
+                Err(error) => {
+                    tx.rollback().await?;
+                    return Err(error.into());
+                }
             }
         } else {
             // The company's first network owner is the owner it already has:
@@ -724,11 +735,15 @@ impl OrgIntel {
                         .as_database_error()
                         .is_some_and(|db| db.is_unique_violation()) =>
                 {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::PrincipalBindingConflict(
                         "membership is already bound to another human principal".into(),
                     ));
                 }
-                Err(error) => return Err(error.into()),
+                Err(error) => {
+                    tx.rollback().await?;
+                    return Err(error.into());
+                }
             }
         };
 
@@ -758,6 +773,7 @@ impl OrgIntel {
         .execute(&mut *tx)
         .await?;
         if consumed.rows_affected() != 1 {
+            tx.rollback().await?;
             return Err(OrgIntelError::ReplayedEntry);
         }
 
@@ -866,6 +882,7 @@ impl OrgIntel {
         .await?;
         if let Some(prior_receipt) = prior_receipt {
             if prior_receipt.claim_fingerprint != fingerprint {
+                tx.rollback().await?;
                 return Err(OrgIntelError::PrincipalBindingConflict(
                     "membership control jti was reused with different signed claims".into(),
                 ));
@@ -885,11 +902,13 @@ impl OrgIntel {
             Some((company_id, cell_id))
                 if company_id == context.company_id && cell_id == context.cell_id => {}
             Some(_) => {
+                tx.rollback().await?;
                 return Err(OrgIntelError::CompanyAccessMismatch(
                     "signed company/cell coordinates differ from the immutable binding".into(),
                 ));
             }
             None => {
+                tx.rollback().await?;
                 return Err(OrgIntelError::CompanyAccessMismatch(
                     "company has not been bound by hosted bootstrap".into(),
                 ));
@@ -926,6 +945,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         if binding.is_some() && denial.is_some() {
+            tx.rollback().await?;
             return Err(OrgIntelError::PrincipalBindingConflict(
                 "membership has both an Actor binding and an unseen-member denial".into(),
             ));
@@ -938,6 +958,7 @@ impl OrgIntel {
         let (outcome, observed_status, observed_version) = match binding {
             Some((subject, role, version, status)) => {
                 if subject != context.subject {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::PrincipalBindingConflict(
                         "membership is already bound to another human principal".into(),
                     ));
@@ -947,6 +968,7 @@ impl OrgIntel {
                     (MembershipControlOutcome::Superseded, status, version)
                 } else if version == context.membership_version {
                     if role != context.membership_role || status != requested_status {
+                        tx.rollback().await?;
                         return Err(OrgIntelError::CompanyAccessMismatch(
                             "membership control conflicts with state at the same version".into(),
                         ));
@@ -985,6 +1007,7 @@ impl OrgIntel {
             None => match denial {
                 Some((subject, role, version, status)) => {
                     if subject != context.subject {
+                        tx.rollback().await?;
                         return Err(OrgIntelError::PrincipalBindingConflict(
                             "membership denial belongs to another human principal".into(),
                         ));
@@ -994,6 +1017,7 @@ impl OrgIntel {
                         (MembershipControlOutcome::Superseded, status, version)
                     } else if version == context.membership_version {
                         if role != context.membership_role || status != requested_status {
+                            tx.rollback().await?;
                             return Err(OrgIntelError::CompanyAccessMismatch(
                                 "membership control conflicts with denial at the same version"
                                     .into(),
