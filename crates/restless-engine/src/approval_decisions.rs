@@ -2008,6 +2008,7 @@ mod tests {
             Some(asked.clone()),
             "To open release PRs.",
             "baloo",
+            None,
         )
         .await
         .unwrap();
@@ -2045,6 +2046,7 @@ mod tests {
             None,
             "Any GitHub",
             "baloo",
+            None,
         )
         .await
         .unwrap();

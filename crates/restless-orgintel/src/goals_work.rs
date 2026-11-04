@@ -1212,6 +1212,17 @@ impl OrgIntel {
         .await?)
     }
 
+    /// The Work this actor is running an Attempt for right now, if any.
+    pub async fn running_work_for_actor(&self, actor: &str) -> Result<Option<Uuid>> {
+        Ok(sqlx::query_scalar(
+            "SELECT work_id FROM work_attempts WHERE actor_id=$1 AND state='running' \
+             ORDER BY started_at DESC, id LIMIT 1",
+        )
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
     /// Move an unsettled responsibility to another durable actor. This is
     /// ordinary recoverable coordination: owner/Exec may repair any assignment,
     /// while a lead may only move Work between members of the team it leads.

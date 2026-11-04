@@ -1780,6 +1780,110 @@ const EFFECT_UNKNOWN_AFTER_MINUTES: i64 = 10;
 /// A call the owner allowed, or a payment the owner approved, that then failed or whose outcome
 /// is unknown. One item each, with the Work it served; it clears when a later run succeeds or the
 /// owner sets it aside.
+/// An account request's card title, which its decision history row keeps.
+fn account_request_title(
+    request: &crate::account_broker::AccountRequest,
+    who: &str,
+    site: Option<&str>,
+) -> String {
+    match (request.account_id.as_deref(), request.kind.as_deref()) {
+        (None, Some("website_login" | "browser_profile")) => {
+            format!(
+                "{who} asks you to sign in to {}",
+                site.unwrap_or("a website")
+            )
+        }
+        (account, kind) => format!(
+            "{who} asks for {}",
+            match (account, kind) {
+                (Some(_), _) => "more on an account",
+                (None, Some("api")) => "an API key",
+                (None, Some("github")) => "a GitHub account",
+                (None, Some("mcp_tool")) => "a tool connection",
+                (None, Some("ai_provider")) => "an AI account",
+                _ => "an account",
+            }
+        ),
+    }
+}
+
+/// Account requests that ended: answered by the owner, withdrawn because the Work that asked
+/// ended, or expired unanswered. Each keeps its card's id, so an old link says what happened.
+fn account_request_decisions(
+    requests: &[crate::account_broker::AccountRequest],
+    actors: &HashMap<String, AttentionActorRef>,
+) -> Vec<DecisionContinuation> {
+    requests
+        .iter()
+        .filter_map(|request| {
+            let observed_at = request.decided_at?;
+            let actor = actors.get(&request.requested_by).cloned();
+            let who = actor
+                .as_ref()
+                .map(|actor| actor.display.clone())
+                .unwrap_or_else(|| unnamed_actor(&request.requested_by));
+            let site =
+                crate::account_broker::requested_site(request).filter(|site| !site.contains(' '));
+            let (outcome, unlocked, current) = match request.state.as_str() {
+                "approved" => (
+                    DecisionOutcome::Approved,
+                    "The company can use it now.".to_string(),
+                    String::new(),
+                ),
+                "denied" => (
+                    DecisionOutcome::Declined,
+                    "Nothing was granted.".to_string(),
+                    String::new(),
+                ),
+                "withdrawn" => (
+                    DecisionOutcome::Withdrawn,
+                    String::new(),
+                    request.resolution.clone().unwrap_or_default(),
+                ),
+                "expired" => (
+                    DecisionOutcome::Expired,
+                    String::new(),
+                    format!(
+                        "{} The company asks again if it still needs it.",
+                        request.resolution.as_deref().unwrap_or_default()
+                    )
+                    .trim()
+                    .to_string(),
+                ),
+                _ => return None,
+            };
+            let answered = matches!(
+                outcome,
+                DecisionOutcome::Approved | DecisionOutcome::Declined
+            );
+            let line = handoff_outcome_line(&HandoffOutcome {
+                outcome,
+                by_owner: answered,
+                via_chat: false,
+                decided_by: None,
+            });
+            Some(DecisionContinuation {
+                id: format!("authority:account_request:{}", request.id),
+                work_id: request.work_id,
+                title: account_request_title(request, &who, site),
+                recorded_decision: line.into(),
+                what_it_unlocked: unlocked,
+                current_state: current,
+                observed_outcome: String::new(),
+                responsible_actor: actor,
+                observed_at,
+                item_id: Some(format!("authority:account_request:{}", request.id)),
+                decided_by: None,
+                outcome,
+                by_owner: answered,
+                via_chat: false,
+                replacement_item_id: None,
+                details: String::new(),
+            })
+        })
+        .collect()
+}
+
 /// The owner's accounts as this company used them (S98-10) and asked for them (S98-08): one item
 /// per open notice, with Fine and Freeze, and one per open request, with Approve and Deny.
 async fn account_items(
@@ -1968,25 +2072,7 @@ async fn account_items(
             format!("authority:account_request:{}", request.id),
             "account_request",
             request.id.clone(),
-            match (request.account_id.as_deref(), request.kind.as_deref()) {
-                (None, Some("website_login" | "browser_profile")) => {
-                    format!(
-                        "{who} asks you to sign in to {}",
-                        site.unwrap_or("a website")
-                    )
-                }
-                (account, kind) => format!(
-                    "{who} asks for {}",
-                    match (account, kind) {
-                        (Some(_), _) => "more on an account",
-                        (None, Some("api")) => "an API key",
-                        (None, Some("github")) => "a GitHub account",
-                        (None, Some("mcp_tool")) => "a tool connection",
-                        (None, Some("ai_provider")) => "an AI account",
-                        _ => "an account",
-                    }
-                ),
-            },
+            account_request_title(&request, &who, site),
             request.created_at,
         );
         item.what_happened =
@@ -4881,6 +4967,13 @@ async fn project_queue(
         Ok(outcomes) => items.extend(outcomes),
         Err(error) => tracing::warn!(%error, "outside-action outcomes unavailable"),
     }
+    // An account request whose asker's Work ended, or that nobody answered for a week, ends here
+    // with its reason before the Inbox is read: it moves to decision history, not out of sight.
+    if let Err(error) =
+        crate::account_broker::retire_stale_requests(authority.pool(), &config.name, org).await
+    {
+        tracing::warn!(%error, "stale account requests not retired");
+    }
     match account_items(config, authority, &actors).await {
         Ok(accounts) => items.extend(accounts),
         Err(error) => tracing::warn!(%error, "account notices and requests unavailable"),
@@ -5018,6 +5111,10 @@ pub async fn decision_history(
 ) -> Result<DecisionHistory> {
     let (actors, accountable_actors, _) = actor_directory(org).await;
     let mut decisions = authority_decisions(authority, &config.name, &actors).await?;
+    decisions.extend(account_request_decisions(
+        &crate::account_broker::ended_requests(authority.pool(), &config.name).await?,
+        &actors,
+    ));
     if let Some(org) = org {
         let graph = org.work_graph_snapshot().await?;
         let payments = crate::finance::payments(authority, &config.name)
@@ -6433,6 +6530,56 @@ mod tests {
         );
         assert_eq!(step.outcome, DecisionOutcome::Completed);
         assert_eq!(handoff_outcome_line(&step), "Done.");
+    }
+
+    #[test]
+    fn ended_account_requests_say_how_they_ended_under_their_card_id() {
+        let ended = |state: &str, resolution: Option<&str>| crate::account_broker::AccountRequest {
+            id: format!("r-{state}"),
+            company: "frankensurf".into(),
+            account_id: None,
+            kind: Some("api".into()),
+            abilities: Default::default(),
+            reason: "api.cloudflare.com: deploy the site".into(),
+            requested_by: "exec".into(),
+            state: state.into(),
+            grant_id: None,
+            vault_name: None,
+            work_id: None,
+            resolution: resolution.map(str::to_owned),
+            created_at: Utc::now() - chrono::Duration::days(8),
+            decided_at: Some(Utc::now()),
+        };
+        let open = crate::account_broker::AccountRequest {
+            decided_at: None,
+            ..ended("open", None)
+        };
+        let rows = account_request_decisions(
+            &[
+                ended("expired", Some("Nobody answered the request for api.cloudflare.com within 7 days.")),
+                ended("withdrawn", Some("The work that asked for api.cloudflare.com finished, so it is no longer needed.")),
+                ended("denied", None),
+                open,
+            ],
+            &HashMap::new(),
+        );
+        assert_eq!(rows.len(), 3, "an open request is not history");
+        let expired = &rows[0];
+        assert_eq!(expired.outcome, DecisionOutcome::Expired);
+        assert_eq!(expired.recorded_decision, "Expired before it was decided.");
+        assert_eq!(
+            expired.item_id.as_deref(),
+            Some("authority:account_request:r-expired")
+        );
+        assert_eq!(expired.title, "Exec asks for an API key");
+        assert!(expired
+            .current_state
+            .ends_with("asks again if it still needs it."));
+        assert!(!expired.by_owner);
+        assert_eq!(rows[1].outcome, DecisionOutcome::Withdrawn);
+        assert_eq!(rows[1].recorded_decision, "Withdrawn: no longer needed.");
+        assert_eq!(rows[2].outcome, DecisionOutcome::Declined);
+        assert!(rows[2].by_owner);
     }
 
     #[test]

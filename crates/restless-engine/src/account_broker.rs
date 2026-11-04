@@ -58,6 +58,10 @@ pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
            created_at TIMESTAMPTZ NOT NULL DEFAULT now(), decided_at TIMESTAMPTZ)",
         // An API-key request is answered into the company Vault, by name (S109 B6).
         "ALTER TABLE restless_authority.owner_account_requests ADD COLUMN IF NOT EXISTS vault_name TEXT",
+        // The Work the asker was running, so the request ends with it, and the platform's reason
+        // for a request that ended without an answer (withdrawn or expired).
+        "ALTER TABLE restless_authority.owner_account_requests ADD COLUMN IF NOT EXISTS work_id UUID",
+        "ALTER TABLE restless_authority.owner_account_requests ADD COLUMN IF NOT EXISTS resolution TEXT",
     ] {
         sqlx::query(statement)
             .execute(pool)
@@ -363,6 +367,7 @@ pub async fn ask_owner_to_lift(
         Some(abilities),
         &reason,
         actor,
+        None,
     )
     .await
     {
@@ -400,6 +405,20 @@ pub async fn tell_requester(org: &restless_orgintel::OrgIntel, request: &Account
         "denied" => format!(
             "The owner declined your request for {what}. Nothing was granted: don't retry it. Find \
              another route, or carry on without it."
+        ),
+        "withdrawn" => format!(
+            "Your request for {what} was taken out of the owner's Inbox: the work that asked for it \
+             has ended. Nothing was granted. Ask again only if other work still needs it."
+        ),
+        "expired" => format!(
+            "Your request for {what} expired after {} days without an answer. Nothing was \
+             granted. If you still need it, {}.",
+            REQUEST_LIFETIME.num_days(),
+            if request.account_id.is_some() {
+                "retry the call and it asks the owner again"
+            } else {
+                "ask again with `restless apps ask-account`"
+            }
         ),
         _ => return,
     };
@@ -1254,7 +1273,12 @@ pub struct AccountRequest {
     pub grant_id: Option<String>,
     /// The company Vault name an API-key request was answered with (S109 B6); no account.
     pub vault_name: Option<String>,
+    /// The Work the asker was running when it asked; the request ends when that Work does.
+    pub work_id: Option<uuid::Uuid>,
+    /// Why a request ended without an answer, in the platform's words.
+    pub resolution: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub decided_at: Option<DateTime<Utc>>,
 }
 
 fn row_request(row: &sqlx::postgres::PgRow) -> Result<AccountRequest> {
@@ -1269,7 +1293,10 @@ fn row_request(row: &sqlx::postgres::PgRow) -> Result<AccountRequest> {
         state: row.try_get("state")?,
         grant_id: row.try_get("grant_id")?,
         vault_name: row.try_get("vault_name")?,
+        work_id: row.try_get("work_id")?,
+        resolution: row.try_get("resolution")?,
         created_at: row.try_get("created_at")?,
+        decided_at: row.try_get("decided_at")?,
     })
 }
 
@@ -1353,6 +1380,7 @@ pub async fn create_request(
     abilities: Option<crate::accounts::Abilities>,
     reason: &str,
     by: &str,
+    work_id: Option<uuid::Uuid>,
 ) -> Result<AccountRequest> {
     if account_id.is_none() && kind.is_none_or(|kind| !crate::accounts::KINDS.contains(&kind)) {
         bail!("Name the account, or the kind of account the company needs.");
@@ -1384,8 +1412,8 @@ pub async fn create_request(
         }
     }
     let row = sqlx::query(
-        "INSERT INTO restless_authority.owner_account_requests (id, company, account_id, kind, abilities, reason, requested_by) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
+        "INSERT INTO restless_authority.owner_account_requests (id, company, account_id, kind, abilities, reason, requested_by, work_id) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
     )
     .bind(uuid::Uuid::new_v4().simple().to_string())
     .bind(company)
@@ -1394,6 +1422,7 @@ pub async fn create_request(
     .bind(serde_json::to_value(&abilities)?)
     .bind(reason.trim())
     .bind(by)
+    .bind(work_id)
     .fetch_one(pool)
     .await?;
     row_request(&row)
@@ -1407,6 +1436,105 @@ pub async fn open_requests(pool: &PgPool, company: &str) -> Result<Vec<AccountRe
     .fetch_all(pool)
     .await?;
     rows.iter().map(row_request).collect()
+}
+
+/// Requests that ended, answered or not, newest first, for the company's decision history.
+pub async fn ended_requests(pool: &PgPool, company: &str) -> Result<Vec<AccountRequest>> {
+    let rows = sqlx::query(
+        "SELECT * FROM restless_authority.owner_account_requests \
+         WHERE company = $1 AND state <> 'open' AND decided_at IS NOT NULL \
+         ORDER BY decided_at DESC LIMIT 500",
+    )
+    .bind(company)
+    .fetch_all(pool)
+    .await?;
+    rows.iter().map(row_request).collect()
+}
+
+/// An unanswered request lasts this long. After it, the request expires and the agent is told to
+/// ask again if it still needs it, so the Inbox never holds a week-old ask that may be moot.
+pub const REQUEST_LIFETIME: chrono::Duration = chrono::Duration::days(7);
+
+/// End open requests nobody needs any more, keeping each row with its reason: one whose asker's
+/// Work has ended (`ended_work` maps that Work to "finished" or "was abandoned") is withdrawn, and
+/// one unanswered for [`REQUEST_LIFETIME`] expires. Returns the requests it ended.
+pub async fn retire_requests(
+    pool: &PgPool,
+    company: &str,
+    now: DateTime<Utc>,
+    ended_work: &std::collections::HashMap<uuid::Uuid, &str>,
+) -> Result<Vec<AccountRequest>> {
+    let mut retired = Vec::new();
+    for open in open_requests(pool, company).await? {
+        let what = requested_site(&open).unwrap_or("this");
+        let (state, resolution) =
+            if let Some(ended) = open.work_id.and_then(|work| ended_work.get(&work)) {
+                (
+                    "withdrawn",
+                    format!("The work that asked for {what} {ended}, so it is no longer needed."),
+                )
+            } else if now - open.created_at >= REQUEST_LIFETIME {
+                (
+                    "expired",
+                    format!(
+                        "Nobody answered the request for {what} within {} days.",
+                        REQUEST_LIFETIME.num_days()
+                    ),
+                )
+            } else {
+                continue;
+            };
+        if let Some(row) = sqlx::query(
+            "UPDATE restless_authority.owner_account_requests \
+             SET state = $2, resolution = $3, decided_at = $4 \
+             WHERE id = $1 AND state = 'open' RETURNING *",
+        )
+        .bind(&open.id)
+        .bind(state)
+        .bind(&resolution)
+        .bind(now)
+        .fetch_optional(pool)
+        .await?
+        {
+            retired.push(row_request(&row)?);
+        }
+    }
+    Ok(retired)
+}
+
+/// [`retire_requests`] with each linked Work's status read from OrgIntel, then each asking agent
+/// told, so a request whose reason has gone leaves the Inbox by itself and its history says why.
+pub async fn retire_stale_requests(
+    pool: &PgPool,
+    company: &str,
+    org: Option<&restless_orgintel::OrgIntel>,
+) -> Result<Vec<AccountRequest>> {
+    let mut ended_work = std::collections::HashMap::new();
+    if let Some(org) = org {
+        for open in open_requests(pool, company).await? {
+            let Some(work_id) = open.work_id else {
+                continue;
+            };
+            if let Ok(Some(work)) = org.get_work(work_id).await {
+                match work.status {
+                    restless_orgintel::WorkStatus::Completed => {
+                        ended_work.insert(work_id, "finished");
+                    }
+                    restless_orgintel::WorkStatus::Abandoned => {
+                        ended_work.insert(work_id, "was abandoned");
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let retired = retire_requests(pool, company, Utc::now(), &ended_work).await?;
+    if let Some(org) = org {
+        for request in &retired {
+            tell_requester(org, request).await;
+        }
+    }
+    Ok(retired)
 }
 
 /// The owner's answer. Approving a request that names an account grants it (or widens the grant
@@ -1428,8 +1556,13 @@ pub async fn settle_request(
         return Ok(None);
     };
     let request = row_request(&row)?;
-    if request.state != "open" {
-        bail!("That request was already answered.");
+    match request.state.as_str() {
+        "open" => {}
+        "withdrawn" | "expired" => bail!(
+            "That request has ended without an answer: {} If the company still needs it, it asks again.",
+            request.resolution.as_deref().unwrap_or("it is no longer needed.")
+        ),
+        _ => bail!("That request was already answered."),
     }
     let grant = match (decision, grant_id, request.account_id.as_deref()) {
         ("denied", _, _) => None,
@@ -2035,6 +2168,7 @@ mod tests {
             Some(asked.clone()),
             "To open release PRs.",
             "baloo",
+            None,
         )
         .await
         .unwrap();
@@ -2074,6 +2208,7 @@ mod tests {
             None,
             "api.resend.com: send order receipts",
             "exec",
+            None,
         )
         .await
         .unwrap();
@@ -2085,6 +2220,7 @@ mod tests {
             None,
             "Shippo: buy labels",
             "exec",
+            None,
         )
         .await
         .unwrap();
@@ -2096,6 +2232,7 @@ mod tests {
             None,
             "github.com: open PRs",
             "exec",
+            None,
         )
         .await
         .unwrap();
@@ -2133,6 +2270,86 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+        sqlx::query("DELETE FROM restless_authority.owner_account_requests WHERE company = $1")
+            .bind(&company)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    /// A week-old ask, or one whose Work has ended, leaves the Inbox by itself: the row stays, with
+    /// its reason, and the owner can no longer answer it by mistake.
+    #[tokio::test]
+    async fn requests_end_with_their_work_or_expire_unanswered_keeping_history() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            return;
+        };
+        let pool = crate::authority::AuthorityStore::test_pool(&url)
+            .await
+            .unwrap();
+        let company = format!("stale_{}_test", uuid::Uuid::new_v4().simple());
+        let work = uuid::Uuid::new_v4();
+        let ask = |reason: &'static str, work: Option<uuid::Uuid>| {
+            let pool = pool.clone();
+            let company = company.clone();
+            async move {
+                create_request(
+                    &pool,
+                    &company,
+                    None,
+                    Some("api"),
+                    None,
+                    reason,
+                    "reno",
+                    work,
+                )
+                .await
+                .unwrap()
+            }
+        };
+        let finished = ask("api.cloudflare.com: deploy the site", Some(work)).await;
+        let old = ask("api.resend.com: send receipts", None).await;
+        let fresh = ask("api.shippo.com: buy labels", None).await;
+        let now = Utc::now();
+        sqlx::query(
+            "UPDATE restless_authority.owner_account_requests SET created_at = $2 WHERE id = $1",
+        )
+        .bind(&old.id)
+        .bind(now - REQUEST_LIFETIME - chrono::Duration::hours(1))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let ended = std::collections::HashMap::from([(work, "finished")]);
+        let retired = retire_requests(&pool, &company, now, &ended).await.unwrap();
+        assert_eq!(retired.len(), 2);
+        let by_id = |id: &str| retired.iter().find(|r| r.id == id).unwrap();
+        assert_eq!(by_id(&finished.id).state, "withdrawn");
+        assert_eq!(
+            by_id(&finished.id).resolution.as_deref(),
+            Some("The work that asked for api.cloudflare.com finished, so it is no longer needed.")
+        );
+        assert_eq!(by_id(&old.id).state, "expired");
+        assert!(by_id(&old.id).decided_at.is_some());
+
+        // Only the live ask is still in the Inbox; the ended ones are history, not deleted.
+        let open = open_requests(&pool, &company).await.unwrap();
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].id, fresh.id);
+        let history = ended_requests(&pool, &company).await.unwrap();
+        assert_eq!(history.len(), 2);
+        // A stale tab cannot answer it.
+        let late = settle_request(&pool, &old.id, "denied", None, "owner")
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(late.contains("ended without an answer"), "{late}");
+        // Running again changes nothing.
+        assert!(retire_requests(&pool, &company, now, &ended)
+            .await
+            .unwrap()
+            .is_empty());
+
         sqlx::query("DELETE FROM restless_authority.owner_account_requests WHERE company = $1")
             .bind(&company)
             .execute(&pool)
