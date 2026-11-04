@@ -3256,6 +3256,29 @@ fn recovery_container_inventory(configured: &[String], docker_names: &str) -> Re
     Ok(result)
 }
 
+/// Restart an inventoried runtime during startup recovery. The computer shares its network
+/// namespace, so stop it first and start it only after the runtime is back. No volumes are removed.
+pub async fn restart_memory_blocker(observed: &RecoveryMemoryObservation) -> Result<()> {
+    validate_company_name(&observed.company)?;
+    let runtime = container_name(&observed.company);
+    let computer = computer_container_name(&observed.company);
+    async fn step(args: &[&str]) -> Result<()> {
+        let result = docker_bounded(args, Duration::from_secs(60)).await?;
+        anyhow::ensure!(result.status.success(), "recovery container operation failed: {}", String::from_utf8_lossy(&result.stderr).trim());
+        Ok(())
+    }
+    if observed.computer_bytes.is_some() {
+        step(&["stop", "--time", "10", &computer]).await?;
+    }
+    let restarted = step(&["restart", "--time", "10", &runtime]).await;
+    let computer_started = if observed.computer_bytes.is_some() {
+        step(&["start", &computer]).await
+    } else { Ok(()) };
+    restarted?;
+    computer_started?;
+    Ok(())
+}
+
 /// Observe the entire owner catalogue in one Docker round trip. Catalogue
 /// rendering is a projection, so an unavailable Docker backend yields
 /// `unavailable` rows rather than N sequential inspections and a blank UI.
@@ -6354,6 +6377,11 @@ mod tests {
         assert_eq!(observations[0].company, company);
         assert!(observations[0].runtime_bytes > 0);
         assert!(observations[0].computer_bytes.unwrap() > 0);
+        super::restart_memory_blocker(&observations[0]).await.unwrap();
+        let after = super::recovery_memory_inventory(&[company]).await.unwrap();
+        assert_eq!(after.len(), 1);
+        assert!(after[0].runtime_bytes > 0);
+        assert!(after[0].computer_bytes.unwrap() > 0);
     }
 
     #[test]

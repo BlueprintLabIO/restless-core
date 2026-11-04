@@ -534,12 +534,14 @@ async fn run() -> Result<()> {
         // headroom before those processes, using the existing recovery barrier
         // to keep the durable owner plane readable and model work paused.
         if !hosted_runtime {
+            let memory_wait_started = std::time::Instant::now();
+            let mut restart_attempted = false;
             loop {
                 let mut waiting = false;
                 for company in &running_companies {
                     match runtime::workload_admission(company).await {
                         Ok(Some(admission)) if admission.waiting_for_memory => {
-                            if release_plane {
+                            if release_plane && !restart_attempted {
                                 company::note_roll_forward_stage(
                                     "waiting_for_startup_recovery",
                                     Some(recovery_memory_detail(company, &admission)),
@@ -549,7 +551,7 @@ async fn run() -> Result<()> {
                             break;
                         }
                         Err(error) => {
-                            if release_plane {
+                            if release_plane && !restart_attempted {
                                 company::note_roll_forward_stage(
                                     "waiting_for_startup_recovery",
                                     Some(format!(
@@ -569,6 +571,37 @@ async fn run() -> Result<()> {
                 }
                 if !waiting {
                     break;
+                }
+                if !restart_attempted && memory_wait_started.elapsed() >= std::time::Duration::from_secs(600) {
+                    restart_attempted = true;
+                    let inventory = runtime::recovery_memory_inventory(&running_companies).await;
+                    match inventory {
+                        Ok(observations) => {
+                            let mut candidates = Vec::new();
+                            for observed in observations {
+                                if let Ok(org) = recovery_daemon.orgintel.get(&observed.company).await {
+                                    if org.list_running_work_attempts().await.is_ok_and(|work| !work.is_empty()) {
+                                        candidates.push(observed);
+                                    }
+                                }
+                            }
+                            if let Some(blocker) = candidates.into_iter().max_by_key(|row| row.runtime_bytes.saturating_add(row.computer_bytes.unwrap_or(0))) {
+                                company::note_roll_forward_stage("memory_deadline_restart", Some(format!("restarting {} after ten minutes waiting for memory", blocker.company)));
+                                tracing::warn!(company = %blocker.company, "startup recovery memory deadline reached; restarting runtime");
+                                if let Err(error) = runtime::restart_memory_blocker(&blocker).await {
+                                    tracing::error!(company = %blocker.company, "deadline restart failed: {error:#}");
+                                    company::note_roll_forward_stage("memory_deadline_restart_failed", Some(format!("{}: {error:#}", blocker.company)));
+                                }
+                            } else {
+                                company::note_roll_forward_stage("memory_deadline_unresolved", Some("no running Work could be identified for a safe restart".into()));
+                                tracing::error!("memory deadline reached without an identifiable running Work");
+                            }
+                        }
+                        Err(error) => {
+                            company::note_roll_forward_stage("memory_deadline_unresolved", Some(format!("memory inventory unavailable: {error:#}")));
+                            tracing::error!("memory deadline inventory failed: {error:#}");
+                        }
+                    }
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             }
