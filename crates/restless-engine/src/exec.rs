@@ -2162,10 +2162,16 @@ async fn record_outcome(org: &OrgIntel, report: &WakeReport) -> Result<()> {
         if claimed_opportunity {
             return Ok(());
         }
+        let recovery = report.reason.starts_with("termination decision")
+            || report.reason.starts_with("[transport]");
+        // "Continue" while Staff are running Work: each running Attempt's result already wakes
+        // Exec when it lands, so a second wake a minute from now usually found nothing new and
+        // answered "still waiting" with the whole context re-sent.
+        if !recovery && !org.list_running_work_attempts().await?.is_empty() {
+            return Ok(());
+        }
         let fire_at = chrono::Utc::now() + chrono::Duration::seconds(i64::from(seconds));
-        let schedule_reason = if report.reason.starts_with("termination decision")
-            || report.reason.starts_with("[transport]")
-        {
+        let schedule_reason = if recovery {
             "recover interrupted Exec substrate".to_string()
         } else {
             format!(

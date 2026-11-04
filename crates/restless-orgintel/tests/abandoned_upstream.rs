@@ -79,3 +79,68 @@ async fn abandoning_upstream_work_tells_its_dependents() {
 
     org.drop_schema().await.unwrap();
 }
+
+/// A produced result that open Work still requires is an intermediate step: no Exec wake for it.
+/// The last link's result reaches Exec as before (4 Nov: each such notice cost Exec a full wake to
+/// conclude "internal step, stay quiet").
+#[tokio::test]
+async fn an_intermediate_result_does_not_wake_exec_and_the_last_one_does() {
+    use restless_orgintel::WorkAttemptState;
+    let Some(org) = company().await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping intermediate result scenario");
+        return;
+    };
+    // No expected artifact: a produced Attempt then completes the Work without linking one.
+    let quick = |owner, title| NewWork {
+        expected_artifact: "",
+        ..work(owner, title)
+    };
+    let upstream = org.add_work(quick("alpha-build", "Draft")).await.unwrap();
+    let dependent = org
+        .add_work(quick("beta-check", "Check the draft"))
+        .await
+        .unwrap();
+    org.add_work_edge(upstream, dependent, WorkEdgeKind::Requires)
+        .await
+        .unwrap();
+    for message in org.conversation_inbox("exec").await.unwrap() {
+        org.mark_read(message.id).await.unwrap();
+    }
+
+    let first = org.claim_ready_work("draft").await.unwrap().unwrap();
+    assert_eq!(first.work.id, upstream);
+    org.finish_work_attempt(first.attempt_id, WorkAttemptState::Produced, "drafted")
+        .await
+        .unwrap();
+    assert!(org
+        .flush_terminal_supervisor_notices(100)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(org.conversation_inbox("exec").await.unwrap().is_empty());
+    assert!(
+        org.flush_terminal_supervisor_notices(100)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the skipped notice is settled, not retried"
+    );
+
+    let second = org.claim_ready_work("check").await.unwrap().unwrap();
+    assert_eq!(second.work.id, dependent);
+    org.finish_work_attempt(second.attempt_id, WorkAttemptState::Produced, "checked")
+        .await
+        .unwrap();
+    assert_eq!(
+        org.flush_terminal_supervisor_notices(100)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    let results = org.conversation_inbox("exec").await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].body.contains(&dependent.to_string()));
+
+    org.drop_schema().await.unwrap();
+}
