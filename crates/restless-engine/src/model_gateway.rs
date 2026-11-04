@@ -481,8 +481,9 @@ pub fn has_own_model(config: &CompanyConfig, actor: &str) -> bool {
 }
 
 /// The company's everyday model ahead of `candidates`, which stay behind it as failover (S102).
-/// A native-harness route, an unset or cooling everyday model, or one already first keeps today's
-/// order. An agent the owner gave its own model on People keeps exactly that model.
+/// An unset or cooling everyday model, or one already first keeps today's order. An agent the
+/// owner gave its own model on People keeps exactly that model. On a native harness (Claude or
+/// Codex on its own sign-in) the everyday model runs on that same connection.
 pub async fn with_everyday_model(
     config: &CompanyConfig,
     actor: &str,
@@ -490,6 +491,21 @@ pub async fn with_everyday_model(
     candidates: Vec<String>,
     authority: &crate::authority::AuthorityStore,
 ) -> Result<Vec<String>> {
+    if config.native_model(harness).is_some() {
+        let Some(everyday) = config.native_everyday_model(harness) else {
+            return Ok(candidates);
+        };
+        if has_own_model(config, actor) || candidates.first() == Some(&everyday) {
+            return Ok(candidates);
+        }
+        let cooldowns = authority.active_model_cooldowns(&config.name).await?;
+        if cooldowns.iter().any(|cooldown| cooldown.model == everyday) {
+            return Ok(candidates);
+        }
+        let mut ordered = vec![everyday.clone()];
+        ordered.extend(candidates.into_iter().filter(|model| *model != everyday));
+        return Ok(ordered);
+    }
     let Some(everyday) = config.everyday() else {
         return Ok(candidates);
     };
@@ -501,7 +517,6 @@ pub async fn with_everyday_model(
         .and_then(|model| model.split_once('/'))
         .map(|(provider, _)| provider);
     if has_own_model(config, actor)
-        || config.native_model(harness).is_some()
         || candidates.first().map(String::as_str) == Some(everyday)
         || (automatic && first_provider != everyday.split_once('/').map(|(provider, _)| provider))
     {
