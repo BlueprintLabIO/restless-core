@@ -1583,6 +1583,7 @@ impl RuntimeBridgeBootstrapService {
             || admission.status != "ready"
             || !admission.matches_deployment(&self.deployment.bootstrap_deployment)
         {
+            admission_fence.rollback().await.map_err(unavailable)?;
             return Err(BootstrapFailure::IdentityMismatch);
         }
         let org = self
@@ -1596,6 +1597,7 @@ impl RuntimeBridgeBootstrapService {
             cell_id: request.cell_id,
         };
         if org.company_access_identity().await.map_err(unavailable)? != Some(expected_access) {
+            admission_fence.rollback().await.map_err(unavailable)?;
             return Err(BootstrapFailure::IdentityMismatch);
         }
 

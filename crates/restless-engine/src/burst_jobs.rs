@@ -582,20 +582,21 @@ pub async fn run(
         std::time::Duration::from_secs(10),
     )
     .await?;
-    anyhow::ensure!(
-        waiting.status.success(),
-        "the account job queue is temporarily unavailable"
-    );
-    anyhow::ensure!(
-        String::from_utf8_lossy(&waiting.stdout)
-            .lines()
-            .filter(|name| name
-                .rsplit_once("-job-")
-                .is_some_and(|(_, id)| valid_id(id.strip_suffix("-preparing").unwrap_or(id))))
-            .count()
-            < MAX_WAITING_LOCAL_JOBS,
-        "The account job queue is full. Wait for a queued job to start before submitting another."
-    );
+    if !waiting.status.success() {
+        queue_lock.rollback().await?;
+        bail!("the account job queue is temporarily unavailable");
+    }
+    let queued = String::from_utf8_lossy(&waiting.stdout)
+        .lines()
+        .filter(|name| {
+            name.rsplit_once("-job-")
+                .is_some_and(|(_, id)| valid_id(id.strip_suffix("-preparing").unwrap_or(id)))
+        })
+        .count();
+    if queued >= MAX_WAITING_LOCAL_JOBS {
+        queue_lock.rollback().await?;
+        bail!("The account job queue is full. Wait for a queued job to start before submitting another.");
+    }
     let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
     let name = job_container(company, &id);
     // A preparation is not executable by the scheduler until a successful
@@ -660,11 +661,13 @@ pub async fn run(
         Ok(output) => output,
         Err(error) => {
             wake.notify_one();
+            queue_lock.rollback().await?;
             return Err(error.context("Job preparation was not confirmed; the job was not started"));
         }
     };
     if !output.status.success() {
         wake.notify_one();
+        queue_lock.rollback().await?;
         bail!(
             "Job preparation failed; the job was not started: {}",
             String::from_utf8_lossy(&output.stderr).trim()

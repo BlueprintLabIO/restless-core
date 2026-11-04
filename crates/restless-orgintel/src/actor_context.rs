@@ -1270,6 +1270,7 @@ impl OrgIntel {
             OrgIntelError::InvalidContext(format!("checkpoint Actor {actor_id:?} is not active"))
         })?;
         if actor_class != "agent" {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidContext(
                 "only a durable agent Actor may record a context checkpoint".into(),
             ));
@@ -1284,6 +1285,7 @@ impl OrgIntel {
         .await?
         {
             if prior.client_payload_sha256 != payload_sha256 {
+                tx.rollback().await?;
                 return Err(OrgIntelError::ContextConflict(
                     "checkpoint command was already used with different semantics".into(),
                 ));
@@ -1383,6 +1385,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if current_version != request.expected_current_version {
+            tx.rollback().await?;
             return Err(OrgIntelError::ContextConflict(format!(
                 "Actor checkpoint is version {current_version}, expected {}",
                 request.expected_current_version
@@ -1511,6 +1514,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !owns {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidContext(
                 "Actor checkpoint does not exist".into(),
             ));
@@ -1627,6 +1631,7 @@ impl OrgIntel {
                     || attempt_revision != work_revision
                     || work_status != WorkStatus::Active
                 {
+                    tx.rollback().await?;
                     return Err(OrgIntelError::InvalidContext(
                         "focused Attempt is not this Actor's exact current running Work revision"
                             .into(),

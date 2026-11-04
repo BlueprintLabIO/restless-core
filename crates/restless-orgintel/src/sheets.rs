@@ -267,9 +267,11 @@ impl OrgIntel {
             let claim:Option<(String,Vec<u8>)>=sqlx::query_as("SELECT actor_id,reconnect_hash FROM native_sheet_clients WHERE sheet_id=$1 AND client_id=$2")
                 .bind(id).bind(client).fetch_optional(&mut *tx).await?;
             let Some((owner, hash)) = claim else {
+                tx.rollback().await?;
                 return Err(SheetError::Unavailable);
             };
             if owner != actor || hash != Sha256::digest(token.as_bytes()).to_vec() {
+                tx.rollback().await?;
                 return Err(SheetError::Unavailable);
             }
             sqlx::query(
@@ -329,11 +331,13 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !active {
+            tx.rollback().await?;
             return Err(SheetError::Unavailable);
         }
         let denied:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM human_principal_actor_bindings WHERE actor_id=$1 AND membership_status<>'active')")
             .bind(actor).fetch_one(&mut *tx).await?;
         if denied {
+            tx.rollback().await?;
             return Err(SheetError::Unavailable);
         }
         sqlx::query("INSERT INTO native_sheets(id,title,owner_actor_id,visibility,engine_version,replay_base,head_revision,search_text) VALUES($1,$2,$3,$4,$5,$6,$7,native_sheet_text($6)) ON CONFLICT(id) DO NOTHING")
@@ -344,6 +348,7 @@ impl OrgIntel {
             .await?;
         if row.owner_actor_id != actor || row.title != title.trim() || row.visibility != visibility
         {
+            tx.rollback().await?;
             return Err(SheetError::Conflict("creation ID already used".into()));
         }
         let original: Value =
@@ -352,6 +357,7 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
         if original != *workbook {
+            tx.rollback().await?;
             return Err(SheetError::Conflict(
                 "creation ID already used for different workbook".into(),
             ));
@@ -412,10 +418,12 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
             if !company_owner && actor != "owner" {
+                tx.rollback().await?;
                 return Err(SheetError::Unavailable);
             }
         }
         if !archived {
+            tx.rollback().await?;
             return Err(SheetError::Conflict(
                 "archive the sheet before deleting it permanently".into(),
             ));
@@ -605,6 +613,7 @@ impl OrgIntel {
             let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM native_sheet_clients WHERE sheet_id=$1 AND actor_id=$2 AND client_id=$3 AND generation=$4)")
                 .bind(id).bind(actor).bind(client).bind(generation).fetch_one(&mut *tx).await?;
             if !valid {
+                tx.rollback().await?;
                 return Err(SheetError::Unavailable);
             }
         }
@@ -613,6 +622,7 @@ impl OrgIntel {
                 .bind(id).bind(key).fetch_optional(&mut *tx).await?;
             if let Some((owner, original)) = stored {
                 if owner != actor || &original != request {
+                    tx.rollback().await?;
                     return Err(SheetError::Conflict("command key reused".into()));
                 }
                 tx.commit().await?;
@@ -630,6 +640,7 @@ impl OrgIntel {
                 let mut original = original;
                 original.as_object_mut().map(|o| o.remove("timestamp"));
                 if owner != actor || submitted != original {
+                    tx.rollback().await?;
                     return Err(SheetError::Conflict("revision ID reused".into()));
                 }
                 tx.commit().await?;
@@ -637,6 +648,7 @@ impl OrgIntel {
             }
         }
         if head != expected {
+            tx.rollback().await?;
             return Err(SheetError::Conflict(
                 "workbook changed; reread its current revision".into(),
             ));
@@ -645,10 +657,12 @@ impl OrgIntel {
         for message in messages {
             batch_bytes += bounded(message)?;
             if message["version"] != 1 || revision(message, "serverRevisionId")? != head {
+                tx.rollback().await?;
                 return Err(SheetError::Invalid("revision chain is invalid".into()));
             }
             let kind = message["type"].as_str().unwrap_or("");
             if !["REMOTE_REVISION", "REVISION_UNDONE", "REVISION_REDONE"].contains(&kind) {
+                tx.rollback().await?;
                 return Err(SheetError::Invalid(
                     "unsupported collaboration message".into(),
                 ));
@@ -663,6 +677,7 @@ impl OrgIntel {
                 let owner:Option<String>=sqlx::query_scalar("SELECT actor_id FROM native_sheet_messages WHERE sheet_id=$1 AND revision_id=$2 AND message->>'type'='REMOTE_REVISION'")
                     .bind(id).bind(target).fetch_optional(&mut *tx).await?;
                 if owner.as_deref() != Some(actor) {
+                    tx.rollback().await?;
                     return Err(SheetError::Unavailable);
                 }
             } else {
@@ -670,6 +685,7 @@ impl OrgIntel {
                     .map_err(|_| SheetError::Invalid("invalid client ID".into()))?;
                 if let Some((bound, _)) = client {
                     if bound != message_client {
+                        tx.rollback().await?;
                         return Err(SheetError::Unavailable);
                     }
                 }
@@ -683,6 +699,7 @@ impl OrgIntel {
                 .fetch_optional(&mut *tx)
                 .await?;
                 if owner.as_deref().is_some_and(|o| o != actor) {
+                    tx.rollback().await?;
                     return Err(SheetError::Unavailable);
                 }
                 if owner.is_none() {
@@ -694,11 +711,13 @@ impl OrgIntel {
             let next_uuid = Uuid::parse_str(&next)
                 .map_err(|_| SheetError::Invalid("next revision must be a fresh UUID".into()))?;
             if next_uuid.is_nil() || next == head {
+                tx.rollback().await?;
                 return Err(SheetError::Invalid("next revision must be fresh".into()));
             }
             let reused:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM native_sheet_messages WHERE sheet_id=$1 AND revision_id=$2) OR EXISTS(SELECT 1 FROM native_sheets WHERE id=$1 AND replay_base->>'revisionId'=$2)")
                 .bind(id).bind(&next).fetch_one(&mut *tx).await?;
             if reused {
+                tx.rollback().await?;
                 return Err(SheetError::Conflict("revision ID reused".into()));
             }
             head = next;
@@ -708,6 +727,7 @@ impl OrgIntel {
             crate::sheet_comments::follow_structure(&mut tx, id, message).await?;
         }
         if workbook["revisionId"].as_str() != Some(&head) {
+            tx.rollback().await?;
             return Err(SheetError::Invalid(
                 "checkpoint does not match accepted head".into(),
             ));
@@ -759,12 +779,19 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !exists || !human {
+            tx.rollback().await?;
             return Ok(());
         }
         match access(&mut tx, id, actor, false).await {
-            Ok(grant) if level_rank(&grant) >= level_rank(wanted) => return Ok(()),
+            Ok(grant) if level_rank(&grant) >= level_rank(wanted) => {
+                tx.rollback().await?;
+                return Ok(());
+            }
             Ok(_) | Err(SheetError::Unavailable) => {}
-            Err(error) => return Err(error),
+            Err(error) => {
+                tx.rollback().await?;
+                return Err(error);
+            }
         }
         // An open ask keeps the most it asked for; one set aside wakes for more, or after a day.
         let old = level_rank_sql("native_sheet_access_requests.access");
@@ -801,6 +828,7 @@ impl OrgIntel {
     ) -> Result<Vec<SheetAccessRequest>> {
         let mut tx = self.pool.begin().await?;
         if !may_share(&mut tx, id, actor).await? {
+            tx.rollback().await?;
             return Err(SheetError::Unavailable);
         }
         let rows: Vec<SheetAccessRequest> = sqlx::query_as(
@@ -815,7 +843,10 @@ impl OrgIntel {
             let answered = match access(&mut tx, id, &row.actor_id, false).await {
                 Ok(grant) => level_rank(&grant) >= level_rank(&row.access),
                 Err(SheetError::Unavailable) => false,
-                Err(error) => return Err(error),
+                Err(error) => {
+                    tx.rollback().await?;
+                    return Err(error);
+                }
             };
             if !answered {
                 open.push(row);
@@ -834,6 +865,7 @@ impl OrgIntel {
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         if !may_share(&mut tx, id, actor).await? {
+            tx.rollback().await?;
             return Err(SheetError::Unavailable);
         }
         let changed = sqlx::query(
@@ -847,6 +879,7 @@ impl OrgIntel {
         .await?
         .rows_affected();
         if changed != 1 {
+            tx.rollback().await?;
             return Err(SheetError::Unavailable);
         }
         tx.commit().await?;
@@ -870,6 +903,7 @@ impl OrgIntel {
                 .fetch_optional(&mut *tx)
                 .await?;
         if owner.is_none() || !may_share(&mut tx, id, actor).await? {
+            tx.rollback().await?;
             return Err(SheetError::Unavailable);
         }
         if let Some(grant) = grant {
@@ -880,6 +914,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !active {
+                tx.rollback().await?;
                 return Err(SheetError::Unavailable);
             }
             sqlx::query("INSERT INTO native_sheet_participants(sheet_id,actor_id,access,added_by_actor_id,added_at) VALUES($1,$2,$3,$4,now()) ON CONFLICT(sheet_id,actor_id) DO UPDATE SET access=EXCLUDED.access")
@@ -920,6 +955,7 @@ impl OrgIntel {
             .await?
             .ok_or(SheetError::Unavailable)?;
         if !may_share(&mut tx, id, actor).await? {
+            tx.rollback().await?;
             return Err(SheetError::Unavailable);
         }
         let row: SheetRow = sqlx::query_as(&format!(
@@ -946,7 +982,10 @@ impl OrgIntel {
         let readable = match access(&mut tx, id, actor, false).await {
             Ok(_) => true,
             Err(SheetError::Unavailable) => false,
-            Err(error) => return Err(error),
+            Err(error) => {
+                tx.rollback().await?;
+                return Err(error);
+            }
         };
         tx.commit().await?;
         Ok(readable)
@@ -1029,6 +1068,7 @@ impl OrgIntel {
                 || label.as_deref() != Some(title.trim())
                 || revision != expected
             {
+                tx.rollback().await?;
                 return Err(SheetError::Conflict(
                     "checkpoint ID reused for different input".into(),
                 ));
@@ -1037,6 +1077,7 @@ impl OrgIntel {
             return Ok(json!({"id":key,"revision_id":revision,"sequence":sequence}));
         }
         if head != expected || workbook["revisionId"].as_str() != Some(&head) {
+            tx.rollback().await?;
             return Err(SheetError::Conflict("checkpoint revision changed".into()));
         }
         sqlx::query("INSERT INTO native_sheet_checkpoints(id,sheet_id,sequence,revision_id,workbook,title,actor_id) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING")
@@ -1050,6 +1091,7 @@ impl OrgIntel {
             || stored.2.as_deref() != Some(title.trim())
             || stored.3 != expected
         {
+            tx.rollback().await?;
             return Err(SheetError::Conflict(
                 "checkpoint ID reused for different input".into(),
             ));
@@ -1075,6 +1117,7 @@ impl OrgIntel {
                 || label.as_deref() != Some(title.trim())
                 || revision != expected
             {
+                tx.rollback().await?;
                 return Err(SheetError::Conflict(
                     "checkpoint ID reused for different input".into(),
                 ));

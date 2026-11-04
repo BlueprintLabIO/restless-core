@@ -179,6 +179,7 @@ pub async fn pair(
     .fetch_optional(&mut *transaction)
     .await?;
     let Some(row) = row else {
+        transaction.rollback().await?;
         bail!("That code has expired or was already used. Make a new one in Settings › Computers.");
     };
     let named: Option<String> = row.try_get("label")?;

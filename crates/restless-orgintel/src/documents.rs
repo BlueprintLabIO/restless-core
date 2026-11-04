@@ -5016,6 +5016,7 @@ impl OrgIntel {
         }
         for actor in [input.owner_actor_id, input.created_by_actor_id] {
             if !active_actor(&mut tx, actor).await? {
+                tx.rollback().await?;
                 return Err(DocumentError::Invalid(format!(
                     "Actor {actor:?} is not active"
                 )));
@@ -5024,6 +5025,7 @@ impl OrgIntel {
         if let Some(room_id) = input.linked_room_id {
             for actor in [input.owner_actor_id, input.created_by_actor_id] {
                 if !active_room_participant(&mut tx, room_id, actor).await? {
+                    tx.rollback().await?;
                     return Err(DocumentError::Unavailable);
                 }
             }
@@ -5338,6 +5340,7 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
             if !company_owner && actor_id != "owner" {
+                tx.rollback().await?;
                 return Err(DocumentError::Unavailable);
             }
         }
@@ -5389,10 +5392,12 @@ impl OrgIntel {
                 .fetch_one(&mut *tx)
                 .await?;
             if !company_owner && actor_id != "owner" {
+                tx.rollback().await?;
                 return Err(DocumentError::Unavailable);
             }
         }
         if status != DocumentStatus::Archived {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(
                 "archive the document before deleting it permanently".into(),
             ));
@@ -5405,6 +5410,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if awaited {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(
                 "Work is still waiting on a review of this document, so it stays archived".into(),
             ));
@@ -5731,16 +5737,19 @@ impl OrgIntel {
             )
             .await?;
             if row.get::<String, _>("owner_actor_id") != input.actor_id {
+                tx.rollback().await?;
                 return Err(DocumentError::Unavailable);
             }
             if let Some(room_id) = input.linked_room_id {
                 if !active_room_participant(&mut tx, room_id, input.actor_id).await? {
+                    tx.rollback().await?;
                     return Err(DocumentError::Unavailable);
                 }
             }
         }
         let actual = row.get::<i64, _>("version");
         if actual != input.expected_version {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "metadata is version {actual}, expected {}",
                 input.expected_version
@@ -5876,6 +5885,7 @@ impl OrgIntel {
         let current = document.get::<Uuid, _>("current_named_version_id");
         let status = document.get::<DocumentStatus, _>("status");
         if current != input.expected_current_version_id {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "current named version is {current}, expected {}",
                 input.expected_current_version_id
@@ -6000,6 +6010,7 @@ impl OrgIntel {
         .await?;
         let current = document.get::<Uuid, _>("current_named_version_id");
         if current != input.expected_current_version_id {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "current named version is {current}, expected {}",
                 input.expected_current_version_id
@@ -6010,6 +6021,7 @@ impl OrgIntel {
                 .await?
                 .unwrap_or(current);
         if input.source_version_id == current {
+            tx.rollback().await?;
             return Err(DocumentError::Invalid(
                 "restore source is already the current named version".into(),
             ));
@@ -6244,6 +6256,7 @@ impl OrgIntel {
 
         let current = document.get::<Uuid, _>("current_named_version_id");
         if current != input.expected_current_version_id {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "current named version is {current}, expected {}",
                 input.expected_current_version_id
@@ -6259,6 +6272,7 @@ impl OrgIntel {
             || parsed.source_document_id != input.document_id
             || parsed.source_named_version_id != input.expected_current_version_id
         {
+            tx.rollback().await?;
             return Err(DocumentError::Invalid(
                 "Markdown source provenance does not identify the expected current checkpoint"
                     .into(),
@@ -6277,6 +6291,7 @@ impl OrgIntel {
         if parsed.source_named_version_number != source.version_number
             || parsed.source_content_hash != source.content_hash
         {
+            tx.rollback().await?;
             return Err(DocumentError::Invalid(
                 "Markdown source provenance does not match the immutable named version".into(),
             ));
@@ -6534,6 +6549,7 @@ impl OrgIntel {
                     &actor_id,
                 )
             {
+                tx.rollback().await?;
                 return Err(DocumentError::Corrupt(
                     "deterministic Runtime import identity has conflicting provenance".into(),
                 ));
@@ -6548,6 +6564,7 @@ impl OrgIntel {
 
         let current = document.get::<Uuid, _>("current_named_version_id");
         if current != input.expected_current_version_id {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "current named version is {current}, expected {}",
                 input.expected_current_version_id
@@ -6677,6 +6694,7 @@ impl OrgIntel {
                 .fetch_optional(&mut *tx)
                 .await?;
         let Some(owner_actor_id) = owner_actor_id else {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         };
         // Whoever can open a document sees who else can; only its managers change that.
@@ -6687,6 +6705,7 @@ impl OrgIntel {
                 .await?
                 .is_none()
         {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         let mut participants = sqlx::query_as::<_, DocumentParticipantRow>(
@@ -6760,10 +6779,12 @@ impl OrgIntel {
         .ok_or(DocumentError::Unavailable)?;
         let owner = row.get::<String, _>("owner_actor_id");
         if !may_manage_participants(&mut tx, input.document_id, &owner, input.actor_id).await? {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         let actual = row.get::<i64, _>("version");
         if actual != input.expected_version {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "metadata is version {actual}, expected {}",
                 input.expected_version
@@ -6847,10 +6868,12 @@ impl OrgIntel {
         .ok_or(DocumentError::Unavailable)?;
         let owner = row.get::<String, _>("owner_actor_id");
         if !may_manage_participants(&mut tx, input.document_id, &owner, input.actor_id).await? {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         let actual = row.get::<i64, _>("version");
         if actual != input.expected_document_version {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "metadata is version {actual}, expected {}",
                 input.expected_document_version
@@ -6864,12 +6887,14 @@ impl OrgIntel {
         .await?
         .is_some();
         if !participant_is_active {
+            tx.rollback().await?;
             return Err(DocumentError::Invalid(format!(
                 "Actor {:?} is not active",
                 input.participant_actor_id
             )));
         }
         if input.participant_actor_id == owner && input.access != DocumentAccess::Edit {
+            tx.rollback().await?;
             return Err(DocumentError::Invalid(
                 "the document owner must retain edit access".into(),
             ));
@@ -6989,10 +7014,12 @@ impl OrgIntel {
         if !may_manage_participants(&mut tx, input.document_id, &owner, input.actor_id).await?
             || input.participant_actor_id == owner
         {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         let actual = row.get::<i64, _>("version");
         if actual != input.expected_document_version {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "metadata is version {actual}, expected {}",
                 input.expected_document_version
@@ -7008,6 +7035,7 @@ impl OrgIntel {
         .await?
         .rows_affected();
         if changed != 1 {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         sqlx::query("UPDATE native_document_mentions SET cancelled_at=now() WHERE document_id=$1 AND mentioned_actor_id=$2 AND resolution_comment_id IS NULL AND cancelled_at IS NULL")
@@ -7136,6 +7164,7 @@ impl OrgIntel {
         .await?
         .ok_or(DocumentError::Unavailable)?;
         if thread.status != DocumentCommentStatus::Open {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(
                 "resolved comment threads do not accept replies".into(),
             ));
@@ -7151,6 +7180,7 @@ impl OrgIntel {
             .fetch_one(&mut *tx)
             .await?;
             if !belongs {
+                tx.rollback().await?;
                 return Err(DocumentError::Unavailable);
             }
         }
@@ -7262,15 +7292,18 @@ impl OrgIntel {
         .await?
         .ok_or(DocumentError::Unavailable)?;
         if access != DocumentAccess::Edit && thread.created_by_actor_id != input.actor_id {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         if thread.version != input.expected_thread_version {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "comment thread is version {}, expected {}",
                 thread.version, input.expected_thread_version
             )));
         }
         if thread.status != DocumentCommentStatus::Open {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(
                 "comment thread is already resolved".into(),
             ));
@@ -7420,6 +7453,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !thread_exists {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         let cursor_time = cursor.map(|value| value.created_at);
@@ -7554,12 +7588,14 @@ impl OrgIntel {
         let actual_version = document.get::<i64, _>("version");
         let current_version_id = document.get::<Uuid, _>("current_named_version_id");
         if actual_version != input.expected_document_version {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "metadata is version {actual_version}, expected {}",
                 input.expected_document_version
             )));
         }
         if current_version_id != input.expected_current_version_id {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "current named version is {current_version_id}, expected {}",
                 input.expected_current_version_id
@@ -7573,6 +7609,7 @@ impl OrgIntel {
             .fetch_optional(&mut *tx)
             .await?;
             if reviewer_class.as_deref() != Some("human") {
+                tx.rollback().await?;
                 return Err(DocumentError::Invalid(
                     "a Work-bound document review needs one active human reviewer".into(),
                 ));
@@ -7586,12 +7623,14 @@ impl OrgIntel {
             .await?;
             let bound = lock_bound_work(&mut tx, *work_id, *attempt_id, *work_revision).await?;
             if bound.owner_id != input.actor_id {
+                tx.rollback().await?;
                 return Err(DocumentError::Unavailable);
             }
             match (bound.work_status, bound.attempt_state) {
                 (crate::WorkStatus::Active, crate::WorkAttemptState::Running)
                 | (crate::WorkStatus::Blocked, crate::WorkAttemptState::Blocked) => {}
                 _ => {
+                    tx.rollback().await?;
                     return Err(DocumentError::Conflict(
                         "a Work-bound review must be requested by its running exact Attempt or replayed against that blocked Attempt"
                             .into(),
@@ -7607,6 +7646,7 @@ impl OrgIntel {
             .fetch_optional(&mut *tx)
             .await?;
             if !matches!(reviewer_class.as_deref(), Some("human" | "owner")) {
+                tx.rollback().await?;
                 return Err(DocumentError::Invalid(
                     "the reviewer must be an active person in the company".into(),
                 ));
@@ -7614,6 +7654,7 @@ impl OrgIntel {
             if access_in_transaction(&mut tx, input.document_id, reviewer).await?
                 != Some(DocumentAccess::Edit)
             {
+                tx.rollback().await?;
                 return Err(DocumentError::Invalid(
                     "the reviewer cannot edit this document yet; share it with them to edit first"
                         .into(),
@@ -7641,6 +7682,7 @@ impl OrgIntel {
         .await?;
         if let Some(prior) = prior_requested {
             if prior.requested_version_id == current_version_id {
+                tx.rollback().await?;
                 return Err(DocumentError::Conflict(format!(
                     "named version {current_version_id} already has an active review request"
                 )));
@@ -7760,6 +7802,7 @@ impl OrgIntel {
             .execute(&mut *tx)
             .await?;
             if blocked.rows_affected() != 1 {
+                tx.rollback().await?;
                 return Err(DocumentError::Conflict(
                     "dependent Work changed before its review could be bound".into(),
                 ));
@@ -7943,6 +7986,7 @@ impl OrgIntel {
             load_work_review_dependency(&mut tx, input.document_id, input.review_id, true).await?;
         if let Some(dependency) = &work_dependency {
             if dependency.reviewer_actor_id != input.actor_id {
+                tx.rollback().await?;
                 return Err(DocumentError::Unavailable);
             }
         }
@@ -8006,6 +8050,7 @@ impl OrgIntel {
                 }
                 DocumentReviewStatus::Stale => None,
                 DocumentReviewStatus::Requested | DocumentReviewStatus::ChangesRequested => {
+                    tx.rollback().await?;
                     return Err(DocumentError::Corrupt(
                         "review acceptance receipt names an unresolved review".into(),
                     ));
@@ -8022,12 +8067,14 @@ impl OrgIntel {
             .as_ref()
             .is_some_and(|dependency| dependency.status != DocumentWorkReviewStatus::Pending)
         {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(
                 "the Work-bound review is no longer pending".into(),
             ));
         }
         let actual_document_version = document.get::<i64, _>("version");
         if actual_document_version != input.expected_document_version {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "metadata is version {actual_document_version}, expected {}",
                 input.expected_document_version
@@ -8047,15 +8094,18 @@ impl OrgIntel {
             .as_deref()
             .is_some_and(|reviewer| reviewer != input.actor_id)
         {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         if review.version != input.expected_review_version {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "review is version {}, expected {}",
                 review.version, input.expected_review_version
             )));
         }
         if review.status != DocumentReviewStatus::Requested {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(
                 "review is no longer awaiting acceptance".into(),
             ));
@@ -8134,6 +8184,7 @@ impl OrgIntel {
             });
         }
         if document.get::<DocumentStatus, _>("status") != DocumentStatus::InReview {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(
                 "document is no longer in review".into(),
             ));
@@ -8186,6 +8237,7 @@ impl OrgIntel {
         .fetch_all(&mut *tx)
         .await?;
         if unresolved.len() > 256 {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(
                 "resolve or dismiss comment threads before accepting this review".into(),
             ));
@@ -8326,6 +8378,7 @@ impl OrgIntel {
                     )
                 })?;
         if dependency.reviewer_actor_id != input.actor_id {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         require_document_judgement_actor(&mut tx, input.actor_id).await?;
@@ -8370,12 +8423,14 @@ impl OrgIntel {
             });
         }
         if dependency.status != DocumentWorkReviewStatus::Pending {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(
                 "the Work-bound review is no longer pending".into(),
             ));
         }
         let actual_document_version = document.get::<i64, _>("version");
         if actual_document_version != input.expected_document_version {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "metadata is version {actual_document_version}, expected {}",
                 input.expected_document_version
@@ -8391,12 +8446,14 @@ impl OrgIntel {
         .await?
         .ok_or(DocumentError::Unavailable)?;
         if review.version != input.expected_review_version {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "review is version {}, expected {}",
                 review.version, input.expected_review_version
             )));
         }
         if review.status != DocumentReviewStatus::Requested {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(
                 "review is no longer awaiting a decision".into(),
             ));
@@ -8469,6 +8526,7 @@ impl OrgIntel {
             });
         }
         if document.get::<DocumentStatus, _>("status") != DocumentStatus::InReview {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(
                 "document is no longer in review".into(),
             ));
@@ -8572,6 +8630,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         if actor_class.as_deref() != Some("agent") {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         if let Some(proposal_id) = replayed_document_command(
@@ -8608,6 +8667,7 @@ impl OrgIntel {
         version_view(base.clone())?;
         if let Some(block_id) = &block_id {
             if !top_level_block_ids(&base.content_json)?.contains(block_id) {
+                tx.rollback().await?;
                 return Err(DocumentError::Invalid(
                     "proposal block_id is not present in its base version".into(),
                 ));
@@ -8840,12 +8900,14 @@ impl OrgIntel {
         .ok_or(DocumentError::Unavailable)?;
         let proposal = validate_proposal_row(proposal)?;
         if proposal.version != input.expected_proposal_version {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(format!(
                 "revision proposal is version {}, expected {}",
                 proposal.version, input.expected_proposal_version
             )));
         }
         if proposal.status != DocumentRevisionStatus::Proposed {
+            tx.rollback().await?;
             return Err(DocumentError::Conflict(
                 "revision proposal is already resolved".into(),
             ));
@@ -9080,6 +9142,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         let Some(kept) = kept else {
+            tx.rollback().await?;
             return Ok(None);
         };
         let sender: String = kept.get("sender_actor_id");
@@ -9154,6 +9217,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if !exists {
+            tx.rollback().await?;
             return Err(DocumentError::Unavailable);
         }
         if on {
