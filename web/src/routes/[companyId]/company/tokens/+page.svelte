@@ -11,7 +11,8 @@
 		usdOrPlan,
 		tokenCount,
 		costBasis,
-		planLine
+		planLine,
+		leadSplitLine
 	} from '$lib/model/spend.svelte';
 	import { formatMoment } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
@@ -38,6 +39,8 @@
 	const totals = $derived(view?.totals);
 	const plan = $derived(view?.plan ?? []);
 	const apiCalls = $derived(totals ? totals.calls - totals.subscription_calls : 0);
+	/* Owner, 4 Nov: how much of the leads' work ran on the everyday model in this period. */
+	const leadLine = $derived(leadSplitLine(view?.lead_turns));
 	const groups = $derived(
 		breakdown === 'models'
 			? (view?.by_model ?? [])
@@ -118,7 +121,13 @@
 		</div>
 		<p class="estimate-note">
 			Sign-in calls count against the plan's usage windows; API-key calls are estimated in dollars.
-			<a href={`/${company}/company/accounting`}>View Accounting</a> for business income and expenses.
+			<a href={`/${company}/company/accounting`}>View Accounting</a> for business income and
+			expenses.
+			{#if leadLine && view.lead_turns}<span
+					class="lead-split"
+					title={`${tokenCount(view.lead_turns.everyday_calls)} of ${tokenCount(view.lead_turns.calls)} team lead calls ran on ${view.lead_turns.everyday_model.split('/').at(-1)}, the everyday model; the rest on the main model. Select Models to see each one.`}
+					>{leadLine}</span
+				>{/if}
 		</p>
 		{#if totals.calls_without_tokens || totals.calls_without_estimate || totals.unknown_charges}
 			<Notice title="Some measurements are missing" tone="warning">
@@ -370,6 +379,10 @@
 	}
 	.estimate-note {
 		margin: -16px 0 0;
+	}
+	.lead-split {
+		margin-left: 8px;
+		white-space: nowrap;
 	}
 	.breakdown-tools {
 		margin-bottom: 18px;

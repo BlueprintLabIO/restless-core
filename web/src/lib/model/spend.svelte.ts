@@ -94,7 +94,21 @@ export interface SpendReport {
 	}>;
 	/** The subscription plans this company's calls count against. */
 	plan?: PlanWindow[];
+	/** Team leads' calls in the period and how many ran on the everyday model; absent when none. */
+	lead_turns?: LeadSplit | null;
 	coverage: string[];
+}
+export interface LeadSplit {
+	calls: number;
+	everyday_calls: number;
+	tokens: number;
+	everyday_tokens: number;
+	everyday_model: string;
+}
+/** "Lead turns · 70% everyday": the share of team leads' calls on the everyday model. */
+export function leadSplitLine(split: LeadSplit | null | undefined): string | null {
+	if (!split || !split.calls) return null;
+	return `Lead turns · ${Math.round((100 * split.everyday_calls) / split.calls)}% everyday`;
 }
 export interface SpendFilters {
 	days: number;

@@ -157,6 +157,45 @@ pub struct PaymentTotal {
     pub pending_minor: i64,
 }
 
+/// Team leads' model calls in the period, and how many ran on the everyday model (owner, 4 Nov:
+/// "Lead turns: 70% everyday").
+#[derive(Debug, Default, Clone, Serialize, PartialEq, Eq)]
+pub struct LeadSplit {
+    pub calls: u64,
+    pub everyday_calls: u64,
+    pub tokens: u64,
+    pub everyday_tokens: u64,
+    /// The everyday model those calls were counted against.
+    pub everyday_model: String,
+}
+
+/// Over `rows`: the calls of the current team leads, and those on the everyday model (compared by
+/// model id, whichever route served it: `anthropic/x` and `native-claude-oauth/x` are one model).
+/// None when no lead made a call or the company has no everyday model.
+pub fn lead_split(
+    rows: &[ModelSpendRow],
+    leads: &std::collections::HashSet<String>,
+    everyday: Option<&str>,
+) -> Option<LeadSplit> {
+    let everyday = everyday?;
+    let bare = |model: &str| model.rsplit('/').next().unwrap_or(model).to_string();
+    let everyday_id = bare(everyday);
+    let mut split = LeadSplit {
+        everyday_model: everyday.to_string(),
+        ..LeadSplit::default()
+    };
+    for row in rows.iter().filter(|row| leads.contains(&row.actor)) {
+        let tokens = row.tokens.unwrap_or_default();
+        split.calls += 1;
+        split.tokens = split.tokens.saturating_add(tokens);
+        if bare(&row.model) == everyday_id {
+            split.everyday_calls += 1;
+            split.everyday_tokens = split.everyday_tokens.saturating_add(tokens);
+        }
+    }
+    (split.calls > 0).then_some(split)
+}
+
 #[derive(Debug, Serialize)]
 pub struct SpendReport {
     pub observed_at: DateTime<Utc>,
@@ -175,6 +214,8 @@ pub struct SpendReport {
     pub prices: Vec<ModelPrice>,
     /// The subscription plans this company's calls count against: their limit is these windows.
     pub plan: Vec<PlanWindow>,
+    /// Team leads' calls and the share on the everyday model, when leads made any.
+    pub lead_turns: Option<LeadSplit>,
     pub coverage: Vec<String>,
 }
 
@@ -489,15 +530,26 @@ pub async fn report(
         Some(config) => plan_windows(daemon, config).await,
         None => Vec::new(),
     };
-    let people = match daemon.orgintel.get(company).await {
-        Ok(org) => org
+    let org = daemon.orgintel.get(company).await.ok();
+    let people = match &org {
+        Some(org) => org
             .list_actors_including_retired()
             .await
             .unwrap_or_default()
             .into_iter()
             .map(|actor| (actor.id, actor.display))
             .collect(),
-        Err(_) => HashMap::new(),
+        None => HashMap::new(),
+    };
+    let leads = match &org {
+        Some(org) => org
+            .list_teams()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|team| team.lead_actor_id)
+            .collect(),
+        None => std::collections::HashSet::new(),
     };
     let mut rows: Vec<_> = daemon
         .spend
@@ -523,6 +575,14 @@ pub async fn report(
     for row in &rows {
         totals.add(row);
     }
+    let lead_turns = lead_split(
+        &rows,
+        &leads,
+        config
+            .as_ref()
+            .and_then(|config| config.everyday_for(config.coordination_harness))
+            .as_deref(),
+    );
     let mut by_actor = groups(&rows, |row| (row.actor.clone(), row.person.clone()));
     by_actor.sort_by_key(|group| std::cmp::Reverse(group.totals.tokens));
     let by_model = groups(&rows, |row| (row.model.clone(), row.model.clone()));
@@ -596,6 +656,7 @@ pub async fn report(
         pricing_updated_at: catalog.as_ref().and_then(|catalog| catalog["updatedAt"].as_u64()),
         prices,
         plan,
+        lead_turns,
         coverage: vec![
             "Calls through a subscription sign-in (Claude or ChatGPT) are counted in tokens and against the plan's usage windows, not in dollars. Older records are attributed by the company's current sign-in binding.".into(),
             "Estimates are API-equivalent token values at the current models.dev catalogue rates for calls billed per token, not invoices. They are separate from recorded spend and must not be added to it.".into(),
@@ -637,6 +698,34 @@ mod tests {
 
     fn none() -> BTreeSet<String> {
         BTreeSet::new()
+    }
+
+    /// Owner, 4 Nov: the Tokens view shows the share of lead turns on the everyday model, the
+    /// same model whichever route served it, and only the current leads' calls.
+    #[test]
+    fn lead_turns_count_the_everyday_share() {
+        let call = |actor: &str, model: &str| {
+            let mut source = record();
+            source.actor_id = actor.into();
+            source.model = model.into();
+            model_row(source, None, &HashMap::new(), &none())
+        };
+        let rows = vec![
+            call("docs-lead", "anthropic/claude-sonnet-5-5"),
+            call("docs-lead", "native-claude-oauth/claude-sonnet-5-5"),
+            call("docs-lead", "anthropic/claude-opus-5-5"),
+            call("maya", "anthropic/claude-sonnet-5-5"),
+            call("exec", "anthropic/claude-opus-5-5"),
+        ];
+        let leads = std::collections::HashSet::from(["docs-lead".to_string()]);
+        let split = lead_split(&rows, &leads, Some("anthropic/claude-sonnet-5-5")).unwrap();
+        assert_eq!((split.calls, split.everyday_calls), (3, 2));
+        assert_eq!((split.tokens, split.everyday_tokens), (3600, 2400));
+        assert_eq!(lead_split(&rows, &leads, None), None);
+        assert_eq!(
+            lead_split(&rows, &std::collections::HashSet::new(), Some("anthropic/claude-sonnet-5-5")),
+            None
+        );
     }
 
     #[test]

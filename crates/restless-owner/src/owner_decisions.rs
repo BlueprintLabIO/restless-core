@@ -63,10 +63,18 @@ pub(super) fn summary(decisions: &[restless_orgintel::DecisionRow]) -> serde_jso
             .filter(|row| row.kind == "work_tier" && row.choice == choice)
             .count()
     };
+    // Team leads' turns as routed (owner, 4 Nov): by rule or by the decision model.
+    let lead = |choice: &str| {
+        decisions
+            .iter()
+            .filter(|row| row.kind == "lead_tier" && row.choice == choice)
+            .count()
+    };
     serde_json::json!({
         "last_ran_at": decisions
             .iter()
-            .filter(|row| row.kind != "staff")
+            // The decision model's own runs: a lead turn routed by rule asked no model.
+            .filter(|row| row.kind != "staff" && row.kind != "lead_escalation" && row.model != "rule")
             .map(|row| row.created_at)
             .max(),
         "exec_gate": {
@@ -84,5 +92,13 @@ pub(super) fn summary(decisions: &[restless_orgintel::DecisionRow]) -> serde_jso
             "pending": decisions.iter().filter(gate).filter(|row| row.outcome.is_none() && row.mode == "shadow").count(),
         },
         "work_tier": { "everyday": tier("everyday"), "primary": tier("primary") },
+        "lead_tier": {
+            "everyday": lead("everyday"),
+            "main": lead("main"),
+            "escalated": decisions
+                .iter()
+                .filter(|row| row.kind == "lead_tier" && row.outcome.as_deref() == Some("escalated"))
+                .count(),
+        },
     })
 }
