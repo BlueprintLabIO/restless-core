@@ -174,6 +174,8 @@ struct ClaimedConversationInputs {
     owner_history: Vec<String>,
     owner_input: Vec<String>,
     reply_work_id: Option<uuid::Uuid>,
+    /// The Exec wrote to this actor: direction, which a lead plans on the main model.
+    from_exec: bool,
 }
 
 /// Re-read every input that can be consumed only after the Actor has won the
@@ -345,12 +347,14 @@ async fn claimed_conversation_inputs(
             .as_ref()
             .and_then(crate::mentions::MentionClaim::work_id),
     };
+    let from_exec = addressed.iter().any(|message| message.from_actor == "exec");
     Ok(Some(ClaimedConversationInputs {
         claimed_opportunities,
         judgements,
         undelivered_judgements,
         pending_mention,
         mail,
+        from_exec,
         message_ids,
         terminal_notice_ids,
         exec_message_watermark,
@@ -639,9 +643,9 @@ pub async fn dispatch_actor_conversation(
     )
     .await?;
     // Conversation turns answer, route and relay: the everyday model takes them, with the
-    // actor's own model behind it as failover (S102). A team lead's turns commission and judge,
-    // so they stay on the primary (S107).
-    let candidates = if current_lead_team.is_some() {
+    // actor's own model behind it as failover (S102). A team lead's turn is routed once its
+    // inputs are claimed below (`lead_tier`, owner 4 Nov).
+    let mut candidates = if current_lead_team.is_some() {
         candidates
     } else {
         crate::model_gateway::with_everyday_model(
@@ -783,7 +787,55 @@ pub async fn dispatch_actor_conversation(
         owner_history,
         owner_input,
         reply_work_id,
+        from_exec,
     } = inputs;
+    // A lead's routine turn (a Staff result to hand on, a status, a message to route) runs on
+    // the everyday model; owner-facing, mention, scheduled and Exec-directed turns stay on the
+    // main model (`lead_tier`).
+    let mut escalation = None;
+    if current_lead_team.is_some() {
+        let turn = crate::lead_tier::LeadTurn::Conversation {
+            owner_facing: !owner_message_ids.is_empty() || !undelivered_judgements.is_empty(),
+            mention: pending_mention.is_some(),
+            scheduled: !claimed_opportunities.is_empty(),
+            from_exec,
+            mail: &mail,
+        };
+        let turn_id = format!("conversation:{actor}:{}", uuid::Uuid::new_v4());
+        let route = crate::lead_tier::route(
+            org,
+            config,
+            actor,
+            config.coordination_harness,
+            turn,
+            &turn_id,
+        )
+        .await;
+        if route.everyday {
+            match crate::model_gateway::with_everyday_model(
+                config,
+                actor,
+                config.coordination_harness,
+                candidates.clone(),
+                runtime.authority,
+            )
+            .await
+            {
+                Ok(ordered) => {
+                    if ordered.len() > 1 && ordered.first() != candidates.first() {
+                        escalation = Some(crate::lead_tier::Escalation {
+                            turn_id,
+                            sticky_subject: crate::lead_tier::sticky_subject(actor, &turn),
+                        });
+                    }
+                    candidates = ordered;
+                }
+                Err(error) => {
+                    tracing::warn!(actor, "lead turn stays on the main model: {error:#}");
+                }
+            }
+        }
+    }
     let owed = judgements
         .iter()
         .map(|handoff| {
@@ -991,6 +1043,7 @@ pub async fn dispatch_actor_conversation(
             role,
             spine,
             candidates,
+            escalation,
             org: org.clone(),
             spend,
             spend_ceiling,

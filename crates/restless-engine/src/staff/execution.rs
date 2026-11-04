@@ -49,6 +49,9 @@ pub struct StaffRun {
     pub role: String,
     pub spine: String,
     pub candidates: Vec<String>,
+    /// Set when a lead's routine turn starts on the everyday model (`candidates[0]`) with the
+    /// main model behind it: a failed or doubtful first attempt reruns on the main model.
+    pub escalation: Option<crate::lead_tier::Escalation>,
     pub org: restless_orgintel::OrgIntel,
     pub spend: SpendLedger,
     pub spend_ceiling: crate::runtime::SpendCeiling,
@@ -314,8 +317,14 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
                 }),
             )
             .await?;
+        // Only the everyday model, on a lead's routine turn, is told how to ask for the main one.
+        let base_spine = if index == 0 && run.escalation.is_some() {
+            format!("{}{}", run.spine, crate::lead_tier::ESCALATE_INSTRUCTION)
+        } else {
+            run.spine.clone()
+        };
         let spine = continuity_note.as_ref().map_or_else(
-            || run.spine.clone(),
+            || base_spine.clone(),
             |failure| {
                 format!(
                     "{}\n# Provider continuity\nA previous model attempt failed: {failure}\n\
@@ -547,6 +556,35 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
                 &reason,
             )
             .await?;
+        }
+
+        // A lead's everyday attempt that failed, ended invalid or asked to think harder reruns
+        // once on the main model, and the reason is recorded (owner, 4 Nov).
+        if let (Some(escalation), 0, Some(next)) =
+            (run.escalation.as_ref(), index, run.candidates.get(1))
+        {
+            let ended = match &outcome {
+                Ok((termination, summary, _, _)) => Ok((*termination, summary.clone())),
+                Err(error) => Err(anyhow::anyhow!("{error:#}")),
+            };
+            if !run.cancellation.is_cancelled() {
+                if let Some(reason) = crate::lead_tier::escalation_reason(&ended) {
+                    crate::lead_tier::record_escalation(
+                        &run.org, &run.actor, escalation, model, next, &reason,
+                    )
+                    .await;
+                    // The Attempt names the model that finishes it.
+                    if let Some(attempt_id) = run.attempt_id {
+                        if let Err(error) = run.org.set_attempt_model(attempt_id, next).await {
+                            tracing::warn!(actor = %run.actor, "attempt model not updated: {error:#}");
+                        }
+                    }
+                    continuity_note = Some(format!(
+                        "the everyday model's attempt was escalated: {reason}"
+                    ));
+                    continue;
+                }
+            }
         }
 
         if let (Some(kind), Some(next)) = (
@@ -1677,6 +1715,18 @@ impl StaffDrive {
                     return Ok((
                         Termination::Blocked,
                         blocked.message(),
+                        spent,
+                        transcript.output_tokens,
+                    ));
+                }
+                // A lead on the everyday model asked for the main model instead of replying.
+                if let Some(asked) = exec::take_turn_marker(&reply)
+                    .1
+                    .filter(|decision| decision.reason.starts_with(exec::ESCALATE_PREFIX))
+                {
+                    return Ok((
+                        Termination::Blocked,
+                        asked.reason,
                         spent,
                         transcript.output_tokens,
                     ));

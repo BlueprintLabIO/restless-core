@@ -655,19 +655,55 @@ pub async fn dispatch_claimed_work(
             org.update_actor_model(&actor, first_model).await?;
         }
         // S102: a routine first Attempt starts on the everyday model, with the primary behind it
-        // as failover. A repair, a review, feedback, a team lead's Work, an agent with its own
-        // model or any doubt keeps the primary (S107).
-        let candidates = if (config.everyday().is_some()
-            || config.native_everyday_model(config.worker_harness).is_some())
+        // as failover. A repair, a review, feedback, an agent with its own model or any doubt
+        // keeps the primary (S107). A team lead's Work follows the lead rule (`lead_tier`, owner
+        // 4 Nov): routine steps may use the everyday model, and a failed or doubtful everyday
+        // attempt reruns on the main model.
+        let is_lead = org
+            .list_teams()
+            .await?
+            .iter()
+            .any(|team| team.lead_actor_id == actor);
+        let mut escalation = None;
+        let candidates = if is_lead {
+            let turn = crate::lead_tier::LeadTurn::Work {
+                work: &claimed.work,
+                attempt_no: claimed.attempt_no,
+                reviews: !claimed.review_targets.is_empty(),
+                feedback: !claimed.feedback.is_empty(),
+                prerequisites: !claimed.inputs.is_empty(),
+            };
+            let turn_id = format!("attempt:{}", claimed.attempt_id);
+            let route =
+                crate::lead_tier::route(org, config, &actor, config.worker_harness, turn, &turn_id)
+                    .await;
+            if route.everyday {
+                let ordered = crate::model_gateway::with_everyday_model(
+                    config,
+                    &actor,
+                    config.worker_harness,
+                    candidates.clone(),
+                    authority,
+                )
+                .await?;
+                if ordered.len() > 1 && ordered.first() != candidates.first() {
+                    escalation = Some(crate::lead_tier::Escalation {
+                        turn_id,
+                        sticky_subject: crate::lead_tier::sticky_subject(&actor, &turn),
+                    });
+                }
+                ordered
+            } else {
+                candidates
+            }
+        } else if (config.everyday().is_some()
+            || config
+                .native_everyday_model(config.worker_harness)
+                .is_some())
             && !crate::model_gateway::has_own_model(config, &actor)
             && claimed.attempt_no == 1
             && claimed.review_targets.is_empty()
             && claimed.feedback.is_empty()
-            && !org
-                .list_teams()
-                .await?
-                .iter()
-                .any(|team| team.lead_actor_id == actor)
             && crate::decisions::work_suits_everyday_model(org, config, &claimed.work).await
         {
             crate::model_gateway::with_everyday_model(
@@ -768,16 +804,12 @@ pub async fn dispatch_claimed_work(
             let observation = observe_workspace(&container, &workdir).await;
             (workdir, observation, None)
         };
-        let accountable_lead = org
-            .list_teams()
-            .await?
-            .iter()
-            .any(|team| team.lead_actor_id == actor);
         anyhow::Ok((
             actor_row,
             candidates,
+            escalation,
             workdir,
-            accountable_lead,
+            is_lead,
             start_observation,
             hosted_environment_fingerprint,
         ))
@@ -786,6 +818,7 @@ pub async fn dispatch_claimed_work(
     let (
         actor_row,
         candidates,
+        escalation,
         workdir,
         accountable_lead,
         start_observation,
@@ -973,6 +1006,7 @@ pub async fn dispatch_claimed_work(
             role,
             spine,
             candidates,
+            escalation,
             org: org.clone(),
             spend,
             spend_ceiling,

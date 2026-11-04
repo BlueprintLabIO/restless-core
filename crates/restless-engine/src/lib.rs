@@ -57,6 +57,7 @@ pub mod inbound;
 pub mod incoming_email;
 pub mod ingress;
 pub mod launch;
+pub mod lead_tier;
 pub mod legal;
 pub mod local_documents;
 pub mod machine_move;
