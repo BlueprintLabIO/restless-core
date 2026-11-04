@@ -19,6 +19,10 @@ const RESEND_SUPPRESSIONS_URL: &str = "https://api.resend.com/suppressions";
 /// Resend's API, or a local stand-in for the end-to-end check (`scripts/verify-incoming-email.py`).
 /// `RESTLESS_TEST_RESEND_API_BASE` is honoured only for a loopback `http://127.0.0.1:<port>`
 /// address, so it can never carry a company's key anywhere else.
+/// Tests that point Resend at their own stand-in hold this, one at a time.
+#[cfg(test)]
+pub(crate) static TEST_RESEND_BASE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub fn resend_api_base() -> String {
     std::env::var("RESTLESS_TEST_RESEND_API_BASE")
         .ok()
