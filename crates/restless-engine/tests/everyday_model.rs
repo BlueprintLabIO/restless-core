@@ -116,6 +116,24 @@ async fn staff_turns_start_on_the_everyday_model_and_owner_choices_win() {
         .unwrap(),
         ["openai-codex/gpt-6-sol"]
     );
+
+    // Claude on the owner's own sign-in (a native harness): the everyday model runs on that same
+    // connection, with the connection's model behind it. It used to be skipped outright.
+    let native = company(
+        &name,
+        "worker_harness = \"claude-agent\"\n[native_harnesses.claude-agent]\nmode = \"oauth\"\nmodel = \"claude-opus-5-5\"\n",
+    );
+    let claude = AgentHarness::ClaudeAgent;
+    let native_primary = vec!["native-claude-oauth/claude-opus-5-5".to_string()];
+    assert_eq!(
+        with_everyday_model(&native, "maya", claude, native_primary.clone(), &authority)
+            .await
+            .unwrap(),
+        [
+            "native-claude-oauth/claude-sonnet-5-5",
+            "native-claude-oauth/claude-opus-5-5"
+        ]
+    );
 }
 
 #[test]

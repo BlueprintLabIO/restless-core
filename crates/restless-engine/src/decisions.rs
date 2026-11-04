@@ -453,17 +453,36 @@ fn work_tier_questions() -> Value {
 
 /// Whether this Work's first Attempt may start on the everyday model. Recorded per Work with its
 /// probability; a repair, a review or any doubt stays on the primary model.
+///
+/// With no decision model to ask (none on this plane, decisions off, or it failed), the owner's
+/// own choice decides: an everyday model the owner picked takes routine first Attempts, as the
+/// setting says; the automatic sibling does not. Before, no decision meant the primary always,
+/// so choosing Sonnet for routine work on a Claude sign-in changed nothing (4 Nov).
 pub async fn work_suits_everyday_model(
     org: &OrgIntel,
     config: &crate::runtime::CompanyConfig,
     work: &restless_orgintel::WorkRow,
 ) -> bool {
+    let chosen = config
+        .everyday_model
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|model| {
+            !model.is_empty() && !model.eq_ignore_ascii_case(crate::runtime::EVERYDAY_OFF)
+        });
+    work_tier(org, config, work).await.unwrap_or(chosen)
+}
+
+/// The decision model's tier for this Work, or None when no decision could be made.
+async fn work_tier(
+    org: &OrgIntel,
+    config: &crate::runtime::CompanyConfig,
+    work: &restless_orgintel::WorkRow,
+) -> Option<bool> {
     if !enabled() {
-        return false;
+        return None;
     }
-    let Some(client) = DecisionClient::for_company(config).await else {
-        return false;
-    };
+    let client = DecisionClient::for_company(config).await?;
     let outcome: String = work.outcome.chars().take(4000).collect();
     let state = json!({
         "company_mission": config.mission,
@@ -475,7 +494,7 @@ pub async fn work_suits_everyday_model(
         Ok(decision) => decision,
         Err(error) => {
             tracing::warn!(work = %work.id, "work tier decision unavailable: {error:#}");
-            return false;
+            return None;
         }
     };
     let everyday = decision
@@ -496,5 +515,5 @@ pub async fn work_suits_everyday_model(
     {
         tracing::warn!(work = %work.id, "could not record work tier decision: {error:#}");
     }
-    everyday
+    Some(everyday)
 }
