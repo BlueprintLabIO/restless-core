@@ -52,6 +52,7 @@ pub mod finance;
 pub mod github_app;
 pub mod health;
 pub mod home_egress;
+pub mod hooks;
 pub mod inbound;
 pub mod ingress;
 pub mod launch;
