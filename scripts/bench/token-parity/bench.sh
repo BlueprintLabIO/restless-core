@@ -96,5 +96,6 @@ done
 sleep "${BENCH_WARMUP_SECONDS:-60}"
 
 node "$here/run.mjs" --origin "$web_url" --company "$company" --mock "http://127.0.0.1:${port}" \
-  --route "${BENCH_ROUTE:-api}" --log "$work/calls.jsonl" --out "$out" ${BENCH_RUN_ARGS:-}
+  --route "${BENCH_ROUTE:-api}" --log "$work/calls.jsonl" --out "$out" \
+  --baseline-model "${BENCH_MODEL:-anthropic/claude-sonnet-5-5}" ${BENCH_RUN_ARGS:-}
 printf '\nresult %s\n' "$out"

@@ -104,6 +104,9 @@ const TASKS = [
 /* The baseline: one agent, one session, the same scripted moves a direct Claude Code run takes. Its
  * fixed prefix is a Claude Code-sized system prompt plus tool schemas, cached for 5 minutes as
  * Claude Code does, with the conversation's tail cached too. */
+/* The direct harness runs on the company's main model: a person running Claude Code on an Opus
+ * company's login uses Opus for every turn. */
+const BASELINE_MODEL = (args['baseline-model'] ?? 'claude-sonnet-5-5').split('/').at(-1);
 const BASELINE_SYSTEM_TOKENS = Number(args['baseline-system-tokens'] ?? 16_000);
 const BASELINE_PROJECT_TOKENS = Number(args['baseline-project-tokens'] ?? 1_500);
 const filler = (tokens, seed) => `${seed} `.repeat(Math.ceil((tokens * 4) / (seed.length + 1))).slice(0, tokens * 4);
@@ -155,7 +158,7 @@ async function baseline(task) {
 			method: 'POST',
 			headers: { 'content-type': 'application/json', 'x-api-key': 'bench-baseline' },
 			body: JSON.stringify({
-				model: 'claude-sonnet-5-5',
+				model: BASELINE_MODEL,
 				max_tokens: 4096,
 				system,
 				tools: [{ name: 'bash', description: 'Run a command', input_schema: { type: 'object' } }],
@@ -178,6 +181,73 @@ async function baseline(task) {
 const weighted = (row) =>
 	row.input_tokens + 0.1 * row.cache_read_input_tokens + 1.25 * row.cache_creation_input_tokens;
 const total = (row) => row.input_tokens + row.cache_read_input_tokens + row.cache_creation_input_tokens;
+
+/* What each model costs, per million tokens: the models.dev catalogue Restless prices calls with,
+ * read once per run. The fallback is that catalogue on 4 November 2026, so a run without network
+ * still prices the models it knows. A one-hour cache write is 2x input, as Anthropic charges. On a
+ * subscription route nothing is billed per token: the same weights are the share of the plan a run
+ * uses, on the assumption that a plan's usage windows weigh models by their API price (providers
+ * do not publish the exact weights). */
+const FALLBACK_PRICES = {
+	'claude-opus-5-5': { input: 4, output: 20, cache_read: 0.2, cache_write: 5 },
+	'claude-sonnet-5-5': { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5 },
+	'claude-haiku-5-5': { input: 0.1, output: 0.5, cache_read: 0.01, cache_write: 0.125 },
+	'gpt-6-sol': { input: 2, output: 10, cache_read: 0.2, cache_write: 2.5 },
+	'gpt-6-terra': { input: 1, output: 5, cache_read: 0.05, cache_write: 1.25 }
+};
+async function priceTable() {
+	const table = { ...FALLBACK_PRICES };
+	try {
+		const response = await fetch('https://models.dev/api.json', { signal: AbortSignal.timeout(15_000) });
+		const catalog = await response.json();
+		for (const provider of ['anthropic', 'openai'])
+			for (const [id, model] of Object.entries(catalog[provider]?.models ?? {}))
+				if (model.cost?.input != null && model.cost?.output != null) table[id] = model.cost;
+		return { table, source: 'models.dev' };
+	} catch {
+		return { table, source: 'catalogue snapshot of 4 November 2026' };
+	}
+}
+const PRICES = await priceTable();
+/* The bare model id a request named, whichever route sent it (`native-claude-oauth/x`, `x`). */
+const bareModel = (model) => String(model).split('/').at(-1);
+/* One model's usage in dollars at its catalogue rates, with the weighted input beside it. */
+function priced(model, usage) {
+	const rate = PRICES.table[bareModel(model)];
+	const oneHour = usage.cache_creation_1h_input_tokens ?? 0;
+	const fiveMinute = usage.cache_creation_input_tokens - oneHour;
+	const row = {
+		calls: usage.calls,
+		weighted_input: Math.round(weighted(usage)),
+		output_tokens: usage.output_tokens,
+		usd: null
+	};
+	if (!rate) return row;
+	const write = rate.cache_write ?? 1.25 * rate.input;
+	row.usd =
+		(usage.input_tokens * rate.input +
+			usage.cache_read_input_tokens * (rate.cache_read ?? rate.input) +
+			fiveMinute * write +
+			oneHour * 2 * rate.input +
+			usage.output_tokens * rate.output) /
+		1_000_000;
+	return row;
+}
+/* A side's cost by model and in all; `usd` is null when a model it used has no price. */
+function costOf(side) {
+	const byModel = Object.fromEntries(
+		Object.entries(side.usage_by_model ?? {}).map(([model, usage]) => [model, priced(model, usage)])
+	);
+	const rows = Object.values(byModel);
+	return {
+		by_model: byModel,
+		weighted_input: rows.reduce((sum, row) => sum + row.weighted_input, 0),
+		output_tokens: rows.reduce((sum, row) => sum + row.output_tokens, 0),
+		usd: rows.every((row) => row.usd != null)
+			? Math.round(rows.reduce((sum, row) => sum + row.usd, 0) * 1e6) / 1e6
+			: null
+	};
+}
 
 /* Which actor made a logged call, from its system prompt: Exec, a team lead, or Staff (a Work
  * Attempt or a member's conversation). */
@@ -301,24 +371,47 @@ const report = {
 	route,
 	quiet_ms: quietMs,
 	baseline_fixed_tokens: BASELINE_SYSTEM_TOKENS + BASELINE_PROJECT_TOKENS,
-	tasks: results.map(({ task, restless, baseline }) => ({
-		task,
-		restless,
-		baseline,
-		ratio: {
-			calls: ratio(restless.calls, baseline.calls),
-			input_total: ratio(total(restless), total(baseline)),
-			input_weighted: ratio(weighted(restless), weighted(baseline)),
-			output: ratio(restless.output_tokens, baseline.output_tokens)
-		}
-	}))
+	baseline_model: BASELINE_MODEL,
+	/* Dollars on an API key; on a sign-in the same figure is the plan share (see priceTable). */
+	cost_unit: route === 'subscription' ? 'plan share (API-price weights)' : 'USD at API rates',
+	prices_from: PRICES.source,
+	tasks: results.map(({ task, restless, baseline }) => {
+		const restlessCost = costOf(restless);
+		const baselineCost = costOf(baseline);
+		return {
+			task,
+			restless: { ...restless, cost: restlessCost },
+			baseline: { ...baseline, cost: baselineCost },
+			ratio: {
+				calls: ratio(restless.calls, baseline.calls),
+				input_total: ratio(total(restless), total(baseline)),
+				input_weighted: ratio(weighted(restless), weighted(baseline)),
+				output: ratio(restless.output_tokens, baseline.output_tokens),
+				cost: ratio(restlessCost.usd ?? 0, baselineCost.usd ?? 0)
+			}
+		};
+	})
 };
+const share = (cost) =>
+	Object.entries(cost.by_model)
+		.map(([model, row]) => `${bareModel(model)} ${row.calls}`)
+		.join(', ');
+const money = (value) => (value == null ? 'unpriced' : `$${value.toFixed(4)}`);
 const table = [
 	'| Task | Restless calls | Restless input (uncached/read/write) | Baseline calls | Baseline input (uncached/read/write) | Calls ratio | Input ratio | Weighted ratio |',
 	'| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
 	...report.tasks.map(
 		({ task, restless: r, baseline: b, ratio: x }) =>
 			`| ${task} | ${r.calls} | ${total(r)} (${r.input_tokens}/${r.cache_read_input_tokens}/${r.cache_creation_input_tokens}) | ${b.calls} | ${total(b)} (${b.input_tokens}/${b.cache_read_input_tokens}/${b.cache_creation_input_tokens}) | ${x.calls} | ${x.input_total} | ${x.input_weighted} |`
+	),
+	'',
+	`Cost by model (${report.cost_unit}; prices from ${report.prices_from}; baseline on ${BASELINE_MODEL}):`,
+	'',
+	'| Task | Restless calls by model | Restless weighted input / output | Restless cost | Baseline weighted input / output | Baseline cost | Cost ratio |',
+	'| --- | --- | ---: | ---: | ---: | ---: | ---: |',
+	...report.tasks.map(
+		({ task, restless: { cost: r }, baseline: { cost: b }, ratio: x }) =>
+			`| ${task} | ${share(r)} | ${r.weighted_input} / ${r.output_tokens} | ${money(r.usd)} | ${b.weighted_input} / ${b.output_tokens} | ${money(b.usd)} | ${x.cost} |`
 	)
 ].join('\n');
 report.table = table;
