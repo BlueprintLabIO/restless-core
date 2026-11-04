@@ -9,13 +9,33 @@ on three fixed tasks and is repeatable on any checkout.
 | a | send one templated email | Exec sends it under the mandate |
 | b | write a one-page document from a brief, and review it | Exec commissions a lead, the lead's Work writes and reviews it, the result reaches Exec |
 | c | what is in progress, and who is doing it? | Exec answers |
+| d | have someone write a one-page document and bring it to me | Exec commissions a lead (`restless commission`), the lead's Work writes and checks it, the result wakes Exec, Exec tells the owner |
 
 ## Run
 
 ```sh
 scripts/bench/token-parity/bench.sh                     # this checkout, current prompts
 scripts/bench/token-parity/bench.sh <older checkout> scripts/bench/token-parity/restless-before.json
+BENCH_ROUTE=subscription BENCH_MODEL=anthropic/claude-opus-5-5 scripts/bench/token-parity/bench.sh
 ```
+
+### Routes
+
+- `BENCH_ROUTE=api` (default): the company uses an API key, served by the Messages relay.
+- `BENCH_ROUTE=subscription`: the company uses a Claude sign-in (`omp-oauth:anthropic`), the way
+  the owner's companies run. Requests go through OMP's host gateway on the pi-native wire. To set
+  this up, `seed-sign-in.mjs` gives the stack's broker a scripted sign-in: a synthetic
+  `sk-ant-oat01-` token that is sent only to the mock. The company is then switched to that
+  sign-in. The baseline uses one-hour cache entries, as Claude Code does on a Pro/Max seat.
+- `BENCH_MODEL` sets the company's model. `BENCH_COMPANY_SETTINGS` takes a list of `key=value`
+  `company set` pairs, for example `everyday_model=anthropic/claude-sonnet-5-5`.
+
+Each task also reports two breakdowns:
+
+- **`actors`**, from Restless's own spend records: calls, input tokens per call and models, for
+  Exec, `chat:<actor>` and `work:<actor>`.
+- **`payloads`**, from the mock's request log: bytes per call of system prompt, tool schemas and
+  messages, wakes (calls that start a turn) and input tokens per wake.
 
 `bench.sh` starts `tools/mock-model` (which counts calls and tokens), brings the checkout's
 `restless-dev` stack up on it with a `tokparity_test` company, runs `run.mjs`, and destroys the
@@ -42,5 +62,9 @@ commit status. It never blocks a release.
   conversation tail cached as Claude Code does. Neither `claude` nor `codex` is installed on the
   benchmark host, so this is an estimate of the direct harness, not a recording of it; the size is
   a parameter so a recorded `claude -p --output-format json` usage can replace it.
+  A recorded baseline needs Claude Code installed and an account that is not the owner's.
+  `ANTHROPIC_BASE_URL` would point it at the mock, but the mock cannot authenticate Claude
+  Code's own sign-in, so it would run on an API key. That key may be the mock's, for counting
+  only. Put the recorded `usage` of the same tasks in place of `--baseline-system-tokens`.
 - **Ratios** are Restless over baseline for calls, total input tokens, and cost-weighted input
   (uncached 1x, cache read 0.1x, cache write 1.25x). Parity means each ratio is at most 1.0.

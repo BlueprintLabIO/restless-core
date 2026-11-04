@@ -86,11 +86,11 @@ if [ "${BENCH_ROUTE:-api}" = subscription ]; then
   profile="$HOME/.omp/profiles/restless-model-broker$([ "$offset" = 0 ] || printf -- '-%s' "$offset")"
   broker="http://127.0.0.1:$((7789 + offset))"
   node "$here/seed-sign-in.mjs" --broker "$broker" --token-file "$profile/auth-broker.token"
-  cli company set "$company" credentials.model.inference omp-oauth:anthropic
+  cli company set -c "$company" credentials.model.inference omp-oauth:anthropic
   node "$here/seed-sign-in.mjs" --broker "$broker" --token-file "$profile/auth-broker.token" --wait 300
 fi
 for setting in ${BENCH_COMPANY_SETTINGS:-}; do # key=value, e.g. everyday_model=anthropic/claude-sonnet-5-5
-  cli company set "$company" "${setting%%=*}" "${setting#*=}"
+  cli company set -c "$company" "${setting%%=*}" "${setting#*=}"
 done
 # Let first-start turns (if any) finish before measuring.
 sleep "${BENCH_WARMUP_SECONDS:-60}"
