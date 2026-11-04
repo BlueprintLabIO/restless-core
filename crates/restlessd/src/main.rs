@@ -527,10 +527,27 @@ async fn run() -> Result<()> {
                 for company in &running_companies {
                     match runtime::workload_admission(company).await {
                         Ok(Some(admission)) if admission.waiting_for_memory => {
+                            if release_plane {
+                                company::note_roll_forward_stage(
+                                    "waiting_for_startup_recovery",
+                                    Some(format!(
+                                        "waiting for memory: {company}, {} bytes used; resume below {} bytes ({})",
+                                        admission.working_set_bytes, admission.resume_below_bytes, admission.scope
+                                    )),
+                                );
+                            }
                             waiting = true;
                             break;
                         }
                         Err(error) => {
+                            if release_plane {
+                                company::note_roll_forward_stage(
+                                    "waiting_for_startup_recovery",
+                                    Some(format!(
+                                        "waiting for resource reading for {company}: {error:#}"
+                                    )),
+                                );
+                            }
                             tracing::warn!(
                                 company,
                                 "Runtime recovery waits for a resource reading: {error:#}"

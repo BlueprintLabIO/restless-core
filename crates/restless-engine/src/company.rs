@@ -2482,7 +2482,13 @@ static ROLL_FORWARD_STAGE: std::sync::Mutex<Option<serde_json::Value>> =
 
 pub fn note_roll_forward_stage(stage: &str, detail: Option<String>) {
     if let Ok(mut current) = ROLL_FORWARD_STAGE.lock() {
-        *current = Some(serde_json::json!({ "stage": stage, "at": Utc::now(), "detail": detail }));
+        let at = current
+            .as_ref()
+            .filter(|value| value["stage"] == stage)
+            .and_then(|value| value.get("at"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!(Utc::now()));
+        *current = Some(serde_json::json!({ "stage": stage, "at": at, "detail": detail }));
     }
 }
 
@@ -2743,6 +2749,16 @@ fn format_minor(amount: i64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn repeated_stage_preserves_start_time_and_refreshes_detail() {
+        super::note_roll_forward_stage("test_recovery_wait", Some("first".into()));
+        let first = super::roll_forward_report()["stage"]["at"].clone();
+        super::note_roll_forward_stage("test_recovery_wait", Some("second".into()));
+        let updated = super::roll_forward_report();
+        assert_eq!(updated["stage"]["at"], first);
+        assert_eq!(updated["stage"]["detail"], "second");
+    }
+
     use super::*;
 
     #[test]
