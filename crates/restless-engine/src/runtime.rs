@@ -3215,6 +3215,48 @@ pub async fn running_configured_companies(configs: &[CompanyConfig]) -> Result<V
     ))
 }
 
+/// One company's observed running workload, used by recovery to explain shared pressure.
+/// A missing reading is an error: it must not silently make a company appear cheap.
+#[derive(Debug, PartialEq, Eq)]
+pub struct RecoveryMemoryObservation {
+    pub company: String,
+    pub runtime_bytes: u64,
+    pub computer_bytes: Option<u64>,
+}
+
+pub async fn recovery_memory_inventory(configs: &[CompanyConfig]) -> Result<Vec<RecoveryMemoryObservation>> {
+    let output = docker_bounded(&["ps", "--format", "{{.Names}}"], Duration::from_secs(30)).await?;
+    anyhow::ensure!(output.status.success(), "could not inventory running company containers");
+    let names = String::from_utf8(output.stdout).context("invalid Docker inventory")?;
+    let configured = configs.iter().map(|config| config.name.clone()).collect::<Vec<_>>();
+    let entries = recovery_container_inventory(&configured, &names)?;
+    let mut observations = Vec::new();
+    for (company, computer_running) in entries {
+        let runtime_bytes = company_runtime_working_set(&company).await?
+            .context("running company Runtime is outside the measured workload pool")?;
+        let computer_bytes = if computer_running {
+            Some(company_computer_working_set(&company).await?
+                .context("running company computer is outside the measured workload pool")?)
+        } else { None };
+        observations.push(RecoveryMemoryObservation { company, runtime_bytes, computer_bytes });
+    }
+    Ok(observations)
+}
+
+fn recovery_container_inventory(configured: &[String], docker_names: &str) -> Result<Vec<(String, bool)>> {
+    let names: std::collections::HashSet<&str> = docker_names.lines().collect();
+    let mut result = Vec::new();
+    for company in configured {
+        validate_company_name(company)?;
+        let runtime_running = names.contains(container_name(company).as_str());
+        let computer_running = names.contains(computer_container_name(company).as_str());
+        anyhow::ensure!(runtime_running || !computer_running,
+            "company computer is running without its Runtime: {company}");
+        if runtime_running { result.push((company.clone(), computer_running)); }
+    }
+    Ok(result)
+}
+
 /// Observe the entire owner catalogue in one Docker round trip. Catalogue
 /// rendering is a projection, so an unavailable Docker backend yields
 /// `unavailable` rows rather than N sequential inspections and a blank UI.
@@ -6303,6 +6345,16 @@ mod kept_files_e2e {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recovery_inventory_distinguishes_runtime_computer_and_orphans() {
+        let configured = vec!["alpha_test".to_string(), "beta_test".to_string()];
+        let entries = super::recovery_container_inventory(&configured,
+            "restless-co-alpha_test\nrestless-pc-alpha_test\nrestless-co-beta_test\nrestless-pc-unrelated\n").unwrap();
+        assert_eq!(entries, vec![("alpha_test".into(), true), ("beta_test".into(), false)]);
+        assert!(super::recovery_container_inventory(&configured, "restless-pc-alpha_test\n").is_err());
+        assert!(super::recovery_container_inventory(&["../bad".into()], "").is_err());
+    }
+
     #[test]
     fn working_set_does_not_require_a_memory_limit() {
         let root = std::env::temp_dir().join(format!("recovery_memory_{}_test", uuid::Uuid::new_v4().simple()));
