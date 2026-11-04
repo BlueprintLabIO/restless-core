@@ -13,9 +13,25 @@ export interface ModelTotals {
 	calls_without_estimate: number;
 	unknown_charges: number;
 	subscription_calls: number;
+	/** Tokens through a subscription sign-in. Their limit is the plan's windows, not dollars. */
+	subscription_tokens?: number;
+	subscription_input_tokens?: number;
+	subscription_cached_input_tokens?: number;
+	subscription_output_tokens?: number;
 	recorded_usd: number;
 	provider_reported_usd: number | null;
+	/** API-equivalent value of calls billed per token; subscription calls are not in it. */
 	estimated_usd: number | null;
+}
+/** One usage window of a sign-in the company uses, as last reported by the provider. */
+export interface PlanWindow {
+	account: string;
+	provider: string;
+	label: string;
+	used_percent: number;
+	resets_at: string | null;
+	observed_at: string;
+	company_points: number | null;
 }
 export interface SpendGroup {
 	key: string;
@@ -43,6 +59,8 @@ export interface ModelSpendRow {
 	cost_basis: string;
 	estimated_usd: number | null;
 	estimate_basis: string | null;
+	/** A subscription call's value at API rates, for comparison only. */
+	api_equivalent_usd?: number | null;
 }
 export interface SpendReport {
 	observed_at: string;
@@ -74,6 +92,8 @@ export interface SpendReport {
 		output_per_million: number;
 		cached_input_per_million: number | null;
 	}>;
+	/** The subscription plans this company's calls count against. */
+	plan?: PlanWindow[];
 	coverage: string[];
 }
 export interface SpendFilters {
@@ -159,6 +179,18 @@ export function usd(value: number | null): string {
 }
 export const tokenCount = (value: number | null) =>
 	value == null ? 'Unknown' : new Intl.NumberFormat().format(value);
+/** "Weekly 42% used · this company 18 pts", or the window alone when no share was sampled. */
+export function planLine(window: PlanWindow): string {
+	const used = `${window.label} ${Math.round(window.used_percent)}% used`;
+	return window.company_points == null
+		? used
+		: `${used} · this company ${Math.round(window.company_points)} pts`;
+}
+/** A group's or a call's money column: subscription use is not shown as dollars. */
+export function usdOrPlan(value: number | null, subscriptionCalls: number, calls: number): string {
+	if (value == null && calls > 0 && subscriptionCalls >= calls) return 'Subscription';
+	return usd(value);
+}
 export function paymentAmount(minor: number, currency: string): string {
 	try {
 		const format = new Intl.NumberFormat(undefined, { style: 'currency', currency });

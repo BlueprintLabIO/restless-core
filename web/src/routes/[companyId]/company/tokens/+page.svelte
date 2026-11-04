@@ -5,7 +5,14 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 	import { mayReadCompanyRecord } from '$lib/model/company-access';
-	import { spendReportQuery, usd, tokenCount, costBasis } from '$lib/model/spend.svelte';
+	import {
+		spendReportQuery,
+		usd,
+		usdOrPlan,
+		tokenCount,
+		costBasis,
+		planLine
+	} from '$lib/model/spend.svelte';
 	import { formatMoment } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
 	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
@@ -29,6 +36,8 @@
 	);
 	const view = $derived(report.view);
 	const totals = $derived(view?.totals);
+	const plan = $derived(view?.plan ?? []);
+	const apiCalls = $derived(totals ? totals.calls - totals.subscription_calls : 0);
 	const groups = $derived(
 		breakdown === 'models'
 			? (view?.by_model ?? [])
@@ -90,13 +99,25 @@
 				><small>{tokenCount(totals.calls)} recorded model calls</small>
 			</div>
 			<div>
-				<span>Estimated token value · USD</span><strong>{usd(totals.estimated_usd)}</strong><small
-					>Estimate · API equivalent, not a charge</small
+				<span>On subscription</span><strong>{tokenCount(totals.subscription_tokens ?? 0)}</strong
+				><small
+					>{#if plan.length}{plan.map(planLine).join(' · ')}{:else}{tokenCount(
+							totals.subscription_calls
+						)} calls through a sign-in · counted against the plan, not in dollars{/if}</small
+				>
+			</div>
+			<div>
+				<span>API keys · estimated USD</span><strong
+					>{apiCalls === 0 ? usd(0) : usd(totals.estimated_usd)}</strong
+				><small
+					>{apiCalls === 0
+						? 'No calls billed per token'
+						: `${tokenCount(apiCalls)} calls · API rates, not a charge`}</small
 				>
 			</div>
 		</div>
 		<p class="estimate-note">
-			Estimates are not charges or subscription allowance percentages.
+			Sign-in calls count against the plan's usage windows; API-key calls are estimated in dollars.
 			<a href={`/${company}/company/accounting`}>View Accounting</a> for business income and expenses.
 		</p>
 		{#if totals.calls_without_tokens || totals.calls_without_estimate || totals.unknown_charges}
@@ -146,7 +167,13 @@
 						</div>
 						<span class="number"
 							>{tokenCount(group.totals.tokens)}{group.totals.calls_without_tokens ? '+' : ''}</span
-						><span class="number">{usd(group.totals.estimated_usd)}</span>
+						><span class="number"
+							>{usdOrPlan(
+								group.totals.estimated_usd,
+								group.totals.subscription_calls,
+								group.totals.calls
+							)}</span
+						>
 					</div>
 				{/each}
 				{#if groups.length > 12}<button class="btn small more" onclick={() => (showAll = !showAll)}
@@ -170,9 +197,11 @@
 								></span
 							><span class="call-measure"
 								><span>{tokenCount(row.tokens)} tokens</span><small
-									>{row.estimated_usd == null
-										? 'Estimate unavailable'
-										: `${usd(row.estimated_usd)} est.`}</small
+									>{row.billing === 'subscription'
+										? 'Subscription'
+										: row.estimated_usd == null
+											? 'Estimate unavailable'
+											: `${usd(row.estimated_usd)} est.`}</small
 								></span
 							><time datetime={row.occurred_at} title={formatMoment(row.occurred_at)}
 								>{new Date(row.occurred_at).toLocaleString(undefined, {
@@ -213,10 +242,14 @@
 								<dd>{costBasis(row)}</dd>
 							</div>
 							<div>
-								<dt>Estimated value · USD</dt>
-								<dd>
-									{usd(row.estimated_usd)}{row.estimate_basis ? ` · ${row.estimate_basis}` : ''}
-								</dd>
+								{#if row.billing === 'subscription'}<dt>At API rates · USD, for comparison</dt>
+									<dd>
+										{usd(row.api_equivalent_usd ?? null)} · not charged; counts against the plan
+									</dd>
+								{:else}<dt>Estimated value · USD</dt>
+									<dd>
+										{usd(row.estimated_usd)}{row.estimate_basis ? ` · ${row.estimate_basis}` : ''}
+									</dd>{/if}
 							</div>
 							{#if row.work_id}<div>
 									<dt>Work</dt>
@@ -312,7 +345,7 @@
 	}
 	.spend-summary {
 		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
+		grid-template-columns: repeat(3, minmax(0, 1fr));
 		gap: 20px;
 	}
 	.spend-summary > div {

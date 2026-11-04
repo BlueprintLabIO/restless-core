@@ -1,6 +1,6 @@
 //! Best-effort owner reporting over the existing company ledgers. Estimates never change the
 //! accounting fuse, and a missing measurement is never manufactured into a free request.
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::{bail, Result};
 use chrono::{DateTime, Duration, Utc};
@@ -31,14 +31,39 @@ pub struct ModelTotals {
     pub calls_without_estimate: u64,
     pub unknown_charges: u64,
     pub subscription_calls: u64,
+    /// What calls through a subscription sign-in consumed. Their limit is the plan's usage
+    /// windows (`SpendReport::plan`), not dollars, so they are counted in tokens and kept out of
+    /// `estimated_usd`.
+    pub subscription_tokens: u64,
+    pub subscription_input_tokens: u64,
+    pub subscription_cached_input_tokens: u64,
+    pub subscription_output_tokens: u64,
     /// Accounted ledger value, which can include tariffs and older records of unknown provenance.
     pub recorded_usd: f64,
     pub provider_reported_usd: Option<f64>,
+    /// API-equivalent value of the calls billed per token (API keys). Subscription calls are not
+    /// in it: pricing them at API rates showed the owner a dollar figure nobody pays.
     pub estimated_usd: Option<f64>,
 }
 
 impl ModelTotals {
     fn add(&mut self, row: &ModelSpendRow) {
+        if row.billing == "subscription" {
+            self.subscription_tokens = self
+                .subscription_tokens
+                .saturating_add(row.tokens.unwrap_or_default());
+            self.subscription_input_tokens = self
+                .subscription_input_tokens
+                .saturating_add(row.input_tokens.unwrap_or_default());
+            self.subscription_cached_input_tokens = self
+                .subscription_cached_input_tokens
+                .saturating_add(row.cached_input_tokens.unwrap_or_default());
+            self.subscription_output_tokens = self
+                .subscription_output_tokens
+                .saturating_add(row.output_tokens.unwrap_or_default());
+        } else {
+            self.calls_without_estimate += u64::from(row.estimated_usd.is_none());
+        }
         self.calls += 1;
         self.tokens = self.tokens.saturating_add(row.tokens.unwrap_or_default());
         self.input_tokens = self
@@ -54,7 +79,6 @@ impl ModelTotals {
         self.calls_without_split +=
             u64::from(row.input_tokens.is_none() || row.output_tokens.is_none());
         self.calls_without_cache += u64::from(row.cached_input_tokens.is_none());
-        self.calls_without_estimate += u64::from(row.estimated_usd.is_none());
         self.unknown_charges += u64::from(row.cost_basis == "unreported");
         self.subscription_calls += u64::from(row.billing == "subscription");
         self.recorded_usd += row.recorded_usd.unwrap_or_default();
@@ -84,8 +108,27 @@ pub struct ModelSpendRow {
     pub billing_inferred: bool,
     pub recorded_usd: Option<f64>,
     pub cost_basis: &'static str,
+    /// API-equivalent value of a call billed per token. None for a subscription call.
     pub estimated_usd: Option<f64>,
     pub estimate_basis: Option<String>,
+    /// What a subscription call would have cost at API rates: shown on the call for comparison,
+    /// never summed into a total.
+    pub api_equivalent_usd: Option<f64>,
+}
+
+/// One usage window of a subscription sign-in this company uses, as the provider last reported
+/// it on a call (passively; nothing is probed), with this company's share of it.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlanWindow {
+    pub account: String,
+    pub provider: String,
+    /// "5-hour" or "Weekly".
+    pub label: String,
+    pub used_percent: f64,
+    pub resets_at: Option<DateTime<Utc>>,
+    pub observed_at: DateTime<Utc>,
+    /// Percentage points of this window this company used, from the samples since its start.
+    pub company_points: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -130,6 +173,8 @@ pub struct SpendReport {
     pub pricing_updated_at: Option<u64>,
     /// Catalogue rates for the models in this report, so a price shown is never a design value.
     pub prices: Vec<ModelPrice>,
+    /// The subscription plans this company's calls count against: their limit is these windows.
+    pub plan: Vec<PlanWindow>,
     pub coverage: Vec<String>,
 }
 
@@ -214,24 +259,61 @@ fn estimate(record: &SpendRecord, catalog: Option<&serde_json::Value>) -> Option
     ))
 }
 
+/// The providers this company reaches through an account sign-in (`omp-oauth:`), from its
+/// credential bindings. A relay record does not carry its billing (the spool rejects unknown
+/// fields, so adding one would break a rollback); the binding that served it does.
+pub fn subscription_providers(config: &crate::runtime::CompanyConfig) -> BTreeSet<String> {
+    let mut providers = BTreeSet::new();
+    for (key, reference) in &config.credentials {
+        if !reference.starts_with("omp-oauth:") {
+            continue;
+        }
+        if let Some(provider) = key.strip_prefix("model.inference.") {
+            providers.insert(provider.to_string());
+        } else if key == "model.inference" {
+            if let Some((provider, _)) = config.model.split_once('/') {
+                providers.insert(provider.to_string());
+            }
+        }
+    }
+    providers
+}
+
+/// How a relay record (no native turn) was billed. A call through a sign-in is accounted at zero
+/// (`MeteredStream`: `ModelBilling::Subscription => Some(0)`); a per-token call with tokens never
+/// is. So a zero-charge accounted record on a provider the company reaches by sign-in was a
+/// subscription call. Codex is sign-in only.
+fn relay_billing(record: &SpendRecord, subscription: &BTreeSet<String>) -> &'static str {
+    let provider = record.model.split_once('/').map(|(provider, _)| provider);
+    if provider == Some("openai-codex") {
+        return "subscription";
+    }
+    if record.cost_micro_usd == 0
+        && record.settlement == SpendSettlement::Accounted
+        && provider.is_some_and(|provider| subscription.contains(provider))
+    {
+        return "subscription";
+    }
+    "unknown"
+}
+
 fn model_row(
     record: SpendRecord,
     catalog: Option<&serde_json::Value>,
     people: &HashMap<String, String>,
+    subscription: &BTreeSet<String>,
 ) -> ModelSpendRow {
     let estimated = estimate(&record, catalog);
     let billing = record
         .native
         .as_ref()
         .map(|native| native.billing.clone())
-        .unwrap_or_else(|| {
-            if record.model.starts_with("openai-codex/") {
-                "subscription"
-            } else {
-                "unknown"
-            }
-            .into()
-        });
+        .unwrap_or_else(|| relay_billing(&record, subscription).into());
+    let (estimated, api_equivalent) = if billing == "subscription" {
+        (None, estimated.map(|(value, _)| value))
+    } else {
+        (estimated, None)
+    };
     let cost_basis = if record.settlement == SpendSettlement::MeteringUnknown {
         "unreported"
     } else if billing == "subscription" {
@@ -280,7 +362,54 @@ fn model_row(
         cost_basis,
         estimated_usd: estimated.as_ref().map(|(value, _)| *value),
         estimate_basis: estimated.map(|(_, basis)| basis),
+        api_equivalent_usd: api_equivalent,
     }
+}
+
+/// The windows of each sign-in this company uses, with its own share of each.
+async fn plan_windows(daemon: &Daemon, config: &crate::runtime::CompanyConfig) -> Vec<PlanWindow> {
+    let accounts: BTreeMap<String, String> = config
+        .credentials
+        .iter()
+        .filter(|(key, reference)| {
+            key.starts_with("model.inference") && reference.starts_with("omp-oauth:")
+        })
+        .filter_map(|(_, reference)| {
+            let account = crate::account_usage::account_of(reference)?;
+            let provider = account.split_once('@')?.0.to_string();
+            Some((account, provider))
+        })
+        .collect();
+    if accounts.is_empty() {
+        return Vec::new();
+    }
+    let views = match crate::account_usage::accounts(daemon.authority.pool(), Utc::now()).await {
+        Ok(views) => views,
+        Err(error) => {
+            tracing::debug!(error = %format!("{error:#}"), "plan usage unavailable for the spend report");
+            return Vec::new();
+        }
+    };
+    views
+        .into_iter()
+        .filter_map(|view| Some((accounts.get(&view.account)?.clone(), view)))
+        .flat_map(|(provider, view)| {
+            let account = view.account;
+            view.windows.into_iter().map(move |window| PlanWindow {
+                account: account.clone(),
+                provider: provider.clone(),
+                company_points: window
+                    .by_company
+                    .iter()
+                    .find(|(name, _)| name == &config.name)
+                    .map(|(_, points)| *points),
+                label: window.label,
+                used_percent: window.used_percent,
+                resets_at: window.resets_at,
+                observed_at: window.observed_at,
+            })
+        })
+        .collect()
 }
 
 fn groups(
@@ -351,6 +480,15 @@ pub async fn report(
         })
         .transpose()?;
     let catalog = model_catalog::pricing_snapshot().await;
+    let config = crate::runtime::CompanyConfig::load(&daemon.root, company).ok();
+    let subscription = config
+        .as_ref()
+        .map(subscription_providers)
+        .unwrap_or_default();
+    let plan = match &config {
+        Some(config) => plan_windows(daemon, config).await,
+        None => Vec::new(),
+    };
     let people = match daemon.orgintel.get(company).await {
         Ok(org) => org
             .list_actors_including_retired()
@@ -378,7 +516,7 @@ pub async fn report(
                 .as_ref()
                 .is_none_or(|model| model == &record.model)
         })
-        .map(|record| model_row(record, catalog.as_ref(), &people))
+        .map(|record| model_row(record, catalog.as_ref(), &people, &subscription))
         .collect();
     rows.sort_by_key(|row| std::cmp::Reverse((row.occurred_at, row.id)));
     let mut totals = ModelTotals::default();
@@ -457,8 +595,10 @@ pub async fn report(
         payment_totals: payment_totals.into_values().collect(), payments_status,
         pricing_updated_at: catalog.as_ref().and_then(|catalog| catalog["updatedAt"].as_u64()),
         prices,
+        plan,
         coverage: vec![
-            "Estimates are API-equivalent token values at the current models.dev catalogue rates, not invoices or subscription allowance percentages. They are separate from recorded spend and must not be added to it.".into(),
+            "Calls through a subscription sign-in (Claude or ChatGPT) are counted in tokens and against the plan's usage windows, not in dollars. Older records are attributed by the company's current sign-in binding.".into(),
+            "Estimates are API-equivalent token values at the current models.dev catalogue rates for calls billed per token, not invoices. They are separate from recorded spend and must not be added to it.".into(),
             "Catalogue base rates may omit cache writes, context/service-tier surcharges, negotiated discounts, fees and taxes. Their pricing provenance is not present in older request records.".into(),
             "Missing usage is unknown, not zero. Older records may lack billing provenance, cache-write counts or token splits. Reasoning tokens are already included in output tokens.".into(),
             "Payments are grouped by their recorded currency, with pending amounts separate from settled amounts. No exchange rate is assumed.".into(),
@@ -495,32 +635,86 @@ mod tests {
         serde_json::json!({"catalog":{"openai":{"models":{"test":{"cost":{"input":2,"output":10,"cache_read":0.1,"cache_write":2.5}}}}}})
     }
 
+    fn none() -> BTreeSet<String> {
+        BTreeSet::new()
+    }
+
     #[test]
-    fn subscription_has_tokens_and_cache_aware_estimate_but_no_invented_charge() {
-        let row = model_row(record(), Some(&catalog()), &HashMap::new());
+    fn subscription_has_tokens_and_a_comparison_value_but_no_invented_charge() {
+        let row = model_row(record(), Some(&catalog()), &HashMap::new(), &none());
         assert_eq!(row.tokens, Some(1200));
         assert_eq!(row.recorded_usd, None);
-        assert!((row.estimated_usd.unwrap() - 0.00248).abs() < 1e-10);
+        assert_eq!(row.estimated_usd, None);
+        assert!((row.api_equivalent_usd.unwrap() - 0.00248).abs() < 1e-10);
         let mut totals = ModelTotals::default();
         totals.add(&row);
         assert_eq!(totals.tokens, 1200);
         assert_eq!(totals.output_tokens, 200); // reasoning not counted twice
         assert_eq!(totals.subscription_calls, 1);
+        assert_eq!(totals.subscription_tokens, 1200);
+        assert_eq!(totals.subscription_cached_input_tokens, 800);
         assert_eq!(totals.recorded_usd, 0.0);
+        assert_eq!(totals.estimated_usd, None);
+        assert_eq!(totals.calls_without_estimate, 0);
     }
+
+    /// Reno, 4 Nov: 18,464 Claude sign-in calls were reported as 18,468 unknown charges and
+    /// US$917 of "estimated" spend. A zero-charge relay record on a provider the company reaches by
+    /// sign-in is a subscription call; the same model on an API key keeps its dollars.
+    #[test]
+    fn claude_sign_in_calls_count_as_subscription_and_api_key_calls_keep_usd() {
+        let config: crate::runtime::CompanyConfig = serde_json::from_value(serde_json::json!({
+            "name": "reno_test", "mission": "Spend fixture", "model": "anthropic/claude-opus-5-5",
+            "credentials": {"model.inference.anthropic": "omp-oauth:anthropic@0123abcd"}
+        }))
+        .unwrap();
+        let signed_in = subscription_providers(&config);
+        assert_eq!(signed_in, BTreeSet::from(["anthropic".to_string()]));
+        let catalog = serde_json::json!({"catalog":{"anthropic":{"models":{"claude-opus-5-5":{"cost":{"input":5,"output":25,"cache_read":0.5}}}}}});
+        let mut source = record();
+        source.model = "anthropic/claude-opus-5-5".into();
+        let subscription = model_row(source.clone(), Some(&catalog), &HashMap::new(), &signed_in);
+        assert_eq!(subscription.billing, "subscription");
+        assert_eq!(subscription.cost_basis, "subscription_or_external");
+        assert_eq!(subscription.estimated_usd, None);
+        assert!(subscription.api_equivalent_usd.is_some());
+        let mut keyed = source.clone();
+        keyed.cost_micro_usd = 4_500;
+        let api = model_row(keyed, Some(&catalog), &HashMap::new(), &signed_in);
+        assert_eq!(api.billing, "unknown");
+        assert!(api.estimated_usd.is_some());
+        let unbound = model_row(source, Some(&catalog), &HashMap::new(), &none());
+        assert_eq!(unbound.cost_basis, "unreported");
+        let mut totals = ModelTotals::default();
+        for row in [&subscription, &api] {
+            totals.add(row);
+        }
+        assert_eq!((totals.subscription_calls, totals.unknown_charges), (1, 0));
+        assert_eq!(totals.estimated_usd, api.estimated_usd);
+
+        let keyed_config: crate::runtime::CompanyConfig = serde_json::from_value(serde_json::json!({
+            "name": "keyed_test", "mission": "Spend fixture", "model": "anthropic/claude-opus-5-5",
+            "credentials": {"model.inference": "env:ANTHROPIC_API_KEY"}
+        }))
+        .unwrap();
+        assert!(subscription_providers(&keyed_config).is_empty());
+    }
+
     #[test]
     fn absent_usage_and_unpriced_model_remain_unknown() {
         let mut source = record();
+        source.model = "another-provider/test".into();
         source.input_tokens = 0;
         source.output_tokens = 0;
         source.total_tokens = 0;
         source.cached_input_tokens = None;
-        let row = model_row(source, Some(&catalog()), &HashMap::new());
+        let row = model_row(source, Some(&catalog()), &HashMap::new(), &none());
         assert_eq!(row.tokens, None);
         assert_eq!(row.estimated_usd, None);
         let mut totals = ModelTotals::default();
         totals.add(&row);
         assert_eq!(totals.calls_without_tokens, 1);
+        assert_eq!(totals.calls_without_estimate, 1);
         assert_eq!(totals.estimated_usd, None);
         assert!(estimate(&record(), None).is_none());
     }
@@ -559,7 +753,7 @@ mod tests {
     fn external_api_and_legacy_zero_do_not_look_like_confirmed_free_calls() {
         let mut source = record();
         source.model = "another-provider/model".into();
-        let row = model_row(source.clone(), None, &HashMap::new());
+        let row = model_row(source.clone(), None, &HashMap::new(), &none());
         assert_eq!(row.recorded_usd, None);
         assert_eq!(row.cost_basis, "unreported");
         source.native = Some(restless_model_gateway::NativeTurn {
@@ -567,7 +761,7 @@ mod tests {
             tokens: Some(40),
             estimated_cost_micro_usd: Some(2300),
         });
-        let row = model_row(source, None, &HashMap::new());
+        let row = model_row(source, None, &HashMap::new(), &none());
         assert_eq!(row.recorded_usd, None);
         assert_eq!(row.estimated_usd, Some(0.0023));
         assert_eq!(row.cost_basis, "unreported");

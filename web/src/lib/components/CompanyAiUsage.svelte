@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Section, Row } from '$lib/ui/page';
 	import UsageChart from '$lib/ui/data/UsageChart.svelte';
-	import { spendReportQuery } from '$lib/model/spend.svelte';
+	import { spendReportQuery, planLine } from '$lib/model/spend.svelte';
 	import { companySpendQuery } from '$lib/model/queries.svelte';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 	import { formatMoney } from '$lib/ui/time';
@@ -17,6 +17,7 @@
 	holdQueries(() => [source, spendSource]);
 	const report = $derived(source.view);
 	const totals = $derived(report?.totals);
+	const plan = $derived(report?.plan ?? []);
 	const budget = $derived(spendSource.view?.spend);
 	const count = (value: number) => new Intl.NumberFormat().format(value);
 	function tokens(value: number | undefined, missing = 0): string {
@@ -59,19 +60,31 @@
 			span={DAYS}
 			height={112}
 			format={(value) => formatMoney(value)}
-			label="API-equivalent AI cost, cumulative over 30 days"
+			label="API-key AI cost, cumulative over 30 days"
 		/>
 	</div>
 	<Row
-		label="API-equivalent cost"
-		info="Token counts priced at the current model catalogue rates, including subscription-backed work where reported. It is not an invoice or a subscription quota."
+		label="On subscription"
+		info="Calls through a Claude or ChatGPT sign-in. They count against the plan's usage windows, not dollars; the share is this company's part of each window, as the provider last reported it."
+	>
+		<span class="numbers plan"
+			>{!totals
+				? '—'
+				: `${count(totals.subscription_tokens ?? 0)} tokens${plan.length ? ` · ${plan.map(planLine).join(' · ')}` : ''}`}</span
+		>
+	</Row>
+	<Row
+		label="API-key cost"
+		info="Calls billed per token, priced at the current model catalogue rates. It is not an invoice. Subscription calls are not in it."
 	>
 		<span class="numbers"
-			>{totals?.estimated_usd == null
-				? totals
-					? 'Not reported'
-					: '—'
-				: `${totals.calls_without_estimate > 0 ? 'At least ' : ''}${formatMoney(totals.estimated_usd)}`}</span
+			>{!totals
+				? '—'
+				: totals.calls === totals.subscription_calls
+					? formatMoney(0)
+					: totals.estimated_usd == null
+						? 'Not reported'
+						: `${totals.calls_without_estimate > 0 ? 'At least ' : ''}${formatMoney(totals.estimated_usd)}`}</span
 		>
 	</Row>
 	<Row
@@ -137,7 +150,8 @@
 	.numbers {
 		font-variant-numeric: tabular-nums;
 	}
-	.prices {
+	.prices,
+	.plan {
 		display: block;
 		min-width: 0;
 		overflow: hidden;
