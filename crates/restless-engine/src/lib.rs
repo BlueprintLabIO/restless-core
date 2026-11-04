@@ -54,6 +54,7 @@ pub mod health;
 pub mod home_egress;
 pub mod hooks;
 pub mod inbound;
+pub mod incoming_email;
 pub mod ingress;
 pub mod launch;
 pub mod legal;

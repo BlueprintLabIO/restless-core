@@ -1720,6 +1720,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(hooks_api::endpoint_url),
         )
         .route(
+            "/companies/{company}/integrations/email/incoming/connect",
+            post(owner_integrations::connect_incoming),
+        )
+        .route(
+            "/companies/{company}/integrations/email/incoming/test",
+            post(owner_integrations::test_incoming),
+        )
+        .route(
             "/companies/{company}/vault/secret",
             post(owner_vault::store_secret),
         )
