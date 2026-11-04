@@ -341,10 +341,12 @@ async fn observe_plane_readiness(
 async fn live_checks(deployment: &PlaneReadinessDeployment) -> Vec<PlaneReadinessCheck> {
     verify_migration_once(deployment.identity.plane_id);
     let (authority, custody, identity_handoff, plane_database) = tokio::join!(
-        probe_authority(&deployment.daemon),
-        credential::probe_plane_custody(deployment.identity.plane_id),
-        probe_identity_handoff(&deployment.entry),
-        probe_plane_database(&deployment.daemon),
+        bounded_probe(probe_authority(&deployment.daemon)),
+        bounded_probe(credential::probe_plane_custody(
+            deployment.identity.plane_id
+        )),
+        bounded_probe(probe_identity_handoff(&deployment.entry)),
+        bounded_probe(probe_plane_database(&deployment.daemon)),
     );
     vec![
         checked("authority", authority),
@@ -357,6 +359,12 @@ async fn live_checks(deployment: &PlaneReadinessDeployment) -> Vec<PlaneReadines
         checked_known("cockpit", probe_cockpit(&deployment.cockpit)),
         checked("plane_database", plane_database),
     ]
+}
+
+async fn bounded_probe(probe: impl std::future::Future<Output = Result<()>>) -> Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(1), probe)
+        .await
+        .context("plane readiness check exceeded one second")?
 }
 
 fn checked(kind: &'static str, result: Result<()>) -> PlaneReadinessCheck {
@@ -845,4 +853,11 @@ mod tests {
         );
         assert!(!authorized_for(&headers, &identity.hostname, token));
     }
+}
+#[tokio::test]
+async fn a_stalled_dependency_returns_unknown_within_the_fleet_budget() {
+    let started = std::time::Instant::now();
+    let result = bounded_probe(std::future::pending::<Result<()>>()).await;
+    assert!(result.is_err());
+    assert!(started.elapsed() < std::time::Duration::from_millis(1800));
 }

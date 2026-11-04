@@ -35,6 +35,22 @@ const TOKEN_FILE_ENV: &str = "RESTLESS_COMPANY_BOOTSTRAP_TOKEN_FILE";
 const DESIRED_REVISION_ENV: &str = "RESTLESS_DESIRED_REVISION";
 const ACCOUNT_PLANE_IMAGE_ENV: &str = "RESTLESS_ACCOUNT_PLANE_IMAGE";
 const RELEASE_MANIFEST_DIGEST_ENV: &str = "RESTLESS_RELEASE_MANIFEST_DIGEST";
+// Bootstrap holds an Authority transaction while verifying external custody.
+// Leave half the four-connection pool for owner requests and readiness. A
+// slow retry must not queue on an advisory lock holding another pool slot.
+static BOOTSTRAP_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+static BOOTSTRAP_RUNNING: std::sync::LazyLock<std::sync::Mutex<std::collections::BTreeSet<Uuid>>> =
+    std::sync::LazyLock::new(Default::default);
+
+struct BootstrapFlight(Uuid);
+impl Drop for BootstrapFlight {
+    fn drop(&mut self) {
+        BOOTSTRAP_RUNNING
+            .lock()
+            .expect("bootstrap flights")
+            .remove(&self.0);
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -524,9 +540,19 @@ impl CompanyBootstrapService {
         let cell_url = cell::ensure_database(&self.root, &self.database_url, &company_handle)
             .await
             .map_err(unavailable)?;
-        let org = restless_orgintel::OrgIntel::ensure(&cell_url, &company_handle)
-            .await
-            .map_err(unavailable)?;
+        // The resident registry has already migrated this release. Recreating
+        // migration pools on every fifteen-second Fleet probe blocks live
+        // company queries and exhausts database connections.
+        let org = match &self.daemon {
+            Some(daemon) => daemon
+                .orgintel
+                .get(&company_handle)
+                .await
+                .map_err(unavailable)?,
+            None => restless_orgintel::OrgIntel::ensure(&cell_url, &company_handle)
+                .await
+                .map_err(unavailable)?,
+        };
         let expected_access = restless_orgintel::CompanyAccessIdentity {
             company_id: request.company_id,
             cell_id: request.cell_id,
@@ -753,7 +779,38 @@ async fn company_bootstrap(
             )
         }
     };
-    match service.execute(request).await {
+    let Ok(_slot) = BOOTSTRAP_SLOTS.try_acquire() else {
+        return bootstrap_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "company_bootstrap_busy",
+            "company admission is busy; retry shortly",
+        );
+    };
+    let flight = {
+        let mut running = BOOTSTRAP_RUNNING.lock().expect("bootstrap flights");
+        if !running.insert(request.company_id) {
+            return bootstrap_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "company_bootstrap_busy",
+                "this company admission is already being checked",
+            );
+        }
+        BootstrapFlight(request.company_id)
+    };
+    let _flight = flight;
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(30), service.execute(request)).await;
+    let result = match result {
+        Ok(result) => result,
+        Err(_) => {
+            return bootstrap_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "company_bootstrap_timeout",
+                "company admission exceeded its thirty-second budget; retry shortly",
+            )
+        }
+    };
+    match result {
         Ok(receipt) => bootstrap_json(StatusCode::OK, receipt),
         Err(BootstrapFailure::Invalid) => bootstrap_error(
             StatusCode::BAD_REQUEST,
@@ -848,7 +905,7 @@ async fn reserve_operation(
                 tx.rollback().await.map_err(unavailable)?;
                 return Err(unavailable(anyhow::anyhow!(
                     "company bootstrap contains an unknown state"
-                )))
+                )));
             }
         };
         tx.commit().await.map_err(unavailable)?;

@@ -530,49 +530,9 @@ async fn run() -> Result<()> {
             }
         };
 
-        // Recovery starts processes inside each Runtime. Wait for memory
-        // headroom before those processes, using the existing recovery barrier
-        // to keep the durable owner plane readable and model work paused.
-        if !hosted_runtime {
-            loop {
-                let mut waiting = false;
-                for company in &running_companies {
-                    match runtime::workload_admission(company).await {
-                        Ok(Some(admission)) if admission.waiting_for_memory => {
-                            if release_plane {
-                                company::note_roll_forward_stage(
-                                    "waiting_for_startup_recovery",
-                                    Some(recovery_memory_detail(company, &admission)),
-                                );
-                            }
-                            waiting = true;
-                            break;
-                        }
-                        Err(error) => {
-                            if release_plane {
-                                company::note_roll_forward_stage(
-                                    "waiting_for_startup_recovery",
-                                    Some(format!(
-                                        "waiting for resource reading for {company}: {error:#}"
-                                    )),
-                                );
-                            }
-                            tracing::warn!(
-                                company,
-                                "Runtime recovery waits for a resource reading: {error:#}"
-                            );
-                            waiting = true;
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-                if !waiting {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            }
-        }
+        // Old orphan processes own the memory recovery must reclaim. Reap
+        // them before admitting new work; waiting for their memory here
+        // deadlocked every company after the 4 November release.
 
         // Effect and cognitive orphan domains are disjoint. Sweep them in
         // parallel after the one shared inventory instead of multiplying slow
