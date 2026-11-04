@@ -590,6 +590,16 @@ async fn workload_container_scope(name: &str) -> Result<Option<PathBuf>> {
     ))
 }
 
+/// Observe a company's running Runtime directly, even when the shared pool is under pressure.
+/// This is a measurement, not proof that restarting it will resolve the pressure.
+pub async fn company_runtime_working_set(company: &str) -> Result<Option<u64>> {
+    validate_company_name(company)?;
+    match workload_container_scope(&container_name(company)).await? {
+        Some(path) => working_set_from_cgroup(&path).map(Some),
+        None => Ok(None),
+    }
+}
+
 pub async fn workload_admission(company: &str) -> Result<Option<WorkloadAdmission>> {
     validate_company_name(company)?;
     let Some(shared) = shared_workload_admission()? else {
@@ -630,15 +640,13 @@ pub fn pool_admission(root: &Path) -> Result<WorkloadAdmission> {
     admission_from_cgroup(root)
 }
 
-fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
+/// Measure the non-reclaimable working set even for an uncapped company cgroup.
+fn working_set_from_cgroup(root: &Path) -> Result<u64> {
     let read = |name: &str| -> Result<u64> {
-        std::fs::read_to_string(root.join(name))?
-            .trim()
-            .parse()
+        std::fs::read_to_string(root.join(name))?.trim().parse()
             .with_context(|| format!("host workload {name} is unavailable"))
     };
     let current = read("memory.current")?;
-    let maximum = read("memory.max")?;
     // Clean mapped/active file cache is reclaimable too. Counting only the
     // inactive list stranded an idle Runtime after a long conversation.
     // Keep tmpfs/shared, dirty/writeback and pinned memory charged.
@@ -658,6 +666,18 @@ fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
         .saturating_add(counter("file_writeback")?)
         .saturating_add(counter("unevictable")?);
     let reclaimable = counter("file")?.saturating_sub(protected);
+    Ok(current.saturating_sub(reclaimable))
+}
+
+fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
+    let read = |name: &str| -> Result<u64> {
+        std::fs::read_to_string(root.join(name))?
+            .trim()
+            .parse()
+            .with_context(|| format!("host workload {name} is unavailable"))
+    };
+    let maximum = read("memory.max")?;
+    let working_set_bytes = working_set_from_cgroup(root)?;
     let high = std::fs::read_to_string(root.join("memory.high"))?;
     let high = if high.trim() == "max" {
         maximum / 10 * 9
@@ -671,7 +691,6 @@ fn admission_from_cgroup(root: &std::path::Path) -> Result<WorkloadAdmission> {
     // 768 MiB limit is less than one normal harness startup.
     let reserve = (high / 10).max(256 * 1024 * 1024).min(high / 2);
     let resume_below_bytes = high.saturating_sub(reserve);
-    let working_set_bytes = current.saturating_sub(reclaimable);
     Ok(WorkloadAdmission {
         scope: "shared",
         waiting_for_memory: working_set_bytes >= resume_below_bytes,
@@ -6274,6 +6293,16 @@ mod kept_files_e2e {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn working_set_does_not_require_a_memory_limit() {
+        let root = std::env::temp_dir().join(format!("recovery_memory_{}_test", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("memory.current"), "1000").unwrap();
+        std::fs::write(root.join("memory.stat"), "file 300\nshmem 20\nfile_dirty 10\nfile_writeback 0\nunevictable 0\n").unwrap();
+        assert_eq!(super::working_set_from_cgroup(&root).unwrap(), 730);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn clean_mapped_cache_does_not_strand_an_idle_actor() {
         let root = std::env::temp_dir().join(format!(
