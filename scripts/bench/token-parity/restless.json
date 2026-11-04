@@ -33,6 +33,13 @@
 			]
 		},
 		{
+			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-TEAM",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "restless commission --lead docs-writer --role 'writer' --team Docs --charter 'The company documents customers read.' --title 'Delivery policy' --outcome 'BENCH-WORK: a one-page delivery policy (zones, fees, cut-off times) at /company/outputs/delivery-policy.md' --reason 'The owner asked for a delivery policy.' --expected-artifact /company/outputs/delivery-policy.md" } } },
+				{ "text": "The docs lead is writing the delivery policy; I will bring it to you when it is ready.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"The docs lead is on the delivery policy.\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"The docs lead has the Work.\"}-->" }
+			]
+		},
+		{
 			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-QA",
 			"steps": [
 				{ "text": "One piece of work is done: the delivery policy is waiting for your look.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Nothing else is in progress.\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"Answered the owner.\"}-->" }
