@@ -38,6 +38,18 @@ async fn reconcile_owner_attachments(daemon: &Daemon, configs: &[runtime::Compan
     }
 }
 
+fn recovery_memory_detail(company: &str, admission: &runtime::WorkloadAdmission) -> String {
+    let subject = if admission.scope == "shared" {
+        "account workload pool".to_string()
+    } else {
+        format!("company {company}")
+    };
+    format!(
+        "waiting for memory in {subject}: {} bytes used; resume below {} bytes",
+        admission.working_set_bytes, admission.resume_below_bytes
+    )
+}
+
 // Unoptimised builds (the README launcher's `cargo build`) keep large async
 // frames on the stack; a live model turn overflowed Tokio's 2 MiB default.
 const RUNTIME_THREAD_STACK_BYTES: usize = 16 * 1024 * 1024;
@@ -530,10 +542,7 @@ async fn run() -> Result<()> {
                             if release_plane {
                                 company::note_roll_forward_stage(
                                     "waiting_for_startup_recovery",
-                                    Some(format!(
-                                        "waiting for memory: {company}, {} bytes used; resume below {} bytes ({})",
-                                        admission.working_set_bytes, admission.resume_below_bytes, admission.scope
-                                    )),
+                                    Some(recovery_memory_detail(company, &admission)),
                                 );
                             }
                             waiting = true;
@@ -1070,5 +1079,23 @@ mod stop_tests {
         tokio::pin!(now);
         let window = Duration::from_secs(60);
         assert!(!wait_for_running_work(&gate, busy, window, POLL, now.as_mut()).await);
+    }
+}
+
+#[cfg(test)]
+mod recovery_memory_status_tests {
+    use super::*;
+
+    #[test]
+    fn shared_pressure_does_not_blame_the_first_company_checked() {
+        let mut sample = runtime::WorkloadAdmission {
+            scope: "shared", waiting_for_memory: true,
+            working_set_bytes: 900, resume_below_bytes: 800,
+        };
+        let detail = recovery_memory_detail("unrelated", &sample);
+        assert!(detail.contains("account workload pool"));
+        assert!(!detail.contains("unrelated"));
+        sample.scope = "company";
+        assert!(recovery_memory_detail("heavy", &sample).contains("company heavy"));
     }
 }
