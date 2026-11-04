@@ -68,3 +68,10 @@ commit status. It never blocks a release.
   only. Put the recorded `usage` of the same tasks in place of `--baseline-system-tokens`.
 - **Ratios** are Restless over baseline for calls, total input tokens, and cost-weighted input
   (uncached 1x, cache read 0.1x, cache write 1.25x). Parity means each ratio is at most 1.0.
+- **Cost by model.** Every task also reports, for each side, the calls, weighted input and output
+  tokens per model, priced at that model's models.dev rates (read at the start of a run; a
+  4 November 2026 snapshot when offline), and the cost ratio. Routing a turn to a cheaper model
+  shows here and not in the token ratios. The baseline runs on the company's model
+  (`BENCH_MODEL`), as a direct harness on the same login would. On `BENCH_ROUTE=subscription`
+  nothing is billed per token, so the same figure is the run's share of the plan, assuming the
+  plan's usage windows weigh models by their API price; providers do not publish those weights.

@@ -166,6 +166,7 @@ const freshStats = () => ({
 	output_tokens: 0,
 	request_bytes: 0,
 	by_model: {},
+	usage_by_model: {},
 	ttl_breakpoints: {}
 });
 let stats = freshStats();
@@ -243,6 +244,21 @@ function record(input, outputTokens, body, bytes) {
 	stats.request_bytes += bytes;
 	const model = body.model ?? 'unknown';
 	stats.by_model[model] = (stats.by_model[model] ?? 0) + 1;
+	/* The same totals per model, so a run can be priced by what each model costs. */
+	const used = (stats.usage_by_model[model] ??= {
+		calls: 0,
+		input_tokens: 0,
+		cache_read_input_tokens: 0,
+		cache_creation_input_tokens: 0,
+		cache_creation_1h_input_tokens: 0,
+		output_tokens: 0
+	});
+	used.calls += 1;
+	used.input_tokens += input.input_tokens;
+	used.cache_read_input_tokens += input.cache_read_input_tokens;
+	used.cache_creation_input_tokens += input.cache_creation_input_tokens;
+	used.cache_creation_1h_input_tokens += input.cache_creation.ephemeral_1h_input_tokens;
+	used.output_tokens += outputTokens;
 	for (const ttl of input.ttls) stats.ttl_breakpoints[ttl] = (stats.ttl_breakpoints[ttl] ?? 0) + 1;
 }
 /* The usage a response reports: Anthropic's fields, without the mock's own bookkeeping. */
