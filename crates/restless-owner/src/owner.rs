@@ -63,6 +63,8 @@ mod notification_delivery_api;
 mod oauth_login_api;
 #[path = "owner_integrations.rs"]
 mod owner_integrations;
+#[path = "owner_hooks.rs"]
+mod hooks_api;
 #[path = "owner_vault.rs"]
 mod owner_vault;
 #[path = "owner_pending_shares.rs"]
@@ -1714,6 +1716,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(owner_integrations::send_test),
         )
         .route(
+            "/companies/{company}/hooks/{provider}",
+            post(hooks_api::endpoint_url),
+        )
+        .route(
             "/companies/{company}/vault/secret",
             post(owner_vault::store_secret),
         )
@@ -2307,6 +2313,11 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             machines_api::HELPER_IMAGE_PATH,
             get(machines_api::helper_image),
         )
+        // Providers' signed webhooks (ADR 0017). Bounded here as well as in the handler.
+        .route(
+            hooks_api::ROUTE,
+            any(hooks_api::receive).layer(DefaultBodyLimit::max(restless_engine::hooks::MAX_BODY)),
+        )
         .route("/entry", post(consume_entry_assertion))
         .route("/entry/account", post(consume_account_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
@@ -2482,6 +2493,14 @@ async fn enforce_owner_boundary(
         // Fleet's dedicated read-only bearer, exact Host and exact cell tuple
         // are checked by the handler. This is a machine lifecycle route, not
         // an owner browser session route.
+        return next.run(request).await;
+    }
+    if hooks_api::is_hooks_path(request.uri().path()) {
+        // A provider's signed webhook (ADR 0017). It has no session, no Origin and no cookie, and
+        // gets none: the handler answers only this path shape, verifies the provider's signature
+        // with the company's own secret before anything is written, and is not an owner API.
+        request.headers_mut().remove(axum::http::header::COOKIE);
+        request.headers_mut().remove(axum::http::header::AUTHORIZATION);
         return next.run(request).await;
     }
     if is_review_path(request.uri().path()) {
