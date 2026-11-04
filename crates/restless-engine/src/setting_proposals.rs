@@ -312,6 +312,11 @@ pub async fn propose(
         bail!("say why the company needs this change (at most 2,000 characters)");
     }
     input.change.validate()?;
+    if let SettingChange::EverydayModel { model } = &input.change {
+        // The card's Approve applies it through `set_everyday_model`, which refuses a model the
+        // company's login cannot serve. Refuse it here, while the proposer can still pick another.
+        config.clone().set_everyday_model(model)?;
+    }
     if settled(&input.change, config) {
         bail!(
             "Settings already holds this value, so there is nothing to ask the owner: {}",

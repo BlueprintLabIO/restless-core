@@ -1627,6 +1627,50 @@ impl CompanyConfig {
         Some(format!("native-{provider}-{mode}/{}", connection.model))
     }
 
+    /// The everyday model on a native harness's own sign-in or key: the same connection, the
+    /// everyday model's id (Claude Opus → Sonnet on the owner's Claude login). The owner's choice
+    /// counts when it is from that harness's provider; unset, the connection model's sibling.
+    /// None when there is no everyday model for it or it is the connection's own model.
+    pub fn native_everyday_model(&self, harness: AgentHarness) -> Option<String> {
+        let connection = self.native_harnesses.get(harness.as_str())?;
+        let (route, providers): (&str, &[&str]) = match harness {
+            AgentHarness::Codex => ("codex", &["openai-codex", "openai"]),
+            AgentHarness::ClaudeAgent => ("claude", &["anthropic"]),
+            _ => return None,
+        };
+        let chosen = self
+            .everyday_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty());
+        let everyday = match chosen {
+            Some(model) if model.eq_ignore_ascii_case(EVERYDAY_OFF) => return None,
+            Some(model) => model.to_string(),
+            None => everyday_sibling(&format!("{}/{}", providers[0], connection.model))?,
+        };
+        let (provider, id) = everyday.split_once('/')?;
+        if !providers.contains(&provider) || id.is_empty() || id == connection.model {
+            return None;
+        }
+        let native = self.native_model(harness)?;
+        let (prefix, _) = native.split_once('/')?;
+        debug_assert!(prefix.starts_with(&format!("native-{route}-")));
+        Some(format!("{prefix}/{id}"))
+    }
+
+    /// Whether this company's own login can serve `model`: a model from the main model's provider
+    /// is on the same sign-in or key; any other provider needs its own connection. An everyday
+    /// model it cannot reach would fail every turn it leads.
+    pub fn can_reach_model(&self, model: &str) -> bool {
+        let Some((provider, _)) = model.trim().split_once('/') else {
+            return false;
+        };
+        self.model.split_once('/').map(|(primary, _)| primary) == Some(provider)
+            || self
+                .credentials
+                .contains_key(&format!("model.inference.{provider}"))
+    }
+
     pub fn load(root: &Path, name: &str) -> Result<Self> {
         Self::load_from(root.join("companies").join(format!("{name}.toml")), name)
     }
@@ -1799,7 +1843,19 @@ impl CompanyConfig {
     /// Set the everyday model exactly as `company set everyday_model` and an applied setting
     /// proposal do: a provider/model, `off` (every turn on the primary) or empty (the default).
     pub fn set_everyday_model(&mut self, value: &str) -> Result<()> {
-        self.everyday_model = everyday_model_setting(value)?;
+        let setting = everyday_model_setting(value)?;
+        if let Some(model) = setting.as_deref().filter(|model| *model != EVERYDAY_OFF) {
+            if !self.can_reach_model(model) {
+                let primary = self
+                    .model
+                    .split_once('/')
+                    .map_or("the main model's", |(provider, _)| provider);
+                bail!(
+                    "{model} is not on this company's AI login. Choose a {primary} model, or connect its provider first."
+                );
+            }
+        }
+        self.everyday_model = setting;
         Ok(())
     }
 
