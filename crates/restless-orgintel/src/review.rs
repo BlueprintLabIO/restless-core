@@ -135,6 +135,7 @@ impl OrgIntel {
             && handoff.requested_by != "exec"
             && accountability.lead_actor_id.as_deref() != Some(handoff.requested_by)
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the Work owner, its exact accountable lead, or Exec may request this handoff"
                     .into(),
@@ -161,6 +162,7 @@ impl OrgIntel {
         .await?;
         match (handoff.attempt_id, running_attempt) {
             (None, Some(_)) => {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "a Work with a running Attempt must attach that Attempt to its owner handoff"
                         .into(),
@@ -168,6 +170,7 @@ impl OrgIntel {
             }
             (Some(attached), Some(running)) if attached == running => {}
             (Some(_), _) => {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "handoff Attempt must be the running Attempt of this Work".into(),
                 ));
@@ -287,6 +290,7 @@ impl OrgIntel {
                     | OwnerHandoffCategory::LegalAttestation
             )
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork("only a human-step prompt can return to preparation; judgements and payments retain their decision boundary".into()));
         }
         if (preparing || previous_state == OwnerHandoffState::Preparing)
@@ -295,6 +299,7 @@ impl OrgIntel {
                 WorkStatus::Active | WorkStatus::Blocked
             )
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only active or blocked Work can refresh its human step".into(),
             ));
@@ -304,6 +309,7 @@ impl OrgIntel {
             && changed_by != work_owner
             && !(preparing && accountability.lead_actor_id.as_deref() == Some(changed_by))
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the Work owner, Exec or owner may publish its handoff; its lead may return it to preparation".into(),
             ));
@@ -316,6 +322,7 @@ impl OrgIntel {
             && previous_resume == resume_condition.trim()
             && (previous_state == OwnerHandoffState::Preparing) == preparing
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "the prepared handoff is unchanged".into(),
             ));
@@ -416,6 +423,7 @@ impl OrgIntel {
             && briefed_by != work_owner
             && team_lead.as_deref() != Some(briefed_by)
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only the Work owner, its accountable lead or Exec may prepare its owner brief"
                     .into(),
@@ -431,6 +439,7 @@ impl OrgIntel {
             | OwnerHandoffCategory::PaymentConfirmation => brief.kind == OwnerBriefKind::HumanStep,
         };
         if !kind_matches_boundary {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "owner brief kind must preserve the handoff's judgement or irreducible-human boundary"
                     .into(),
@@ -457,6 +466,7 @@ impl OrgIntel {
             .len()
             > MAX_HANDOFF_CONTEXT_BYTES
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "owner brief must not exceed {MAX_HANDOFF_CONTEXT_BYTES} UTF-8 bytes"
             )));
@@ -465,6 +475,7 @@ impl OrgIntel {
             && previous_author.as_deref() == Some(briefed_by)
             && previous_fingerprint.as_deref() == Some(fingerprint.as_str())
         {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "the owner brief and its source snapshot are unchanged".into(),
             ));
@@ -743,6 +754,7 @@ impl OrgIntel {
         }
         let mut tx = self.pool.begin().await?;
         if resolution.trim().is_empty() {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "resolving a handoff needs the answer or observed outcome".into(),
             ));
@@ -754,8 +766,10 @@ impl OrgIntel {
                 .await?;
         let Some(candidate_work_id) = candidate_work_id else {
             if external_observation {
+                tx.rollback().await?;
                 return Ok(false);
             }
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "no pending owner handoff with that id".into(),
             ));
@@ -772,8 +786,10 @@ impl OrgIntel {
         .await?;
         let Some(row) = row else {
             if external_observation {
+                tx.rollback().await?;
                 return Ok(false);
             }
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "no pending owner handoff with that id".into(),
             ));
@@ -790,12 +806,14 @@ impl OrgIntel {
             || assigned_to.as_deref() == Some(resolved_by)
             || (assigned_to.is_none() && resolved_by == "owner");
         if !resolver_owns {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "handoff is not currently owed by {resolved_by:?}"
             )));
         }
         if owner_human_step_completion {
             if handoff_state != OwnerHandoffState::Pending {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "a human step cannot be marked done while it is still being prepared".into(),
                 ));
@@ -805,12 +823,14 @@ impl OrgIntel {
             // payment Restless holds is confirmed with its provider; the cockpit API refuses
             // those before they reach here, since Authority, not OrgIntel, knows them.
             if category == OwnerHandoffCategory::OwnerJudgement {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "owner judgements and reviews must use their dedicated source action".into(),
                 ));
             }
         }
         if external_observation && resolved_by != "daemon" {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "external owner-step observations must be attributed to daemon".into(),
             ));
@@ -838,11 +858,13 @@ impl OrgIntel {
             );
             let recorded: Option<String> = row.get("brief_source_fingerprint");
             if recorded.as_deref() != Some(current.as_str()) {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "owner decision brief is stale against the current handoff source".into(),
                 ));
             }
             if brief.kind == OwnerBriefKind::OutcomeReview {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "outcome_review must use accept or request-changes semantics".into(),
                 ));
@@ -1009,6 +1031,7 @@ impl OrgIntel {
         let category: OwnerHandoffCategory = row.get("category");
         let owner_id = accountability.owner_id;
         if category != OwnerHandoffCategory::OwnerJudgement {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "only an owner_judgement handoff can receive an outcome review".into(),
             ));
@@ -1030,6 +1053,7 @@ impl OrgIntel {
             }
         };
         if !reviewer_owns {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "this review is still assigned below you, or is waiting on someone else".into(),
             ));
@@ -1062,6 +1086,7 @@ impl OrgIntel {
                 || expected.work_revision != accountability.revision
                 || expected.artifact_id != artifact_id
             {
+                tx.rollback().await?;
                 return Err(OrgIntelError::ReviewChanged);
             }
         }
@@ -1085,17 +1110,20 @@ impl OrgIntel {
             );
             let recorded: Option<String> = row.get("brief_source_fingerprint");
             if recorded.as_deref() != Some(current.as_str()) {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "outcome review brief is stale against the current handoff source".into(),
                 ));
             }
             if brief.kind != OwnerBriefKind::OutcomeReview {
+                tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(
                     "only an outcome_review brief has accept/request-changes semantics".into(),
                 ));
             }
         }
         if decision == OwnerReviewDecision::Accepted && artifact_id.is_none() {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "this outcome needs a prepared preview before it can be accepted".into(),
             ));
@@ -1107,6 +1135,7 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if has_running_attempt {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "cannot decide an outcome review while its Work Attempt is still running".into(),
             ));

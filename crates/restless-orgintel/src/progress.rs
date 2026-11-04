@@ -235,11 +235,13 @@ impl OrgIntel {
         .await?
         .ok_or_else(|| OrgIntelError::InvalidWork(format!("Work {work_id} does not exist")))?;
         if by != creator && by != "exec" {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(format!(
                 "only the Work's creator ({creator}) or Exec records its progress estimate"
             )));
         }
         if matches!(status, WorkStatus::Completed | WorkStatus::Abandoned) {
+            tx.rollback().await?;
             return Err(OrgIntelError::InvalidWork(
                 "settled Work keeps its last estimate: done Work is 100%, stopped Work stays where it stopped".into(),
             ));

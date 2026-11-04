@@ -439,12 +439,15 @@ pub async fn issue(
     lock_company(&mut tx, company).await?;
     let (root, version) = current_root(&mut tx, company, mandate_id).await?;
     if root.expires_at <= now {
+        tx.rollback().await?;
         bail!("email mandate has expired");
     }
     if normalize_mailbox(&root.sender)? != root.sender {
+        tx.rollback().await?;
         bail!("email mandate sender is not normalized");
     }
     if proposal.sender != root.sender {
+        tx.rollback().await?;
         bail!("proposed sender is outside the email mandate");
     }
     let permit = EmailPermit {
@@ -692,14 +695,17 @@ pub async fn reserve(
     .context("email permit does not exist")?;
     let issuer: Option<String> = row.try_get("actor_id")?;
     if issuer.as_deref() != Some("exec") {
+        tx.rollback().await?;
         bail!("email permit is not attributed to Exec");
     }
     let permit: EmailPermit = serde_json::from_value(row.try_get("body")?)?;
     let (root, version) = current_root(&mut tx, company, permit.mandate_id).await?;
     if version != permit.mandate_version || root.expires_at <= now {
+        tx.rollback().await?;
         bail!("email mandate is no longer active at the permit version");
     }
     if permit.expires_at <= now {
+        tx.rollback().await?;
         bail!("email permit has expired");
     }
     if normalize_mailbox(&root.sender)? != actual_sender
@@ -709,6 +715,7 @@ pub async fn reserve(
         || payload_sha256.to_ascii_lowercase() != permit.payload_sha256
         || effect_key != permit.effect_key
     {
+        tx.rollback().await?;
         bail!("actual email does not match the exact permit");
     }
     let prior: bool = sqlx::query_scalar(
@@ -722,6 +729,7 @@ pub async fn reserve(
     .fetch_one(&mut *tx)
     .await?;
     if prior {
+        tx.rollback().await?;
         bail!("email permit or effect key has already been consumed");
     }
     // The caps govern; repeat sends to one address are fine within them. Only a mandate that
@@ -795,6 +803,7 @@ pub async fn reserve(
         }
     }
     if total >= root.max_total || daily >= root.max_per_day {
+        tx.rollback().await?;
         bail!("email mandate quota is exhausted");
     }
     let reserved_at = now;
@@ -880,6 +889,7 @@ pub async fn reserve_owner_approved(
         || field(&request, "effect_key").as_deref() != Some(effect_key)
         || field(&approved, "payload_sha256").as_deref() != Some(digest.as_str())
     {
+        tx.rollback().await?;
         bail!("actual email does not match the email the owner approved");
     }
     let prior: bool = sqlx::query_scalar(
@@ -893,6 +903,7 @@ pub async fn reserve_owner_approved(
     .fetch_one(&mut *tx)
     .await?;
     if prior {
+        tx.rollback().await?;
         bail!("this approved email was already sent or attempted");
     }
     sqlx::query(
@@ -948,6 +959,7 @@ pub async fn record_status(
     .context("email permit has no send reservation")?;
     let reserved: Value = row.try_get("body")?;
     if reserved.get("effect_key").and_then(Value::as_str) != Some(effect_key) {
+        tx.rollback().await?;
         bail!("email status effect key does not match reservation");
     }
     let latest = sqlx::query_scalar::<_, Value>(
@@ -969,6 +981,7 @@ pub async fn record_status(
             ProviderOutcome::Unknown => "unknown",
         };
         if previous.as_deref() != Some(desired) {
+            tx.rollback().await?;
             bail!("terminal email provider outcome cannot be overwritten");
         }
         tx.commit().await?;
@@ -976,10 +989,12 @@ pub async fn record_status(
     }
     if let Some(reference) = provider_ref {
         if outcome != ProviderOutcome::ConfirmedSent || reference.trim().is_empty() {
+            tx.rollback().await?;
             bail!("provider reference is valid only for a confirmed send");
         }
     }
     if outcome == ProviderOutcome::ConfirmedSent && provider_ref.is_none() {
+        tx.rollback().await?;
         bail!("a provider-accepted email needs its provider message ID");
     }
     let value = match outcome {

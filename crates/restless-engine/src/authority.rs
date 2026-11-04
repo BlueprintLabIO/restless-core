@@ -544,6 +544,7 @@ impl AuthorityStore {
         let proposal_row = sqlx::query("SELECT body FROM restless_authority.records WHERE company=$1 AND kind='email_mandate_proposal' AND body->>'id'=$2 ORDER BY id DESC LIMIT 1 FOR UPDATE")
             .bind(company).bind(proposal_id.to_string()).fetch_optional(&mut *tx).await?;
         let Some(row) = proposal_row else {
+            tx.rollback().await?;
             anyhow::bail!("email mandate proposal not found")
         };
         let body: serde_json::Value = sqlx::Row::try_get(&row, "body")?;
@@ -565,6 +566,7 @@ impl AuthorityStore {
                 }
                 return Ok(None);
             }
+            tx.rollback().await?;
             anyhow::bail!("email mandate proposal was already decided")
         }
         let proposal: NewEmailMandate = serde_json::from_value(body["proposal"].clone())?;
@@ -906,9 +908,11 @@ impl AuthorityStore {
         .context("read current Authority owner before transfer")?;
         let effective_current = current.as_deref().unwrap_or(expected_current_owner);
         if effective_current != expected_current_owner {
+            tx.rollback().await?;
             bail!("Authority ownership already changed to a different Actor; refresh and retry");
         }
         if effective_current == to_actor_id {
+            tx.rollback().await?;
             bail!("that Actor already holds Authority ownership");
         }
         let id = sqlx::query_scalar::<_, i64>(
@@ -984,12 +988,15 @@ impl AuthorityStore {
         if let Some(pending) = latest_pending_handover(&mut *tx, company).await? {
             if pending.from_actor_id == expected_current_owner && pending.to_actor_id == to_actor_id
             {
+                tx.rollback().await?;
                 return Ok(pending);
             }
+            tx.rollback().await?;
             bail!("another ownership handover is already waiting; cancel it first");
         }
         let current = current_owner_in(&mut tx, company).await?;
         if current.as_deref().unwrap_or(expected_current_owner) != expected_current_owner {
+            tx.rollback().await?;
             bail!("Authority ownership already changed to a different Actor; refresh and retry");
         }
         if current.is_none() {
@@ -1051,13 +1058,16 @@ impl AuthorityStore {
             .context("begin ownership handover completion")?;
         lock_authority_owner(&mut tx, company).await?;
         let Some(pending) = latest_pending_handover(&mut *tx, company).await? else {
+            tx.rollback().await?;
             return Ok(None);
         };
         if pending.record_id != record_id {
+            tx.rollback().await?;
             return Ok(None);
         }
         let current = current_owner_in(&mut tx, company).await?;
         if current.as_deref().unwrap_or(&pending.from_actor_id) != pending.from_actor_id {
+            tx.rollback().await?;
             bail!("Authority ownership changed while the handover waited");
         }
         let id = sqlx::query_scalar::<_, i64>(
@@ -1095,9 +1105,11 @@ impl AuthorityStore {
             .context("begin ownership handover cancel")?;
         lock_authority_owner(&mut tx, company).await?;
         let Some(pending) = latest_pending_handover(&mut *tx, company).await? else {
+            tx.rollback().await?;
             return Ok(None);
         };
         if pending.from_actor_id != holder {
+            tx.rollback().await?;
             bail!("only the person who started this handover may cancel it");
         }
         let id = sqlx::query_scalar::<_, i64>(
