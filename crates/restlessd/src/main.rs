@@ -500,7 +500,9 @@ async fn run() -> Result<()> {
         let recovery_started = std::time::Instant::now();
         let hosted_runtime = recovery_daemon.runtime_bridges.is_hosted();
         if release_plane {
-            company::note_roll_forward_stage("waiting_for_startup_recovery", None);
+            // Never `detail: null` again: on 4 November this stage sat for 50 minutes with no
+            // reason on screen (Sprint 111).
+            company::note_roll_forward_stage("waiting_for_startup_recovery", Some("Listing company computers before admission opens; deadline 60 seconds. Past it the daemon exits so the updater restores the previous release.".into()));
         }
         let running_companies = if hosted_runtime {
             Vec::new()
@@ -519,9 +521,13 @@ async fn run() -> Result<()> {
                             "Docker inventory exceeded its 60-second recovery budget: {result:?}"
                         )),
                     );
-                    tracing::error!(
-                        "startup inventory failed; exiting so the release supervisor can roll back"
-                    );
+                    company::note_deadline_exceeded(
+                        &recovery_daemon,
+                        None,
+                        "waiting_for_startup_recovery",
+                        "daemon exits so the updater restores the previous release",
+                    )
+                    .await;
                     std::process::exit(1);
                 }
             }

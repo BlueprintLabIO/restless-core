@@ -15,6 +15,13 @@ pub async fn run(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
         Ok(Ok(_))
     ) {
         company::note_roll_forward_stage("fetch_failed", Some("The Runtime image could not be fetched within two minutes. Existing companies keep their current images.".into()));
+        company::note_deadline_exceeded(
+            daemon,
+            None,
+            "fetching_image",
+            "kept every company on its current image",
+        )
+        .await;
         return;
     }
     let mut candidates = Vec::new();
@@ -86,8 +93,9 @@ pub async fn run(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
     candidates.sort_by_key(|(weight, config, _)| (*weight, config.name.as_str()));
     for (index, (_, config, previous)) in candidates.iter().enumerate() {
         let canary = index == 0;
-        company::note_roll_forward_stage(
+        company::note_roll_forward_stage_for(
             if canary { "canary" } else { "rolling_company" },
+            Some(&config.name),
             Some(format!(
                 "{}: company {} of {}; running Work drains for at most five minutes.",
                 config.display_name.as_deref().unwrap_or(&config.name),
@@ -174,11 +182,22 @@ async fn replace(daemon: &Daemon, config: &runtime::CompanyConfig, canary: bool)
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
-    for actor in daemon.staff.running_actors(name) {
+    let running = daemon.staff.running_actors(name);
+    if !running.is_empty() {
+        company::note_deadline_exceeded(
+            daemon,
+            Some(name),
+            "draining",
+            "interrupted running Work; it resumes from its saved session on the new release",
+        )
+        .await;
+    }
+    for actor in running {
         daemon.staff.interrupt(name, &actor);
     }
     let names = vec![name.clone()];
-    tokio::time::timeout(Duration::from_secs(180), async {
+    company::note_company_roll_forward(name, "starting", Some("Starting the new Runtime and reconciling interrupted Work; deadline three minutes. Other companies remain available.".into()));
+    let started = tokio::time::timeout(Duration::from_secs(180), async {
         runtime::up(config, true).await?;
         anyhow::ensure!(
             crate::coordination::await_stopped_company_idle(daemon, name).await,
@@ -199,8 +218,17 @@ async fn replace(daemon: &Daemon, config: &runtime::CompanyConfig, canary: bool)
         anyhow::ensure!(org.is_live().await?, "company entry store is unavailable");
         anyhow::Ok(())
     })
-    .await
-    .context("Runtime start or recovery exceeded three minutes")??;
+    .await;
+    if started.is_err() {
+        company::note_deadline_exceeded(
+            daemon,
+            Some(name),
+            "starting",
+            "restoring the previous Runtime image",
+        )
+        .await;
+    }
+    started.context("Runtime start or recovery exceeded three minutes")??;
     if canary {
         company::note_company_roll_forward(name, "checking_canary", Some("Runtime and entry store passed; checking one real Exec turn before any other company is replaced.".into()));
         let cancellation = CancellationToken::new();
@@ -217,6 +245,7 @@ async fn replace(daemon: &Daemon, config: &runtime::CompanyConfig, canary: bool)
             report = &mut turn => report?,
             () = tokio::time::sleep(Duration::from_secs(90)) => {
                 cancellation.cancel();
+                company::note_deadline_exceeded(daemon, Some(name), "checking_canary", "stopping the rollout and restoring the canary's previous image").await;
                 let _ = tokio::time::timeout(Duration::from_secs(15), &mut turn).await;
                 anyhow::bail!("canary Exec turn exceeded ninety seconds");
             }
