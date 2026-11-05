@@ -411,6 +411,12 @@ enum Command {
         #[arg(long)]
         reconcile: bool,
     },
+    /// Operator recovery: restart one company's processes and continue saved Work.
+    #[command(hide = true)]
+    PlatformRecover {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: String,
+    },
     /// Stop a company environment. The volume — files, Git, browser — survives.
     Down {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -3642,6 +3648,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "reconcile": reconcile,
             })
         }
+        Command::PlatformRecover { company } => {
+            serde_json::json!({ "cmd": "platform-recover", "company": company })
+        }
         Command::Down {
             company: c,
             destroy,
@@ -5380,14 +5389,19 @@ fn mandated_send(
         .context("the email request names no `from` sender")?
         .trim()
         .to_ascii_lowercase();
-    let mandates = daemon_request(serde_json::json!({ "cmd": "mandate-list", "company": company }))?;
+    let mandates =
+        daemon_request(serde_json::json!({ "cmd": "mandate-list", "company": company }))?;
     let now = chrono::Utc::now();
     let mandate = mandates
         .as_array()
         .into_iter()
         .flatten()
         .filter(|mandate| {
-            mandate["sender"].as_str().map(str::to_ascii_lowercase).as_deref() == Some(&sender)
+            mandate["sender"]
+                .as_str()
+                .map(str::to_ascii_lowercase)
+                .as_deref()
+                == Some(&sender)
                 && mandate["expires_at"]
                     .as_str()
                     .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
@@ -5445,9 +5459,9 @@ fn mandated_send(
             "cmd": "email-observe", "company": company, "actor": actor,
             "email_observe_list": "outbound", "email_observe_after": null,
         })) {
-            Ok(observation) => find_by_id(&observation, provider_id).unwrap_or_else(|| {
-                serde_json::json!({ "note": "not in the provider's latest outbound page yet" })
-            }),
+            Ok(observation) => find_by_id(&observation, provider_id).unwrap_or_else(
+                || serde_json::json!({ "note": "not in the provider's latest outbound page yet" }),
+            ),
             Err(error) => serde_json::json!({ "error": format!("{error:#}") }),
         },
     };

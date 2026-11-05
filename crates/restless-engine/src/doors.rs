@@ -121,6 +121,12 @@ pub const OWNER_ONLY_DOORS: &[(&str, Door)] = &[
     ("clear-poison", TELL_COMPUTER),
     ("appliance-drain", TELL_COMPUTER),
     ("appliance-resume", TELL_COMPUTER),
+    (
+        "platform-recover",
+        Door::Tell {
+            owner_ui: "Company › Computer, or account › Support for operator recovery",
+        },
+    ),
     ("spend-correct", TELL_SPEND),
     (
         "company-create",
