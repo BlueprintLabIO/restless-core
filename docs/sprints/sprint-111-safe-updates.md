@@ -1,19 +1,23 @@
 # Sprint 111: safe updates
 
-**Status: implementation and isolated verification complete; the production plane is restored, but the Runtime rollout stopped at its canary and authenticated entry verification remains open (5 Nov 2026).**
+**Status: production Runtime rollout completed; all six current Fleet entry gates pass. Authenticated owner browser verification remains open (6 Nov 2026 AEDT).**
 
 On 5 November the owner plane applied revision 145 with Core `d7ea88b9`. The global startup
 barrier opened and all six companies passed Fleet's current entry and Documents readiness gates in
 repeated observations. The operator path was also exercised against a real isolated SSH/plane
 fixture. A signed-in owner has not yet verified the six actual browser entries.
 
-The least-busy Runtime canary (Reno) started, but its real Exec check exceeded 90 seconds. The
-previous Runtime image was restored and the remaining companies kept their previous images, as
-designed; the Runtime rollout is therefore **not complete**. At the time, the shared workload
-pool was under memory pressure and the Restless Computer was using about 4.3 GB; that later fell
-and the entry checks cleared. The evidence does not establish whether memory pressure caused the
-canary timeout. Investigate the failed turn before retrying; do not mark this sprint complete or
-restart a healthy plane solely to hide the failure.
+The least-busy Runtime canary (Reno) started on 5 November, but its real Exec check exceeded 90
+seconds. The previous Runtime image was restored and the remaining companies kept their previous
+images, as designed. At the time, the shared workload pool was under memory pressure and the
+Restless Computer was using about 4.3 GB; that later fell and the entry checks cleared. The evidence
+does not establish whether memory pressure caused the canary timeout.
+
+On 6 November AEDT, after confirming the plane was idle, workload memory was about 2.1 GB of the
+6.0 GB limit, and all six entry gates passed, the operator restarted the plane once to retry. The
+rollout reached `done` at 09:19 AEDT: two active companies were rebuilt and four sleeping companies
+will use the release on their next wake. At 09:20 all six Fleet entry gates again passed at revision
+145. These checks do not establish what a signed-in owner sees in the browser.
 
 Implemented per-company recovery gates, bounded inventory/orphan/start/drain waits,
 five-minute Work drain, ten-minute measured-memory recovery, durable half-budget
