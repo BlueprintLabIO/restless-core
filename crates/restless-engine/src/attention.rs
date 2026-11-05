@@ -429,18 +429,25 @@ fn review_target_availability(
     let Err(error) = observed else {
         return ("available", None);
     };
-    if runtime::is_sleeping(company) {
+    if runtime::is_sleeping(company) && !runtime::stopped_by_owner(company) {
         return (
             "asleep",
             Some("The company computer is asleep. Opening the review wakes it.".into()),
         );
     }
     let detail = format!("{error:#}");
-    // `stopped`: the cockpit offers the way to start it beside the message.
     if detail.contains("is not running") || detail.contains("No such container") {
+        // `stopped`: the owner turned it off, and the cockpit offers Start computer beside this.
+        if runtime::stopped_by_owner(company) {
+            return (
+                "stopped",
+                Some("The company computer was stopped by its owner, so this outcome can't open until it starts again.".into()),
+            );
+        }
+        // Stopped without anyone asking: opening the review starts it, as it wakes a sleeping one.
         return (
-            "stopped",
-            Some("The company computer is stopped, so this outcome cannot be opened until it starts.".into()),
+            "asleep",
+            Some("The company computer is not running. Opening the review starts it.".into()),
         );
     }
     // The card shows a sentence; the raw reason (a shell's "realpath: …: No such file or
@@ -862,7 +869,10 @@ fn mandate_proposal_copy(
         if text.chars().count() <= limit {
             text
         } else {
-            format!("{}…", text.chars().take(limit - 1).collect::<String>().trim_end())
+            format!(
+                "{}…",
+                text.chars().take(limit - 1).collect::<String>().trim_end()
+            )
         }
     };
     let purpose = one_line(&proposal.purpose, 80);
@@ -874,7 +884,9 @@ fn mandate_proposal_copy(
     let what_happened = if replaces {
         format!("{who} asks to change its standing permission to send email. Approving replaces the current one.")
     } else {
-        format!("{who} asks for standing permission to send these emails without asking you each time.")
+        format!(
+            "{who} asks for standing permission to send these emails without asking you each time."
+        )
     };
     let from = match proposal.sender_name.as_deref() {
         Some(name) => format!("{name} <{}>", proposal.sender),
@@ -882,19 +894,39 @@ fn mandate_proposal_copy(
     };
     let until = proposal
         .expires_at
-        .with_timezone(&proposal.timezone.parse::<chrono_tz::Tz>().unwrap_or(chrono_tz::UTC))
+        .with_timezone(
+            &proposal
+                .timezone
+                .parse::<chrono_tz::Tz>()
+                .unwrap_or(chrono_tz::UTC),
+        )
         .format("%-d %b %Y")
         .to_string();
-    let per = |n: u32| if n == 1 { "1 email".to_string() } else { format!("{n} emails") };
+    let per = |n: u32| {
+        if n == 1 {
+            "1 email".to_string()
+        } else {
+            format!("{n} emails")
+        }
+    };
     let mut lines = vec![
         format!("- **Purpose:** {}", one_line(&proposal.purpose, 300)),
-        format!("- **Who gets them:** {}", one_line(&proposal.audience_guidance, 300)),
-        format!("- **How many:** up to {} a day, {} in total", per(proposal.max_per_day), proposal.max_total),
+        format!(
+            "- **Who gets them:** {}",
+            one_line(&proposal.audience_guidance, 300)
+        ),
+        format!(
+            "- **How many:** up to {} a day, {} in total",
+            per(proposal.max_per_day),
+            proposal.max_total
+        ),
         format!("- **Sent from:** {from}"),
         format!("- **Until:** {until}"),
     ];
     if proposal.one_email_per_recipient {
-        lines.push("- **Each person:** one first email, then a reply to each message they send".into());
+        lines.push(
+            "- **Each person:** one first email, then a reply to each message they send".into(),
+        );
     }
     // A plain sentence first: the Inbox row reads "Waiting on you: approve these limits…".
     (
@@ -962,11 +994,7 @@ fn merge_authority_questions(items: &mut Vec<AttentionItem>, requests: Vec<Conve
 
 /// An open owner decision held by Authority (a proposal or prepared effect with decide actions).
 fn is_authority_decision(item: &AttentionItem) -> bool {
-    item.source.plane == "authority"
-        && item
-            .actions
-            .iter()
-            .any(|action| action.role == "decision")
+    item.source.plane == "authority" && item.actions.iter().any(|action| action.role == "decision")
 }
 
 /// The one open Authority decision `question`'s author raised shortly before asking it.
@@ -4488,16 +4516,24 @@ async fn project_queue(
             limits.push_str("\nPer person: one first email, then one reply per message they send");
         }
         if !proposal.own_addresses.is_empty() {
-            limits.push_str(&format!("\nYour own inboxes (never limited): {}", proposal.own_addresses.join(", ")));
+            limits.push_str(&format!(
+                "\nYour own inboxes (never limited): {}",
+                proposal.own_addresses.join(", ")
+            ));
         }
-        let responsible = record.actor_id.as_deref().and_then(|actor| actors.get(actor)).cloned();
+        let responsible = record
+            .actor_id
+            .as_deref()
+            .and_then(|actor| actors.get(actor))
+            .cloned();
         let who = responsible
             .as_ref()
             .map(|actor| actor.display.trim_start_matches("The ").to_string())
             .or_else(|| record.actor_id.clone())
             .unwrap_or_else(|| "Exec".into());
         let replaces = record.body["replaces"].is_string();
-        let (title, what_happened, requested_action) = mandate_proposal_copy(&who, &proposal, replaces);
+        let (title, what_happened, requested_action) =
+            mandate_proposal_copy(&who, &proposal, replaces);
         items.push(AttentionItem {
             id: format!("authority:email_mandate_proposal:{proposal_id}"), work_id: None,
             source: AttentionSource { plane: "authority", kind: "email_mandate_proposal".into(), reference: proposal_id.to_string(), party: None, call_key: None },
@@ -4694,11 +4730,10 @@ async fn project_queue(
     let dispatch_blocked = !config.has_configured_model_route()
         || (local_runtime
             && health.as_ref().is_some_and(|(container, _)| {
-                // A sleeping computer wakes for due work, so only a
-                // stopped or missing one leaves it undispatched.
-                *container == ContainerStatus::Absent
-                    || (*container == ContainerStatus::Stopped
-                        && !runtime::is_sleeping(&config.name))
+                // A sleeping or interrupted computer wakes for due work, so only one the
+                // owner stopped, or a missing one, leaves it undispatched.
+                *container != ContainerStatus::Running
+                    && !runtime::power_state(&config.name, *container).starts_on_demand()
             }));
     if !test_company && dispatch_blocked {
         if let Some(org) = org {
@@ -4718,8 +4753,14 @@ async fn project_queue(
                 let route_missing = !config.has_configured_model_route();
                 let reason = if route_missing {
                     "the company has no configured model route"
+                } else if health
+                    .as_ref()
+                    .is_some_and(|(container, _)| *container == ContainerStatus::Absent)
+                {
+                    "the company has no computer yet"
                 } else {
-                    "the company computer is not running"
+                    // Only an owner stop leaves due work undispatched; any other stop starts again.
+                    "the company computer was stopped by its owner"
                 };
                 items.push(AttentionItem {
                     id: "orgintel:overdue-dispatch-blocked".into(),
@@ -7659,7 +7700,13 @@ mod question_beside_decision_tests {
         }
     }
 
-    fn item(id: &str, plane: &'static str, kind: &str, reference: &str, at: DateTime<Utc>) -> AttentionItem {
+    fn item(
+        id: &str,
+        plane: &'static str,
+        kind: &str,
+        reference: &str,
+        at: DateTime<Utc>,
+    ) -> AttentionItem {
         AttentionItem {
             id: id.into(),
             work_id: None,
@@ -7699,7 +7746,11 @@ mod question_beside_decision_tests {
             actions: vec![AttentionAction {
                 id: "approve".into(),
                 label: "Approve".into(),
-                role: if plane == "authority" { "decision" } else { "conversation" },
+                role: if plane == "authority" {
+                    "decision"
+                } else {
+                    "conversation"
+                },
                 consequence: String::new(),
                 next_state: String::new(),
                 href: None,
@@ -7711,11 +7762,23 @@ mod question_beside_decision_tests {
     }
 
     fn mandate(at: DateTime<Utc>) -> AttentionItem {
-        item("authority:email_mandate_proposal:p1", "authority", "email_mandate_proposal", "p1", at)
+        item(
+            "authority:email_mandate_proposal:p1",
+            "authority",
+            "email_mandate_proposal",
+            "p1",
+            at,
+        )
     }
 
     fn question(at: DateTime<Utc>, handoff: Option<&str>) -> ConversationRequest {
-        let mut question = item("conversation:exec:7", "orgintel", "conversation_owner_need", "7", at);
+        let mut question = item(
+            "conversation:exec:7",
+            "orgintel",
+            "conversation_owner_need",
+            "7",
+            at,
+        );
         question.category = "conversation".into();
         question.owner_replies = vec!["Approve the test-send permission card".into()];
         ConversationRequest {
@@ -7734,7 +7797,10 @@ mod question_beside_decision_tests {
         merge_authority_questions(&mut items, vec![question(Utc::now(), None)]);
         assert_eq!(items.len(), 1, "one request, one card");
         assert_eq!(items[0].review_sources.len(), 1);
-        assert_eq!(items[0].review_sources[0].content, "conversation:exec:7 body");
+        assert_eq!(
+            items[0].review_sources[0].content,
+            "conversation:exec:7 body"
+        );
     }
 
     #[test]
@@ -7792,7 +7858,10 @@ mod question_beside_decision_tests {
         let (title, _, limits) = mandate_proposal_copy("Exec", &proposal, false);
         assert_eq!(title, "Let Exec send email: [TEST] emails to your inbox");
         assert!(!title.to_lowercase().contains("mandate"));
-        assert!(limits.starts_with("Approve these limits, or decline."), "{limits}");
+        assert!(
+            limits.starts_with("Approve these limits, or decline."),
+            "{limits}"
+        );
         assert!(limits.contains("- **How many:** up to 8 emails a day, 8 in total"));
         assert!(limits.contains("- **Sent from:** Acme <hello@example.com>"));
         assert!(limits.contains("- **Until:** 7 Nov 2026"), "{limits}");

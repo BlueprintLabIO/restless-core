@@ -27,6 +27,8 @@ mod cli_api;
 mod company_settings_api;
 #[path = "owner_custom_harnesses.rs"]
 mod custom_harnesses;
+#[path = "owner_decisions.rs"]
+mod decisions_api;
 #[path = "owner_desktop.rs"]
 mod desktop_api;
 #[path = "owner_direction.rs"]
@@ -43,6 +45,8 @@ mod exec_inbox_api;
 mod for_you_api;
 #[path = "owner_handoff_decisions.rs"]
 mod handoff_decisions_api;
+#[path = "owner_hooks.rs"]
+mod hooks_api;
 #[path = "owner_library.rs"]
 mod library_api;
 #[path = "owner_machines.rs"]
@@ -55,18 +59,18 @@ mod member_collaboration_api;
 mod members_api;
 #[path = "owner_model_catalog.rs"]
 mod model_catalog_api;
+#[path = "owner_model_jobs.rs"]
+mod model_jobs_api;
 #[path = "owner_native_import.rs"]
 mod native_import_api;
+#[path = "owner_new_company_defaults.rs"]
+mod new_company_defaults;
 #[path = "owner_notifications.rs"]
 mod notification_delivery_api;
 #[path = "owner_oauth_login.rs"]
 mod oauth_login_api;
 #[path = "owner_integrations.rs"]
 mod owner_integrations;
-#[path = "owner_hooks.rs"]
-mod hooks_api;
-#[path = "owner_sent_import.rs"]
-mod sent_import_api;
 #[path = "owner_vault.rs"]
 mod owner_vault;
 #[path = "owner_pending_shares.rs"]
@@ -77,12 +81,6 @@ mod plane_readiness;
 mod preferences_api;
 #[path = "owner_presence.rs"]
 mod presence_api;
-#[path = "owner_model_jobs.rs"]
-mod model_jobs_api;
-#[path = "owner_decisions.rs"]
-mod decisions_api;
-#[path = "owner_new_company_defaults.rs"]
-mod new_company_defaults;
 #[path = "owner_publications.rs"]
 mod publications_api;
 #[path = "owner_review.rs"]
@@ -91,6 +89,8 @@ mod review_api;
 mod rooms_lifecycle_api;
 #[path = "owner_screencast.rs"]
 mod screencast_api;
+#[path = "owner_sent_import.rs"]
+mod sent_import_api;
 #[path = "owner_sharing.rs"]
 mod sharing_api;
 #[path = "owner_sheets.rs"]
@@ -1976,6 +1976,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(sleep_company_computer),
         )
         .route(
+            "/companies/{company}/company/power",
+            get(company_computer_power),
+        )
+        .route(
             "/companies/{company}/company/authority-owner",
             get(company_authority_owner),
         )
@@ -2514,7 +2518,9 @@ async fn enforce_owner_boundary(
         // gets none: the handler answers only this path shape, verifies the provider's signature
         // with the company's own secret before anything is written, and is not an owner API.
         request.headers_mut().remove(axum::http::header::COOKIE);
-        request.headers_mut().remove(axum::http::header::AUTHORIZATION);
+        request
+            .headers_mut()
+            .remove(axum::http::header::AUTHORIZATION);
         return next.run(request).await;
     }
     if is_review_path(request.uri().path()) {
@@ -7344,10 +7350,14 @@ async fn company_catalog_entry(
     card: Option<crate::company_projection::Summary>,
 ) -> CompanyCatalogEntry {
     let runtime_status = match status {
-        Some(runtime::ContainerStatus::Running) => "running",
-        Some(runtime::ContainerStatus::Stopped) if runtime::is_sleeping(&config.name) => "asleep",
-        Some(runtime::ContainerStatus::Stopped) => "stopped",
-        Some(runtime::ContainerStatus::Absent) => "absent",
+        // Asleep, a retired asleep container, or stopped without anyone asking: demand starts each,
+        // so the account shows them alike. Only an owner stop reads as stopped.
+        Some(status) => match runtime::power_state(&config.name, status) {
+            runtime::PowerState::Awake => "running",
+            runtime::PowerState::Asleep | runtime::PowerState::Interrupted => "asleep",
+            runtime::PowerState::StoppedByOwner => "stopped",
+            runtime::PowerState::Absent => "absent",
+        },
         None => "unavailable",
     };
     let unstartable_reason = match crate::company::observed_company_model_issue(&config).await {
@@ -9088,6 +9098,44 @@ async fn recover_company_computer(
 }
 
 /// Put a quiet computer to sleep now. It refuses while work runs, so sleeping never cuts live work.
+/// One cheap read of the company computer's power state, so a surface waiting on a file can say
+/// "Starting the company computer…" while the open request starts it: `awake`, `asleep`,
+/// `interrupted` (both start on demand), `stopped` (by its owner) or `absent`.
+async fn company_computer_power(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> impl IntoResponse {
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            "This company could not be found.",
+        );
+    }
+    if state.daemon.runtime_bridges.is_hosted() {
+        return Json(serde_json::json!({ "state": "hosted", "starts_on_demand": true }))
+            .into_response();
+    }
+    match runtime::observe_power_state(&company).await {
+        Ok(power) => Json(serde_json::json!({
+            "state": match power {
+                runtime::PowerState::Awake => "awake",
+                runtime::PowerState::Asleep => "asleep",
+                runtime::PowerState::Interrupted => "interrupted",
+                runtime::PowerState::StoppedByOwner => "stopped",
+                runtime::PowerState::Absent => "absent",
+            },
+            "starts_on_demand": power.starts_on_demand(),
+        }))
+        .into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime",
+            logged(error, "The company computer could not be read. Try again."),
+        ),
+    }
+}
+
 async fn sleep_company_computer(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
@@ -12711,23 +12759,12 @@ async fn attachment_runtime_ready(
             "The company computer is not awake, so the file was not sent. Send the message without the file, or attach it again once Company → Computer shows it running.",
         ));
     }
-    Err(match runtime::status(company).await {
-        Ok(runtime::ContainerStatus::Stopped) if !runtime::is_sleeping(company) => api_error(
-            StatusCode::CONFLICT,
-            "runtime",
-            "The company computer is stopped, so files cannot be sent. Start it from Company → Computer, or send the message without the file.",
-        ),
-        Ok(runtime::ContainerStatus::Absent) => api_error(
-            StatusCode::CONFLICT,
-            "runtime",
-            "This company has no computer yet, so files cannot be sent. Company → Health can build it, or send the message without the file.",
-        ),
-        _ => api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "runtime",
-            "The company computer could not wake, so the file was not sent. Company → Computer shows why.",
-        ),
-    })
+    Err(review_api::runtime_refusal(
+        &state.daemon,
+        company,
+        "files can't be sent; send the message without the file",
+    )
+    .await)
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -12789,11 +12826,7 @@ async fn download_attachment(
         )
         .await
         {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "runtime",
-                "The company computer is stopped, so this file cannot be opened. Start it from Company → Computer.",
-            );
+            return review_api::runtime_refusal(daemon, &company, "this file can't open").await;
         }
     }
     let bytes = match runtime::read_owner_attachment(&company, attachment).await {
@@ -13789,11 +13822,7 @@ async fn open_browser_link(
                 "This month's computer hours are used up, so it cannot wake. Raise or clear the limit in Company → Resources.",
             );
         }
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "runtime",
-            "The company computer is stopped, so this link cannot be opened. Start it from Company → Computer.",
-        );
+        return review_api::runtime_refusal(&state.daemon, &company, "this link can't open").await;
     }
     let current = match runtime::generation(&company).await {
         Ok(Some(generation)) => generation,

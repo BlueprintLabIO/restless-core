@@ -2662,7 +2662,7 @@ impl OrgIntel {
                     tx.rollback().await?;
                     return Err(OrgIntelError::InvalidRoom(
                         "an active direct Room must contain its author and exactly one peer".into(),
-                    ))
+                    ));
                 }
             }
             .filter(|recipient| recipient != "owner")

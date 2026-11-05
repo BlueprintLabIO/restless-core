@@ -313,12 +313,16 @@ pub fn owner_title(text: &str) -> String {
         .split_whitespace()
         .filter(|word| {
             let bare = core(word).to_ascii_lowercase();
-            !(bare.starts_with("http://") || bare.starts_with("https://") || bare.starts_with("www."))
+            !(bare.starts_with("http://")
+                || bare.starts_with("https://")
+                || bare.starts_with("www."))
         })
         .collect();
     let joined = words.join(" ");
     let mut title = joined
-        .trim_end_matches(|c: char| c.is_whitespace() || matches!(c, ':' | ',' | ';' | '-' | '–' | '—' | '(' | '['))
+        .trim_end_matches(|c: char| {
+            c.is_whitespace() || matches!(c, ':' | ',' | ';' | '-' | '–' | '—' | '(' | '[')
+        })
         .trim()
         .to_string();
     if title.chars().count() > TITLE_LIMIT {
@@ -385,8 +389,14 @@ mod title_tests {
         assert_eq!(owner_title("Open (https://example.com) now"), "Open now");
         let long = "word ".repeat(60);
         let title = owner_title(&long);
-        assert!(title.chars().count() <= TITLE_LIMIT && title.ends_with('…'), "{title}");
-        assert_eq!(owner_title("Let Exec send email: [TEST] emails to your inbox"), "Let Exec send email: [TEST] emails to your inbox");
+        assert!(
+            title.chars().count() <= TITLE_LIMIT && title.ends_with('…'),
+            "{title}"
+        );
+        assert_eq!(
+            owner_title("Let Exec send email: [TEST] emails to your inbox"),
+            "Let Exec send email: [TEST] emails to your inbox"
+        );
     }
 }
 

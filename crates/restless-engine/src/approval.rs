@@ -518,7 +518,11 @@ pub async fn announce_decisions(
                 } else {
                     (format!("You declined {tool}"), format!("The owner declined the prepared {tool} call with key {key}. Do not run it. Work that was waiting on it needs a different route or an explicit decision to stop.{}", owner_note_sentence(note.as_deref())))
                 };
-                (line, body, serde_json::json!({ "call_key": key, "tool": tool }))
+                (
+                    line,
+                    body,
+                    serde_json::json!({ "call_key": key, "tool": tool }),
+                )
             }
             DecisionSubject::EmailSend {
                 request_id,
@@ -1081,7 +1085,10 @@ mod tests {
             ));
             assert!(receipt.summary.starts_with("You "), "{}", receipt.summary);
             assert!(!decoded.body.contains("The owner"), "{}", decoded.body);
-            assert!(message.body.contains("The owner"), "the agent keeps the instruction");
+            assert!(
+                message.body.contains("The owner"),
+                "the agent keeps the instruction"
+            );
         }
 
         authority.delete_test_company(&company).await.unwrap();
@@ -1128,18 +1135,26 @@ mod tests {
             .decide_email_mandate_proposal(&company, "owner", proposal, true, None)
             .await
             .unwrap();
-        assert_eq!(announce_decisions(&company, &authority, Some(&org)).await, 1);
+        assert_eq!(
+            announce_decisions(&company, &authority, Some(&org)).await,
+            1
+        );
         let message = org.inbox(Some("exec")).await.unwrap().remove(0);
         // The owner sees their decision line (already read); Exec acts on the system notice (S110).
         assert_eq!(message.from_actor, "daemon");
         let decoded = crate::transcript::decode_body(&message.body);
-        assert_eq!(decoded.body.trim(), "You approved sending: [TEST] emails to your inbox");
+        assert_eq!(
+            decoded.body.trim(),
+            "You approved sending: [TEST] emails to your inbox"
+        );
         assert_eq!(
             decoded.intent.unwrap().summary,
             "You approved sending: [TEST] emails to your inbox"
         );
         assert!(!decoded.body.contains(&proposal.to_string()));
-        assert!(message.body.contains("Revisit work and scheduled responsibilities"));
+        assert!(message
+            .body
+            .contains("Revisit work and scheduled responsibilities"));
         assert!(message.body.contains(&proposal.to_string()));
         authority.delete_test_company(&company).await.unwrap();
     }

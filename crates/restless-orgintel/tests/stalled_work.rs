@@ -83,7 +83,11 @@ async fn a_stale_owner_brief_is_asked_for_again_once() {
     org.escalate_handoff(handoff, "exec", "the price is the owner's call")
         .await
         .unwrap();
-    assert_eq!(org.ask_for_stale_owner_briefs().await.unwrap(), 0, "a current brief");
+    assert_eq!(
+        org.ask_for_stale_owner_briefs().await.unwrap(),
+        0,
+        "a current brief"
+    );
 
     // The prepared meaning changes under the brief.
     org.refresh_owner_handoff(

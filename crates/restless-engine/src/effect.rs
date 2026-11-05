@@ -1694,16 +1694,36 @@ mod tests {
             return;
         };
         let company = format!("effectrestart{}_test", uuid::Uuid::new_v4().simple());
-        let authority = crate::authority::AuthorityStore::connect(&url).await.unwrap();
-        authority.emit(&company, "effect_intent", Some("staff"), serde_json::json!({
-            "idempotency_key": "send-once",
-            "command_digest": "digest",
-            "execution_no": 1
-        })).await.unwrap();
+        let authority = crate::authority::AuthorityStore::connect(&url)
+            .await
+            .unwrap();
+        authority
+            .emit(
+                &company,
+                "effect_intent",
+                Some("staff"),
+                serde_json::json!({
+                    "idempotency_key": "send-once",
+                    "command_digest": "digest",
+                    "execution_no": 1
+                }),
+            )
+            .await
+            .unwrap();
         drop(authority);
-        let restarted = crate::authority::AuthorityStore::connect(&url).await.unwrap();
-        let error = prior_execution(&restarted, &company, "email", "digest", "send-once", "staff")
-            .await.expect_err("an unresolved external effect must not execute again");
+        let restarted = crate::authority::AuthorityStore::connect(&url)
+            .await
+            .unwrap();
+        let error = prior_execution(
+            &restarted,
+            &company,
+            "email",
+            "digest",
+            "send-once",
+            "staff",
+        )
+        .await
+        .expect_err("an unresolved external effect must not execute again");
         assert!(error.to_string().contains("unknown outcome"));
     }
 

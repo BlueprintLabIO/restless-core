@@ -333,7 +333,11 @@ pub async fn record_escalation(
         tracing::warn!(actor, "could not record the escalation: {error:#}");
     }
     if let Err(error) = org
-        .settle_decision_outcomes(LEAD_TIER, std::slice::from_ref(&escalation.turn_id), "escalated")
+        .settle_decision_outcomes(
+            LEAD_TIER,
+            std::slice::from_ref(&escalation.turn_id),
+            "escalated",
+        )
         .await
     {
         tracing::warn!(actor, "could not settle the lead tier: {error:#}");
