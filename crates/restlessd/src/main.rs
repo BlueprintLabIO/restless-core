@@ -538,6 +538,9 @@ async fn run() -> Result<()> {
         runtime::finish_startup_recovery();
         recovery_daemon.lifecycle.finish_recovery();
         recovery_ready_tx.send_replace(true);
+        if release_plane {
+            company::note_roll_forward_stage("recovering_companies", Some("The control plane is ready. Each company recovers independently with a two-minute deadline.".into()));
+        }
         if !hosted_runtime {
             startup_recovery::recover_companies(
                 &recovery_daemon,

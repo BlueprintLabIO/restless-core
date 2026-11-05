@@ -19,6 +19,16 @@ fixture cleanup left no resources. Recovery deadline tests prove the half-budget
 alert fires once and even a stuck alert cannot extend the deadline. Production
 entry is a separate check and is not established by these results.
 
+The real retained-memory fixture (`scripts/verify-memory-recovery.py`) also
+passed on 5 November: two companies were created after daemon startup, an idle
+Runtime retained 1 GiB under a real 1.5 GiB/one-CPU workload cgroup, the durable
+owner notice arrived at 308 seconds and only that Runtime restarted at 617
+seconds. Both authenticated principal reads stayed available throughout, its
+neighbour was never restarted, both volume markers survived, and cleanup left
+no resources. Recovery now reloads the catalogue and accepts a measured idle
+Runtime as a blocker. The control-plane health stage opens before independent
+company cleanup, so the release agent does not mistake it for a global barrier.
+
 The bar is the industry standard for a platform that updates twice a day: an update never takes
 every company down at once, no step waits forever, and when something does stick, the owner sees
 exactly what and has a door out.
