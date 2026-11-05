@@ -195,13 +195,15 @@
 	/* One width for every state: room for "Checking model…", "Model unavailable" and the longest
 	 * short model name (18 characters) with its mark; a longer label ends in an ellipsis. Its width
 	 * comes from the room beside it, never from what it says, so a state change moves nothing.
-	 * Short of room it gives way first, down to its mark (the tooltip names the model), so the
-	 * chip beside it keeps its whole label: on a phone the page chip was cut to "W." (S110). */
+	 * Short of room it gives way first, down to its short name (never past it), so the chip beside
+	 * it keeps a short label whole: on a phone the page chip was cut to "W." (S110). */
 	.model-slot {
 		display: flex;
 		align-items: center;
 		flex: 0 100 136px;
-		min-width: 26px;
+		/* Never below the mark and the short name ("Opus 5.5", "Sonnet 4.5"): a long page label
+		 * beside it ends in an ellipsis instead of cutting the model to one letter. */
+		min-width: 104px;
 		overflow: hidden;
 	}
 	.chip,
