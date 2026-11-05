@@ -50,6 +50,51 @@ The bar is the industry standard for a platform that updates twice a day: an upd
 every company down at once, no step waits forever, and when something does stick, the owner sees
 exactly what and has a door out.
 
+## Item status (6 Nov 2026 AEDT)
+
+| # | Item | Status | Landed in | Still needs |
+|---|---|---|---|---|
+| 1 | Deadlines and automatic rollback | **Done in code** | Core #681, #682, #684, #690; Cloud ba42000, #196 | A production rollout that hits a deadline |
+| 2 | Per-company isolation | **Done** | Core #677, #679, #681, #682 | None (production recovery 5 Nov) |
+| 3 | Resume instead of waiting | **Done in code** | Core #682 (five-minute drain, bounded resume), #693 (no resend under a new key); Cloud ff0c90e, #198 | Owner's choice of drain budget (below); a production interrupted Work |
+| 4 | Honest status and alerts | **Done in code** | Core #677, #679, #690; Cloud ba42000, #196, #197 | Signed-in owner browser check; a push channel for operator alerts (below) |
+| 5 | Break-glass access | **Done** | Cloud 63b10b7, 1deec26, #199; Core #683 | Real-SSH re-run with the current command (needs an OpenSSH package download) |
+| 6 | Canary rollout | **Done** | Core #682 | None (production canary 5–6 Nov) |
+
+What each item does past its deadline, and what the owner sees:
+
+- **Drain** (5 min): running Work is interrupted and resumes once per revision from its saved
+  session on the new release. A completed effect replays its receipt. An effect cut mid-flight is
+  refused under any idempotency key until reconciled (#693). The card reads "Running Work is
+  finishing. N minutes into its 5-minute limit."
+- **Startup inventory** (60 s): the daemon exits, the agent restores the previous release, and
+  every heartbeat says `release_refused_after_failed_health_check`. If the rollback itself fails,
+  heartbeats say `release_failed_rollback_*` instead, never the clean code (#196).
+- **Company recovery** (2 min): that company's processes restart once. If that fails the card reads
+  "could not finish recovering", with the door (#690).
+- **Runtime start** (3 min) and **canary Exec turn** (90 s): the previous image is restored and the
+  rollout stops.
+- **Memory** (10 min): the company holding the most memory restarts. An owner notice goes out at
+  5 min.
+- Every deadline hit writes a `restless::release` `alert="operator"` line and a durable
+  `deadline_exceeded` lifecycle event. The provider logs one `operator_alert` at half the deadline
+  and one at the deadline (#196).
+- **On screen** (#197): every stage names its cause, even when Core sent `detail: null`. It shows
+  the elapsed time against its limit and, past the limit, what Restless does next. Each line ends
+  with the door: View service, Company › Computer, or Get recovery help. If the plane cannot be
+  read, the card says so.
+
+### Owner decisions
+
+1. **Drain budget.** Five minutes is the default. The owner has not chosen it. Longer means fewer
+   interrupted turns and slower updates. Shorter means the reverse. The no-duplicate-effect rule
+   holds either way. One setting: Core `company_rollout` (300 s) and the sealed
+   `RESTLESS_STOP_TASK_DRAIN_SECONDS`.
+2. **Operator alert channel.** `operator_alert` is a structured provider log line, and Core writes
+   the matching `alert="operator"` journal lines. Nothing pages or emails the operator yet. The
+   OpenBao watch timer (`deploy/vault/watch`, email to `ALERT_TO`) is the existing pattern to
+   copy. Choose the recipient and whether it should wake someone.
+
 ## Why: the 4 Nov rollout
 
 Core `ab5872b4` reached the owner plane at 20:19 AEDT. All six companies then showed "Updating" on
@@ -128,6 +173,7 @@ token was refused and there is no break-glass access to owner planes.
 - Zero-downtime database migrations beyond what the current schema steps already do.
 
 ## Operational defaults
-- Work drains for five minutes; shared-memory recovery acts after ten minutes.
+- Work drains for five minutes (owner has not chosen; see Owner decisions); shared-memory recovery
+  acts after ten minutes; company recovery restarts once after two minutes.
 - Existing Company → Computer owner recovery remains available. Emergency
   `platform-recover` is restricted to the authenticated local operator.
