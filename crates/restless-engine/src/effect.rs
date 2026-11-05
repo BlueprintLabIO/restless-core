@@ -308,6 +308,11 @@ pub async fn request_effect(
     }
     // A replay reaches nobody; anything new waits while the owner has paused.
     crate::outside_actions::ensure_running(authority, &config.name).await?;
+    if let Some(work) = serving_work(org, actor).await {
+        let parties: Vec<String> = party.iter().cloned().collect();
+        refuse_after_unknown_outcome(authority, &config.name, work, effect_class, &parties, key)
+            .await?;
+    }
 
     let repeat = match party.as_deref() {
         Some(party) => prior_effect_on(authority, &config.name, effect_class, party, key).await?,
@@ -555,6 +560,89 @@ async fn prior_execution(
         }
     }
     Ok((stored_receipt, None))
+}
+
+/// The key-independent half of the idempotency rule (Sprint 111, resume instead of waiting). An
+/// update may interrupt Work mid-effect and resume it on the new release from its saved session.
+/// Under the same key, `prior_execution` already blocks the retry. Under a *new* key, nothing did:
+/// the successor could reach the same party again. So while this Work has an earlier execution of
+/// the same effect class to the same parties with no receipt, every new key is refused too, until
+/// that outcome is reconciled. Party-less effects of the same class count as the same target.
+async fn refuse_after_unknown_outcome(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    work: Uuid,
+    effect_class: &str,
+    parties: &[String],
+    key: &str,
+) -> Result<()> {
+    if let Some(earlier) =
+        unknown_outcome_for_work(authority, company, work, effect_class, parties, key).await?
+    {
+        bail!(
+            "this Work already started {effect_class} to the same recipient under key {earlier:?}, and that \
+             execution's outcome is unknown (a restart or update cut it off). A new idempotency key does not \
+             make a retry safe: reconcile {earlier:?} against external evidence before sending again"
+        );
+    }
+    Ok(())
+}
+
+async fn unknown_outcome_for_work(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    work: Uuid,
+    effect_class: &str,
+    parties: &[String],
+    key: &str,
+) -> Result<Option<String>> {
+    let work = work.to_string();
+    let intents = authority.records_of_kind(company, "effect_intent").await?;
+    for intent in intents.iter().rev() {
+        let body = &intent.body;
+        let earlier = body
+            .get("idempotency_key")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if earlier.is_empty()
+            || earlier == key
+            || body.get("work_id").and_then(serde_json::Value::as_str) != Some(work.as_str())
+            || body.get("effect_class").and_then(serde_json::Value::as_str) != Some(effect_class)
+        {
+            continue;
+        }
+        let mut reached: Vec<String> = body
+            .get("parties")
+            .and_then(serde_json::Value::as_array)
+            .map(|parties| {
+                parties
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_lowercase)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(party) = body.get("party").and_then(serde_json::Value::as_str) {
+            reached.push(party.to_lowercase());
+        }
+        let same_target = if parties.is_empty() && reached.is_empty() {
+            true
+        } else {
+            parties
+                .iter()
+                .any(|party| reached.contains(&party.to_lowercase()))
+        };
+        if !same_target {
+            continue;
+        }
+        let receipt = authority
+            .find_body(company, "effect", "idempotency_key", earlier)
+            .await?;
+        if execution_no(body) > receipt.as_ref().map(execution_no).unwrap_or(0) {
+            return Ok(Some(earlier.to_string()));
+        }
+    }
+    Ok(None)
 }
 
 fn is_finance_identifier(value: &str) -> bool {
@@ -1151,6 +1239,10 @@ where
         }
     }
 
+    if let Some(work) = call_work {
+        refuse_after_unknown_outcome(authority, &config.name, work, &effect_class, &parties, key)
+            .await?;
+    }
     let mut repeat = None;
     for party in &parties {
         if let Some(earlier) =
@@ -1694,17 +1786,175 @@ mod tests {
             return;
         };
         let company = format!("effectrestart{}_test", uuid::Uuid::new_v4().simple());
-        let authority = crate::authority::AuthorityStore::connect(&url).await.unwrap();
-        authority.emit(&company, "effect_intent", Some("staff"), serde_json::json!({
-            "idempotency_key": "send-once",
-            "command_digest": "digest",
-            "execution_no": 1
-        })).await.unwrap();
+        let authority = crate::authority::AuthorityStore::connect(&url)
+            .await
+            .unwrap();
+        authority
+            .emit(
+                &company,
+                "effect_intent",
+                Some("staff"),
+                serde_json::json!({
+                    "idempotency_key": "send-once",
+                    "command_digest": "digest",
+                    "execution_no": 1
+                }),
+            )
+            .await
+            .unwrap();
         drop(authority);
-        let restarted = crate::authority::AuthorityStore::connect(&url).await.unwrap();
-        let error = prior_execution(&restarted, &company, "email", "digest", "send-once", "staff")
-            .await.expect_err("an unresolved external effect must not execute again");
+        let restarted = crate::authority::AuthorityStore::connect(&url)
+            .await
+            .unwrap();
+        let error = prior_execution(
+            &restarted,
+            &company,
+            "email",
+            "digest",
+            "send-once",
+            "staff",
+        )
+        .await
+        .expect_err("an unresolved external effect must not execute again");
         assert!(error.to_string().contains("unknown outcome"));
+    }
+
+    #[tokio::test]
+    async fn a_resumed_work_cannot_resend_an_interrupted_effect_under_a_new_key() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping update-resume effect scenario");
+            return;
+        };
+        let company = format!("effectresume{}_test", uuid::Uuid::new_v4().simple());
+        let work = uuid::Uuid::new_v4();
+        let other_work = uuid::Uuid::new_v4();
+        let authority = crate::authority::AuthorityStore::connect(&url)
+            .await
+            .unwrap();
+        // Before the update: one email went out and was recorded; a second was in flight when the
+        // five-minute drain ran out, so it has an intent and no receipt.
+        let receipt = |key: &str, party: &str| {
+            serde_json::json!({
+                "id": uuid::Uuid::new_v4(), "effect_class": "email", "command_digest": "sent",
+                "tool": "send", "purpose": "p", "cwd": "/company", "argv": ["send"], "party": party,
+                "outcome": {"status": "succeeded"}, "success": true, "actor": "staff",
+                "idempotency_key": key, "execution_no": 1, "created_at": chrono::Utc::now(),
+                "replayed": false, "work_id": work,
+            })
+        };
+        for (key, party, digest) in [
+            ("first", "ann@example.com", "sent"),
+            ("second", "bob@example.com", "cut"),
+        ] {
+            authority
+                .emit(
+                    &company,
+                    "effect_intent",
+                    Some("staff"),
+                    serde_json::json!({
+                        "idempotency_key": key, "execution_no": 1, "command_digest": digest,
+                        "effect_class": "email", "party": party, "work_id": work,
+                    }),
+                )
+                .await
+                .unwrap();
+        }
+        authority
+            .emit(
+                &company,
+                "effect",
+                Some("staff"),
+                receipt("first", "ann@example.com"),
+            )
+            .await
+            .unwrap();
+        drop(authority);
+        // The new release's daemon serves the resumed Work.
+        let restarted = crate::authority::AuthorityStore::connect(&url)
+            .await
+            .unwrap();
+        let parties = |party: &str| vec![party.to_string()];
+
+        // The completed email replays under its own key: nobody receives it twice.
+        let (_, replay) = prior_execution(&restarted, &company, "email", "sent", "first", "staff")
+            .await
+            .unwrap();
+        assert!(
+            replay
+                .expect("a completed effect replays its receipt")
+                .replayed
+        );
+        // The cut one is refused under its own key...
+        let error = prior_execution(&restarted, &company, "email", "cut", "second", "staff")
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("unknown outcome"));
+        // ...and under any new key the resumed Attempt might choose.
+        let error = refuse_after_unknown_outcome(
+            &restarted,
+            &company,
+            work,
+            "email",
+            &parties("Bob@Example.com"),
+            "second-retry",
+        )
+        .await
+        .expect_err("a new key must not resend an effect whose outcome is unknown");
+        assert!(error.to_string().contains("\"second\""), "{error}");
+        // Other recipients, other Work and a recorded outcome are unaffected.
+        refuse_after_unknown_outcome(
+            &restarted,
+            &company,
+            work,
+            "email",
+            &parties("ann@example.com"),
+            "follow-up",
+        )
+        .await
+        .unwrap();
+        refuse_after_unknown_outcome(
+            &restarted,
+            &company,
+            work,
+            "email",
+            &parties("carol@example.com"),
+            "new",
+        )
+        .await
+        .unwrap();
+        refuse_after_unknown_outcome(
+            &restarted,
+            &company,
+            other_work,
+            "email",
+            &parties("bob@example.com"),
+            "new",
+        )
+        .await
+        .unwrap();
+        refuse_after_unknown_outcome(
+            &restarted,
+            &company,
+            work,
+            "sms",
+            &parties("bob@example.com"),
+            "new",
+        )
+        .await
+        .unwrap();
+        restarted.emit(&company, "effect", Some("staff"), serde_json::json!({
+            "idempotency_key": "second", "execution_no": 1, "command_digest": "cut", "success": false,
+        })).await.unwrap();
+        refuse_after_unknown_outcome(
+            &restarted,
+            &company,
+            work,
+            "email",
+            &parties("bob@example.com"),
+            "second-retry",
+        )
+        .await
+        .expect("once its outcome is recorded, the Work may act again");
     }
 
     #[test]
