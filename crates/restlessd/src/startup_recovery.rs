@@ -120,9 +120,37 @@ pub async fn watch_memory(daemon: Arc<Daemon>, configs: Vec<runtime::CompanyConf
         }
         if elapsed >= Duration::from_secs(600) {
             attempted = true;
+            company::note_deadline_exceeded(
+                &daemon,
+                Some(&blocker.company),
+                "waiting_for_memory",
+                "restarting the company holding the most memory",
+            )
+            .await;
             if let Err(error) = company::platform_restart(&daemon, &blocker.company).await {
                 company::update_alert(&daemon, &blocker.company, &format!("Automatic memory recovery failed: {error:#}. Use Company → Computer or operator recovery.")).await;
             }
+        }
+    }
+}
+
+/// The one action past a company's recovery deadline: restart its processes, then either it is
+/// open (`platform_restart` records `recovered`) or its card names the door. Never retried in a
+/// loop, so a company that cannot recover cannot thrash the plane.
+async fn restart_after_deadline<R>(company: &str, restart: R) -> bool
+where
+    R: std::future::Future<Output = anyhow::Result<()>>,
+{
+    company::note_company_roll_forward(company, "restarting_after_deadline", Some("Recovery passed its two-minute deadline, so this company's processes are restarting once. Saved Work and files are kept; other companies remain available.".into()));
+    match restart.await {
+        Ok(()) => true,
+        Err(error) => {
+            tracing::error!(
+                company,
+                "restart after the recovery deadline failed: {error:#}"
+            );
+            company::note_company_roll_forward(company, "recovery_failed", Some("Recovery passed its two-minute deadline and an automatic restart did not finish. New Work for this company stays paused. Restart it in Company → Computer, or get recovery help. Other companies remain available.".into()));
+            false
         }
     }
 }
@@ -156,8 +184,12 @@ pub async fn recover_companies(
                 company::note_company_roll_forward(&company, "recovered", Some("Interrupted Work reconciled; company admission is open.".into()));
                 daemon.schedule_wake.notify_one();
             } else {
-                company::note_company_roll_forward(&company, "recovery_failed", Some("Recovery exceeded two minutes. Restart this company in Company → Computer, or contact support. Other companies remain available.".into()));
-                company::update_alert(&daemon, &company, "Company recovery exceeded its two-minute deadline. This company's new Work remains paused; use Company → Computer to recover it.").await;
+                // Past the deadline, act once: restart only this company's processes, which ends
+                // whatever held its cleanup, then reconcile through the bounded restart path.
+                company::note_deadline_exceeded(&daemon, Some(&company), "recovering", "restarting this company's processes once").await;
+                if !restart_after_deadline(&company, company::platform_restart(&daemon, &company)).await {
+                    company::update_alert(&daemon, &company, "Company recovery passed its two-minute deadline and the automatic restart did not finish. This company's new Work remains paused; use Company → Computer to recover it.").await;
+                }
             }
         });
     }
@@ -185,6 +217,37 @@ mod tests {
         assert!(!finished);
         assert_eq!(alerts.load(Ordering::SeqCst), 1);
         assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[tokio::test]
+    async fn past_its_deadline_a_company_restarts_once_or_names_its_door() {
+        let company = format!("deadline{}_test", uuid::Uuid::new_v4().simple());
+        let restarts = AtomicUsize::new(0);
+        let failed = restart_after_deadline(&company, async {
+            restarts.fetch_add(1, Ordering::SeqCst);
+            anyhow::bail!("actor shutdown did not settle")
+        })
+        .await;
+        assert!(!failed);
+        assert_eq!(
+            restarts.load(Ordering::SeqCst),
+            1,
+            "one restart, never a loop"
+        );
+        let card = &company::roll_forward_report()["companies"][&company];
+        assert_eq!(card["outcome"], "recovery_failed");
+        assert!(card["detail"]
+            .as_str()
+            .unwrap()
+            .contains("Company → Computer"));
+
+        let other = format!("deadline{}_test", uuid::Uuid::new_v4().simple());
+        assert!(restart_after_deadline(&other, async { Ok(()) }).await);
+        assert_eq!(
+            company::roll_forward_report()["companies"][&other]["outcome"],
+            "restarting_after_deadline",
+            "the restart itself records `recovered` when it reopens admission"
+        );
     }
 
     #[tokio::test]
