@@ -132,8 +132,13 @@
 	/* Asleep is designed, not broken: asking to enter wakes it. */
 	const asleep = $derived(!canAttach && view?.limits.runtime.asleep === true);
 	const container = $derived(view?.computer.runtime?.container ?? null);
-	/* Stopped by someone, not by the sleep policy: it starts only when asked. */
-	const stopped = $derived(container === 'Stopped' && !asleep);
+	/* Stopped by its owner: it starts only when asked, from here. A computer stopped any other way
+	 * reads as asleep, and entering starts it (rebuilding a stale or retired container). */
+	const stopped = $derived(
+		!canAttach &&
+			container !== 'Running' &&
+			(view?.limits.runtime.stopped_by_owner === true || (container === 'Stopped' && !asleep))
+	);
 	/* A used-up monthly limit keeps it asleep: no wake can start it until the limit changes. */
 	const hoursUsedUp = $derived.by(() => {
 		const runtime = view?.limits.runtime;

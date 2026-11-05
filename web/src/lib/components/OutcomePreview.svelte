@@ -184,7 +184,7 @@
 						type="button"
 						disabled={starting}
 						onclick={() => void startComputer()}
-						>{starting ? 'Starting…' : 'Start the computer'}</button
+						>{starting ? 'Starting the company computer…' : 'Start computer'}</button
 					>{/if}
 				<button
 					class="btn small"

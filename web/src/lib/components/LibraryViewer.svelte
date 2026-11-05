@@ -34,6 +34,7 @@
 		type OpenedFile
 	} from '$lib/model/library-files';
 	import { failureSentence } from '$lib/model/failure';
+	import { computerPower, recoverCompany } from '$lib/model/company';
 	import { namePageContext } from '$lib/model/page-context.svelte';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
 	import TextPreview from '$lib/primitives/TextPreview.svelte';
@@ -81,6 +82,25 @@
 	let failureDetail = $state('');
 	let loading = $state(true);
 	let attempt = $state(0);
+	/* Opening a file starts a computer that is asleep or stopped without anyone asking; the open
+	 * waits for it. Say so in place of "Opening the file" while it does. */
+	let computerStarting = $state(false);
+	/* Its owner stopped it: Start computer sits beside the sentence, here, not on another page. */
+	let ownerStopped = $state(false);
+	let startingComputer = $state(false);
+	async function startComputer() {
+		if (startingComputer) return;
+		startingComputer = true;
+		try {
+			await recoverCompany(companyId, 'start');
+			attempt += 1;
+		} catch (cause) {
+			failure = failureSentence(cause, 'The computer could not start. Try again.');
+			failureDetail = '';
+		} finally {
+			startingComputer = false;
+		}
+	}
 	/* One file at a time: a recorded output by its id, any other company file by its path. The
 	 * effect reads these values, never the file object: an attention poll rebuilds every Library
 	 * row, and reopening the same file would restart a deck, a recording or a live site. */
@@ -95,8 +115,25 @@
 		failure = '';
 		failureDetail = '';
 		loading = true;
+		computerStarting = false;
+		ownerStopped = false;
 		slide = 1;
 		total = 0;
+		const power = new AbortController();
+		/* A kept file reads from a local copy and never needs the computer. */
+		if (!resolve)
+			void computerPower(companyId, power.signal)
+				.then((answer) => {
+					if (
+						target === fileKey &&
+						loading &&
+						answer.starts_on_demand &&
+						answer.state !== 'awake' &&
+						answer.state !== 'hosted'
+					)
+						computerStarting = true;
+				})
+				.catch(() => {});
 		void (
 			resolve
 				? resolve().then((answer): OpenedFile =>
@@ -112,11 +149,16 @@
 				if (cause instanceof LibraryOpenError) {
 					failure = cause.sentence;
 					failureDetail = cause.detail === cause.sentence ? '' : cause.detail;
+					ownerStopped = cause.code === 'runtime_stopped';
 				} else failure = failureSentence(cause, 'This file could not be opened.');
 			})
 			.finally(() => {
-				if (target === fileKey) loading = false;
+				if (target === fileKey) {
+					loading = false;
+					computerStarting = false;
+				}
 			});
+		return () => power.abort();
 	});
 
 	const isMedia = $derived(file.kind === 'media');
@@ -301,14 +343,26 @@
 
 	<div class="viewer-body" class:deck={file.kind === 'deck'}>
 		{#if loading}
-			<div class="center"><Pending label="Opening the file" /></div>
+			<div class="center">
+				<Pending label={computerStarting ? 'Starting the company computer…' : 'Opening the file'} />
+			</div>
 		{:else if failure}
 			<div class="center">
 				<p class="failure">{failure}</p>
 				<div class="failure-actions">
-					<button class="btn small primary" type="button" onclick={() => (attempt += 1)}
-						>Try again</button
-					>
+					{#if ownerStopped}
+						<button
+							class="btn small primary"
+							type="button"
+							disabled={startingComputer}
+							onclick={() => void startComputer()}
+							>{startingComputer ? 'Starting the company computer…' : 'Start computer'}</button
+						>
+					{:else}
+						<button class="btn small primary" type="button" onclick={() => (attempt += 1)}
+							>Try again</button
+						>
+					{/if}
 					{#if backHref}<a class="btn small" href={backHref}>{backLabel}</a>{/if}
 				</div>
 				{#if failureDetail}<details class="failure-detail">

@@ -80,8 +80,10 @@ export interface CompanyView {
 			auto_sleep_after_minutes: number | null;
 			/** The timeout the company actually sleeps after; null never sleeps. */
 			sleep_after_minutes: number | null;
-			/** Stopped by the sleep policy, so owed work wakes it. */
+			/** Stopped by the sleep policy, or without anyone asking: demand starts it. */
 			asleep: boolean;
+			/** Its owner stopped it: only the owner starts it again. */
+			stopped_by_owner?: boolean;
 			monthly_runtime_cap_hours: number | null;
 			usage_status: 'available' | 'unavailable';
 			usage: {
@@ -482,6 +484,22 @@ export async function recoverCompany(
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ action }),
 			credentials: 'same-origin'
+		})
+	);
+}
+
+/** The company computer's power state: `asleep` and `interrupted` start on demand, `stopped` was
+ * its owner's choice. A cheap read beside a request that may be starting it. */
+export type ComputerPower = 'awake' | 'asleep' | 'interrupted' | 'stopped' | 'absent' | 'hosted';
+export async function computerPower(
+	company: string,
+	signal?: AbortSignal
+): Promise<{ state: ComputerPower; starts_on_demand: boolean }> {
+	return ownerResponse(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/power`, {
+			credentials: 'same-origin',
+			cache: 'no-store',
+			signal
 		})
 	);
 }
