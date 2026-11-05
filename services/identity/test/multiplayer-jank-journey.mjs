@@ -804,6 +804,7 @@ async function seed(owner, alice) {
   );
   const folder = "/company/outputs/sites/harbour-street-cafe";
   let highlighted = "";
+  let notesFile = "";
   for (const [index, [uri, kind, label]] of [
     [`${folder}/v1/index.html`, "site", "Harbour Street café, version 1.html"],
     [`${folder}/v1/desktop-1440.png`, "image", "desktop-1440.png"],
@@ -814,6 +815,7 @@ async function seed(owner, alice) {
   ].entries()) {
     const id = randomUUID();
     if (index === 3) highlighted = `image:${id}`;
+    if (index === 4) notesFile = id;
     await cellPool.query(
       `INSERT INTO "${company}".artifact_refs (id, kind, uri, created_by, created_at, work_id, label) VALUES ($1, $2, $3, 'exec', now(), $4, $5)`,
       [id, kind, uri, siteWork, label],
@@ -833,6 +835,9 @@ async function seed(owner, alice) {
         name: "library-show-in-folder",
       },
       { path: `/${company}/library?type=image&notes=1`, name: "library-filtered" },
+      /* One file opened in the viewer (6 November): its load also reads the computer's power
+       * state, to say "Starting the company computer…" in place of "Opening the file". */
+      { path: `/${company}/library?file=${notesFile}`, name: "library-file" },
     ],
   };
 }
