@@ -2411,15 +2411,68 @@ static ROLL_FORWARD: std::sync::LazyLock<
 static ROLL_FORWARD_STAGE: std::sync::Mutex<Option<serde_json::Value>> =
     std::sync::Mutex::new(None);
 
+/// The deadline each waiting roll-forward stage or company outcome runs under, in seconds. One
+/// table, so `/health`, Fleet and the half-deadline alerts cannot disagree (Sprint 111). Terminal
+/// outcomes (`recovery_failed`, `rolled_back`, ...) have none: they already name their door.
+pub fn roll_forward_deadline_seconds(stage: &str) -> Option<u64> {
+    Some(match stage {
+        "waiting_for_startup_recovery" => 60,
+        "recovering_companies" | "recovering" | "restarting_after_deadline" => 120,
+        "fetching_image" => 120,
+        "draining" => 300,
+        "starting" | "rolling_back" => 180,
+        "checking_canary" => 90,
+        // Drain, start and the canary's Exec turn, per company.
+        "canary" | "rolling_company" => 300 + 180 + 90,
+        "waiting_for_memory" => 600,
+        _ => return None,
+    })
+}
+
+/// A stage record with a start time that survives repeated progress notes, and its deadline.
+fn stage_record(
+    previous: Option<&serde_json::Value>,
+    key: (&str, &str),
+    subject: Option<&str>,
+    detail: Option<String>,
+) -> serde_json::Value {
+    let (field, value) = key;
+    let at = previous
+        .filter(|previous| previous[field] == value && previous["company"].as_str() == subject)
+        .and_then(|previous| previous.get("at"))
+        .and_then(|at| at.as_str())
+        .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+        .map(|at| at.with_timezone(&Utc))
+        .unwrap_or_else(Utc::now);
+    let deadline = roll_forward_deadline_seconds(value);
+    let mut record = serde_json::json!({
+        field: value,
+        "at": at,
+        "detail": detail,
+        "deadline_seconds": deadline,
+        "deadline_at": deadline.map(|seconds| at + chrono::Duration::seconds(seconds as i64)),
+    });
+    if let Some(subject) = subject {
+        record["company"] = serde_json::json!(subject);
+    }
+    record
+}
+
 pub fn note_roll_forward_stage(stage: &str, detail: Option<String>) {
+    note_roll_forward_stage_for(stage, None, detail);
+}
+
+/// A plane stage about one company (the canary, or the next company in the rollout). The stage's
+/// start time resets when the company changes, so elapsed time is that company's, not the
+/// rollout's.
+pub fn note_roll_forward_stage_for(stage: &str, company: Option<&str>, detail: Option<String>) {
     if let Ok(mut current) = ROLL_FORWARD_STAGE.lock() {
-        let at = current
-            .as_ref()
-            .filter(|value| value["stage"] == stage)
-            .and_then(|value| value.get("at"))
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!(Utc::now()));
-        *current = Some(serde_json::json!({ "stage": stage, "at": at, "detail": detail }));
+        *current = Some(stage_record(
+            current.as_ref(),
+            ("stage", stage),
+            company,
+            detail,
+        ));
     }
 }
 
@@ -2441,11 +2494,54 @@ pub fn roll_forward_report() -> serde_json::Value {
     serde_json::json!({ "stage": stage, "companies": companies })
 }
 
+/// A company's roll-forward outcome. A repeated progress note for the same outcome keeps its start
+/// time, so "Waiting for running Work" reports how long it has waited, not "0 min ago".
 pub fn note_company_roll_forward(company: &str, outcome: &str, detail: Option<String>) {
     if let Ok(mut report) = ROLL_FORWARD.lock() {
-        report.insert(
-            company.to_string(),
-            serde_json::json!({ "at": Utc::now(), "outcome": outcome, "detail": detail }),
+        let record = stage_record(report.get(company), ("outcome", outcome), None, detail);
+        report.insert(company.to_string(), record);
+    }
+}
+
+/// A roll-forward wait passed its deadline and the plane acted on it: one release-log line an
+/// operator can search for, and, for a company, a durable lifecycle event in its Authority log.
+pub async fn note_deadline_exceeded(
+    daemon: &Daemon,
+    company: Option<&str>,
+    stage: &str,
+    action: &str,
+) {
+    let deadline_seconds = roll_forward_deadline_seconds(stage);
+    tracing::error!(
+        target: "restless::release",
+        alert = "operator",
+        company,
+        stage,
+        deadline_seconds,
+        action,
+        "roll-forward deadline exceeded"
+    );
+    let Some(company) = company else { return };
+    let event = daemon.authority.emit(
+        company,
+        "lifecycle",
+        Some("daemon"),
+        serde_json::json!({
+            "action": "deadline_exceeded",
+            "stage": stage,
+            "deadline_seconds": deadline_seconds,
+            "taken": action,
+            "at": Utc::now(),
+        }),
+    );
+    if !matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), event).await,
+        Ok(Ok(_))
+    ) {
+        tracing::error!(
+            company,
+            stage,
+            "deadline event could not be recorded; the release log line stands"
         );
     }
 }
@@ -2453,7 +2549,13 @@ pub fn note_company_roll_forward(company: &str, outcome: &str, detail: Option<St
 /// A delayed platform operation is both an operator event and a durable owner
 /// notice. The caller owns deduplication (one notice per half-deadline).
 pub async fn update_alert(daemon: &Daemon, company: &str, message: &str) {
-    tracing::warn!(company, message, "platform update delayed");
+    tracing::warn!(
+        target: "restless::release",
+        alert = "operator",
+        company,
+        message,
+        "platform update delayed"
+    );
     if tokio::time::timeout(
         std::time::Duration::from_secs(5),
         deliver_update_alert(daemon, company, message),
@@ -2741,14 +2843,98 @@ fn format_minor(amount: i64) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// The plane stage is one process-wide slot; tests that write it take turns.
+    static PLANE_STAGE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn repeated_stage_preserves_start_time_and_refreshes_detail() {
+        let _turn = PLANE_STAGE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         super::note_roll_forward_stage("test_recovery_wait", Some("first".into()));
         let first = super::roll_forward_report()["stage"]["at"].clone();
         super::note_roll_forward_stage("test_recovery_wait", Some("second".into()));
         let updated = super::roll_forward_report();
         assert_eq!(updated["stage"]["at"], first);
         assert_eq!(updated["stage"]["detail"], "second");
+    }
+
+    #[test]
+    fn every_waiting_stage_reports_its_deadline_and_a_stable_start() {
+        let company = format!("deadline{}_test", uuid::Uuid::new_v4().simple());
+        super::note_company_roll_forward(&company, "draining", Some("10 of 300".into()));
+        let first = super::roll_forward_report()["companies"][&company].clone();
+        assert_eq!(first["deadline_seconds"], 300);
+        let at = chrono::DateTime::parse_from_rfc3339(first["at"].as_str().unwrap()).unwrap();
+        let due =
+            chrono::DateTime::parse_from_rfc3339(first["deadline_at"].as_str().unwrap()).unwrap();
+        assert_eq!((due - at).num_seconds(), 300);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        super::note_company_roll_forward(&company, "draining", Some("12 of 300".into()));
+        let again = super::roll_forward_report()["companies"][&company].clone();
+        assert_eq!(
+            again["at"], first["at"],
+            "progress notes keep the wait's start"
+        );
+        assert_eq!(again["detail"], "12 of 300");
+        super::note_company_roll_forward(&company, "recovery_failed", Some("door".into()));
+        let failed = super::roll_forward_report()["companies"][&company].clone();
+        assert_ne!(
+            failed["at"], first["at"],
+            "a new outcome starts its own clock"
+        );
+        assert!(
+            failed["deadline_seconds"].is_null(),
+            "terminal outcomes name a door instead"
+        );
+    }
+
+    #[test]
+    fn a_plane_stage_about_a_new_company_restarts_its_clock() {
+        let _turn = PLANE_STAGE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        super::note_roll_forward_stage_for("test_rolling", Some("first_test"), None);
+        let first = super::roll_forward_report()["stage"]["at"].clone();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        super::note_roll_forward_stage_for("test_rolling", Some("first_test"), Some("x".into()));
+        assert_eq!(super::roll_forward_report()["stage"]["at"], first);
+        super::note_roll_forward_stage_for("test_rolling", Some("second_test"), None);
+        let second = super::roll_forward_report()["stage"].clone();
+        assert_ne!(second["at"], first);
+        assert_eq!(second["company"], "second_test");
+    }
+
+    #[test]
+    fn every_bounded_wait_has_one_deadline() {
+        for (stage, seconds) in [
+            ("waiting_for_startup_recovery", 60),
+            ("recovering", 120),
+            ("fetching_image", 120),
+            ("draining", 300),
+            ("starting", 180),
+            ("checking_canary", 90),
+            ("waiting_for_memory", 600),
+        ] {
+            assert_eq!(
+                super::roll_forward_deadline_seconds(stage),
+                Some(seconds),
+                "{stage}"
+            );
+        }
+        for terminal in [
+            "recovery_failed",
+            "rolled_back",
+            "rollback_failed",
+            "done",
+            "current",
+        ] {
+            assert_eq!(
+                super::roll_forward_deadline_seconds(terminal),
+                None,
+                "{terminal}"
+            );
+        }
     }
 
     use super::*;
