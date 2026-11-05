@@ -1,6 +1,19 @@
 # Sprint 111: safe updates
 
-**Status: implementation and isolated verification complete; production rollout and operator staging proof in progress (5 Nov 2026).**
+**Status: implementation and isolated verification complete; the production plane is restored, but the Runtime rollout stopped at its canary and authenticated entry verification remains open (5 Nov 2026).**
+
+On 5 November the owner plane applied revision 145 with Core `d7ea88b9`. The global startup
+barrier opened and all six companies passed Fleet's current entry and Documents readiness gates in
+repeated observations. The operator path was also exercised against a real isolated SSH/plane
+fixture. A signed-in owner has not yet verified the six actual browser entries.
+
+The least-busy Runtime canary (Reno) started, but its real Exec check exceeded 90 seconds. The
+previous Runtime image was restored and the remaining companies kept their previous images, as
+designed; the Runtime rollout is therefore **not complete**. At the time, the shared workload
+pool was under memory pressure and the Restless Computer was using about 4.3 GB; that later fell
+and the entry checks cleared. The evidence does not establish whether memory pressure caused the
+canary timeout. Investigate the failed turn before retrying; do not mark this sprint complete or
+restart a healthy plane solely to hide the failure.
 
 Implemented per-company recovery gates, bounded inventory/orphan/start/drain waits,
 five-minute Work drain, ten-minute measured-memory recovery, durable half-budget
