@@ -1,4 +1,13 @@
-"""Remove one launch credential without spawning a grep for every profile file."""
+"""Remove one launch credential without spawning a grep for every profile file.
+
+The profile root is shared: other agents' sessions keep writing, renaming and
+deleting their own files while this runs. The session that held this secret
+is already stopped, so nothing writes the secret anew; a file that vanishes
+or is atomically replaced mid-scan belongs to someone else's churn. A vanished
+path is skipped and a replaced path is read again, so cleanup only fails when
+the secret really stays behind or the profile never holds still.
+"""
+import errno
 import os
 import stat
 import sys
@@ -9,6 +18,7 @@ if not secret:
 
 MAX_CLEAR_SIZE = 4 * 1024 * 1024
 OPEN_SAFELY = os.O_CLOEXEC | os.O_NOFOLLOW
+PATH_RETRIES = 8
 profile_root = sys.argv[1]
 
 try:
@@ -17,6 +27,10 @@ except FileNotFoundError:
     sys.exit(0)
 if not stat.S_ISDIR(root_metadata.st_mode):
     raise RuntimeError("Credential cleanup root is not a directory")
+
+
+class Changed(Exception):
+    """The path now names a different file than the one just examined."""
 
 
 def contains(stream):
@@ -30,22 +44,88 @@ def contains(stream):
 
 
 def onerror(error):
+    # A directory another session removed between listing and descent is gone.
+    if isinstance(error, FileNotFoundError):
+        return
     raise error
+
+
+def identity(metadata):
+    return (metadata.st_dev, metadata.st_ino)
 
 
 def open_regular(path, writable):
     before = os.stat(path, follow_symlinks=False)
     if not stat.S_ISREG(before.st_mode):
         return None
-    descriptor = os.open(path, (os.O_RDWR if writable else os.O_RDONLY) | OPEN_SAFELY)
+    try:
+        descriptor = os.open(
+            path, (os.O_RDWR if writable else os.O_RDONLY) | OPEN_SAFELY
+        )
+    except OSError as error:
+        # O_NOFOLLOW: a symlink swapped in after the stat is a different entry.
+        if error.errno == errno.ELOOP:
+            raise Changed() from error
+        raise
     opened = os.fstat(descriptor)
-    if not stat.S_ISREG(opened.st_mode) or (
-        opened.st_dev,
-        opened.st_ino,
-    ) != (before.st_dev, before.st_ino):
+    if not stat.S_ISREG(opened.st_mode) or identity(opened) != identity(before):
         os.close(descriptor)
-        raise RuntimeError("Profile file changed during credential cleanup")
+        raise Changed()
     return descriptor
+
+
+def clear_once(path):
+    descriptor = open_regular(path, writable=False)
+    if descriptor is None:
+        return
+    with os.fdopen(descriptor, "rb") as stream:
+        found = contains(stream)
+        scanned = os.fstat(stream.fileno())
+    if not found:
+        return
+
+    descriptor = open_regular(path, writable=True)
+    if descriptor is None:
+        raise Changed()
+    with os.fdopen(descriptor, "r+b") as stream:
+        opened = os.fstat(stream.fileno())
+        if identity(opened) != identity(scanned):
+            raise Changed()
+        if not contains(stream):
+            return
+        if opened.st_size >= MAX_CLEAR_SIZE:
+            raise RuntimeError("Large profile file retained a scoped credential")
+        stream.seek(0)
+        stream.truncate(0)
+        stream.flush()
+        after = os.stat(path, follow_symlinks=False)
+        if identity(after) != identity(os.fstat(stream.fileno())):
+            raise Changed()
+
+
+def verify_once(path):
+    descriptor = open_regular(path, writable=False)
+    if descriptor is None:
+        return
+    with os.fdopen(descriptor, "rb") as stream:
+        found = contains(stream)
+        after = os.stat(path, follow_symlinks=False)
+        if identity(after) != identity(os.fstat(stream.fileno())):
+            raise Changed()
+    if found:
+        raise RuntimeError("Profile retained a scoped credential after cleanup")
+
+
+def settle(path, step):
+    for _ in range(PATH_RETRIES):
+        try:
+            step(path)
+            return
+        except FileNotFoundError:
+            return
+        except Changed:
+            continue
+    raise RuntimeError(f"Profile file kept changing during credential cleanup: {path}")
 
 
 def profile_files():
@@ -57,45 +137,8 @@ def profile_files():
 
 
 for path in profile_files():
-    descriptor = open_regular(path, writable=False)
-    if descriptor is None:
-        continue
-    with os.fdopen(descriptor, "rb") as stream:
-        found = contains(stream)
-        scanned = os.fstat(stream.fileno())
-    if not found:
-        continue
-
-    descriptor = open_regular(path, writable=True)
-    if descriptor is None:
-        raise RuntimeError("Profile file changed during credential cleanup")
-    with os.fdopen(descriptor, "r+b") as stream:
-        opened = os.fstat(stream.fileno())
-        if (opened.st_dev, opened.st_ino) != (scanned.st_dev, scanned.st_ino):
-            raise RuntimeError("Profile file changed during credential cleanup")
-        if not contains(stream):
-            raise RuntimeError("Profile file changed during credential cleanup")
-        if os.fstat(stream.fileno()).st_size >= MAX_CLEAR_SIZE:
-            raise RuntimeError("Large profile file retained a scoped credential")
-        stream.seek(0)
-        stream.truncate(0)
-        stream.flush()
-        after = os.stat(path, follow_symlinks=False)
-        opened = os.fstat(stream.fileno())
-        if (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino):
-            raise RuntimeError("Profile file changed during credential cleanup")
-
+    settle(path, clear_once)
 
 # A separate no-follow pass catches replacements and files created during cleanup.
 for path in profile_files():
-    descriptor = open_regular(path, writable=False)
-    if descriptor is None:
-        continue
-    with os.fdopen(descriptor, "rb") as stream:
-        found = contains(stream)
-        after = os.stat(path, follow_symlinks=False)
-        opened = os.fstat(stream.fileno())
-        if (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino):
-            raise RuntimeError("Profile file changed during credential cleanup")
-        if found:
-            raise RuntimeError("Profile retained a scoped credential after cleanup")
+    settle(path, verify_once)
