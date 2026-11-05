@@ -41,7 +41,24 @@ pub async fn watch_memory(daemon: Arc<Daemon>, configs: Vec<runtime::CompanyConf
         if elapsed < Duration::from_secs(300) || attempted {
             continue;
         }
-        let names = configs.iter().map(|c| c.name.clone()).collect::<Vec<_>>();
+        // New companies may have arrived through Fleet since this daemon
+        // started. Never limit memory recovery to the boot-time catalogue.
+        let names = match restless_engine::configured_companies(&daemon.root) {
+            Ok(names) => names
+                .into_iter()
+                .filter(|name| !daemon.lifecycle.company_is_recovering(name))
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                tracing::error!(%error, "company catalogue unavailable; no memory restart selected");
+                if !alerted {
+                    if let Some(config) = configs.first() {
+                        company::update_alert(&daemon, &config.name, "Shared memory recovery cannot read the company catalogue. No company was selected for interruption. Operator recovery is required.").await;
+                    }
+                    alerted = true;
+                }
+                continue;
+            }
+        };
         let observations = match tokio::time::timeout(
             Duration::from_secs(30),
             runtime::recovery_memory_inventory(&names),
@@ -68,8 +85,10 @@ pub async fn watch_memory(daemon: Arc<Daemon>, configs: Vec<runtime::CompanyConf
             })
             .await;
             match reading {
-                Ok(Ok(work)) if !work.is_empty() => candidates.push(row),
-                Ok(Ok(_)) => {}
+                // An idle Runtime can still retain the memory that blocks
+                // new admission. Knowing that no Work runs is safe evidence
+                // for recovery, rather than a reason to leave it wedged.
+                Ok(Ok(_)) => candidates.push(row),
                 _ => {
                     unknown = true;
                     break;
@@ -84,8 +103,17 @@ pub async fn watch_memory(daemon: Arc<Daemon>, configs: Vec<runtime::CompanyConf
             r.runtime_bytes
                 .saturating_add(r.computer_bytes.unwrap_or(0))
         }) else {
+            tracing::error!(
+                "no eligible measured company owns the memory pressure; operator recovery required"
+            );
             continue;
         };
+        let pool = runtime::shared_workload_admission().ok().flatten();
+        company::note_company_roll_forward(&blocker.company, "waiting_for_memory", Some(format!(
+            "Shared memory recovery: {} of 600 seconds elapsed; this company's Runtime and Computer use {} bytes. Pool working set: {} bytes; resume below {} bytes. At ten minutes this company's processes restart; other companies remain readable.",
+            elapsed.as_secs(), blocker.runtime_bytes.saturating_add(blocker.computer_bytes.unwrap_or(0)),
+            pool.as_ref().map(|p| p.working_set_bytes).unwrap_or(0), pool.as_ref().map(|p| p.resume_below_bytes).unwrap_or(0)
+        )));
         if !alerted {
             alerted = true;
             company::update_alert(&daemon, &blocker.company, &format!("The account workload pool has been short of memory for five minutes. {} bytes belong to this company's running workload. At ten minutes its processes will restart and saved Work will continue. Other companies remain readable.", blocker.runtime_bytes.saturating_add(blocker.computer_bytes.unwrap_or(0)))).await;
