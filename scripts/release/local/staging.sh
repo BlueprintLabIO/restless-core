@@ -16,6 +16,7 @@ REGISTRY_PORT=5055
 SUBNET=172.30.255.0/24
 REGISTRY_IP=172.30.255.2
 ENGINE=restless-dagger-engine
+ENGINE_IP=172.30.255.3
 ENGINE_IMAGE=registry.dagger.io/engine:v0.21.10
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/restless-release"
 
@@ -27,6 +28,15 @@ env_lines() {
 
 up() {
   docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create --subnet "$SUBNET" "$NETWORK" >/dev/null
+  # After a host reboot Docker can start an older, dynamically addressed engine
+  # before the registry, assigning it the registry's reserved address. Do not
+  # disconnect a potentially busy build; explain the collision and stop.
+  local engine_ip
+  engine_ip="$(docker inspect -f '{{range $name, $net := .NetworkSettings.Networks}}{{if eq $name "restless-release"}}{{$net.IPAddress}}{{end}}{{end}}' "$ENGINE" 2>/dev/null || true)"
+  if [ "$engine_ip" = "$REGISTRY_IP" ]; then
+    echo "staging: $ENGINE occupies the registry address $REGISTRY_IP; once builds are idle, reconnect it to $NETWORK with --ip $ENGINE_IP" >&2
+    return 1
+  fi
   if ! docker inspect "$REGISTRY" >/dev/null 2>&1; then
     docker volume create restless-staging-data >/dev/null
     docker run -d --name "$REGISTRY" --restart unless-stopped --network "$NETWORK" --ip "$REGISTRY_IP" \
@@ -52,7 +62,7 @@ EOF
   fi
   if ! docker inspect "$ENGINE" >/dev/null 2>&1; then
     docker volume create restless-dagger-engine-state >/dev/null
-    docker run -d --name "$ENGINE" --restart unless-stopped --privileged --network "$NETWORK" \
+    docker run -d --name "$ENGINE" --restart unless-stopped --privileged --network "$NETWORK" --ip "$ENGINE_IP" \
       --dns 1.1.1.1 --dns 8.8.8.8 \
       -v restless-dagger-engine-state:/var/lib/dagger \
       -v "$CONFIG_DIR/engine.toml:/etc/dagger/engine.toml:ro" "$ENGINE_IMAGE" >/dev/null

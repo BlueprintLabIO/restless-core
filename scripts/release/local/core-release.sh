@@ -43,7 +43,8 @@ revision="$(git rev-parse HEAD)"
 out="${RESTLESS_RELEASE_OUT:-$HOME/.local/state/restless-release/core-$revision}"
 mkdir -p "$out"
 log() { printf '\n== %s  %s\n' "$(date -u +%H:%M:%S)" "$*"; }
-eval "$("$root/scripts/release/local/staging.sh" up)"
+staging_env="$("$root/scripts/release/local/staging.sh" up)"
+eval "$staging_env"
 export LOCAL_REGISTRY_PASSWORD=unused   # staging needs no login; the pipeline still takes the argument
 
 if [ "$qualify" = yes ]; then
