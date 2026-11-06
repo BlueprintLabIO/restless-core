@@ -2839,6 +2839,34 @@ fn an_admin_reads_activity_spend_and_apps_but_changes_none_of_them() {
             "admin reached {method} {path}"
         );
     }
+    // Everyone reads whether the computer is on and may ask the owner to start it; starting or
+    // stopping it stays the owner's.
+    for who in [&admin, &member] {
+        assert!(membership_boundary_violation(
+            &Method::GET,
+            "/api/companies/aris/company/power",
+            who
+        )
+        .is_none());
+        assert!(membership_boundary_violation(
+            &Method::POST,
+            "/api/companies/aris/company/power/ask",
+            who
+        )
+        .is_none());
+        assert!(membership_boundary_violation(
+            &Method::POST,
+            "/api/companies/aris/company/recover",
+            who
+        )
+        .is_some());
+        assert!(membership_boundary_violation(
+            &Method::POST,
+            "/api/companies/aris/company/power",
+            who
+        )
+        .is_some());
+    }
     // Single approvals reach the handler, which admits only the away owner's named deputy.
     for path in [
         "/api/companies/aris/approvals/grant",

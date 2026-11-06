@@ -112,30 +112,12 @@ pub(crate) async fn issue_ticket(
     )
     .await
     {
-        return match runtime::status(&company).await {
-            Ok(runtime::ContainerStatus::Stopped) if !runtime::is_sleeping(&company) => api_error(
-                StatusCode::CONFLICT,
-                "runtime",
-                "The company computer is stopped. Start it from Company → Computer.",
-            ),
-            Ok(runtime::ContainerStatus::Absent) => api_error(
-                StatusCode::CONFLICT,
-                "runtime",
-                "This company has no computer yet. Company → Health can build it.",
-            ),
-            _ if restless_engine::runtime_sleep::hours_used_up(&state.daemon, &company).await => {
-                api_error(
-                    StatusCode::CONFLICT,
-                    "runtime_hours",
-                    "This month's computer hours are used up, so it cannot wake. Raise or clear the limit in Company → Resources.",
-                )
-            }
-            _ => api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "runtime",
-                "The company computer could not wake. Try again in a minute.",
-            ),
-        };
+        return super::review_api::runtime_refusal(
+            &state.daemon,
+            &company,
+            "the computer can't open",
+        )
+        .await;
     }
     // A computer that just woke, here or for other demand, runs before its desktop does: a ticket
     // is one-use, and one spent on a refused connection strands the viewer. Issue it only once the

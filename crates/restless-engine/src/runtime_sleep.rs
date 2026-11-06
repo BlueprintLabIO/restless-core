@@ -92,10 +92,7 @@ pub async fn owed_demand(
     if in_flight || !daemon.staff.running_actors(company).is_empty() {
         demand.push(Demand::Attempt);
     }
-    if daemon.lifecycle.is_recovering()
-        || daemon.lifecycle.is_draining()
-        || daemon.lifecycle.active() > 0
-    {
+    if restoring(&daemon.lifecycle, company) {
         demand.push(Demand::Restore);
     }
     if !org.actors_owing_message_mentions(1).await?.is_empty()
@@ -122,6 +119,16 @@ pub async fn owed_demand(
         demand.push(Demand::Due);
     }
     Ok(demand)
+}
+
+/// A recovery, a drain, or lifecycle work admitted for this company. Only this company's leases
+/// count: the plane-wide count also holds Core's own upkeep (document history every ten seconds
+/// across every company, fault delivery, stopped-Work checks) and every other company's scans and
+/// effects, so with it no computer could sleep while anything ran anywhere ("busy (restore)").
+fn restoring(lifecycle: &restless_contracts::appliance::LifecycleGate, company: &str) -> bool {
+    lifecycle.is_draining()
+        || lifecycle.company_is_recovering(company)
+        || lifecycle.company_active(company) > 0
 }
 
 /// Everything that keeps a *running* local computer awake: owed demand plus
@@ -216,6 +223,7 @@ pub async fn run(daemon: Arc<Daemon>) {
             }
             if !running.contains(company) {
                 quiet_since.remove(company);
+                bring_back_if_interrupted(&daemon, &config).await;
                 continue;
             }
 
@@ -291,6 +299,39 @@ pub async fn run(daemon: Arc<Daemon>) {
     }
 }
 
+/// A computer that stopped without anyone asking comes back on its own: after a crash, an update
+/// rollout that was interrupted, or a host restart (4 November: Reno's computer stayed off after a
+/// rollout until the owner found it). One the owner stopped, one asleep, or one never created is
+/// left as it is. The account memory pool and the start backoff apply as they do to any wake, and
+/// nothing is started while the plane or this company is recovering.
+async fn bring_back_if_interrupted(daemon: &Daemon, config: &CompanyConfig) -> bool {
+    let company = config.name.as_str();
+    if daemon.lifecycle.is_draining()
+        || daemon.lifecycle.is_recovering()
+        || daemon.lifecycle.company_is_recovering(company)
+    {
+        return false;
+    }
+    let Ok(status) = runtime::status(company).await else {
+        return false;
+    };
+    if runtime::power_state(company, status) != runtime::PowerState::Interrupted {
+        return false;
+    }
+    // A used-up monthly limit holds it until the owner raises it; say nothing every minute.
+    if config.monthly_runtime_cap_hours.is_some() && hours_used_up(daemon, company).await {
+        return false;
+    }
+    if runtime::automatic_start_waits_for_memory() {
+        tracing::info!(
+            company,
+            "interrupted computer waits for account memory before starting"
+        );
+        return false;
+    }
+    wake(daemon, config, "it stopped without its owner asking").await
+}
+
 /// Put a quiet local computer to sleep now, as the owner asked. It refuses
 /// while demand exists so an explicit sleep cannot cut live work.
 pub async fn sleep_now(daemon: &Daemon, company: &str) -> Result<String> {
@@ -313,12 +354,16 @@ pub async fn sleep_now(daemon: &Daemon, company: &str) -> Result<String> {
     }
 }
 
-/// Wake a sleeping local computer when company demand is owed. A computer
-/// the owner stopped, or one that was never created, is never started here.
-/// Returns whether the computer is running afterwards.
-pub async fn wake_if_owed(daemon: &Daemon, config: &CompanyConfig) -> bool {
+/// Wake a sleeping or interrupted local computer when company demand is owed. A computer the
+/// owner stopped, or one that was never created, is never started here. `status` is the container
+/// status the caller just observed. Returns whether the computer is running afterwards.
+pub async fn wake_if_owed(
+    daemon: &Daemon,
+    config: &CompanyConfig,
+    status: ContainerStatus,
+) -> bool {
     let company = config.name.as_str();
-    if !runtime::is_sleeping(company) {
+    if !runtime::power_state(company, status).starts_on_demand() {
         return false;
     }
     let owed = match daemon.orgintel.get(company).await {
@@ -352,15 +397,16 @@ pub async fn wake_if_owed(daemon: &Daemon, config: &CompanyConfig) -> bool {
     wake(daemon, config, &names(&owed)).await
 }
 
-/// Wake a sleeping local computer for a demand the caller already knows is
-/// owed, such as a message addressed to the Exec. Returns whether it runs.
+/// Wake a sleeping or interrupted local computer for a demand the caller already knows is owed,
+/// such as a message addressed to the Exec or the owner opening a file. Returns whether it runs.
+/// A computer the owner stopped stays stopped: [`not_running`] says why, for the refusal.
 pub async fn wake_for(daemon: &Daemon, company: &str, reason: &str) -> bool {
     if daemon.runtime_bridges.is_hosted() {
         return true;
     }
     match runtime::status(company).await {
         Ok(ContainerStatus::Running) => true,
-        Ok(ContainerStatus::Stopped) if runtime::is_sleeping(company) => {
+        Ok(status) if runtime::power_state(company, status).starts_on_demand() => {
             match CompanyConfig::load(&daemon.root, company) {
                 Ok(config) => wake(daemon, &config, reason).await,
                 Err(_) => false,
@@ -368,6 +414,63 @@ pub async fn wake_for(daemon: &Daemon, company: &str, reason: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// Why a wake did not leave the computer running, so a refusal can say it and offer the way on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotRunning {
+    /// The owner stopped it. The refusal offers Start computer right there.
+    StoppedByOwner,
+    /// This month's computer hours are used up.
+    HoursUsedUp,
+    /// The company has no computer yet.
+    Absent,
+    /// It is starting, or the start failed and is retried: owed demand keeps trying.
+    Starting,
+}
+
+impl NotRunning {
+    /// The `error` code the owner API answers with, which the cockpit reads to offer its door.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::StoppedByOwner => "runtime_stopped",
+            Self::HoursUsedUp => "runtime_hours",
+            Self::Absent => "runtime_absent",
+            Self::Starting => "runtime_starting",
+        }
+    }
+
+    /// One sentence for the owner about `what` ("this file can't open").
+    pub fn sentence(self, what: &str) -> String {
+        match self {
+            Self::StoppedByOwner => format!(
+                "The company computer was stopped by its owner, so {what} until it starts again."
+            ),
+            Self::HoursUsedUp => format!(
+                "This month's computer hours are used up, so {what}. Raise or clear the limit in Company → Resources."
+            ),
+            Self::Absent => format!("This company has no computer yet, so {what}. Company → Health can build it."),
+            Self::Starting => format!(
+                "The company computer has not started yet, so {what}. Restless keeps starting it; try again in a moment."
+            ),
+        }
+    }
+}
+
+/// After [`wake_for`] returned false: why the computer is not running.
+pub async fn not_running(daemon: &Daemon, company: &str) -> NotRunning {
+    let status = runtime::status(company).await;
+    if let Ok(status) = status {
+        match runtime::power_state(company, status) {
+            runtime::PowerState::StoppedByOwner => return NotRunning::StoppedByOwner,
+            runtime::PowerState::Absent => return NotRunning::Absent,
+            _ => {}
+        }
+    }
+    if hours_used_up(daemon, company).await {
+        return NotRunning::HoursUsedUp;
+    }
+    NotRunning::Starting
 }
 
 /// Whether this month's computer hours are used up, so no wake can start it until the owner raises
@@ -457,6 +560,9 @@ pub fn describe(report: &serde_json::Value) -> String {
         "asleep" if demand.is_empty() => format!("{company}: asleep; owed demand wakes it"),
         "asleep" => format!("{company}: asleep, waking for {demand}"),
         "stopped" => format!("{company}: stopped by its owner; `restless up` starts it"),
+        "interrupted" => {
+            format!("{company}: stopped without its owner asking; it starts again on its own")
+        }
         _ => format!("{company}: not created; `restless up` creates it"),
     }
 }
@@ -473,22 +579,26 @@ fn names(demand: &[Demand]) -> String {
 pub async fn report(daemon: &Daemon, company: &str) -> Result<serde_json::Value> {
     let config = CompanyConfig::load(&daemon.root, company)?;
     let status = runtime::status(company).await?;
-    let (state, demand) = match status {
-        ContainerStatus::Running if daemon.runtime_bridges.is_hosted() => ("awake", Vec::new()),
-        ContainerStatus::Running => ("awake", running_demand(daemon, company).await?),
+    let (state, demand) = match runtime::power_state(company, status) {
+        runtime::PowerState::Awake if daemon.runtime_bridges.is_hosted() => ("awake", Vec::new()),
+        runtime::PowerState::Awake => ("awake", running_demand(daemon, company).await?),
         // An asleep computer whose old container a release retired (`retire_stale_stopped`) is
         // still asleep: its next wake creates the new one.
-        ContainerStatus::Stopped | ContainerStatus::Absent if runtime::is_sleeping(company) => {
-            // Only waking demand is meaningful for a sleeping computer.
+        power @ (runtime::PowerState::Asleep | runtime::PowerState::Interrupted) => {
+            // Only waking demand is meaningful for a computer that is not running.
             let org = daemon.orgintel.get(company).await?;
             let owed = owed_demand(daemon, company, &org).await?;
             (
-                "asleep",
+                if power == runtime::PowerState::Asleep {
+                    "asleep"
+                } else {
+                    "interrupted"
+                },
                 owed.into_iter().filter(|kind| kind.wakes()).collect(),
             )
         }
-        ContainerStatus::Stopped => ("stopped", Vec::new()),
-        ContainerStatus::Absent => ("absent", Vec::new()),
+        runtime::PowerState::StoppedByOwner => ("stopped", Vec::new()),
+        runtime::PowerState::Absent => ("absent", Vec::new()),
     };
     Ok(serde_json::json!({
         "company": company,
@@ -497,6 +607,62 @@ pub async fn report(daemon: &Daemon, company: &str) -> Result<serde_json::Value>
         "demand": demand.iter().map(|kind| kind.as_str()).collect::<Vec<_>>(),
         "sleep_after_minutes": config.sleep_after().map(|after| after.as_secs() / 60),
     }))
+}
+
+#[cfg(test)]
+mod restore_tests {
+    use restless_contracts::appliance::LifecycleGate;
+
+    #[test]
+    fn upkeep_and_other_companies_never_keep_a_quiet_computer_awake() {
+        let gate = LifecycleGate::default();
+        let _upkeep = gate.try_enter().expect("plane upkeep lease");
+        let _neighbour = gate
+            .try_enter_company("busy_test")
+            .expect("another company's scan");
+        assert!(!super::restoring(&gate, "quiet_test"));
+        assert!(super::restoring(&gate, "busy_test"));
+        let own = gate
+            .try_enter_company("quiet_test")
+            .expect("its own lifecycle work");
+        assert!(super::restoring(&gate, "quiet_test"));
+        drop(own);
+        assert!(!super::restoring(&gate, "quiet_test"));
+        gate.begin_company_recovery("quiet_test");
+        assert!(super::restoring(&gate, "quiet_test"));
+        gate.finish_company_recovery("quiet_test");
+        gate.begin_drain();
+        assert!(super::restoring(&gate, "quiet_test"));
+        gate.resume();
+        gate.begin_recovery();
+        assert!(super::restoring(&gate, "quiet_test"));
+    }
+}
+
+#[cfg(test)]
+mod not_running_tests {
+    use super::NotRunning;
+
+    #[test]
+    fn only_an_owner_stop_offers_the_start_door_and_no_sentence_sends_the_owner_away() {
+        assert_eq!(NotRunning::StoppedByOwner.code(), "runtime_stopped");
+        for why in [
+            NotRunning::StoppedByOwner,
+            NotRunning::Starting,
+            NotRunning::Absent,
+            NotRunning::HoursUsedUp,
+        ] {
+            let sentence = why.sentence("this file can't open");
+            assert!(sentence.contains("this file can't open"), "{sentence}");
+            assert!(!sentence.contains("Company → Computer"), "{sentence}");
+            if why != NotRunning::StoppedByOwner {
+                assert_ne!(why.code(), "runtime_stopped");
+            }
+        }
+        assert!(NotRunning::StoppedByOwner
+            .sentence("this file can't open")
+            .starts_with("The company computer was stopped by its owner"));
+    }
 }
 
 fn owner_holds_browser(control: &Option<serde_json::Value>) -> Result<bool> {

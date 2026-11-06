@@ -27,6 +27,8 @@ mod cli_api;
 mod company_settings_api;
 #[path = "owner_custom_harnesses.rs"]
 mod custom_harnesses;
+#[path = "owner_decisions.rs"]
+mod decisions_api;
 #[path = "owner_desktop.rs"]
 mod desktop_api;
 #[path = "owner_direction.rs"]
@@ -43,6 +45,8 @@ mod exec_inbox_api;
 mod for_you_api;
 #[path = "owner_handoff_decisions.rs"]
 mod handoff_decisions_api;
+#[path = "owner_hooks.rs"]
+mod hooks_api;
 #[path = "owner_library.rs"]
 mod library_api;
 #[path = "owner_machines.rs"]
@@ -55,18 +59,18 @@ mod member_collaboration_api;
 mod members_api;
 #[path = "owner_model_catalog.rs"]
 mod model_catalog_api;
+#[path = "owner_model_jobs.rs"]
+mod model_jobs_api;
 #[path = "owner_native_import.rs"]
 mod native_import_api;
+#[path = "owner_new_company_defaults.rs"]
+mod new_company_defaults;
 #[path = "owner_notifications.rs"]
 mod notification_delivery_api;
 #[path = "owner_oauth_login.rs"]
 mod oauth_login_api;
 #[path = "owner_integrations.rs"]
 mod owner_integrations;
-#[path = "owner_hooks.rs"]
-mod hooks_api;
-#[path = "owner_sent_import.rs"]
-mod sent_import_api;
 #[path = "owner_vault.rs"]
 mod owner_vault;
 #[path = "owner_pending_shares.rs"]
@@ -77,12 +81,6 @@ mod plane_readiness;
 mod preferences_api;
 #[path = "owner_presence.rs"]
 mod presence_api;
-#[path = "owner_model_jobs.rs"]
-mod model_jobs_api;
-#[path = "owner_decisions.rs"]
-mod decisions_api;
-#[path = "owner_new_company_defaults.rs"]
-mod new_company_defaults;
 #[path = "owner_publications.rs"]
 mod publications_api;
 #[path = "owner_review.rs"]
@@ -91,6 +89,8 @@ mod review_api;
 mod rooms_lifecycle_api;
 #[path = "owner_screencast.rs"]
 mod screencast_api;
+#[path = "owner_sent_import.rs"]
+mod sent_import_api;
 #[path = "owner_sharing.rs"]
 mod sharing_api;
 #[path = "owner_sheets.rs"]
@@ -1976,6 +1976,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(sleep_company_computer),
         )
         .route(
+            "/companies/{company}/company/power",
+            get(company_computer_power),
+        )
+        .route(
+            "/companies/{company}/company/power/ask",
+            post(ask_owner_to_start_computer),
+        )
+        .route(
             "/companies/{company}/company/authority-owner",
             get(company_authority_owner),
         )
@@ -2514,7 +2522,9 @@ async fn enforce_owner_boundary(
         // gets none: the handler answers only this path shape, verifies the provider's signature
         // with the company's own secret before anything is written, and is not an owner API.
         request.headers_mut().remove(axum::http::header::COOKIE);
-        request.headers_mut().remove(axum::http::header::AUTHORIZATION);
+        request
+            .headers_mut()
+            .remove(axum::http::header::AUTHORIZATION);
         return next.run(request).await;
     }
     if is_review_path(request.uri().path()) {
@@ -2784,6 +2794,23 @@ fn is_company_accounts_read(path: &str) -> bool {
         })
 }
 
+/// Everyone in a company reads whether its computer is on, and asks the owner to start one the
+/// owner stopped. Starting and stopping it stay the owner's (`company/recover`).
+fn is_company_power_route(method: &Method, path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    if !segments.next().is_some_and(|company| !company.is_empty()) {
+        return false;
+    }
+    let tail: Vec<&str> = segments.collect();
+    matches!(
+        (method.clone(), tail.as_slice()),
+        (Method::GET, ["company", "power"]) | (Method::POST, ["company", "power", "ask"])
+    )
+}
+
 /// An admin asks the owner for an account or for more on one (S98-08); the handler checks the role.
 fn is_company_account_request(method: &Method, path: &str) -> bool {
     method == Method::POST
@@ -2844,6 +2871,9 @@ fn membership_boundary_violation(
         // Everyone sees whether the company can send email (S109 H2); the handler hides key names.
         || (method == Method::GET && is_company_integrations_read(path))
         || (principal.membership_role() == "admin" && is_company_account_request(method, path))
+        // Whether the computer is on, and asking the owner to start one they stopped (the
+        // handlers check the company and the role).
+        || is_company_power_route(method, path)
         // Chat lists, message search and reactions answer only from the
         // Rooms the caller takes part in.
         || is_company_route_family(path, "direct-conversations")
@@ -7344,10 +7374,14 @@ async fn company_catalog_entry(
     card: Option<crate::company_projection::Summary>,
 ) -> CompanyCatalogEntry {
     let runtime_status = match status {
-        Some(runtime::ContainerStatus::Running) => "running",
-        Some(runtime::ContainerStatus::Stopped) if runtime::is_sleeping(&config.name) => "asleep",
-        Some(runtime::ContainerStatus::Stopped) => "stopped",
-        Some(runtime::ContainerStatus::Absent) => "absent",
+        // Asleep, a retired asleep container, or stopped without anyone asking: demand starts each,
+        // so the account shows them alike. Only an owner stop reads as stopped.
+        Some(status) => match runtime::power_state(&config.name, status) {
+            runtime::PowerState::Awake => "running",
+            runtime::PowerState::Asleep | runtime::PowerState::Interrupted => "asleep",
+            runtime::PowerState::StoppedByOwner => "stopped",
+            runtime::PowerState::Absent => "absent",
+        },
         None => "unavailable",
     };
     let unstartable_reason = match crate::company::observed_company_model_issue(&config).await {
@@ -9063,7 +9097,7 @@ async fn recover_company_computer(
             return api_error(
                 StatusCode::BAD_REQUEST,
                 "recovery",
-                "action must be start, restart or reconcile",
+                "action must be start, restart, reconcile or stop",
             )
         }
     };
@@ -9088,6 +9122,180 @@ async fn recover_company_computer(
 }
 
 /// Put a quiet computer to sleep now. It refuses while work runs, so sleeping never cuts live work.
+/// One cheap read of the company computer's power state, so a surface waiting on a file can say
+/// "Starting the company computer…" while the open request starts it: `awake`, `asleep`,
+/// `interrupted` (both start on demand), `stopped` (by its owner) or `absent`.
+async fn company_computer_power(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> impl IntoResponse {
+    if !principal.permits_company(&company)
+        || runtime::CompanyConfig::load(&state.daemon.root, &company).is_err()
+    {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            "This company could not be found.",
+        );
+    }
+    if state.daemon.runtime_bridges.is_hosted() {
+        return Json(serde_json::json!({ "state": "hosted", "starts_on_demand": true }))
+            .into_response();
+    }
+    match runtime::observe_power_state(&company).await {
+        Ok(power) => Json(serde_json::json!({
+            "state": power_label(power),
+            "starts_on_demand": power.starts_on_demand(),
+        }))
+        .into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime",
+            logged(error, "The company computer could not be read. Try again."),
+        ),
+    }
+}
+
+/// The power state as every surface names it.
+pub(super) fn power_label(power: runtime::PowerState) -> &'static str {
+    match power {
+        runtime::PowerState::Awake => "awake",
+        runtime::PowerState::Asleep => "asleep",
+        runtime::PowerState::Interrupted => "interrupted",
+        runtime::PowerState::StoppedByOwner => "stopped",
+        runtime::PowerState::Absent => "absent",
+    }
+}
+
+/// When each person last asked the owner to start a company's computer: asking twice in a few
+/// minutes says nothing new, so the second press answers as sent without another message.
+static COMPUTER_ASKS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<(String, String), std::time::Instant>>,
+> = std::sync::LazyLock::new(Default::default);
+const COMPUTER_ASK_QUIET: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// A teammate who finds the computer stopped by its owner asks the owner to start it. The ask is
+/// a direct message that mentions the owner, so it reaches their For you and their notifications
+/// like any other mention, and the owner starts it from Company › Computer or from the file.
+/// A computer that is not owner-stopped needs no ask: the answer says its state instead.
+async fn ask_owner_to_start_computer(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> impl IntoResponse {
+    if !principal.permits_company(&company)
+        || runtime::CompanyConfig::load(&state.daemon.root, &company).is_err()
+    {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            "This company could not be found.",
+        );
+    }
+    if principal.membership_role() == "owner" {
+        return api_error(
+            StatusCode::CONFLICT,
+            "owner",
+            "You own this computer, so you can start it yourself.",
+        );
+    }
+    if !state.daemon.runtime_bridges.is_hosted() {
+        match runtime::observe_power_state(&company).await {
+            Ok(runtime::PowerState::StoppedByOwner) => {}
+            Ok(power) => {
+                return Json(serde_json::json!({ "sent": false, "state": power_label(power) }))
+                    .into_response()
+            }
+            Err(error) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "runtime",
+                    logged(error, "The company computer could not be read. Try again."),
+                )
+            }
+        }
+    }
+    let asker = principal.actor_id().to_string();
+    let key = (company.clone(), asker.clone());
+    if COMPUTER_ASKS
+        .lock()
+        .ok()
+        .and_then(|asks| asks.get(&key).copied())
+        .is_some_and(|at| at.elapsed() < COMPUTER_ASK_QUIET)
+    {
+        return Json(serde_json::json!({ "sent": true, "state": "stopped" })).into_response();
+    }
+    let unavailable = |error: anyhow::Error| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            logged(error, "The owner could not be asked. Try again."),
+        )
+    };
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => return unavailable(error),
+    };
+    let owner = match org.current_membership_owner_actor_id().await {
+        Ok(Some(owner)) if owner != asker => owner,
+        Ok(_) => {
+            return api_error(
+                StatusCode::CONFLICT,
+                "owner",
+                "This company has no owner to ask yet.",
+            )
+        }
+        Err(error) => return unavailable(error.into()),
+    };
+    let title = match org.list_actors().await {
+        Ok(actors) => actors
+            .into_iter()
+            .find(|actor| actor.id == owner)
+            .map(|actor| actor.display)
+            .filter(|display| !display.trim().is_empty())
+            .unwrap_or_else(|| "Owner".into()),
+        Err(error) => return unavailable(error.into()),
+    };
+    let room = match org
+        .create_room(
+            &asker,
+            restless_orgintel::RoomKind::Direct,
+            &title,
+            &[owner.as_str()],
+            &format!("computer-ask-room:{}", Uuid::new_v4()),
+        )
+        .await
+    {
+        Ok(room) => room,
+        Err(error) => return unavailable(error.into()),
+    };
+    let body = format!(
+        "@{owner} The company computer is stopped, so I can't open its files. Could you start it? Start computer is on Company › Computer."
+    );
+    if let Err(error) = org
+        .send_room_message_with_mentions(
+            room.id,
+            &asker,
+            &body,
+            None,
+            &format!("computer-ask:{}", Uuid::new_v4()),
+            &[restless_orgintel::NewRoomMessageMention::actor(
+                owner.clone(),
+            )],
+            None,
+        )
+        .await
+    {
+        return unavailable(error.into());
+    }
+    if let Ok(mut asks) = COMPUTER_ASKS.lock() {
+        asks.retain(|_, at| at.elapsed() < COMPUTER_ASK_QUIET);
+        asks.insert(key, std::time::Instant::now());
+    }
+    Json(serde_json::json!({ "sent": true, "state": "stopped" })).into_response()
+}
+
 async fn sleep_company_computer(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
@@ -12711,23 +12919,12 @@ async fn attachment_runtime_ready(
             "The company computer is not awake, so the file was not sent. Send the message without the file, or attach it again once Company → Computer shows it running.",
         ));
     }
-    Err(match runtime::status(company).await {
-        Ok(runtime::ContainerStatus::Stopped) if !runtime::is_sleeping(company) => api_error(
-            StatusCode::CONFLICT,
-            "runtime",
-            "The company computer is stopped, so files cannot be sent. Start it from Company → Computer, or send the message without the file.",
-        ),
-        Ok(runtime::ContainerStatus::Absent) => api_error(
-            StatusCode::CONFLICT,
-            "runtime",
-            "This company has no computer yet, so files cannot be sent. Company → Health can build it, or send the message without the file.",
-        ),
-        _ => api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "runtime",
-            "The company computer could not wake, so the file was not sent. Company → Computer shows why.",
-        ),
-    })
+    Err(review_api::runtime_refusal(
+        &state.daemon,
+        company,
+        "files can't be sent; send the message without the file",
+    )
+    .await)
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -12789,11 +12986,7 @@ async fn download_attachment(
         )
         .await
         {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "runtime",
-                "The company computer is stopped, so this file cannot be opened. Start it from Company → Computer.",
-            );
+            return review_api::runtime_refusal(daemon, &company, "this file can't open").await;
         }
     }
     let bytes = match runtime::read_owner_attachment(&company, attachment).await {
@@ -13789,11 +13982,7 @@ async fn open_browser_link(
                 "This month's computer hours are used up, so it cannot wake. Raise or clear the limit in Company → Resources.",
             );
         }
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "runtime",
-            "The company computer is stopped, so this link cannot be opened. Start it from Company → Computer.",
-        );
+        return review_api::runtime_refusal(&state.daemon, &company, "this link can't open").await;
     }
     let current = match runtime::generation(&company).await {
         Ok(Some(generation)) => generation,

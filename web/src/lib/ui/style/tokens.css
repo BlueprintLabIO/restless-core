@@ -141,7 +141,11 @@
 	--pane-gap: 4px;
 	--app-gutter: 8px;
 	--pane-edge: 1px;
-	--pane-head-h: 44px;
+	/* Tall enough that a settings page's title (--t-title, 26px) has air above it while it sits in
+	 * this row, on one line with the 16px sidebar and Exec rail headers (owner, 6 Nov). At 44px
+	 * the title's capitals started 11px under the pane's top edge. Phones were already about this
+	 * tall: their 44px touch targets plus the row's padding. */
+	--pane-head-h: 56px;
 	/* A pane's content starts this far in from its left edge, header and body alike. */
 	--pane-pad-x: 20px;
 	--sidebar-w: 288px;

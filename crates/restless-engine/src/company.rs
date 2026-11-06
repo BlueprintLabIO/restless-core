@@ -19,6 +19,9 @@ pub enum RecoveryAction {
     Start,
     Restart,
     Reconcile,
+    /// The owner turns the computer off. It is recorded as an owner stop, so nothing starts it
+    /// again until the owner does: the cockpit's Stop, the same as `restless down`.
+    Stop,
 }
 
 impl RecoveryAction {
@@ -27,6 +30,7 @@ impl RecoveryAction {
             "start" => Some(Self::Start),
             "restart" => Some(Self::Restart),
             "reconcile" => Some(Self::Reconcile),
+            "stop" => Some(Self::Stop),
             _ => None,
         }
     }
@@ -36,6 +40,7 @@ impl RecoveryAction {
             Self::Start => "start",
             Self::Restart => "restart",
             Self::Reconcile => "reconcile",
+            Self::Stop => "stop",
         }
     }
 }
@@ -164,8 +169,10 @@ struct RuntimeLimit {
     auto_sleep_after_minutes: Option<u16>,
     /// The timeout this company actually sleeps after; `None` is never.
     sleep_after_minutes: Option<u64>,
-    /// Stopped by the sleep policy, so owed demand will wake it.
+    /// Stopped by the sleep policy, or without anyone asking, so demand will start it.
     asleep: bool,
+    /// The owner stopped it; only the owner starts it again.
+    stopped_by_owner: bool,
     monthly_runtime_cap_hours: Option<u32>,
     usage: Option<crate::runtime_usage::RuntimeUsage>,
     usage_status: &'static str,
@@ -628,7 +635,20 @@ pub async fn project(
         runtime: RuntimeLimit {
             auto_sleep_after_minutes: config.auto_sleep_after_minutes,
             sleep_after_minutes: config.sleep_after().map(|after| after.as_secs() / 60),
-            asleep: runtime::is_sleeping(&config.name),
+            // Asleep or interrupted: either way demand starts it, and the cockpit treats it so.
+            asleep: match runtime_usage.as_ref().map(|usage| usage.status.as_str()) {
+                Some("stopped") => {
+                    runtime::power_state(&config.name, runtime::ContainerStatus::Stopped)
+                        .starts_on_demand()
+                }
+                Some("absent") => {
+                    runtime::power_state(&config.name, runtime::ContainerStatus::Absent)
+                        .starts_on_demand()
+                }
+                Some(_) => false,
+                None => runtime::is_sleeping(&config.name) && !runtime::stopped_by_owner(&config.name),
+            },
+            stopped_by_owner: runtime::stopped_by_owner(&config.name),
             monthly_runtime_cap_hours: config.monthly_runtime_cap_hours,
             usage: runtime_usage,
             usage_status: runtime_usage_status,
@@ -2045,22 +2065,27 @@ fn company_doctor(
         },
     ];
     if let Some(doctor) = doctor {
-        let asleep = doctor.container == runtime::ContainerStatus::Stopped
-            && runtime::is_sleeping(&doctor.company);
-        let container_status = match doctor.container {
-            runtime::ContainerStatus::Running => "healthy",
-            runtime::ContainerStatus::Stopped if asleep => "healthy",
-            runtime::ContainerStatus::Stopped | runtime::ContainerStatus::Absent => "degraded",
+        let power = runtime::power_state(&doctor.company, doctor.container);
+        let container_status = match power {
+            runtime::PowerState::Awake | runtime::PowerState::Asleep => "healthy",
+            _ => "degraded",
         };
         checks.push(DoctorCheck {
             id: "runtime",
             label: "Company computer",
             source: "runtime",
             status: container_status,
-            summary: if asleep {
-                "Asleep. It wakes for messages, ready work and due schedules.".into()
-            } else {
-                container_summary(doctor.container).into()
+            summary: match power {
+                runtime::PowerState::Asleep => {
+                    "Asleep. It wakes for messages, ready work and due schedules.".into()
+                }
+                runtime::PowerState::Interrupted => {
+                    "Stopped without anyone asking. It starts again on its own, and for messages, work and opened files.".into()
+                }
+                runtime::PowerState::StoppedByOwner => {
+                    "Stopped by its owner. It stays off until started.".into()
+                }
+                _ => container_summary(doctor.container).into(),
             },
             detail: None,
         });
@@ -2091,13 +2116,21 @@ fn company_doctor(
             id: "image",
             label: "Computer version",
             source: "runtime",
+            // A computer that is off starts on the current release (`up_automatically` and Start
+            // replace a stale stopped container), so it needs nothing from the owner.
             status: match doctor.reconciliation {
                 runtime::ReconciliationStatus::Current => "healthy",
+                runtime::ReconciliationStatus::Required if power != runtime::PowerState::Awake => {
+                    "healthy"
+                }
                 runtime::ReconciliationStatus::Required => "degraded",
                 runtime::ReconciliationStatus::Unknown => "unknown",
             },
             summary: match doctor.reconciliation {
                 runtime::ReconciliationStatus::Current => "Up to date.",
+                runtime::ReconciliationStatus::Required if power != runtime::PowerState::Awake => {
+                    "Moves to the current release when it next starts. Company files are safe."
+                }
                 runtime::ReconciliationStatus::Required => {
                     "Needs a rebuild. Company files are safe."
                 }
@@ -2265,6 +2298,14 @@ fn overall_doctor_status(checks: &[DoctorCheck]) -> &'static str {
 }
 
 fn recommended_actions(doctor: &runtime::RuntimeDoctor) -> Vec<RecoveryAction> {
+    // Off but known (asleep, interrupted or owner-stopped, even with its container retired by a
+    // release): Start brings it up on the current release, keeping files. Rebuild is only for a
+    // running computer on the wrong version, or one never created.
+    if doctor.container != runtime::ContainerStatus::Running
+        && runtime::power_state(&doctor.company, doctor.container) != runtime::PowerState::Absent
+    {
+        return vec![RecoveryAction::Start];
+    }
     if doctor.reconciliation == runtime::ReconciliationStatus::Required {
         return vec![RecoveryAction::Reconcile];
     }
@@ -2302,6 +2343,15 @@ fn owner_may_request(doctor: &runtime::RuntimeDoctor, action: RecoveryAction) ->
     recommended_actions(doctor).contains(&action)
         || (action == RecoveryAction::Restart
             && doctor.container == runtime::ContainerStatus::Running)
+        // Start computer is offered wherever a stopped computer is in the way (a file, a review,
+        // Health): it is always safe on a computer that is not running, and creates the container
+        // a release retired while it was off.
+        || (action == RecoveryAction::Start
+            && doctor.container != runtime::ContainerStatus::Running)
+        // Stopping is the owner's choice whatever the doctor says; only a running computer has
+        // anything to stop.
+        || (action == RecoveryAction::Stop
+            && doctor.container == runtime::ContainerStatus::Running)
 }
 
 fn action_copy(action: RecoveryAction) -> DoctorAction {
@@ -2325,6 +2375,12 @@ fn action_copy(action: RecoveryAction) -> DoctorAction {
             label: "Rebuild company computer",
             consequence: "Rebuilds the company computer from the current release. Files are kept.",
             confirmation: "Rebuild the company computer from the current release?",
+        },
+        RecoveryAction::Stop => DoctorAction {
+            id: action,
+            label: "Stop company computer",
+            consequence: "Stops the company computer until its owner starts it again. Files and the browser profile are kept.",
+            confirmation: "Stop the company computer? Running work stops, and nothing starts it again until you do.",
         },
     }
 }
@@ -2631,14 +2687,26 @@ pub async fn recover(
 
     let result: Result<String> = async {
         let message = match action {
-            RecoveryAction::Start => runtime::up(config, false).await,
-            RecoveryAction::Restart => match runtime::down(&config.name).await {
+            // Starting a computer that is off puts it on the current release (files kept).
+            RecoveryAction::Start => {
+                runtime::up(
+                    config,
+                    before.container != runtime::ContainerStatus::Running,
+                )
+                .await
+            }
+            // A restart is not a stop: if the start fails, the computer comes back on its own.
+            RecoveryAction::Restart => match runtime::stop_for_restart(&config.name).await {
                 Ok(_) => runtime::up(config, false).await,
                 Err(error) => Err(error),
             },
             RecoveryAction::Reconcile => runtime::up(config, true).await,
+            // Records the durable owner stop before stopping, as `restless down` does.
+            RecoveryAction::Stop => runtime::down(&config.name).await,
         }?;
-        crate::materialize_runtime_bridge(daemon, &config.name).await?;
+        if action != RecoveryAction::Stop {
+            crate::materialize_runtime_bridge(daemon, &config.name).await?;
+        }
         Ok(message)
     }
     .await;
@@ -3209,6 +3277,28 @@ mod tests {
             None,
         );
         assert!(!owner_may_request(&stopped, RecoveryAction::Restart));
+    }
+
+    #[test]
+    fn the_owner_may_stop_only_a_running_computer() {
+        let running = doctor(
+            runtime::ContainerStatus::Running,
+            runtime::ReconciliationStatus::Current,
+            Some("available"),
+            Some("available"),
+            Some("available"),
+        );
+        assert!(owner_may_request(&running, RecoveryAction::Stop));
+        assert!(!recommended_actions(&running).contains(&RecoveryAction::Stop));
+        let stopped = doctor(
+            runtime::ContainerStatus::Stopped,
+            runtime::ReconciliationStatus::Current,
+            None,
+            None,
+            None,
+        );
+        assert!(!owner_may_request(&stopped, RecoveryAction::Stop));
+        assert_eq!(RecoveryAction::parse("stop"), Some(RecoveryAction::Stop));
     }
 
     #[test]

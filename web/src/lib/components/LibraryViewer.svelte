@@ -34,6 +34,9 @@
 		type OpenedFile
 	} from '$lib/model/library-files';
 	import { failureSentence } from '$lib/model/failure';
+	import { computerPower, stoppedSentence } from '$lib/model/company';
+	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import ComputerStoppedDoor from './ComputerStoppedDoor.svelte';
 	import { namePageContext } from '$lib/model/page-context.svelte';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
 	import TextPreview from '$lib/primitives/TextPreview.svelte';
@@ -81,6 +84,30 @@
 	let failureDetail = $state('');
 	let loading = $state(true);
 	let attempt = $state(0);
+	/* Opening a file starts a computer that is asleep or stopped without anyone asking; the open
+	 * waits for it. Say so in place of "Opening the file" while it does. */
+	let computerStarting = $state(false);
+	/* Its owner stopped it: the door sits beside the sentence, here, not on another page. The
+	 * owner starts it; anyone else asks the owner and the file opens once it is on. */
+	let ownerStopped = $state(false);
+	const viewerPrincipal = $derived(companyPrincipalQuery(companyId));
+	const viewerOwns = $derived(viewerPrincipal.view?.membership_role === 'owner');
+	/* The owner's Start failed: say why, in place of the stopped sentence. */
+	let startFailed = $state(false);
+	function computerStartingNow() {
+		failure = '';
+		failureDetail = '';
+		startFailed = false;
+		loading = true;
+		computerStarting = true;
+	}
+	function computerStartFailed(sentence: string) {
+		loading = false;
+		computerStarting = false;
+		failure = sentence;
+		failureDetail = '';
+		startFailed = true;
+	}
 	/* One file at a time: a recorded output by its id, any other company file by its path. The
 	 * effect reads these values, never the file object: an attention poll rebuilds every Library
 	 * row, and reopening the same file would restart a deck, a recording or a live site. */
@@ -95,8 +122,26 @@
 		failure = '';
 		failureDetail = '';
 		loading = true;
+		computerStarting = false;
+		ownerStopped = false;
+		startFailed = false;
 		slide = 1;
 		total = 0;
+		const power = new AbortController();
+		/* A kept file reads from a local copy and never needs the computer. */
+		if (!resolve)
+			void computerPower(companyId, power.signal)
+				.then((answer) => {
+					if (
+						target === fileKey &&
+						loading &&
+						answer.starts_on_demand &&
+						answer.state !== 'awake' &&
+						answer.state !== 'hosted'
+					)
+						computerStarting = true;
+				})
+				.catch(() => {});
 		void (
 			resolve
 				? resolve().then((answer): OpenedFile =>
@@ -112,11 +157,16 @@
 				if (cause instanceof LibraryOpenError) {
 					failure = cause.sentence;
 					failureDetail = cause.detail === cause.sentence ? '' : cause.detail;
+					ownerStopped = cause.code === 'runtime_stopped';
 				} else failure = failureSentence(cause, 'This file could not be opened.');
 			})
 			.finally(() => {
-				if (target === fileKey) loading = false;
+				if (target === fileKey) {
+					loading = false;
+					computerStarting = false;
+				}
 			});
+		return () => power.abort();
 	});
 
 	const isMedia = $derived(file.kind === 'media');
@@ -301,14 +351,27 @@
 
 	<div class="viewer-body" class:deck={file.kind === 'deck'}>
 		{#if loading}
-			<div class="center"><Pending label="Opening the file" /></div>
+			<div class="center">
+				<Pending label={computerStarting ? 'Starting the company computer…' : 'Opening the file'} />
+			</div>
 		{:else if failure}
 			<div class="center">
-				<p class="failure">{failure}</p>
+				<p class="failure">
+					{ownerStopped && !startFailed ? stoppedSentence(viewerOwns, "this can't open") : failure}
+				</p>
 				<div class="failure-actions">
-					<button class="btn small primary" type="button" onclick={() => (attempt += 1)}
-						>Try again</button
-					>
+					{#if ownerStopped}
+						<ComputerStoppedDoor
+							{companyId}
+							onstarting={computerStartingNow}
+							onstarted={() => (attempt += 1)}
+							onfailed={computerStartFailed}
+						/>
+					{:else}
+						<button class="btn small primary" type="button" onclick={() => (attempt += 1)}
+							>Try again</button
+						>
+					{/if}
 					{#if backHref}<a class="btn small" href={backHref}>{backLabel}</a>{/if}
 				</div>
 				{#if failureDetail}<details class="failure-detail">
@@ -420,12 +483,16 @@
 		height: 100%;
 		min-height: 0;
 	}
+	/* One pane-header height, so its bottom edge meets the Library sidebar's and the Exec rail's
+	 * (the jank gate's grid rule): the title and file name stack tightly inside it. */
 	.viewer-head {
 		display: flex;
+		flex: none;
 		align-items: center;
 		gap: 10px;
-		min-height: 58px;
-		padding: 8px 12px;
+		box-sizing: border-box;
+		height: var(--pane-head-h);
+		padding: 0 12px;
 		border-bottom: 1px solid var(--border);
 	}
 	.back {
@@ -446,6 +513,7 @@
 	}
 	.viewer-title h1 {
 		margin: 0;
+		line-height: 1.2;
 		overflow: hidden;
 		font-size: var(--t-head);
 		font-weight: 600;
@@ -454,6 +522,7 @@
 	}
 	.viewer-title small {
 		overflow: hidden;
+		line-height: 1.2;
 		color: var(--text-tertiary);
 		font-size: var(--t-body);
 		text-overflow: ellipsis;

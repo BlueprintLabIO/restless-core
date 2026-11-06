@@ -156,10 +156,16 @@ pub async fn preflight(company: &str) -> Result<Option<Blocked>> {
     match runtime::status(company).await {
         Ok(runtime::ContainerStatus::Running) => {}
         Ok(runtime::ContainerStatus::Stopped) => {
-            return Ok(Some(Blocked::new(
-                BlockKind::Container,
-                format!("the {company} computer is stopped; start it before working"),
-            )));
+            // Demand starts any computer its owner did not stop, before the turn gets here; one
+            // still stopped here either was stopped by its owner or has not finished starting.
+            let detail = if runtime::stopped_by_owner(company) {
+                format!(
+                    "the owner stopped the {company} computer; it runs again once they start it"
+                )
+            } else {
+                format!("the {company} computer has not started yet; Restless keeps starting it")
+            };
+            return Ok(Some(Blocked::new(BlockKind::Container, detail)));
         }
         Ok(runtime::ContainerStatus::Absent) => {
             return Ok(Some(Blocked::new(

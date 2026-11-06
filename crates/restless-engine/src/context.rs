@@ -1231,8 +1231,12 @@ mod tests {
         let trimmed = without_recent_conversation(turn);
         assert!(!trimmed.contains("old words"));
         assert!(trimmed.contains("(earlier in this session)"));
-        assert!(trimmed.ends_with("# Current human: owner\n\n# Owner input\n- owner message 2: new words\n"));
-        assert_eq!(without_recent_conversation("no such section"), "no such section");
+        assert!(trimmed
+            .ends_with("# Current human: owner\n\n# Owner input\n- owner message 2: new words\n"));
+        assert_eq!(
+            without_recent_conversation("no such section"),
+            "no such section"
+        );
     }
 
     /// S109 D3: Exec checks what Restless has before stating it, and files Restless faults.
@@ -1252,7 +1256,9 @@ mod tests {
         let prompt = assemble(&owner).user_prompt;
         assert!(prompt.contains("# Owner's Inbox now"));
         assert!(prompt.contains("- A brand change waits for your OK (decision) · asked by Exec"));
-        assert!(assemble(&owner).system_prompt.contains("never \"if a card is there\""));
+        assert!(assemble(&owner)
+            .system_prompt
+            .contains("never \"if a card is there\""));
 
         owner.owner_inbox = Some(Vec::new());
         assert!(assemble(&owner)
@@ -1791,7 +1797,9 @@ mod tests {
             "- launch-plan.pdf: /var/lib/restless-owner-attachments/00000000-0000-0000-0000-000000000000/content"
         ));
         assert!(package.user_prompt.contains("Thread 40"));
-        assert!(package.system_prompt.contains("saved as the exact same-Thread reply"));
+        assert!(package
+            .system_prompt
+            .contains("saved as the exact same-Thread reply"));
         assert!(!package.user_prompt.contains("unrelated Room history"));
     }
 
@@ -1883,9 +1891,9 @@ mod tests {
     #[test]
     fn exec_system_contract_requires_real_delegation_for_staff_work() {
         let package = assemble(&snapshot());
-        assert!(package
-            .system_prompt
-            .contains("Every other request that requires productive execution goes to exactly one"));
+        assert!(package.system_prompt.contains(
+            "Every other request that requires productive execution goes to exactly one"
+        ));
         assert!(package
             .system_prompt
             .contains("whether the work is small or large"));
@@ -1925,14 +1933,14 @@ mod tests {
         assert!(package
             .system_prompt
             .contains("frame and dispatch the outcome"));
-        assert!(package
-            .system_prompt
-            .contains("do not edit application \
-         or repository files"));
-        assert!(package
-            .system_prompt
-            .contains("goes to exactly one \
-         accountable team lead"));
+        assert!(package.system_prompt.contains(
+            "do not edit application \
+         or repository files"
+        ));
+        assert!(package.system_prompt.contains(
+            "goes to exactly one \
+         accountable team lead"
+        ));
         // Token parity (4 November 2026): small owner-facing work is Exec's own, in this turn.
         assert!(package
             .system_prompt
@@ -1946,13 +1954,13 @@ mod tests {
         assert!(package
             .system_prompt
             .contains("select any relevant Voice, Visual, or Culture situation atomically"));
-        assert!(package
-            .system_prompt
-            .contains("Reuse a standing lead"));
+        assert!(package.system_prompt.contains("Reuse a standing lead"));
         assert!(package
             .system_prompt
             .contains("preserve that exact locator in the charter"));
-        assert!(package.system_prompt.contains("not an attributable outcome"));
+        assert!(package
+            .system_prompt
+            .contains("not an attributable outcome"));
     }
 
     /// Work titles, outcomes and resolutions are rendered to the owner exactly

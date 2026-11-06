@@ -252,7 +252,9 @@ impl OrgIntel {
                 .execute(&mut *tx)
                 .await?;
             }
-            Some((disposition, owner)) if disposition == "candidate" && owner.as_deref() == Some(added_by) => {
+            Some((disposition, owner))
+                if disposition == "candidate" && owner.as_deref() == Some(added_by) =>
+            {
                 sqlx::query(
                     "UPDATE skills SET description=$2, path=$3, digest=$4, has_scripts=$5, origin_url=$6, \
                        origin_ref=$7, observed_at=now(), updated_at=now() WHERE name=$1",
@@ -272,7 +274,7 @@ impl OrgIntel {
                 return Err(OrgIntelError::InvalidSkill(format!(
                     "a company skill named {} already exists; choose another name or ask the owner to retire it",
                     skill.name
-                )))
+                )));
             }
         }
         sqlx::query(

@@ -80,8 +80,10 @@ export interface CompanyView {
 			auto_sleep_after_minutes: number | null;
 			/** The timeout the company actually sleeps after; null never sleeps. */
 			sleep_after_minutes: number | null;
-			/** Stopped by the sleep policy, so owed work wakes it. */
+			/** Stopped by the sleep policy, or without anyone asking: demand starts it. */
 			asleep: boolean;
+			/** Its owner stopped it: only the owner starts it again. */
+			stopped_by_owner?: boolean;
 			monthly_runtime_cap_hours: number | null;
 			usage_status: 'available' | 'unavailable';
 			usage: {
@@ -289,7 +291,7 @@ export interface BrowserStatus {
 	agent?: { actor: string; display?: string | null; work_id?: string | null } | null;
 }
 
-export type RecoveryAction = 'start' | 'restart' | 'reconcile';
+export type RecoveryAction = 'start' | 'restart' | 'reconcile' | 'stop';
 
 export interface CharterRevisionOutcome {
 	company: CompanyView;
@@ -481,6 +483,43 @@ export async function recoverCompany(
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ action }),
+			credentials: 'same-origin'
+		})
+	);
+}
+
+/** The company computer's power state: `asleep` and `interrupted` start on demand, `stopped` was
+ * its owner's choice. A cheap read beside a request that may be starting it. */
+export type ComputerPower = 'awake' | 'asleep' | 'interrupted' | 'stopped' | 'absent' | 'hosted';
+export async function computerPower(
+	company: string,
+	signal?: AbortSignal
+): Promise<{ state: ComputerPower; starts_on_demand: boolean }> {
+	return ownerResponse(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/power`, {
+			credentials: 'same-origin',
+			cache: 'no-store',
+			signal
+		})
+	);
+}
+
+/** Why something waits on a computer its owner stopped, said to whoever reads it: the owner
+ * starts it themselves, anyone else asks them. `consequence` reads on, e.g. "this can't open". */
+export function stoppedSentence(viewerOwns: boolean, consequence: string): string {
+	return viewerOwns
+		? `You stopped the company computer, so ${consequence} until you start it again.`
+		: `The owner stopped the company computer, so ${consequence} until they start it again.`;
+}
+
+/** A teammate asks the owner to start the computer the owner stopped: a direct message that
+ * mentions the owner. `sent` is false when the computer is no longer owner-stopped. */
+export async function askOwnerToStartComputer(
+	company: string
+): Promise<{ sent: boolean; state: ComputerPower }> {
+	return ownerResponse(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/power/ask`, {
+			method: 'POST',
 			credentials: 'same-origin'
 		})
 	);

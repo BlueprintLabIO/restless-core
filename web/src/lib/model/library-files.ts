@@ -299,10 +299,14 @@ export function downloadHref(reviewUrl: string): string {
 export class LibraryOpenError extends Error {
 	readonly sentence: string;
 	readonly detail: string;
-	constructor(sentence: string, detail: string) {
+	/** The gateway's error code: `runtime_stopped` means its owner stopped the computer, and the
+	 * viewer offers Start computer in place. */
+	readonly code: string | null;
+	constructor(sentence: string, detail: string, code: string | null = null) {
 		super(sentence);
 		this.sentence = sentence;
 		this.detail = detail;
+		this.code = code;
 	}
 }
 
@@ -348,7 +352,7 @@ export async function openLibraryFile(
 					: response.status === 400
 						? 'This is not a file in the company’s home folder.'
 						: 'The file could not be read from the company computer. It may have been moved or deleted.';
-		throw new LibraryOpenError(sentence, said);
+		throw new LibraryOpenError(sentence, said, failure.code);
 	}
 	const body = await response.json();
 	return {
@@ -370,7 +374,8 @@ export async function libraryFileBytes(company: string, path: string): Promise<A
 				(response.status === 503 && /company computer/i.test(failure.serverMessage ?? ''))
 				? (failure.serverMessage ?? failure.message)
 				: 'The file could not be read from the company computer.',
-			failure.serverMessage ?? failure.message
+			failure.serverMessage ?? failure.message,
+			failure.code
 		);
 	}
 	return response.arrayBuffer();

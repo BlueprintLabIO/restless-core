@@ -3416,7 +3416,11 @@ fn running_company_names(configs: &[CompanyConfig], docker_names: &str) -> Vec<S
 pub async fn retire_stale_stopped(config: &CompanyConfig) -> Result<bool> {
     let company = &config.name;
     let _start = company_start_guard(company).await;
-    if status(company).await? != ContainerStatus::Stopped || !is_sleeping(company) {
+    // Asleep, or stopped by its owner: neither may be started by a release. An interrupted
+    // computer is not retired; the rollout brings it back on the new image instead.
+    if status(company).await? != ContainerStatus::Stopped
+        || !(is_sleeping(company) || stopped_by_owner(company))
+    {
         return Ok(false);
     }
     if !(container_uses_old_image(company).await?
@@ -3450,7 +3454,12 @@ pub async fn up_automatically(config: &CompanyConfig) -> Result<Option<String>> 
     if explicitly_stopped(&config.name)? {
         return Ok(None);
     }
-    let outcome = up_locked(config, false).await?;
+    // A computer that is off is started on this release: a stopped container left on an earlier
+    // image is replaced (volume and kept files stay) rather than started old and then refused as
+    // "needs a rebuild" (6 November: four computers sat stopped on the old image after a
+    // rollout). A running one is never replaced here.
+    let reconcile = status(&config.name).await? != ContainerStatus::Running;
+    let outcome = up_locked(config, reconcile).await?;
     clear_sleeping(&config.name);
     Ok(Some(outcome))
 }
@@ -5738,6 +5747,16 @@ pub async fn down(company: &str) -> Result<String> {
     result
 }
 
+/// Stop the container on the way to starting it again (an owner's Restart). This is not owner
+/// intent to have it off: no stop is recorded, so a failed start leaves a computer that comes back
+/// on its own rather than one that says the owner stopped it.
+pub async fn stop_for_restart(company: &str) -> Result<String> {
+    let _start = company_start_guard(company).await;
+    let result = down_locked(company).await;
+    clear_sleeping(company);
+    result
+}
+
 /// Stop a Runtime only if an async activity check still considers it idle.
 /// The predicate runs under the same per-company lifecycle lock as `up`, so a
 /// concurrent explicit start cannot be stopped after it has completed.
@@ -5772,12 +5791,79 @@ fn explicitly_stopped(company: &str) -> Result<bool> {
         .with_context(|| format!("inspect {}", marker.display()))
 }
 
+/// Whether the owner deliberately stopped this company computer (`restless down`). The intent is
+/// a file under the state root, so it survives daemon restarts, rollouts and host reboots. A
+/// marker that cannot be read counts as a stop: Restless never starts a computer it is unsure the
+/// owner wanted off.
+pub fn stopped_by_owner(company: &str) -> bool {
+    explicitly_stopped(company).unwrap_or(true)
+}
+
+/// When the owner stopped it, if they did and the time was recorded.
+pub fn stopped_by_owner_since(company: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let text = std::fs::read_to_string(explicit_stop_marker(company)).ok()?;
+    serde_json::from_str::<serde_json::Value>(&text)
+        .ok()?
+        .get("at")?
+        .as_str()?
+        .parse()
+        .ok()
+}
+
 fn mark_explicit_stop(company: &str) -> Result<()> {
     let marker = explicit_stop_marker(company);
     if let Some(parent) = marker.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
-    std::fs::write(&marker, b"stopped").with_context(|| format!("write {}", marker.display()))
+    let intent = serde_json::json!({ "by": "owner", "at": chrono::Utc::now() });
+    std::fs::write(&marker, intent.to_string())
+        .with_context(|| format!("write {}", marker.display()))
+}
+
+/// Why a company computer is, or is not, running, as the owner and every wake path see it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PowerState {
+    Awake,
+    /// The sleep policy stopped it. Owed demand wakes it.
+    Asleep,
+    /// The owner stopped it. Only the owner starts it again.
+    StoppedByOwner,
+    /// Stopped without anybody asking: a crash, an interrupted update or a host restart. It comes
+    /// back on its own, and any demand starts it, exactly like a sleeping one.
+    Interrupted,
+    /// No container and no sleep: never created, or removed. Owner lifecycle builds it.
+    Absent,
+}
+
+impl PowerState {
+    /// Pure, so the precedence is tested without Docker. An owner stop wins over everything: a
+    /// computer somebody turned off never starts because of demand.
+    pub fn of(status: ContainerStatus, sleeping: bool, owner_stopped: bool) -> Self {
+        match status {
+            ContainerStatus::Running => Self::Awake,
+            _ if owner_stopped => Self::StoppedByOwner,
+            // A release retires an asleep computer's old container (`retire_stale_stopped`): it is
+            // still asleep, and its next wake creates the new one.
+            _ if sleeping => Self::Asleep,
+            ContainerStatus::Stopped => Self::Interrupted,
+            ContainerStatus::Absent => Self::Absent,
+        }
+    }
+
+    /// Demand starts it: the owner opening a file, Work that needs it, an Exec turn, a review.
+    pub fn starts_on_demand(self) -> bool {
+        matches!(self, Self::Asleep | Self::Interrupted)
+    }
+}
+
+/// The power state of a company computer whose container status is already known.
+pub fn power_state(company: &str, status: ContainerStatus) -> PowerState {
+    PowerState::of(status, is_sleeping(company), stopped_by_owner(company))
+}
+
+/// Observe the power state now.
+pub async fn observe_power_state(company: &str) -> Result<PowerState> {
+    Ok(power_state(company, status(company).await?))
 }
 
 fn clear_explicit_stop(company: &str) -> Result<()> {
@@ -6422,6 +6508,48 @@ mod kept_files_e2e {
         let _ = super::docker_observe(&["rm", "-f", &name]).await;
         let _ = super::docker_observe(&["volume", "rm", &volume]).await;
         result.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod power_state_tests {
+    use super::{ContainerStatus as C, PowerState as P};
+
+    #[test]
+    fn an_owner_stop_wins_and_never_starts_on_demand() {
+        for status in [C::Stopped, C::Absent] {
+            for sleeping in [false, true] {
+                let power = P::of(status, sleeping, true);
+                assert_eq!(power, P::StoppedByOwner);
+                assert!(!power.starts_on_demand());
+            }
+        }
+    }
+
+    #[test]
+    fn a_stop_nobody_asked_for_starts_on_demand() {
+        // A crash, an interrupted rollout or a host restart leaves no marker at all.
+        assert_eq!(P::of(C::Stopped, false, false), P::Interrupted);
+        assert!(P::Interrupted.starts_on_demand());
+    }
+
+    #[test]
+    fn a_retired_asleep_computer_is_still_asleep() {
+        // 6 November: a rollout retired the old container of an asleep computer; the cockpit said
+        // Asleep while every wake said "no computer yet". It is asleep, and demand creates it.
+        assert_eq!(P::of(C::Absent, true, false), P::Asleep);
+        assert!(P::of(C::Absent, true, false).starts_on_demand());
+        assert_eq!(P::of(C::Absent, false, false), P::Absent);
+        assert!(!P::Absent.starts_on_demand());
+    }
+
+    #[test]
+    fn running_is_awake_whatever_the_markers_say() {
+        for sleeping in [false, true] {
+            for owner in [false, true] {
+                assert_eq!(P::of(C::Running, sleeping, owner), P::Awake);
+            }
+        }
     }
 }
 

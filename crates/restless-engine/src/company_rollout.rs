@@ -49,13 +49,22 @@ pub async fn run(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
             );
             continue;
         }
-        if doctor.container != runtime::ContainerStatus::Running {
+        if !replaced_by_rollout(runtime::power_state(&config.name, doctor.container)) {
+            let owner_stopped = runtime::stopped_by_owner(&config.name);
             match tokio::time::timeout(
                 Duration::from_secs(60),
                 runtime::retire_stale_stopped(config),
             )
             .await
             {
+                Ok(Ok(true)) if owner_stopped => company::note_company_roll_forward(
+                    &config.name,
+                    "retired_while_stopped",
+                    Some(
+                        "The owner stopped this computer; it uses this release when they start it."
+                            .into(),
+                    ),
+                ),
                 Ok(Ok(true)) => company::note_company_roll_forward(
                     &config.name,
                     "retired_while_asleep",
@@ -66,7 +75,7 @@ pub async fn run(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
                 _ => company::note_company_roll_forward(
                     &config.name,
                     "failed",
-                    Some("Could not prepare the sleeping company within one minute.".into()),
+                    Some("Could not prepare the stopped company within one minute.".into()),
                 ),
             }
             continue;
@@ -156,6 +165,18 @@ pub async fn run(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
         }
     }
     company::note_roll_forward_stage("done", Some("Runtime checks completed; any company-specific exceptions remain in its service details.".into()));
+}
+
+/// Which computers a rollout replaces on the new image: a running one, and one that stopped
+/// without anyone asking (a crash, an earlier interrupted update), which comes back on this
+/// release rather than being left off (6 November: four computers sat stopped on the old image).
+/// An asleep or owner-stopped one only has its stale container retired, so it uses the release
+/// when demand or its owner starts it.
+fn replaced_by_rollout(power: runtime::PowerState) -> bool {
+    matches!(
+        power,
+        runtime::PowerState::Awake | runtime::PowerState::Interrupted
+    )
 }
 
 async fn replace(daemon: &Daemon, config: &runtime::CompanyConfig, canary: bool) -> Result<()> {
@@ -272,4 +293,19 @@ async fn replace(daemon: &Daemon, config: &runtime::CompanyConfig, canary: bool)
         ),
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replaced_by_rollout;
+    use crate::runtime::PowerState;
+
+    #[test]
+    fn a_rollout_brings_back_interrupted_computers_and_leaves_owner_stops_off() {
+        assert!(replaced_by_rollout(PowerState::Awake));
+        assert!(replaced_by_rollout(PowerState::Interrupted));
+        assert!(!replaced_by_rollout(PowerState::StoppedByOwner));
+        assert!(!replaced_by_rollout(PowerState::Asleep));
+        assert!(!replaced_by_rollout(PowerState::Absent));
+    }
 }

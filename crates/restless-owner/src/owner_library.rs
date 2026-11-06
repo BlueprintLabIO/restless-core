@@ -172,11 +172,8 @@ pub(super) async fn upload_attachments(
     if !restless_engine::runtime_sleep::wake_for(&state.daemon, &company, "someone added files")
         .await
     {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "runtime",
-            "The company computer is stopped, so files cannot be added. Start it from Company → Computer.",
-        );
+        return super::review_api::runtime_refusal(&state.daemon, &company, "files can't be added")
+            .await;
     }
 
     // Each upload is its own command: a retried upload adds a second copy, which the owner can
@@ -418,6 +415,13 @@ pub(super) async fn library_outputs(
     let page = match restless_engine::runtime_files::output_files(&company, cursor.as_ref()).await {
         Ok(page) => page,
         Err(_) => {
+            // A computer that is off has nothing to list, and that is not a failed read: the
+            // answer names its state, so the Library says so calmly with the door beside it
+            // instead of "could not be read · Retry" (6 Nov).
+            let off = match runtime::observe_power_state(&company).await {
+                Ok(runtime::PowerState::Awake) | Err(_) => None,
+                Ok(power) => Some(power_label(power)),
+            };
             // A sleeping Runtime may use its last first page; never substitute
             // that page for a failed request for older files.
             if cursor.is_none() && !query.fresh.unwrap_or(false) {
@@ -428,8 +432,21 @@ pub(super) async fn library_outputs(
                 {
                     // Preserve cached files, while making the failed fresh read explicit.
                     body["stale"] = serde_json::Value::Bool(true);
+                    if let Some(off) = off {
+                        body["computer"] = serde_json::Value::from(off);
+                    }
                     return Json(body).into_response();
                 }
+            }
+            if let Some(off) = off {
+                return Json(serde_json::json!({
+                    "files": [],
+                    "truncated": false,
+                    "stale": false,
+                    "next_cursor": null,
+                    "computer": off,
+                }))
+                .into_response();
             }
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,

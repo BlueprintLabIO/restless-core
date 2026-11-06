@@ -937,7 +937,8 @@
 			// A file the company computer could not take is a definite answer, written for the
 			// owner by the daemon: say it rather than an uncertain "try again".
 			if (
-				['runtime', 'attachment', 'attachment_quota'].includes(String(failure?.code)) &&
+				(['attachment', 'attachment_quota'].includes(String(failure?.code)) ||
+					String(failure?.code).startsWith('runtime')) &&
 				typeof failure?.serverMessage === 'string'
 			) {
 				return { error: failure.serverMessage };

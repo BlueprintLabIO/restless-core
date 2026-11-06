@@ -145,7 +145,8 @@ who performs the power change, never in when it is due.
 | --- | --- | --- |
 | **awake** | The Runtime runs. | — |
 | **asleep** | Stopped by the sleep policy. Volume, OrgIntel and owner reads remain available. | Owed demand, or the owner. |
-| **stopped** | Stopped deliberately by the owner or an operator, or by a runtime-hours cap. | Only the owner. |
+| **stopped** | Stopped deliberately by the owner (`restless down`). The intent is recorded durably and survives restarts and releases. | Only the owner. |
+| **interrupted** | Stopped without anyone asking: a crash, an interrupted update rollout, a host restart, a runtime-hours cap. | It returns on its own (startup, rollout and a minute-by-minute check, within the account memory pool and start backoff), and any demand starts it, exactly as for *asleep*. A used-up hours cap holds it until raised. |
 | **suspended** | Held by the account (billing, capacity policy, abuse). Overrides every wake. | Only the account. |
 
 *Suspended* is an account/Fleet state, not a company one; a suspended cell is never woken by demand.
@@ -169,7 +170,11 @@ who performs the power change, never in when it is due.
   computer awake.
 - *asleep → awake*: any waking demand is owed. The wake is recorded with its reason as operational
   telemetry, not as governed history.
-- *stopped* and *suspended* never change because of demand.
+- *interrupted → awake*: on its own, or for any demand. A start of a computer that is off puts it on
+  the current release: a stale stopped container, or one a release retired, is replaced with its
+  volume and kept files.
+- *stopped* and *suspended* never change because of demand. A surface that needs a stopped computer
+  says the owner stopped it and offers **Start computer** in place (owner API code `runtime_stopped`).
 
 **Placement.** Core exposes demand to Fleet through the authenticated capacity-activity endpoint
 (Cloud `docs/specs/core-capacity-activity.md`, contract v1). v1 predates `conversation` and `due`;

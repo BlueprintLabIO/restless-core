@@ -239,7 +239,11 @@ pub(crate) async fn outcome_still_opens(
                 )
                 .await
                 {
-                    return Err("The company computer could not wake to check the outcome, so it was not accepted. Start it from Company → Computer.".into());
+                    let why =
+                        restless_engine::runtime_sleep::not_running(&state.daemon, company).await;
+                    return Err(
+                        why.sentence("the outcome can't be checked, and it was not accepted")
+                    );
                 }
             }
             Ok(Some((_, reason))) => return Err(reason),
@@ -260,11 +264,24 @@ pub(crate) async fn wake_for_owner_read(
     if restless_engine::runtime_sleep::wake_for(&state.daemon, company, reason).await {
         return Ok(());
     }
-    Err(api_error(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "runtime",
-        "The company computer is stopped, so this file cannot be opened. Start it from Company → Computer.",
-    ))
+    Err(runtime_refusal(&state.daemon, company, "this can't open").await)
+}
+
+/// The answer when a wake left the computer off, in one sentence about `what`, under a code the
+/// cockpit reads: `runtime_stopped` (the owner stopped it) gets a Start computer button in place,
+/// never a pointer to another page.
+pub(crate) async fn runtime_refusal(
+    daemon: &restless_engine::Daemon,
+    company: &str,
+    what: &str,
+) -> Response<Body> {
+    use restless_engine::runtime_sleep::NotRunning;
+    let why = restless_engine::runtime_sleep::not_running(daemon, company).await;
+    let status = match why {
+        NotRunning::Starting => StatusCode::SERVICE_UNAVAILABLE,
+        _ => StatusCode::CONFLICT,
+    };
+    api_error(status, why.code(), why.sentence(what))
 }
 
 pub(crate) async fn issue_review_ticket(
