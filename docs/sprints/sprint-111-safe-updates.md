@@ -56,9 +56,9 @@ exactly what and has a door out.
 |---|---|---|---|---|
 | 1 | Deadlines and automatic rollback | **Done in code** | Core #681, #682, #684, #690; Cloud ba42000, #196 | A production rollout that hits a deadline |
 | 2 | Per-company isolation | **Done** | Core #677, #679, #681, #682 | None (production recovery 5 Nov) |
-| 3 | Resume instead of waiting | **Done in code** | Core #682 (five-minute drain, bounded resume), #693 (no resend under a new key); Cloud ff0c90e, #198 | Owner's choice of drain budget (below); a production interrupted Work |
-| 4 | Honest status and alerts | **Done in code** | Core #677, #679, #690; Cloud ba42000, #196, #197 | Signed-in owner browser check; a push channel for operator alerts (below) |
-| 5 | Break-glass access | **Done** | Cloud 63b10b7, 1deec26, #199; Core #683 | Real-SSH re-run with the current command (needs an OpenSSH package download) |
+| 3 | Resume instead of waiting | **Done in code** | Core #682 (five-minute drain, bounded resume), #693 (no resend under a new key); Cloud ff0c90e, #198 | A production interrupted Work |
+| 4 | Honest status and alerts | **Done in code** | Core #677, #679, #690; Cloud ba42000, #196, #197, #201 (operator email) | Signed-in owner browser check; install the plane watch on restless-cloud-1 |
+| 5 | Break-glass access | **Done** | Cloud 63b10b7, 1deec26, #199, #200 (real-SSH re-run); Core #683 | None locally: real-SSH re-run passed 6 Nov (Cloud runbook); production use only when needed |
 | 6 | Canary rollout | **Done** | Core #682 | None (production canary 5–6 Nov) |
 
 What each item does past its deadline, and what the owner sees:
@@ -86,14 +86,18 @@ What each item does past its deadline, and what the owner sees:
 
 ### Owner decisions
 
-1. **Drain budget.** Five minutes is the default. The owner has not chosen it. Longer means fewer
-   interrupted turns and slower updates. Shorter means the reverse. The no-duplicate-effect rule
-   holds either way. One setting: Core `company_rollout` (300 s) and the sealed
-   `RESTLESS_STOP_TASK_DRAIN_SECONDS`.
-2. **Operator alert channel.** `operator_alert` is a structured provider log line, and Core writes
-   the matching `alert="operator"` journal lines. Nothing pages or emails the operator yet. The
-   OpenBao watch timer (`deploy/vault/watch`, email to `ALERT_TO`) is the existing pattern to
-   copy. Choose the recipient and whether it should wake someone.
+1. **Drain budget: decided, five minutes (owner, 6 Nov 2026).** An update waits at most five
+   minutes for running Work, then interrupts it and the Work continues on the new release. Where it
+   is set: Core `company_rollout` (300 s) and the sealed `RESTLESS_STOP_TASK_DRAIN_SECONDS`. The
+   no-duplicate-effect rule holds at any budget.
+2. **Operator alert channel: decided, email to the operator only (owner, 6 Nov 2026).**
+   `restless-planewatch` (Cloud #201) copies the OpenBao watch timer. It emails `ALERT_TO`, which
+   is configuration (default `blueprintlabio@gmail.com`), through the Resend transactional login
+   from the restless.run sender. One email goes out per incident step: half a deadline, past it, a
+   company left failed, a failed rollback, a plane silent for ten minutes, or the provider not
+   answering. Capped at six an hour, and never sent to company owners or users. Tested with
+   captured sends; it is installed on restless-cloud-1 only when someone runs
+   `rel scripts/ops/install-planewatch.sh`.
 
 ## Why: the 4 Nov rollout
 
@@ -173,7 +177,7 @@ token was refused and there is no break-glass access to owner planes.
 - Zero-downtime database migrations beyond what the current schema steps already do.
 
 ## Operational defaults
-- Work drains for five minutes (owner has not chosen; see Owner decisions); shared-memory recovery
+- Work drains for five minutes (decided by the owner, 6 Nov); shared-memory recovery
   acts after ten minutes; company recovery restarts once after two minutes.
 - Existing Company → Computer owner recovery remains available. Emergency
   `platform-recover` is restricted to the authenticated local operator.
