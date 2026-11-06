@@ -504,6 +504,27 @@ export async function computerPower(
 	);
 }
 
+/** Why something waits on a computer its owner stopped, said to whoever reads it: the owner
+ * starts it themselves, anyone else asks them. `consequence` reads on, e.g. "this can't open". */
+export function stoppedSentence(viewerOwns: boolean, consequence: string): string {
+	return viewerOwns
+		? `You stopped the company computer, so ${consequence} until you start it again.`
+		: `The owner stopped the company computer, so ${consequence} until they start it again.`;
+}
+
+/** A teammate asks the owner to start the computer the owner stopped: a direct message that
+ * mentions the owner. `sent` is false when the computer is no longer owner-stopped. */
+export async function askOwnerToStartComputer(
+	company: string
+): Promise<{ sent: boolean; state: ComputerPower }> {
+	return ownerResponse(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/power/ask`, {
+			method: 'POST',
+			credentials: 'same-origin'
+		})
+	);
+}
+
 /** Put a quiet computer to sleep now; refused while work runs. */
 export async function sleepCompany(company: string): Promise<{ message: string }> {
 	return ownerResponse(
