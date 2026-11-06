@@ -34,6 +34,10 @@ pub struct LifecycleGate {
     /// starts, while owner chat and effects stay open. Never persisted.
     tasks_paused: Arc<AtomicBool>,
     active: Arc<AtomicUsize>,
+    /// The leases entered for one company (`try_enter_company`), so a question about one company
+    /// ("is anything running for it?") is not answered by plane-wide upkeep or another company's
+    /// work, which `active` also counts.
+    company_active: Arc<std::sync::Mutex<std::collections::BTreeMap<String, usize>>>,
     companies_recovering: Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
 }
 
@@ -44,6 +48,7 @@ impl LifecycleGate {
             recovering: Arc::new(AtomicBool::new(false)),
             tasks_paused: Arc::new(AtomicBool::new(false)),
             active: Arc::new(AtomicUsize::new(0)),
+            company_active: Arc::new(std::sync::Mutex::new(Default::default())),
             companies_recovering: Arc::new(std::sync::Mutex::new(Default::default())),
         }
     }
@@ -67,7 +72,10 @@ impl LifecycleGate {
             self.active.fetch_sub(1, Ordering::SeqCst);
             return None;
         }
-        Some(LifecycleLease { gate: self.clone() })
+        Some(LifecycleLease {
+            gate: self.clone(),
+            company: None,
+        })
     }
 
     /// A cell's recovery closes only that cell. The second check fences a
@@ -76,11 +84,24 @@ impl LifecycleGate {
         if self.company_is_recovering(company) {
             return None;
         }
-        let lease = self.try_enter()?;
+        let mut lease = self.try_enter()?;
         if self.company_is_recovering(company) {
             return None;
         }
+        if let Ok(mut counts) = self.company_active.lock() {
+            *counts.entry(company.to_string()).or_default() += 1;
+            lease.company = Some(company.to_string());
+        }
         Some(lease)
+    }
+
+    /// Leases held for this company right now. Plane-wide upkeep (document history, fault
+    /// delivery, stopped-Work checks) and other companies' work are not counted.
+    pub fn company_active(&self, company: &str) -> usize {
+        self.company_active
+            .lock()
+            .map(|counts| counts.get(company).copied().unwrap_or(0))
+            .unwrap_or(0)
     }
 
     pub fn begin_company_recovery(&self, company: &str) {
@@ -150,10 +171,21 @@ impl Default for LifecycleGate {
 
 pub struct LifecycleLease {
     gate: LifecycleGate,
+    company: Option<String>,
 }
 
 impl Drop for LifecycleLease {
     fn drop(&mut self) {
+        if let Some(company) = self.company.take() {
+            if let Ok(mut counts) = self.gate.company_active.lock() {
+                if let Some(count) = counts.get_mut(&company) {
+                    *count = count.saturating_sub(1);
+                    if *count == 0 {
+                        counts.remove(&company);
+                    }
+                }
+            }
+        }
         self.gate.active.fetch_sub(1, Ordering::SeqCst);
     }
 }
@@ -861,6 +893,28 @@ mod tests {
         gate.finish_company_recovery("heavy_test");
         assert!(gate.try_enter_company("heavy_test").is_some());
         assert_eq!(gate.active(), 0);
+    }
+
+    #[test]
+    fn a_company_counts_only_its_own_leases() {
+        let gate = LifecycleGate::default();
+        let upkeep = gate.try_enter().expect("plane lease");
+        let other = gate.try_enter_company("other_test").expect("other company");
+        assert_eq!(gate.active(), 2);
+        assert_eq!(gate.company_active("quiet_test"), 0);
+        assert_eq!(gate.company_active("other_test"), 1);
+        let own = gate.try_enter_company("quiet_test").expect("own lease");
+        assert_eq!(gate.company_active("quiet_test"), 1);
+        drop(own);
+        drop(other);
+        drop(upkeep);
+        assert_eq!(gate.company_active("quiet_test"), 0);
+        assert_eq!(gate.company_active("other_test"), 0);
+        assert_eq!(gate.active(), 0);
+        // A lease refused because its company began recovering is not counted.
+        gate.begin_company_recovery("quiet_test");
+        assert!(gate.try_enter_company("quiet_test").is_none());
+        assert_eq!(gate.company_active("quiet_test"), 0);
     }
 
     #[test]
