@@ -474,12 +474,16 @@
 		height: 100%;
 		min-height: 0;
 	}
+	/* One pane-header height, so its bottom edge meets the Library sidebar's and the Exec rail's
+	 * (the jank gate's grid rule): the title and file name stack tightly inside it. */
 	.viewer-head {
 		display: flex;
+		flex: none;
 		align-items: center;
 		gap: 10px;
-		min-height: 58px;
-		padding: 8px 12px;
+		box-sizing: border-box;
+		height: var(--pane-head-h);
+		padding: 0 12px;
 		border-bottom: 1px solid var(--border);
 	}
 	.back {
@@ -500,6 +504,7 @@
 	}
 	.viewer-title h1 {
 		margin: 0;
+		line-height: 1.2;
 		overflow: hidden;
 		font-size: var(--t-head);
 		font-weight: 600;
@@ -508,6 +513,7 @@
 	}
 	.viewer-title small {
 		overflow: hidden;
+		line-height: 1.2;
 		color: var(--text-tertiary);
 		font-size: var(--t-body);
 		text-overflow: ellipsis;
