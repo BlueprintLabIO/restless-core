@@ -34,7 +34,9 @@
 		type OpenedFile
 	} from '$lib/model/library-files';
 	import { failureSentence } from '$lib/model/failure';
-	import { computerPower, recoverCompany } from '$lib/model/company';
+	import { computerPower, stoppedSentence } from '$lib/model/company';
+	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import ComputerStoppedDoor from './ComputerStoppedDoor.svelte';
 	import { namePageContext } from '$lib/model/page-context.svelte';
 	import Pending from '$lib/ui/feedback/Pending.svelte';
 	import TextPreview from '$lib/primitives/TextPreview.svelte';
@@ -85,21 +87,26 @@
 	/* Opening a file starts a computer that is asleep or stopped without anyone asking; the open
 	 * waits for it. Say so in place of "Opening the file" while it does. */
 	let computerStarting = $state(false);
-	/* Its owner stopped it: Start computer sits beside the sentence, here, not on another page. */
+	/* Its owner stopped it: the door sits beside the sentence, here, not on another page. The
+	 * owner starts it; anyone else asks the owner and the file opens once it is on. */
 	let ownerStopped = $state(false);
-	let startingComputer = $state(false);
-	async function startComputer() {
-		if (startingComputer) return;
-		startingComputer = true;
-		try {
-			await recoverCompany(companyId, 'start');
-			attempt += 1;
-		} catch (cause) {
-			failure = failureSentence(cause, 'The computer could not start. Try again.');
-			failureDetail = '';
-		} finally {
-			startingComputer = false;
-		}
+	const viewerPrincipal = $derived(companyPrincipalQuery(companyId));
+	const viewerOwns = $derived(viewerPrincipal.view?.membership_role === 'owner');
+	/* The owner's Start failed: say why, in place of the stopped sentence. */
+	let startFailed = $state(false);
+	function computerStartingNow() {
+		failure = '';
+		failureDetail = '';
+		startFailed = false;
+		loading = true;
+		computerStarting = true;
+	}
+	function computerStartFailed(sentence: string) {
+		loading = false;
+		computerStarting = false;
+		failure = sentence;
+		failureDetail = '';
+		startFailed = true;
 	}
 	/* One file at a time: a recorded output by its id, any other company file by its path. The
 	 * effect reads these values, never the file object: an attention poll rebuilds every Library
@@ -117,6 +124,7 @@
 		loading = true;
 		computerStarting = false;
 		ownerStopped = false;
+		startFailed = false;
 		slide = 1;
 		total = 0;
 		const power = new AbortController();
@@ -348,16 +356,17 @@
 			</div>
 		{:else if failure}
 			<div class="center">
-				<p class="failure">{failure}</p>
+				<p class="failure">
+					{ownerStopped && !startFailed ? stoppedSentence(viewerOwns, "this can't open") : failure}
+				</p>
 				<div class="failure-actions">
 					{#if ownerStopped}
-						<button
-							class="btn small primary"
-							type="button"
-							disabled={startingComputer}
-							onclick={() => void startComputer()}
-							>{startingComputer ? 'Starting the company computer…' : 'Start computer'}</button
-						>
+						<ComputerStoppedDoor
+							{companyId}
+							onstarting={computerStartingNow}
+							onstarted={() => (attempt += 1)}
+							onfailed={computerStartFailed}
+						/>
 					{:else}
 						<button class="btn small primary" type="button" onclick={() => (attempt += 1)}
 							>Try again</button
