@@ -9073,7 +9073,7 @@ async fn recover_company_computer(
             return api_error(
                 StatusCode::BAD_REQUEST,
                 "recovery",
-                "action must be start, restart or reconcile",
+                "action must be start, restart, reconcile or stop",
             )
         }
     };

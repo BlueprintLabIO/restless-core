@@ -291,7 +291,7 @@ export interface BrowserStatus {
 	agent?: { actor: string; display?: string | null; work_id?: string | null } | null;
 }
 
-export type RecoveryAction = 'start' | 'restart' | 'reconcile';
+export type RecoveryAction = 'start' | 'restart' | 'reconcile' | 'stop';
 
 export interface CharterRevisionOutcome {
 	company: CompanyView;
