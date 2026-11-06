@@ -2,7 +2,7 @@
 	import { untrack } from 'svelte';
 	import type { AttentionItem } from '$lib/model/view';
 	import { reviewTicket } from '$lib/model/review-tickets';
-	import { recoverCompany } from '$lib/model/company';
+	import ComputerStoppedDoor from './ComputerStoppedDoor.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { fileAtPath, libraryKind, type LibraryFile } from '$lib/model/library-files';
 	import { workFileLinks, type CompanyFileLink } from '$lib/model/inbox-files';
@@ -30,21 +30,8 @@
 		targetKind = $derived(target?.kind);
 	const targetFailure = $derived(target?.unavailableReason),
 		itemId = $derived(item.id);
-	/* A stopped computer starts from the review itself, so the outcome opens where it is judged. */
-	let starting = $state(false);
-	async function startComputer() {
-		if (starting) return;
-		starting = true;
-		try {
-			await recoverCompany(companyId, 'start');
-			attempt += 1;
-			await onrefresh?.();
-		} catch (cause) {
-			failure = failureSentence(cause, 'The computer could not start. Try again.');
-		} finally {
-			starting = false;
-		}
-	}
+	/* A stopped computer starts from the review itself, so the outcome opens where it is judged
+	 * (ComputerStoppedDoor: the owner starts it, anyone else asks the owner). */
 	let url = $state(''),
 		failure = $state(''),
 		loading = $state(false),
@@ -179,13 +166,15 @@
 			</div>
 		{:else}<div class="outcome-state" role="status">
 				<p>{failure || 'The prepared outcome has no readable content.'}</p>
-				{#if target?.status === 'stopped'}<button
-						class="btn small primary"
-						type="button"
-						disabled={starting}
-						onclick={() => void startComputer()}
-						>{starting ? 'Starting the company computer…' : 'Start computer'}</button
-					>{/if}
+				{#if target?.status === 'stopped'}<ComputerStoppedDoor
+						{companyId}
+						onstarting={() => (failure = '')}
+						onstarted={() => {
+							attempt += 1;
+							void onrefresh?.();
+						}}
+						onfailed={(sentence) => (failure = sentence)}
+					/>{/if}
 				<button
 					class="btn small"
 					type="button"
