@@ -26,6 +26,15 @@ const ONLY_ON: Record<string, string> = {
 	'work-graph': 'work'
 };
 
+/* Reads whose answer can take seconds, where they may stop holding the reveal, and after how long.
+ * The company read carries Health's live checks: on Cloud it took 8–10 s, and the page waited
+ * blank all that time (6 Nov). The Company pages have a skeleton in its place, so there the shell
+ * appears and the read fills the page in. Elsewhere it keeps holding: the Inbox detail lays out
+ * from it, and released early its folds moved (zero-jank gate, slow Inbox). */
+export const HOLDS_AT_MOST: Record<string, { surface: string; ms: number }> = {
+	company: { surface: 'company', ms: 2000 }
+};
+
 type CachedRead = {
 	queryKey: readonly unknown[];
 	state: { data: unknown; status: string; fetchStatus: string };
@@ -49,11 +58,19 @@ export function surfaceOf(pathname: string, companyId: string): string {
 
 /** Whether one cached read still holds the reveal: a critical read for this company (or the
  * account-wide ones) fetching its first answer, or fetching past a persisted placeholder. A read
- * that only one surface shows holds it only on that surface. */
-export function holdsReveal(read: CachedRead, companyId: string, surface = 'inbox'): boolean {
+ * that only one surface shows holds it only on that surface, and a slow one (HOLDS_AT_MOST) only
+ * until the reveal has waited `waitedMs` that long. */
+export function holdsReveal(
+	read: CachedRead,
+	companyId: string,
+	surface = 'inbox',
+	waitedMs = 0
+): boolean {
 	const key = String(read.queryKey[0]);
 	if (!CRITICAL.has(key)) return false;
 	if (ONLY_ON[key] && ONLY_ON[key] !== surface) return false;
+	const limit = HOLDS_AT_MOST[key];
+	if (limit && limit.surface === surface && waitedMs >= limit.ms) return false;
 	if (!['companies', 'appliance'].includes(key) && read.queryKey[1] !== companyId) return false;
 	// A failed read has a recovery state to show. A retry of its persisted
 	// placeholder must not hide the whole app again while the source is down.
