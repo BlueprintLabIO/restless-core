@@ -9,9 +9,12 @@
  * request has a deadline, so a failed source reveals its recovery state. After that the barrier never closes
  * again: later changes are the ordinary, animated kind.
  *
- * The barrier waits a short time at most (REVEAL_WITHIN_MS). Opening another company's Health
- * held a blank frame of empty panes for 8–10 s on Cloud (6 Nov) while its live checks ran: a read
- * that slow now arrives into the shell and the page's own skeletons, which hold its place.
+ * The barrier waits REVEAL_WITHIN_MS at most. Opening another company's Health held a blank frame
+ * of empty panes for 8–10 s on Cloud (6 Nov) while its live checks ran: a read that slow now
+ * arrives into the shell and the page's own skeletons. The cap sits above what an ordinary slow
+ * load takes (the zero-jank gate holds every read 1.2 s, and some reads start only after others
+ * answer), because a reveal before those settle moves the rail, the Inbox and page headings; at
+ * 300 ms the gate found that on most surfaces.
  */
 
 import { useQueryClient } from '@tanstack/svelte-query';
@@ -19,8 +22,8 @@ import { onMount } from 'svelte';
 import { holdsReveal, surfaceOf } from './first-paint-hold.ts';
 
 /** The longest the reveal waits on reads, from when the shell mounts. A load that settles sooner
- * appears once, settled; a slower one shows the shell and skeletons now, never a blank frame. */
-export const REVEAL_WITHIN_MS = 300;
+ * appears once, settled; a slower one shows the shell and skeletons then, not a blank frame. */
+export const REVEAL_WITHIN_MS = 3000;
 
 export function firstPaint(companyId: () => string, pathname: () => string = () => '') {
 	const client = useQueryClient();
