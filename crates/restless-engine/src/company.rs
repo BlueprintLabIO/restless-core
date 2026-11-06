@@ -19,6 +19,9 @@ pub enum RecoveryAction {
     Start,
     Restart,
     Reconcile,
+    /// The owner turns the computer off. It is recorded as an owner stop, so nothing starts it
+    /// again until the owner does: the cockpit's Stop, the same as `restless down`.
+    Stop,
 }
 
 impl RecoveryAction {
@@ -27,6 +30,7 @@ impl RecoveryAction {
             "start" => Some(Self::Start),
             "restart" => Some(Self::Restart),
             "reconcile" => Some(Self::Reconcile),
+            "stop" => Some(Self::Stop),
             _ => None,
         }
     }
@@ -36,6 +40,7 @@ impl RecoveryAction {
             Self::Start => "start",
             Self::Restart => "restart",
             Self::Reconcile => "reconcile",
+            Self::Stop => "stop",
         }
     }
 }
@@ -2343,6 +2348,10 @@ fn owner_may_request(doctor: &runtime::RuntimeDoctor, action: RecoveryAction) ->
         // a release retired while it was off.
         || (action == RecoveryAction::Start
             && doctor.container != runtime::ContainerStatus::Running)
+        // Stopping is the owner's choice whatever the doctor says; only a running computer has
+        // anything to stop.
+        || (action == RecoveryAction::Stop
+            && doctor.container == runtime::ContainerStatus::Running)
 }
 
 fn action_copy(action: RecoveryAction) -> DoctorAction {
@@ -2366,6 +2375,12 @@ fn action_copy(action: RecoveryAction) -> DoctorAction {
             label: "Rebuild company computer",
             consequence: "Rebuilds the company computer from the current release. Files are kept.",
             confirmation: "Rebuild the company computer from the current release?",
+        },
+        RecoveryAction::Stop => DoctorAction {
+            id: action,
+            label: "Stop company computer",
+            consequence: "Stops the company computer until its owner starts it again. Files and the browser profile are kept.",
+            confirmation: "Stop the company computer? Running work stops, and nothing starts it again until you do.",
         },
     }
 }
@@ -2686,8 +2701,12 @@ pub async fn recover(
                 Err(error) => Err(error),
             },
             RecoveryAction::Reconcile => runtime::up(config, true).await,
+            // Records the durable owner stop before stopping, as `restless down` does.
+            RecoveryAction::Stop => runtime::down(&config.name).await,
         }?;
-        crate::materialize_runtime_bridge(daemon, &config.name).await?;
+        if action != RecoveryAction::Stop {
+            crate::materialize_runtime_bridge(daemon, &config.name).await?;
+        }
         Ok(message)
     }
     .await;
@@ -3258,6 +3277,28 @@ mod tests {
             None,
         );
         assert!(!owner_may_request(&stopped, RecoveryAction::Restart));
+    }
+
+    #[test]
+    fn the_owner_may_stop_only_a_running_computer() {
+        let running = doctor(
+            runtime::ContainerStatus::Running,
+            runtime::ReconciliationStatus::Current,
+            Some("available"),
+            Some("available"),
+            Some("available"),
+        );
+        assert!(owner_may_request(&running, RecoveryAction::Stop));
+        assert!(!recommended_actions(&running).contains(&RecoveryAction::Stop));
+        let stopped = doctor(
+            runtime::ContainerStatus::Stopped,
+            runtime::ReconciliationStatus::Current,
+            None,
+            None,
+            None,
+        );
+        assert!(!owner_may_request(&stopped, RecoveryAction::Stop));
+        assert_eq!(RecoveryAction::parse("stop"), Some(RecoveryAction::Stop));
     }
 
     #[test]
