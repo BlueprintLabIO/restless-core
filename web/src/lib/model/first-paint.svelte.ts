@@ -9,38 +9,35 @@
  * request has a deadline, so a failed source reveals its recovery state. After that the barrier never closes
  * again: later changes are the ordinary, animated kind.
  *
- * The barrier waits REVEAL_WITHIN_MS at most. Opening another company's Health held a blank frame
- * of empty panes for 8–10 s on Cloud (6 Nov) while its live checks ran: a read that slow now
- * arrives into the shell and the page's own skeletons. The cap sits above what an ordinary slow
- * load takes (the zero-jank gate holds every read 1.2 s, and some reads start only after others
- * answer), because a reveal before those settle moves the rail, the Inbox and page headings; at
- * 300 ms the gate found that on most surfaces.
+ * A read that can take seconds holds the reveal only for its HOLDS_AT_MOST
+ * (first-paint-hold.ts). Opening another company's Health held a blank frame of empty panes for
+ * 8–10 s on Cloud (6 Nov) while the company read ran its live checks; now the shell and the
+ * page's skeleton appear and that read fills them in.
  */
 
 import { useQueryClient } from '@tanstack/svelte-query';
 import { onMount } from 'svelte';
-import { holdsReveal, surfaceOf } from './first-paint-hold.ts';
-
-/** The longest the reveal waits on reads, from when the shell mounts. A load that settles sooner
- * appears once, settled; a slower one shows the shell and skeletons then, not a blank frame. */
-export const REVEAL_WITHIN_MS = 3000;
+import { HOLDS_AT_MOST, holdsReveal, surfaceOf } from './first-paint-hold.ts';
 
 export function firstPaint(companyId: () => string, pathname: () => string = () => '') {
 	const client = useQueryClient();
 	let ready = $state(false);
 	let company = '';
+	let armedAt = 0;
 
 	/* Any read still waiting for its first answer holds the reveal, not only the company's own:
 	 * the company list decides the setup notices and badges, and arriving late it moved them. */
-	const waiting = () =>
-		client
+	const waiting = () => {
+		const waited = performance.now() - armedAt;
+		return client
 			.getQueryCache()
 			.findAll()
-			.some((query) => holdsReveal(query, companyId(), surfaceOf(pathname(), companyId())));
+			.some((query) => holdsReveal(query, companyId(), surfaceOf(pathname(), companyId()), waited));
+	};
 
 	onMount(() => {
 		let frame = 0;
-		let deadline: ReturnType<typeof setTimeout> | undefined;
+		let limits: ReturnType<typeof setTimeout>[] = [];
 		const check = () => {
 			if (ready) return;
 			cancelAnimationFrame(frame);
@@ -55,8 +52,10 @@ export function firstPaint(companyId: () => string, pathname: () => string = () 
 		const arm = () => {
 			company = companyId();
 			ready = false;
-			clearTimeout(deadline);
-			deadline = setTimeout(() => (ready = true), REVEAL_WITHIN_MS);
+			armedAt = performance.now();
+			for (const limit of limits) clearTimeout(limit);
+			/* A slow read stops holding at its limit even when nothing else changes then. */
+			limits = [...new Set(Object.values(HOLDS_AT_MOST))].map((ms) => setTimeout(check, ms));
 			check();
 		};
 		arm();
@@ -78,7 +77,7 @@ export function firstPaint(companyId: () => string, pathname: () => string = () 
 			disposed = true;
 			unsubscribe();
 			cancelAnimationFrame(frame);
-			clearTimeout(deadline);
+			for (const limit of limits) clearTimeout(limit);
 		};
 	});
 

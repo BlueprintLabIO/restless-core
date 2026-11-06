@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { holdsReveal, surfaceOf } from './first-paint-hold.ts';
+import { HOLDS_AT_MOST, holdsReveal, surfaceOf } from './first-paint-hold.ts';
 
 const read = (key: unknown[], data: unknown, status: string, fetchStatus: string) => ({
 	queryKey: key,
@@ -59,7 +59,7 @@ test('a failed placeholder read reveals its recovery state while background retr
 });
 
 /* 3 Nov walkthrough: a direct load of Resources or the Library waited on the Inbox's own reads. */
-test("a read only the Inbox shows holds the reveal on the Inbox and nowhere else", () => {
+test('a read only the Inbox shows holds the reveal on the Inbox and nowhere else', () => {
 	const digest = read(['direction-digest', 'acme'], undefined, 'pending', 'fetching');
 	assert.equal(holdsReveal(digest, 'acme', 'inbox'), true);
 	assert.equal(holdsReveal(digest, 'acme', 'library'), false);
@@ -72,4 +72,17 @@ test("a read only the Inbox shows holds the reveal on the Inbox and nowhere else
 	assert.equal(surfaceOf('/acme', 'acme'), 'inbox');
 	assert.equal(surfaceOf('/acme/', 'acme'), 'inbox');
 	assert.equal(surfaceOf('/acme/company/resources', 'acme'), 'company');
+});
+
+/* 6 Nov: another company's Health stayed a blank frame for 8–10 s while its company read ran the
+ * live checks. A slow read holds the reveal only for its limit; the others still hold it. */
+test('a slow read holds the reveal only until its limit', () => {
+	const company = read(['company', 'acme', false], undefined, 'pending', 'fetching');
+	const cockpit = read(['cockpit', 'acme'], undefined, 'pending', 'fetching');
+	const limit = HOLDS_AT_MOST.company;
+	assert.ok(limit > 1200, 'longer than the zero-jank gate holds a slow read');
+	assert.equal(holdsReveal(company, 'acme', 'company', 0), true);
+	assert.equal(holdsReveal(company, 'acme', 'company', limit - 1), true);
+	assert.equal(holdsReveal(company, 'acme', 'company', limit), false);
+	assert.equal(holdsReveal(cockpit, 'acme', 'company', limit * 10), true);
 });
