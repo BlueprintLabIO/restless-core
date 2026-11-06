@@ -291,7 +291,7 @@ export interface BrowserStatus {
 	agent?: { actor: string; display?: string | null; work_id?: string | null } | null;
 }
 
-export type RecoveryAction = 'start' | 'restart' | 'reconcile';
+export type RecoveryAction = 'start' | 'restart' | 'reconcile' | 'stop';
 
 export interface CharterRevisionOutcome {
 	company: CompanyView;
@@ -500,6 +500,27 @@ export async function computerPower(
 			credentials: 'same-origin',
 			cache: 'no-store',
 			signal
+		})
+	);
+}
+
+/** Why something waits on a computer its owner stopped, said to whoever reads it: the owner
+ * starts it themselves, anyone else asks them. `consequence` reads on, e.g. "this can't open". */
+export function stoppedSentence(viewerOwns: boolean, consequence: string): string {
+	return viewerOwns
+		? `You stopped the company computer, so ${consequence} until you start it again.`
+		: `The owner stopped the company computer, so ${consequence} until they start it again.`;
+}
+
+/** A teammate asks the owner to start the computer the owner stopped: a direct message that
+ * mentions the owner. `sent` is false when the computer is no longer owner-stopped. */
+export async function askOwnerToStartComputer(
+	company: string
+): Promise<{ sent: boolean; state: ComputerPower }> {
+	return ownerResponse(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/power/ask`, {
+			method: 'POST',
+			credentials: 'same-origin'
 		})
 	);
 }
