@@ -92,10 +92,7 @@ pub async fn owed_demand(
     if in_flight || !daemon.staff.running_actors(company).is_empty() {
         demand.push(Demand::Attempt);
     }
-    if daemon.lifecycle.is_recovering()
-        || daemon.lifecycle.is_draining()
-        || daemon.lifecycle.active() > 0
-    {
+    if restoring(&daemon.lifecycle, company) {
         demand.push(Demand::Restore);
     }
     if !org.actors_owing_message_mentions(1).await?.is_empty()
@@ -122,6 +119,16 @@ pub async fn owed_demand(
         demand.push(Demand::Due);
     }
     Ok(demand)
+}
+
+/// A recovery, a drain, or lifecycle work admitted for this company. Only this company's leases
+/// count: the plane-wide count also holds Core's own upkeep (document history every ten seconds
+/// across every company, fault delivery, stopped-Work checks) and every other company's scans and
+/// effects, so with it no computer could sleep while anything ran anywhere ("busy (restore)").
+fn restoring(lifecycle: &restless_contracts::appliance::LifecycleGate, company: &str) -> bool {
+    lifecycle.is_draining()
+        || lifecycle.company_is_recovering(company)
+        || lifecycle.company_active(company) > 0
 }
 
 /// Everything that keeps a *running* local computer awake: owed demand plus
@@ -600,6 +607,36 @@ pub async fn report(daemon: &Daemon, company: &str) -> Result<serde_json::Value>
         "demand": demand.iter().map(|kind| kind.as_str()).collect::<Vec<_>>(),
         "sleep_after_minutes": config.sleep_after().map(|after| after.as_secs() / 60),
     }))
+}
+
+#[cfg(test)]
+mod restore_tests {
+    use restless_contracts::appliance::LifecycleGate;
+
+    #[test]
+    fn upkeep_and_other_companies_never_keep_a_quiet_computer_awake() {
+        let gate = LifecycleGate::default();
+        let _upkeep = gate.try_enter().expect("plane upkeep lease");
+        let _neighbour = gate
+            .try_enter_company("busy_test")
+            .expect("another company's scan");
+        assert!(!super::restoring(&gate, "quiet_test"));
+        assert!(super::restoring(&gate, "busy_test"));
+        let own = gate
+            .try_enter_company("quiet_test")
+            .expect("its own lifecycle work");
+        assert!(super::restoring(&gate, "quiet_test"));
+        drop(own);
+        assert!(!super::restoring(&gate, "quiet_test"));
+        gate.begin_company_recovery("quiet_test");
+        assert!(super::restoring(&gate, "quiet_test"));
+        gate.finish_company_recovery("quiet_test");
+        gate.begin_drain();
+        assert!(super::restoring(&gate, "quiet_test"));
+        gate.resume();
+        gate.begin_recovery();
+        assert!(super::restoring(&gate, "quiet_test"));
+    }
 }
 
 #[cfg(test)]
