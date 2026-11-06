@@ -94,7 +94,7 @@
 	function unreadable(cause: unknown): string {
 		const failure = cause as OwnerFailure;
 		if (failure?.status === 404) return 'This file is no longer available.';
-		if (failure?.code === 'runtime' && failure.serverMessage) return failure.serverMessage;
+		if (failure?.code?.startsWith('runtime') && failure.serverMessage) return failure.serverMessage;
 		if (failure?.status && failure.status >= 500) return 'The image could not be shown. Try again.';
 		return failureSentence(cause, 'The image could not be shown.');
 	}
