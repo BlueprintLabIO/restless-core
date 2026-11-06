@@ -18,6 +18,7 @@
 		readArchivedLibrary,
 		readLibraryModified,
 		readLibraryOutputs,
+		type OffComputer,
 		type OutputFile,
 		latestTime,
 		readFileBytes,
@@ -38,6 +39,8 @@
 	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import SidebarSearch from '$lib/ui/views/SidebarSearch.svelte';
 	import LibraryViewer from '$lib/components/LibraryViewer.svelte';
+	import ComputerStoppedDoor from '$lib/components/ComputerStoppedDoor.svelte';
+	import { stoppedSentence } from '$lib/model/company';
 	import { personName } from '$lib/model/initials';
 	import LibraryNew from '$lib/components/LibraryNew.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -915,6 +918,16 @@
 	let outputSkippedNames = $state(0);
 	let outputStale = $state(false);
 	let outputReadFailed = $state(false);
+	/* The computer is off, so its files cannot be listed: said calmly with its door, never as a
+	 * failed read (6 Nov: "Part of the Library could not be read · Retry" for a stopped one). */
+	let outputComputer = $state<OffComputer | null>(null);
+	const OFF_SENTENCE: Record<OffComputer, string> = {
+		stopped: stoppedSentence(true, 'its files aren’t listed here'),
+		asleep: 'The company computer is asleep, so its files aren’t listed here until it wakes.',
+		interrupted:
+			'The company computer stopped without anyone asking and is starting again by itself. Its files are listed once it is back.',
+		absent: 'The company computer hasn’t been created yet, so it has no files to list.'
+	};
 	let outputStaleToast: number | null = null;
 	let outputRevision: string | null = null;
 	let outputEpoch = 0;
@@ -962,6 +975,7 @@
 		try {
 			const result = await readLibraryOutputs(company, undefined, undefined, true);
 			if (company !== companyId || epoch !== outputEpoch) return;
+			outputComputer = result.computer;
 			outputFiles = result.files;
 			outputCursor = result.next;
 			outputFilesTruncated = result.truncated;
@@ -1021,6 +1035,7 @@
 		outputRevision = null;
 		outputPagesLoaded = false;
 		clearOutputFailure();
+		outputComputer = null;
 		outputSkippedReported = false;
 		outputSkippedNames = 0;
 		outputFiles = [];
@@ -1042,6 +1057,7 @@
 					})
 					.then((result) => {
 						if (!controller.signal.aborted && epoch === outputEpoch) {
+							outputComputer = result.computer;
 							if (result.stale) {
 								if (!outputPagesLoaded) {
 									outputFiles = result.files;
@@ -1050,7 +1066,9 @@
 									outputRevision = result.revision;
 									reportSkippedNames(result.skippedNames);
 								}
-								if (!outputReadFailed) reportOutputFailure();
+								/* The last listing of a computer that is now off: kept, not a failure. */
+								if (result.computer) clearOutputFailure();
+								else if (!outputReadFailed) reportOutputFailure();
 								return;
 							}
 							clearOutputFailure();
@@ -2925,7 +2943,16 @@
 					<!-- Files on the computer arrive a page at a time; the rest of a large company's are
 					     a button away. -->
 					{#if owner && filter === 'all' && !loading}
-						{#if outputReadFailed}
+						{#if outputComputer}
+							<div class="computer-off" role="status">
+								<span>{OFF_SENTENCE[outputComputer]}</span>
+								{#if outputComputer !== 'absent'}<ComputerStoppedDoor
+										{companyId}
+										onstarted={() => void refreshOutputs()}
+										onfailed={(sentence) => toast(sentence, { tone: 'failure' })}
+									/>{/if}
+							</div>
+						{:else if outputReadFailed}
 							<button
 								class="more"
 								disabled={outputLoadingMore}
@@ -3311,6 +3338,17 @@
 	}
 	.more:hover {
 		background: var(--surface-hover);
+	}
+	/* The computer is off: one calm row, the same height as the list's other closing rows. */
+	.computer-off {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 12px;
+		min-height: 40px;
+		padding: 6px 12px;
+		color: var(--text-secondary);
+		text-align: center;
 	}
 	.searching {
 		display: grid;

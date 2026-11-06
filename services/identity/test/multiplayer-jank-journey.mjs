@@ -879,6 +879,21 @@ await run("multiplayer-jank", async () => {
     }
     pass(`${state} state measured`);
   }
+  /* The company computer stopped by its owner (6 November): Company › Computer keeps its action
+   * row's height and shows Stopped with Start computer; the Library and a file say so calmly,
+   * with Start computer for the owner and Ask the owner for a member, never a read failure. */
+  const computerView = { path: `/${company}/company/computer`, name: "computer" };
+  await pass_(owner, "owner", "populated", [computerView], ["cold"]);
+  await coreApi(owner, `${base}/company/recover`, { method: "POST", body: { action: "stop" } });
+  const fileView = libraryViews.find((view) => view.name === "library-file");
+  const stoppedViews = [
+    { path: `/${company}/library`, name: "library-computer-stopped" },
+    { ...fileView, name: "library-file-computer-stopped" },
+  ];
+  await pass_(owner, "owner", "populated", [...stoppedViews, { ...computerView, name: "computer-stopped" }], ["cold"]);
+  await pass_(alice, "member", "populated", [stoppedViews[1]], ["cold"]);
+  await coreApi(owner, `${base}/company/recover`, { method: "POST", body: { action: "start" } });
+  pass("an owner-stopped computer measured: Company › Computer, the Library and a file");
   await railPass(owner, "owner", surfaces.owner[0]);
   await railPass(alice, "member", surfaces.member[0]);
   pass("the Exec rail measured before, as and after its code arrives");
