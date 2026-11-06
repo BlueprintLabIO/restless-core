@@ -79,10 +79,12 @@ test('a read only the Inbox shows holds the reveal on the Inbox and nowhere else
 test('a slow read holds the reveal only until its limit', () => {
 	const company = read(['company', 'acme', false], undefined, 'pending', 'fetching');
 	const cockpit = read(['cockpit', 'acme'], undefined, 'pending', 'fetching');
-	const limit = HOLDS_AT_MOST.company;
+	const limit = HOLDS_AT_MOST.company.ms;
 	assert.ok(limit > 1200, 'longer than the zero-jank gate holds a slow read');
 	assert.equal(holdsReveal(company, 'acme', 'company', 0), true);
 	assert.equal(holdsReveal(company, 'acme', 'company', limit - 1), true);
 	assert.equal(holdsReveal(company, 'acme', 'company', limit), false);
 	assert.equal(holdsReveal(cockpit, 'acme', 'company', limit * 10), true);
+	/* The Inbox detail lays out from the company read, so there it keeps holding. */
+	assert.equal(holdsReveal(company, 'acme', 'inbox', limit * 10), true);
 });

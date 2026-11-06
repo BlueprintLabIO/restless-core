@@ -55,7 +55,9 @@ export function firstPaint(companyId: () => string, pathname: () => string = () 
 			armedAt = performance.now();
 			for (const limit of limits) clearTimeout(limit);
 			/* A slow read stops holding at its limit even when nothing else changes then. */
-			limits = [...new Set(Object.values(HOLDS_AT_MOST))].map((ms) => setTimeout(check, ms));
+			limits = [...new Set(Object.values(HOLDS_AT_MOST).map((limit) => limit.ms))].map((ms) =>
+				setTimeout(check, ms)
+			);
 			check();
 		};
 		arm();
