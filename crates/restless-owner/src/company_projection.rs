@@ -436,9 +436,8 @@ async fn computer_can_start(daemon: &Daemon, company: &str) -> bool {
         .unwrap_or(true);
     match runtime::status(company).await {
         Ok(runtime::ContainerStatus::Running) => true,
-        Ok(runtime::ContainerStatus::Stopped | runtime::ContainerStatus::Absent) => {
-            runtime::is_sleeping(company) && !backing_off
-        }
+        // Asleep or interrupted: demand starts it.
+        Ok(status) => runtime::power_state(company, status).starts_on_demand() && !backing_off,
         Err(_) => false,
     }
 }

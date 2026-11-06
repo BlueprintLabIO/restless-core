@@ -723,7 +723,11 @@ mod tests {
         assert_eq!((split.tokens, split.everyday_tokens), (3600, 2400));
         assert_eq!(lead_split(&rows, &leads, None), None);
         assert_eq!(
-            lead_split(&rows, &std::collections::HashSet::new(), Some("anthropic/claude-sonnet-5-5")),
+            lead_split(
+                &rows,
+                &std::collections::HashSet::new(),
+                Some("anthropic/claude-sonnet-5-5")
+            ),
             None
         );
     }

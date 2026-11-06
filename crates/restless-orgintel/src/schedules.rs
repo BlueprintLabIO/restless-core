@@ -1803,7 +1803,7 @@ impl OrgIntel {
                     tx.rollback().await?;
                     return Err(OrgIntelError::InvalidWork(
                         "This recurrence cannot be resumed".into(),
-                    ))
+                    ));
                 }
             }
         } else {

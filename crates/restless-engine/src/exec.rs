@@ -2008,7 +2008,9 @@ async fn gather_snapshot(
         .unwrap_or_default();
     let roster = match (org.list_actors().await, org.list_teams().await) {
         (Ok(actors), Ok(teams)) => crate::context::roster_lines(&actors, &teams),
-        _ => vec!["(unavailable this wake; read `restless people` and `restless teams list`)".into()],
+        _ => {
+            vec!["(unavailable this wake; read `restless people` and `restless teams list`)".into()]
+        }
     };
     Ok(ContextSnapshot {
         people_changes,

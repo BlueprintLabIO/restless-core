@@ -225,11 +225,12 @@ pub(super) async fn create(
     if !restless_engine::runtime_sleep::wake_for(&state.daemon, &company, "someone wrote know-how")
         .await
     {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "runtime",
-            "The company computer is stopped, so know-how cannot be saved. Start it from Company → Computer.",
-        );
+        return super::review_api::runtime_refusal(
+            &state.daemon,
+            &company,
+            "know-how can't be saved",
+        )
+        .await;
     }
     let observed = match crate::skills::write_skill_md(&company, &dir, &name, &input.skill_md).await
     {
@@ -383,11 +384,12 @@ pub(super) async fn install_from_catalogue(
     if !restless_engine::runtime_sleep::wake_for(&state.daemon, &company, "installing know-how")
         .await
     {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "runtime",
-            "The company computer is stopped, so know-how cannot be installed. Start it from Company → Computer.",
-        );
+        return super::review_api::runtime_refusal(
+            &state.daemon,
+            &company,
+            "know-how can't be installed",
+        )
+        .await;
     }
     let dir = format!(
         "{}/{name}",

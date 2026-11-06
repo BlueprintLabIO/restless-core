@@ -545,14 +545,17 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
         let Ok(org) = daemon.orgintel.get(&company).await else {
             continue;
         };
-        let runtime_running = daemon.runtime_bridges.is_hosted()
-            || matches!(
-                runtime::status(&company).await,
-                Ok(ContainerStatus::Running)
-            );
-        // A sleeping computer is woken by the same due facts that a running
-        // one would act on; a stopped one is not timed at all.
-        let runtime_sleeping = !runtime_running && runtime::is_sleeping(&company);
+        let observed = if daemon.runtime_bridges.is_hosted() {
+            Some(ContainerStatus::Running)
+        } else {
+            runtime::status(&company).await.ok()
+        };
+        let runtime_running = observed == Some(ContainerStatus::Running);
+        // A sleeping or interrupted computer is woken by the same due facts that a running one
+        // would act on; one the owner stopped is not timed at all.
+        let runtime_sleeping = !runtime_running
+            && observed
+                .is_some_and(|status| runtime::power_state(&company, status).starts_on_demand());
         if runtime_running && org.has_ready_work().await.unwrap_or(false) {
             let company_wait = match runtime::workload_admission(&company).await {
                 Ok(Some(admission)) => admission.waiting_for_memory,
@@ -661,16 +664,16 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     } else {
         match runtime::status(company).await {
             Ok(ContainerStatus::Running) => {}
-            // A sleeping computer wakes for owed demand. One the owner
-            // stopped stays stopped until the owner starts it again.
-            Ok(ContainerStatus::Stopped) => {
-                if !crate::runtime_sleep::wake_if_owed(daemon, &config).await {
+            // A sleeping or interrupted computer wakes for owed demand, including an asleep one
+            // whose old container a release retired. One the owner stopped stays stopped until
+            // the owner starts it again. A removed Runtime is not a sleeping Runtime: do not
+            // recreate its container or volume from a timer; owner lifecycle must restore it.
+            Ok(status) => {
+                if !crate::runtime_sleep::wake_if_owed(daemon, &config, status).await {
                     return;
                 }
             }
-            // A removed Runtime is not a sleeping Runtime. Do not recreate its
-            // container or volume from a timer; owner lifecycle must restore it.
-            Ok(ContainerStatus::Absent) | Err(_) => return,
+            Err(_) => return,
         }
     }
 

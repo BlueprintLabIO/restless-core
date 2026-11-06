@@ -7634,7 +7634,7 @@ impl OrgIntel {
                     return Err(DocumentError::Conflict(
                         "a Work-bound review must be requested by its running exact Attempt or replayed against that blocked Attempt"
                             .into(),
-                    ))
+                    ));
                 }
             }
         }

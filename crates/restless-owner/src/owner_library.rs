@@ -172,11 +172,8 @@ pub(super) async fn upload_attachments(
     if !restless_engine::runtime_sleep::wake_for(&state.daemon, &company, "someone added files")
         .await
     {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "runtime",
-            "The company computer is stopped, so files cannot be added. Start it from Company → Computer.",
-        );
+        return super::review_api::runtime_refusal(&state.daemon, &company, "files can't be added")
+            .await;
     }
 
     // Each upload is its own command: a retried upload adds a second copy, which the owner can
