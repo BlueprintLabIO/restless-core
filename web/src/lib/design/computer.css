@@ -151,6 +151,11 @@
 	margin-top: 18px;
 }
 
+/* Off: the row keeps its height so the bezel does not shift, and takes no clicks. */
+.bridge-root .computer-portal-actions.idle {
+	visibility: hidden;
+}
+
 .bridge-root .computer-portal-footer {
 	position: relative;
 	z-index: 3;

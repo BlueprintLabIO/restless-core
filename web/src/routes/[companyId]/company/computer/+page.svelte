@@ -398,7 +398,37 @@
 		await runLifecycle('restart');
 	}
 
-	async function runLifecycle(action: 'start' | 'restart') {
+	/* Stopping is the owner's own choice, recorded as theirs: nothing starts the computer again,
+	 * not a message, ready work or a schedule, until they press Start computer. */
+	async function stopComputer() {
+		if (working) return;
+		const go = await confirmAction({
+			title: 'Stop the company computer?',
+			body: 'Running work stops, and nothing starts it again until you press Start computer. Files and the browser profile are kept.',
+			action: 'Stop'
+		});
+		if (!go) return;
+		await runLifecycle('stop');
+	}
+
+	/* What the status line says while a portal action runs; the buttons keep their labels. */
+	const BUSY_STATUS = {
+		restart: 'Restarting…',
+		sleep: 'Going to sleep…',
+		stop: 'Stopping…'
+	} as const;
+	const LIFECYCLE_DONE = {
+		start: 'The computer started.',
+		restart: 'The computer restarted.',
+		stop: 'The computer is stopped.'
+	} as const;
+	const LIFECYCLE_FAILED = {
+		start: 'The computer could not start.',
+		restart: 'The computer could not restart.',
+		stop: 'The computer could not stop.'
+	} as const;
+
+	async function runLifecycle(action: 'start' | 'restart' | 'stop') {
 		working = action;
 		error = '';
 		const wasFocused = focus;
@@ -406,15 +436,16 @@
 			if (control.owner) await control.release();
 			desktopUrl = '';
 			await recoverCompany(companyId, action);
-			toast(action === 'restart' ? 'The computer restarted.' : 'The computer started.');
+			toast(LIFECYCLE_DONE[action]);
 			await source.refresh();
 		} catch (cause) {
-			error = failureSentence(
-				cause,
-				action === 'restart' ? 'The computer could not restart.' : 'The computer could not start.'
-			);
+			error = failureSentence(cause, LIFECYCLE_FAILED[action]);
 		} finally {
 			working = '';
+		}
+		if (action === 'stop') {
+			if (wasFocused) await morphTo(`/${companyId}/company/computer`);
+			return;
 		}
 		if (wasFocused && !error) await attachDesktop(false);
 	}
@@ -672,13 +703,15 @@
 					>
 						<span class="source-lamp status-{canAttach ? 'live' : 'stale'}" aria-hidden="true"
 						></span>
-						{hoursUsedUp
-							? 'Asleep · monthly hours used up'
-							: asleep
-								? 'Asleep'
-								: stopped
-									? 'Stopped'
-									: controllerLabel}
+						{working in BUSY_STATUS
+							? BUSY_STATUS[working as keyof typeof BUSY_STATUS]
+							: hoursUsedUp
+								? 'Asleep · monthly hours used up'
+								: asleep
+									? 'Asleep'
+									: stopped
+										? 'Stopped'
+										: controllerLabel}
 					</div>
 					{#if hoursUsedUp}
 						<a class="btn primary" href={limitsHref}>Raise the hours limit</a>
@@ -734,26 +767,40 @@
 							<Activity size={14} strokeWidth={1.8} aria-hidden="true" /> See what needs fixing
 						</a>
 					{/if}
-					{#if container === 'Running'}
-						<div class="computer-portal-actions">
-							<button
-								class="btn small ghost"
-								type="button"
-								disabled={!!working}
-								title="Restarts a frozen desktop or hung app. Files and the browser profile are kept."
-								onclick={() => void restartComputer()}
-								>{working === 'restart' ? 'Restarting…' : 'Restart'}</button
-							>
-							<button
-								class="btn small ghost"
-								type="button"
-								disabled={!!working}
-								title="Sleeps now if nothing is running. It wakes for messages, ready work and due schedules."
-								onclick={() => void sleepComputer()}
-								>{working === 'sleep' ? 'Going to sleep…' : 'Sleep now'}</button
-							>
-						</div>
-					{/if}
+					<!-- One row, always laid out: it holds its height while the computer is off so the
+					     bezel never shifts, and its labels stay put while an action runs (the status
+					     line above says what is happening). -->
+					<div
+						class="computer-portal-actions"
+						class:idle={container !== 'Running'}
+						inert={container !== 'Running'}
+						aria-hidden={container !== 'Running'}
+					>
+						<button
+							class="btn small ghost"
+							type="button"
+							disabled={!!working}
+							aria-busy={working === 'restart'}
+							title="Restarts a frozen desktop or hung app. Files and the browser profile are kept."
+							onclick={() => void restartComputer()}>Restart</button
+						>
+						<button
+							class="btn small ghost"
+							type="button"
+							disabled={!!working}
+							aria-busy={working === 'sleep'}
+							title="Sleeps now if nothing is running. It wakes for messages, ready work and due schedules."
+							onclick={() => void sleepComputer()}>Sleep now</button
+						>
+						<button
+							class="btn small ghost"
+							type="button"
+							disabled={!!working}
+							aria-busy={working === 'stop'}
+							title="Stops it until you start it again. Messages, ready work and schedules wait; files and the browser profile are kept."
+							onclick={() => void stopComputer()}>Stop</button
+						>
+					</div>
 				</div>
 			</section>
 		</section>
