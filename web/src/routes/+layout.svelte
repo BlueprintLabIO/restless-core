@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { settleQuietly } from '$lib/transition';
+	import { pressThroughTransitions, settleQuietly } from '$lib/transition';
 	import Toasts from '$lib/ui/feedback/Toasts.svelte';
 	import ConfirmDialog from '$lib/ui/feedback/ConfirmDialog.svelte';
 	import { toast } from '$lib/ui/feedback/toast.svelte';
@@ -54,6 +54,8 @@
 			);
 		});
 	});
+	/* A press during that crossfade reaches what it was aimed at (lib/transition.ts). */
+	onMount(() => pressThroughTransitions());
 
 	let online = $state(true);
 	const isLoading = $derived(navigating.to !== null);
