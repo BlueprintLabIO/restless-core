@@ -125,3 +125,27 @@ export const COMPANY_PAGES: CompanyPage[] = [
 export function companyPageHref(companyId: string, page: CompanyPage): string {
 	return `/${companyId}/company${page.path}`;
 }
+
+const slug = (words: string) => words.toLowerCase().trim().replace(/\s+/g, '-');
+
+/** The page an address names by its label or key rather than its path: Health lives at
+ * `/doctor`, so `/company/health` lands there instead of on "This page does not exist"
+ * (6 Nov). Real paths are routes of their own and never reach this. */
+export function companyPageAlias(segment: string): CompanyPage | undefined {
+	const wanted = slug(segment);
+	return COMPANY_PAGES.find(
+		(page) => page.path !== '' && (slug(page.label) === wanted || page.key === wanted)
+	);
+}
+
+/** The company's own addresses people type without the `/company` part, or by the surface's
+ * name: `/<company>/inbox` is the Inbox at the company's root, `/<company>/settings` the Company
+ * area, and `/<company>/health` the Health page. Returns the path after `/<company>`. */
+export function companyAlias(segment: string): string | undefined {
+	const wanted = slug(segment);
+	if (wanted === 'inbox' || wanted === 'home') return '';
+	if (wanted === 'settings' || wanted === 'overview') return '/company';
+	const page =
+		companyPageAlias(wanted) ?? COMPANY_PAGES.find((candidate) => candidate.path === `/${wanted}`);
+	return page && page.path !== '' ? `/company${page.path}` : undefined;
+}
