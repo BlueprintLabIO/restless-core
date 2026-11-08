@@ -699,6 +699,9 @@ pub async fn dispatch_claimed_work(
             && claimed.attempt_no == 1
             && claimed.review_targets.is_empty()
             && claimed.feedback.is_empty()
+            // Owner-facing Work stays on the primary whatever the decision model says (8 Nov:
+            // the routine bar fell from 0.8 to "primary only below 0.5").
+            && !crate::decisions::owner_facing_work(&claimed.work)
             && crate::decisions::work_suits_everyday_model(org, config, &claimed.work).await
         {
             crate::model_gateway::with_everyday_model(
