@@ -165,17 +165,6 @@ pub async fn wake(
         },
     );
 
-    // Preflight: a company whose computer is stopped or whose disk is full
-    // must not be woken. Nothing below this line is free — context assembly
-    // reads the volume and the turn spends money — so the cheap deterministic
-    // checks come first (F2, F3, F12).
-    if let Some(identity) = &hosted_identity {
-        if let Err(error) = crate::runtime_bridge::preflight(runtime_bridges, identity).await {
-            return blocked_wake(org, config, &format!("[runtime] {error:#}")).await;
-        }
-    } else if let Some(blocked) = health::preflight(&config.name).await? {
-        return blocked_wake(org, config, &blocked.message()).await;
-    }
     let initial_budget = spend.budget_state(config);
 
     // T7: gather the snapshot (IO), then assemble (pure, digested). The
@@ -197,8 +186,23 @@ pub async fn wake(
             .remaining_micro_usd()
             .map(|remaining| remaining as f64 / 1_000_000.0),
         hosted_identity.as_ref().map(|_| (String::new(), None)),
-    )
-    .await?;
+    );
+    // Preflight: a company whose computer is stopped or whose disk is full
+    // must not be woken, and its verdict decides before the snapshot is used
+    // or any money is spent (F2, F3, F12). The snapshot only reads, so it is
+    // gathered while the local preflight's container and disk reads run.
+    let snapshot = if let Some(identity) = &hosted_identity {
+        if let Err(error) = crate::runtime_bridge::preflight(runtime_bridges, identity).await {
+            return blocked_wake(org, config, &format!("[runtime] {error:#}")).await;
+        }
+        snapshot.await?
+    } else {
+        let (blocked, snapshot) = tokio::join!(health::preflight(&config.name), snapshot);
+        if let Some(blocked) = blocked? {
+            return blocked_wake(org, config, &blocked.message()).await;
+        }
+        snapshot?
+    };
     let mut package = context::assemble(&snapshot);
     if let Ok(Some(tools)) =
         crate::connections::context_summary(authority.pool(), &config.name, "exec").await
@@ -1777,6 +1781,18 @@ async fn gather_snapshot(
     remaining_usd: Option<f64>,
     hosted_files: Option<(String, Option<String>)>,
 ) -> Result<ContextSnapshot> {
+    // The owner's Inbox is the slowest read here and needs nothing below, so it runs alongside
+    // the rest instead of after it. Only an owner-directed turn reads it.
+    let owner_inbox_read = (pending_mention.is_none() && human_is_membership_owner).then(|| {
+        let (config, authority, org) = (config.clone(), authority.clone(), org.clone());
+        tokio::spawn(async move {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                crate::attention::project(&config, &authority, Some(&org)),
+            )
+            .await
+        })
+    });
     let (current_plan, latest_journal) = match hosted_files {
         Some(files) => files,
         // Two container commands every Exec turn waits on: run them side by side.
@@ -1914,22 +1930,16 @@ async fn gather_snapshot(
     // What waits on the owner right now, so Exec says what is in the Inbox rather than "if a card
     // is there" (S109 B2). Only an owner-directed turn reads it; a slow read is skipped, not waited
     // on, and the prompt then says to read it with the CLI.
-    let owner_inbox = if pending_mention.is_some() || !human_is_membership_owner {
-        Some(Vec::new())
-    } else {
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            crate::attention::project(config, authority, Some(org)),
-        )
-        .await
-        {
-            Ok(Ok(view)) => Some(view.items.iter().take(25).map(owner_inbox_line).collect()),
-            Ok(Err(error)) => {
+    let owner_inbox = match owner_inbox_read {
+        None => Some(Vec::new()),
+        Some(read) => match read.await {
+            Ok(Ok(Ok(view))) => Some(view.items.iter().take(25).map(owner_inbox_line).collect()),
+            Ok(Ok(Err(error))) => {
                 tracing::warn!(company = %config.name, "owner Inbox unreadable for Exec: {error:#}");
                 None
             }
-            Err(_) => None,
-        }
+            _ => None,
+        },
     };
     // Exec's own recent changes to the owner's Inbox and how each ended, so an undone one is not
     // silently redone and a refused one is reported honestly.
