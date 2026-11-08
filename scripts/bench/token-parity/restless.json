@@ -34,6 +34,29 @@
 			]
 		},
 		{
+			"_about": "Task f: three Work items become ready together; the bench measures how far apart their first model calls land.",
+			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-PARALLEL",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "restless commission --lead shelf-a --role 'writer' --team ShelfA --charter 'The shelf labels.' --title 'Shelf A label' --outcome 'BENCH-PAR: write the label at /company/outputs/shelf-a.md' --reason 'The owner asked for the shelf labels.' --expected-artifact /company/outputs/shelf-a.md && restless commission --lead shelf-b --role 'writer' --team ShelfB --charter 'The shelf labels.' --title 'Shelf B label' --outcome 'BENCH-PAR: write the label at /company/outputs/shelf-b.md' --reason 'The owner asked for the shelf labels.' --expected-artifact /company/outputs/shelf-b.md && restless commission --lead shelf-c --role 'writer' --team ShelfC --charter 'The shelf labels.' --title 'Shelf C label' --outcome 'BENCH-PAR: write the label at /company/outputs/shelf-c.md' --reason 'The owner asked for the shelf labels.' --expected-artifact /company/outputs/shelf-c.md" } } },
+				{ "text": "Three leads are writing the shelf labels; I will tell you when they are done.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"The shelf labels are in progress.\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"Three leads have the Work.\"}-->" }
+			]
+		},
+		{
+			"match": "# Work ([0-9a-f-]{36}) revision[^]*BENCH-PAR: write the label at (/company/outputs/shelf-[abc]\\.md)",
+			"scope": "all",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "mkdir -p /company/outputs && cat > {{2}} <<'D'\nShelf label: sourdough, baked daily.\nD" } } },
+				{ "text": "Wrote the label at {{2}}.\n<!--restless-turn:{\"decision\":\"outcome_met\",\"reason\":\"The label is written.\"}-->" }
+			]
+		},
+		{
+			"match": "Completed Work result for Exec delivery consideration[^]*Shelf [ABC] label",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "cat /company/outputs/shelf-a.md /company/outputs/shelf-b.md /company/outputs/shelf-c.md" } } },
+				{ "text": "The three shelf labels are ready.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"The shelf labels are ready.\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"The owner has the labels.\"}-->" }
+			]
+		},
+		{
 			"match": "Completed Work result for Exec delivery consideration",
 			"steps": [
 				{ "tool": { "name": "bash", "input": { "command": "cat /company/outputs/delivery-policy.md" } } },

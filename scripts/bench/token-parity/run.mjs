@@ -101,8 +101,15 @@ const TASKS = [
 		id: 'e_work_chain',
 		message:
 			'BENCH-CHAIN: please have a delivery policy drafted and then checked by someone else before it comes to me.'
+	},
+	/* Three independent Work items ready at once: how far apart their starts land. Opt-in
+	 * (`--tasks f_parallel`), so the a-e history and the token-parity status keep their shape. */
+	{
+		id: 'f_parallel',
+		optional: true,
+		message: 'BENCH-PARALLEL: please have three shelf labels written, one per shelf, and tell me when they are done.'
 	}
-].filter((task) => !args.tasks || args.tasks.split(',').includes(task.id));
+].filter((task) => (args.tasks ? args.tasks.split(',').includes(task.id) : !task.optional));
 
 /* The baselines: the same tasks with the same scripted moves, as a direct harness would take them.
  *
@@ -131,6 +138,8 @@ const POLICY =
 	'# Delivery policy\n\nWe deliver within 10 km of the bakery. Orders placed by 8 pm arrive the next morning. Delivery is $5, free over $40.';
 const WRITE = { tool: `mkdir -p outputs && cat > outputs/delivery-policy.md <<'D'\n${POLICY}\nD`, result: '' };
 const READ = { tool: 'cat outputs/delivery-policy.md', result: POLICY };
+const LABELS = ['a', 'b', 'c'];
+const label = (shelf) => ({ tool: `mkdir -p outputs && cat > outputs/shelf-${shelf}.md <<'D'\nShelf label: sourdough, baked daily.\nD`, result: '' });
 const BASELINE_TASKS = {
 	a_email: [
 		{
@@ -143,6 +152,7 @@ const BASELINE_TASKS = {
 	/* A direct harness has no team: the one session writes and checks it, as in b. */
 	e_work_chain: [WRITE, READ, { text: 'Drafted and checked the one-page delivery policy at outputs/delivery-policy.md.' }],
 	d_team_work: [WRITE, READ, { text: 'Wrote and checked the one-page delivery policy at outputs/delivery-policy.md.' }],
+	f_parallel: [...LABELS.map(label), { text: 'The three shelf labels are written.' }],
 	c_state_qa: [
 		{ tool: 'cat state/work.md state/people.md', result: '- Delivery policy (docs lead, in progress)\n- docs-writer: writer, Docs team lead' },
 		{ text: 'One piece of work is open: the delivery policy, with the docs lead.' }
@@ -150,6 +160,17 @@ const BASELINE_TASKS = {
 };
 const BRIEF = 'a one-page delivery policy (zones, fees, cut-off times) at outputs/delivery-policy.md';
 const SUBAGENT_TASKS = {
+	/* Independent parts: the parent's one message starts all three sub-agents side by side. */
+	f_parallel: [
+		{
+			agents: LABELS.map((shelf) => ({
+				name: `writer-${shelf}`,
+				brief: `Write the label for shelf ${shelf} at outputs/shelf-${shelf}.md and report back.`,
+				steps: [label(shelf), { text: `Wrote the label for shelf ${shelf}.` }]
+			}))
+		},
+		{ text: 'The three shelf labels are written.' }
+	],
 	d_team_work: [
 		{
 			agents: [
@@ -465,6 +486,10 @@ function quality(taskId, { trace, owner, assignments }) {
 			'owner told': owner.some((message) => message.text.includes('new.customer@bench.example'))
 		},
 		b_doc_work: { ...policy, 'handed to the owner to review': delivered(read) },
+		f_parallel: {
+			'all three labels written': new Set(steps.flatMap((step) => /cat\s*>\s*\S*shelf-([abc])\.md/.exec(step.command)?.[1] ?? [])).size === 3,
+			'owner told': owner.some((message) => /shelf labels/i.test(message.text))
+		},
 		c_state_qa: {
 			'owner answered': owner.length > 0,
 			'answer names the open work': owner.some((message) => /delivery policy/i.test(message.text))
@@ -591,6 +616,15 @@ function gapKind(before, after) {
 	if (before.actor === 'exec') return 'commission to the Work start (claim, schedule, session start)';
 	return 'Work to the next Work start (result, claim, schedule, session start)';
 }
+/* How far apart independent Work started: the first model call of each Work turn, first to last. */
+function startSpacing(window, started) {
+	const starts = window
+		.filter((call) => actorOf(call.body) !== 'exec' && startsTurn(call.body))
+		.map((call) => Date.parse(call.at) - started)
+		.sort((a, b) => a - b);
+	return starts.length > 1 ? { starts_s: starts.map(seconds), spread_s: seconds(starts.at(-1) - starts[0]) } : null;
+}
+
 function profileOf(window, started, finished) {
 	const calls = window
 		.map((call) => {
@@ -687,7 +721,8 @@ for (const task of TASKS) {
 		last_call_s: seconds(lastCall),
 		owner_messages: owner.length,
 		started_at: startedAt.toISOString(),
-		profile: profileOf(window, started, finished)
+		profile: profileOf(window, started, finished),
+		start_spacing_s: task.id === 'f_parallel' ? startSpacing(window, started) : undefined
 	};
 	const checked = quality(task.id, { trace, owner, assignments: assignmentsOf(trace) });
 	const direct = await baseline(task, 'solo');
@@ -804,6 +839,9 @@ const table = [
 		({ task, ratio: x, ratio_subagents: y }) =>
 			`| ${task} | ${x.input_weighted} | ${y.input_weighted} | ${x.cost} | ${y.cost} | ${x.wall_clock} | ${y.wall_clock} |`
 	),
+	...report.tasks
+		.filter(({ restless: r }) => r.timing.start_spacing_s)
+		.map(({ task, restless: r }) => `\nStart spacing on ${task}: the Work turns' first model calls at ${r.timing.start_spacing_s.starts_s.join(', ')} s, ${r.timing.start_spacing_s.spread_s} s first to last.`),
 	'',
 	"Where Restless's time to result went (seconds; model is modeled model time, the rest is Restless's own):",
 	'',
