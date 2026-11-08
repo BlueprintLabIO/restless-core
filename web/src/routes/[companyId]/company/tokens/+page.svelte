@@ -12,6 +12,7 @@
 		tokenCount,
 		costBasis,
 		planLine,
+		leadSplitDetail,
 		leadSplitLine
 	} from '$lib/model/spend.svelte';
 	import { formatMoment } from '$lib/ui/time';
@@ -125,8 +126,7 @@
 			expenses.
 			{#if leadLine && view.lead_turns}<span
 					class="lead-split"
-					title={`${tokenCount(view.lead_turns.everyday_calls)} of ${tokenCount(view.lead_turns.calls)} team lead calls ran on ${view.lead_turns.everyday_model.split('/').at(-1)}, the everyday model; the rest on the main model. Select Models to see each one.`}
-					>{leadLine}</span
+					title={leadSplitDetail(view.lead_turns, tokenCount)}>{leadLine}</span
 				>{/if}
 		</p>
 		{#if totals.calls_without_tokens || totals.calls_without_estimate || totals.unknown_charges}
