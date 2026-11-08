@@ -812,7 +812,7 @@ pub async fn dispatch_actor_conversation(
         )
         .await;
         if route.everyday {
-            match crate::model_gateway::with_lead_everyday_model(
+            match crate::model_gateway::with_everyday_model(
                 config,
                 actor,
                 config.coordination_harness,

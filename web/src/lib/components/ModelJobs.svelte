@@ -15,6 +15,7 @@
 	import Toggle from '$lib/ui/page/Toggle.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { modelLabel } from '$lib/model/intelligence-labels';
+	import { pinsOwnModel } from '$lib/model/intelligence-route';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import { modelJobsQuery } from '$lib/model/model-jobs.svelte';
@@ -49,8 +50,13 @@
 	);
 
 	const view = $derived(jobs.view);
-	/* Agents the owner gave their own model on People: the everyday model never replaces theirs. */
-	const own = $derived((intelligence.view?.agents ?? []).filter((agent) => !!agent.assignment));
+	/* Agents the owner gave their own model on People: the everyday model never replaces theirs.
+	 * The company's main model on another login of the same provider is not one (8 Nov). */
+	const own = $derived(
+		(intelligence.view?.agents ?? []).filter((agent) =>
+			pinsOwnModel(agent.assignment, intelligence.view?.default)
+		)
+	);
 	const ownLine = $derived(
 		own.length
 			? `${own.length} ${own.length === 1 ? 'agent keeps its' : 'agents keep their'} own model`

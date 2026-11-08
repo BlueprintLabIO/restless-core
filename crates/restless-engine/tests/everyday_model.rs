@@ -4,7 +4,7 @@
 //! `RESTLESS_TEST_DATABASE_URL` for the Authority store's cooldowns; skipped otherwise.
 
 use restless_engine::authority::AuthorityStore;
-use restless_engine::model_gateway::with_everyday_model;
+use restless_engine::model_gateway::{pins_own_model, with_everyday_model};
 use restless_engine::runtime::{AgentHarness, AgentIntelligence, CompanyConfig};
 
 fn company(name: &str, extra: &str) -> CompanyConfig {
@@ -79,6 +79,58 @@ async fn staff_turns_start_on_the_everyday_model_and_owner_choices_win() {
             .unwrap()[0],
         "anthropic/claude-sonnet-5-5"
     );
+
+    // Reno's Staff (8 Nov): Ebenezer Scrooge and Echo on the company's main model on a second
+    // Claude login, to spread the plan's limits. That is where they think, not what with: their
+    // everyday-eligible turns run the everyday model on that same login, Opus behind it. Opus
+    // was 6,757 of Reno's 7,282 calls while this counted as a model of their own.
+    let mut reno = company(&name, "everyday_model = \"anthropic/claude-sonnet-5-5\"\n");
+    let first_login = "account:anthropic@e69f625023c149158e3b9d79ce9f7d63";
+    let second_login = "account:anthropic@dcbf955c63a14e58958cf9efa0d6f97a";
+    let assign = |config: &mut CompanyConfig, actor: &str, connection: &str, model: &str| {
+        config.agent_intelligence.insert(
+            actor.into(),
+            AgentIntelligence {
+                connection: connection.into(),
+                model: model.into(),
+            },
+        );
+    };
+    assign(&mut reno, "default", first_login, "claude-opus-5-5");
+    assign(&mut reno, "scrooge", second_login, "claude-opus-5-5");
+    assign(&mut reno, "echo", second_login, "anthropic/claude-opus-5-5");
+    // A genuinely different model on the same login, and the main model on another provider's
+    // connection, stay exact.
+    assign(&mut reno, "haiku-writer", second_login, "claude-haiku-5-5");
+    assign(
+        &mut reno,
+        "codex-builder",
+        "direct:openai",
+        "claude-opus-5-5",
+    );
+    for actor in ["scrooge", "echo"] {
+        let staff = reno.for_agent(actor);
+        assert!(!pins_own_model(&staff, actor), "{actor}");
+        assert_eq!(
+            with_everyday_model(&staff, actor, harness, primary(), &authority)
+                .await
+                .unwrap(),
+            ["anthropic/claude-sonnet-5-5", "anthropic/claude-opus-5-5"],
+            "{actor}"
+        );
+    }
+    for actor in ["haiku-writer", "codex-builder"] {
+        let staff = reno.for_agent(actor);
+        assert!(pins_own_model(&staff, actor), "{actor}");
+        let own = vec![staff.model.clone()];
+        assert_eq!(
+            with_everyday_model(&staff, actor, harness, own.clone(), &authority)
+                .await
+                .unwrap(),
+            own,
+            "{actor}"
+        );
+    }
 
     // A sibling the provider refused cools down, and the primary takes the turn.
     authority
