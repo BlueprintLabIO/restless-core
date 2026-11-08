@@ -10,7 +10,7 @@
 use axum::{routing::post, Json, Router};
 use restless_engine::authority::AuthorityStore;
 use restless_engine::lead_tier::{route, LeadTurn, WorkFacts, LEAD_TIER};
-use restless_engine::model_gateway::{pins_own_model, with_lead_everyday_model};
+use restless_engine::model_gateway::{pins_own_model, with_everyday_model};
 use restless_engine::runtime::{AgentHarness, CompanyConfig};
 use restless_orgintel::{
     ClaimedWork, NewWork, OrgIntel, ProducingTopology, WorkAttemptState, WorkspaceSpec,
@@ -185,7 +185,7 @@ async fn a_reno_like_lead_chain_runs_its_routine_turns_on_the_everyday_model() {
     assert!(!pins_own_model(&config, LEAD));
     let authority = AuthorityStore::connect(&url).await.unwrap();
     assert_eq!(
-        with_lead_everyday_model(
+        with_everyday_model(
             &config,
             LEAD,
             AgentHarness::RestlessManaged,

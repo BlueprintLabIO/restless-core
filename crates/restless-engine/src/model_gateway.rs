@@ -505,7 +505,10 @@ pub fn pins_own_model(config: &CompanyConfig, actor: &str) -> bool {
 
 /// The company's everyday model ahead of `candidates`, which stay behind it as failover (S102).
 /// An unset or cooling everyday model, or one already first keeps today's order. An agent the
-/// owner gave its own model on People keeps exactly that model. On a native harness (Claude or
+/// owner pinned to a model of its own on People keeps exactly that model ([`pins_own_model`]);
+/// one given the company's main model on another connection of the same provider runs the
+/// everyday model on that connection, lead or Staff alike (until 8 November only leads did, and
+/// Reno's Staff on a second Claude login ran every turn on Opus). On a native harness (Claude or
 /// Codex on its own sign-in) the everyday model runs on that same connection.
 pub async fn with_everyday_model(
     config: &CompanyConfig,
@@ -514,42 +517,7 @@ pub async fn with_everyday_model(
     candidates: Vec<String>,
     authority: &crate::authority::AuthorityStore,
 ) -> Result<Vec<String>> {
-    everyday_ahead(
-        config,
-        has_own_model(config, actor),
-        harness,
-        candidates,
-        authority,
-    )
-    .await
-}
-
-/// [`with_everyday_model`] for a team lead routed to the everyday model (`lead_tier`): only a
-/// model of its own pins it ([`pins_own_model`]); its own connection keeps serving it.
-pub async fn with_lead_everyday_model(
-    config: &CompanyConfig,
-    actor: &str,
-    harness: crate::runtime::AgentHarness,
-    candidates: Vec<String>,
-    authority: &crate::authority::AuthorityStore,
-) -> Result<Vec<String>> {
-    everyday_ahead(
-        config,
-        pins_own_model(config, actor),
-        harness,
-        candidates,
-        authority,
-    )
-    .await
-}
-
-async fn everyday_ahead(
-    config: &CompanyConfig,
-    pinned: bool,
-    harness: crate::runtime::AgentHarness,
-    candidates: Vec<String>,
-    authority: &crate::authority::AuthorityStore,
-) -> Result<Vec<String>> {
+    let pinned = pins_own_model(config, actor);
     if config.native_model(harness).is_some() {
         let Some(everyday) = config.native_everyday_model(harness) else {
             return Ok(candidates);
