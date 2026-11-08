@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Token parity, end to end: start the counting mock model, bring up one checkout's local dev stack
-# on it with a fresh disposable _test company, run the three tasks and the baseline (run.mjs), then
+# on it with a fresh disposable _test company, run the tasks and both baselines (run.mjs), then
 # tear down what it started (company destroyed, daemon and Vite stopped, mock stopped). The
 # checkout's dev database and vault containers are restless-dev's own and stay, as they do for it.
 #
@@ -25,8 +25,12 @@ printf 'checkout %s\nscenario %s\ncompany  %s\nlogs     %s\n' "$checkout" "$scen
 
 [ -d "$checkout/web/node_modules" ] || npm --prefix "$checkout/web" ci --no-audit --no-fund >"$work/npm.log" 2>&1
 
+# BENCH_LATENCY: the mock's model latency, so time to result can be measured: `model` (the
+# default), `off` (answers at once, as before), or rates such as
+# `ttft_ms=600,prefill_tps=5000,read_tps=50000,decode_tps=50`.
+latency="${BENCH_LATENCY:-model}"
 node "$repo/tools/mock-model/server.mjs" --port "$port" --scenario "$scenario" --log "$work/calls.jsonl" \
-  >"$work/mock.log" 2>&1 &
+  --latency "$latency" >"$work/mock.log" 2>&1 &
 mock_pid=$!
 stack_pid=""
 home=""
@@ -52,8 +56,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# The stack's own launcher, on the mock: any key works there and none is real.
+# The stack's own launcher, on the mock: any key works there and none is real. The mock also
+# stands in for Resend, so task a's email is really sent, under a mandate, to the mock.
 BENCH_MOCK_KEY=bench-mock-not-a-secret \
+BENCH_RESEND_KEY=bench-resend-not-a-secret \
+RESTLESS_TEST_RESEND_API_BASE="http://127.0.0.1:${port}" \
 RESTLESS_ANTHROPIC_BASE_URL="http://127.0.0.1:${port}/v1" \
 RESTLESS_DEV_MODEL="${BENCH_MODEL:-anthropic/claude-sonnet-5-5}" \
 RESTLESS_DEV_CREDENTIAL_REFERENCE=env:BENCH_MOCK_KEY \
@@ -89,6 +96,7 @@ if [ "${BENCH_ROUTE:-api}" = subscription ]; then
   cli company set -c "$company" credentials.model.inference omp-oauth:anthropic
   node "$here/seed-sign-in.mjs" --broker "$broker" --token-file "$profile/auth-broker.token" --wait 300
 fi
+cli company set -c "$company" credentials.resend.production env:BENCH_RESEND_KEY
 for setting in ${BENCH_COMPANY_SETTINGS:-}; do # key=value, e.g. everyday_model=anthropic/claude-sonnet-5-5
   cli company set -c "$company" "${setting%%=*}" "${setting#*=}"
 done
@@ -96,6 +104,6 @@ done
 sleep "${BENCH_WARMUP_SECONDS:-60}"
 
 node "$here/run.mjs" --origin "$web_url" --company "$company" --mock "http://127.0.0.1:${port}" \
-  --route "${BENCH_ROUTE:-api}" --log "$work/calls.jsonl" --out "$out" \
+  --route "${BENCH_ROUTE:-api}" --log "$work/calls.jsonl" --out "$out" --latency "$latency" \
   --baseline-model "${BENCH_MODEL:-anthropic/claude-sonnet-5-5}" ${BENCH_RUN_ARGS:-}
 printf '\nresult %s\n' "$out"

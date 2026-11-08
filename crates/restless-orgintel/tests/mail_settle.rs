@@ -1,7 +1,10 @@
 //! Fewer wakes (S110): machine mail settles before it owes a turn, a person's message never
 //! waits, and a lead whose Work is commissioned with its appointment is not woken to read it.
+//! It settles only while something could still add to it (`has_work_in_motion`).
 
-use restless_orgintel::{MailSettle, NewWork, OrgIntel, ProducingTopology, WorkspaceSpec};
+use restless_orgintel::{
+    MailSettle, NewWork, OrgIntel, ProducingTopology, WorkAttemptState, WorkspaceSpec,
+};
 
 async fn company() -> Option<OrgIntel> {
     let url = std::env::var("RESTLESS_TEST_DATABASE_URL").ok()?;
@@ -136,4 +139,62 @@ async fn a_commissioned_lead_is_not_woken_to_read_its_appointment() {
         .await
         .unwrap()
         .is_empty());
+}
+
+/// The scheduler waits for mail to settle only while something in motion could add to it: ready
+/// Work, a running Attempt, or a turn holding its cognitive lease. Once all of that is over, the
+/// company is idle and settled mail is owed at once.
+#[tokio::test]
+async fn mail_waits_only_while_something_is_in_motion() {
+    let Some(org) = company().await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping mail settle scenario");
+        return;
+    };
+    assert!(
+        !org.has_work_in_motion().await.unwrap(),
+        "a new company is idle"
+    );
+    org.add_work(NewWork {
+        owner_id: "bakery-web",
+        title: "Bakery site",
+        outcome: "A one-page site",
+        goal_id: None,
+        priority: 1,
+        expected_artifact: "site",
+        workspace: WorkspaceSpec::default(),
+        attempt_limit: Some(1),
+    })
+    .await
+    .unwrap();
+    assert!(
+        org.has_work_in_motion().await.unwrap(),
+        "ready Work starts and reports"
+    );
+    let claimed = org
+        .claim_ready_work("ready")
+        .await
+        .unwrap()
+        .expect("the Work is ready");
+    assert!(
+        org.has_work_in_motion().await.unwrap(),
+        "a running Attempt reports"
+    );
+    org.finish_work_attempt(claimed.attempt_id, WorkAttemptState::Failed, "stopped")
+        .await
+        .unwrap();
+    assert!(
+        !org.has_work_in_motion().await.unwrap(),
+        "its only Attempt is spent: nothing else is coming"
+    );
+    let lease = org
+        .claim_actor_cognitive_session("bakery-web", std::time::Duration::from_secs(60))
+        .await
+        .unwrap()
+        .expect("the lead is free");
+    assert!(
+        org.has_work_in_motion().await.unwrap(),
+        "a turn in flight may write"
+    );
+    org.release_actor_cognitive_session(&lease).await.unwrap();
+    assert!(!org.has_work_in_motion().await.unwrap());
 }
