@@ -5392,7 +5392,7 @@ fn mandated_send(
     let mandates =
         daemon_request(serde_json::json!({ "cmd": "mandate-list", "company": company }))?;
     let now = chrono::Utc::now();
-    let mandate = mandates
+    let Some(mandate) = mandates
         .as_array()
         .into_iter()
         .flatten()
@@ -5413,13 +5413,23 @@ fn mandated_send(
                 .unwrap_or_default()
                 .cmp(b["created_at"].as_str().unwrap_or_default())
         })
-        .with_context(|| {
-            format!(
-                "no active email mandate covers sender {sender}. Ask the owner for standing \
-                 permission with `restless mandate propose`, or send this one email without \
-                 --rationale so the owner approves it in their Inbox"
-            )
-        })?;
+    else {
+        // No standing permission: this one email goes to the owner to approve in their Inbox, as
+        // a send without --rationale does, so the attempt is never a dead end and its outcome is
+        // the daemon's to report.
+        let sent = daemon_request(serde_json::json!({
+            "cmd": "email-send", "company": company, "email_request": request, "actor": actor,
+        }))?;
+        return Ok(serde_json::json!({
+            "mandate_id": null,
+            "sent": sent,
+            "note": format!(
+                "No active email mandate covers sender {sender}, so nothing was sent under one. \
+                 Ask the owner for standing permission with `restless mandate propose` to send \
+                 such emails without asking each time."
+            ),
+        }));
+    };
     let mandate_id = mandate["id"]
         .as_str()
         .context("mandate list returned a mandate without an id")?

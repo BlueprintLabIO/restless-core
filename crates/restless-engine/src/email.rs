@@ -33,6 +33,127 @@ pub fn resend_api_base() -> String {
         })
         .unwrap_or_else(|| "https://api.resend.com".to_string())
 }
+/// How each email an actor tried to send this turn ended, as the daemon saw it. A model's reply
+/// can say "Sent" whatever the send returned; the reply carries these receipts so the owner is
+/// told what happened to every email that did not go out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SendReceipt {
+    Accepted,
+    WaitingForOwner,
+    NotSent(String),
+    Unknown(String),
+}
+
+struct RecordedReceipt {
+    company: String,
+    actor: String,
+    recipient: String,
+    at: std::time::Instant,
+    receipt: SendReceipt,
+}
+
+static SEND_RECEIPTS: std::sync::Mutex<Vec<RecordedReceipt>> = std::sync::Mutex::new(Vec::new());
+const SEND_RECEIPT_RETENTION: std::time::Duration = std::time::Duration::from_secs(3600);
+
+impl SendReceipt {
+    /// The receipt an `email-send` result is: an accepted provider outcome, an email put to the
+    /// owner, a refusal, or an outcome Resend left unclear.
+    pub fn of(result: &Result<serde_json::Value>) -> Self {
+        let value = match result {
+            Ok(value) => value,
+            Err(error) => {
+                let reason = format!("{error:#}");
+                return Self::NotSent(reason.lines().next().unwrap_or_default().to_string());
+            }
+        };
+        if value["status"] == "waiting_for_owner" {
+            return Self::WaitingForOwner;
+        }
+        match value["outcome"]["outcome"].as_str() {
+            Some("accepted") => Self::Accepted,
+            Some("rejected") => Self::NotSent(format!(
+                "Resend refused it (HTTP {})",
+                value["outcome"]["status"]
+            )),
+            _ => Self::Unknown(
+                value["outcome"]["reason"]
+                    .as_str()
+                    .unwrap_or("the provider's answer was unclear")
+                    .to_string(),
+            ),
+        }
+    }
+}
+
+/// Keep how one send by `actor` ended, for the reply of the turn that tried it.
+pub fn record_send_receipt(company: &str, actor: &str, recipient: &str, receipt: SendReceipt) {
+    let Ok(mut receipts) = SEND_RECEIPTS.lock() else {
+        return;
+    };
+    receipts.retain(|kept| kept.at.elapsed() < SEND_RECEIPT_RETENTION);
+    receipts.push(RecordedReceipt {
+        company: company.to_string(),
+        actor: actor.to_string(),
+        recipient: recipient.trim().to_ascii_lowercase(),
+        at: std::time::Instant::now(),
+        receipt,
+    });
+}
+
+/// What the owner must be told about emails `actor` tried to send since `since` and that did not
+/// go out, one line per recipient, by the last attempt to each (a retry that was accepted needs no
+/// line). None when every attempted email was accepted, or none was attempted.
+pub fn unsent_receipts_since(
+    company: &str,
+    actor: &str,
+    since: std::time::Instant,
+) -> Option<String> {
+    let receipts = SEND_RECEIPTS.lock().ok()?;
+    let mut last: Vec<(&str, &SendReceipt)> = Vec::new();
+    for kept in receipts
+        .iter()
+        .filter(|kept| kept.company == company && kept.actor == actor && kept.at >= since)
+    {
+        match last
+            .iter_mut()
+            .find(|(recipient, _)| *recipient == kept.recipient)
+        {
+            Some(entry) => entry.1 = &kept.receipt,
+            None => last.push((&kept.recipient, &kept.receipt)),
+        }
+    }
+    let lines = last
+        .into_iter()
+        .filter_map(|(recipient, receipt)| match receipt {
+            SendReceipt::Accepted => None,
+            SendReceipt::WaitingForOwner => Some(format!(
+                "The email to {recipient} has not been sent: it is waiting for your approval in your Inbox."
+            )),
+            SendReceipt::NotSent(reason) => Some(format!(
+                "The email to {recipient} was not sent: {}.",
+                reason.trim().trim_end_matches('.')
+            )),
+            SendReceipt::Unknown(reason) => Some(format!(
+                "Restless could not confirm that the email to {recipient} was sent ({}); it is not retried automatically.",
+                reason.trim().trim_end_matches('.')
+            )),
+        })
+        .collect::<Vec<_>>();
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+/// The reply with the receipts of any email this turn tried and did not send.
+pub fn with_unsent_receipts(
+    reply: &str,
+    company: &str,
+    actor: &str,
+    since: std::time::Instant,
+) -> String {
+    match unsent_receipts_since(company, actor, since) {
+        Some(receipts) => format!("{reply}\n\n{receipts}"),
+        None => reply.to_string(),
+    }
+}
 const OBSERVATION_PAGE_SIZE: u8 = 100;
 const MAX_SUBJECT_CHARS: usize = 998;
 const MAX_BODY_BYTES: usize = 1_000_000;
@@ -712,4 +833,93 @@ fn canonical_address(value: &str, field: &str) -> Result<String> {
 
 fn hex_sha256(value: &[u8]) -> String {
     format!("{:x}", Sha256::digest(value))
+}
+
+#[cfg(test)]
+mod receipt_tests {
+    use super::{record_send_receipt, unsent_receipts_since, with_unsent_receipts, SendReceipt};
+
+    #[test]
+    fn a_send_result_is_read_as_its_receipt() {
+        let accepted =
+            Ok(serde_json::json!({"outcome": {"outcome": "accepted", "provider_id": "re_1"}}));
+        assert_eq!(SendReceipt::of(&accepted), SendReceipt::Accepted);
+        let waiting = Ok(serde_json::json!({"status": "waiting_for_owner", "request_id": "r"}));
+        assert_eq!(SendReceipt::of(&waiting), SendReceipt::WaitingForOwner);
+        let rejected = Ok(serde_json::json!({"outcome": {"outcome": "rejected", "status": 403}}));
+        assert_eq!(
+            SendReceipt::of(&rejected),
+            SendReceipt::NotSent("Resend refused it (HTTP 403)".into())
+        );
+        let unclear = Ok(
+            serde_json::json!({"outcome": {"outcome": "unknown", "reason": "Resend returned HTTP 502"}}),
+        );
+        assert_eq!(
+            SendReceipt::of(&unclear),
+            SendReceipt::Unknown("Resend returned HTTP 502".into())
+        );
+        let refused: anyhow::Result<serde_json::Value> = Err(anyhow::anyhow!(
+            "the company has no usable Resend key; the owner adds it in Company › Vault"
+        ));
+        assert!(
+            matches!(SendReceipt::of(&refused), SendReceipt::NotSent(reason) if reason.contains("no usable Resend key"))
+        );
+    }
+
+    /// A reply that says "Sent" over a refused send still tells the owner it was not sent; an
+    /// accepted send, or one retried until accepted, adds nothing; and only this turn of this
+    /// actor in this company counts.
+    #[test]
+    fn the_reply_carries_every_email_this_turn_did_not_send() {
+        let company = format!("receipts{}_test", uuid::Uuid::new_v4().simple());
+        record_send_receipt(
+            &company,
+            "exec",
+            "before@example.com",
+            SendReceipt::NotSent("old".into()),
+        );
+        let since = std::time::Instant::now();
+        assert_eq!(
+            with_unsent_receipts("Sent it.", &company, "exec", since),
+            "Sent it."
+        );
+
+        record_send_receipt(&company, "exec", "ok@example.com", SendReceipt::Accepted);
+        record_send_receipt(
+            &company,
+            "exec",
+            "Retry@Example.com",
+            SendReceipt::NotSent("Resend refused it (HTTP 429)".into()),
+        );
+        record_send_receipt(&company, "exec", "retry@example.com", SendReceipt::Accepted);
+        record_send_receipt(
+            &company,
+            "staff-a",
+            "other@example.com",
+            SendReceipt::NotSent("not this actor".into()),
+        );
+        assert_eq!(unsent_receipts_since(&company, "exec", since), None);
+
+        record_send_receipt(
+            &company,
+            "exec",
+            "new.customer@example.com",
+            SendReceipt::NotSent("the company has no usable Resend key.".into()),
+        );
+        record_send_receipt(
+            &company,
+            "exec",
+            "lead@example.com",
+            SendReceipt::WaitingForOwner,
+        );
+        let reply = with_unsent_receipts("Sent the welcome email.", &company, "exec", since);
+        assert_eq!(
+            reply,
+            "Sent the welcome email.\n\nThe email to new.customer@example.com was not sent: the company has no usable Resend key.\nThe email to lead@example.com has not been sent: it is waiting for your approval in your Inbox."
+        );
+        assert_eq!(
+            unsent_receipts_since(&format!("x{company}"), "exec", since),
+            None
+        );
+    }
 }
