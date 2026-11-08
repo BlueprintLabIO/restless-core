@@ -114,6 +114,18 @@ impl OrgIntel {
     /// owed a wake. It deliberately repeats the claim predicate: reporting a
     /// merely active or proposed Work row would turn blocked work into a
     /// permanent wake loop.
+    /// Whether anything in the company may still add machine mail soon: a running Work Attempt, an
+    /// actor turn in flight (it holds its cognitive lease), or Work ready for the scheduler to start.
+    /// Machine mail waits to coalesce only while something is in motion (`MailSettle`).
+    pub async fn has_work_in_motion(&self) -> Result<bool> {
+        let running: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM work_attempts WHERE state='running')                  OR EXISTS(SELECT 1 FROM actor_cognitive_leases WHERE claimed_until > now())",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(running || self.has_ready_work().await?)
+    }
+
     pub async fn has_ready_work(&self) -> Result<bool> {
         Ok(sqlx::query_scalar(
             "SELECT EXISTS( \
