@@ -497,10 +497,15 @@ function assignmentsOf(trace) {
 	const steps = [...trace].filter((step) => step.command).sort((a, b) => a.at_ms - b.at_ms);
 	const lead = steps.map((step) => /restless commission\b.*?--lead\s+'?([\w-]+)/s.exec(step.command)?.[1]).find(Boolean);
 	if (lead) {
-		const check = steps
-			.map((step) => /restless work add\b.*?--owner\s+'?([\w-]+).*--requires/s.exec(step.command)?.[1])
-			.find(Boolean);
-		return { drafter: lead, checker: check ?? lead };
+		/* A check commissioned as its own Work counts once it was really added and its Work read the
+		 * draft afterwards; otherwise the drafter checked (or nobody did). */
+		const added = steps.findIndex(
+			(step) => /restless work add\b.*?--owner\s+'?[\w-]+.*--requires/s.test(step.command) && !ERROR.test(step.result ?? '')
+		);
+		if (added < 0) return { drafter: lead, checker: lead };
+		const owner = /restless work add\b.*?--owner\s+'?([\w-]+)/s.exec(steps[added].command)[1];
+		const read = steps.slice(added + 1).some((step) => step.actor === 'staff' && READS.test(step.command));
+		return { drafter: lead, checker: read ? owner : null };
 	}
 	const wrote = steps.findIndex((step) => WROTE.test(step.command));
 	if (wrote < 0) return {};
@@ -562,6 +567,98 @@ async function readCalls() {
 		.filter((call) => call.method === 'POST' && call.path.endsWith('/messages') && call.usage);
 }
 
+/* Where a task's time to result went: model time (each call held for its modeled latency) and
+ * every stretch with no model call running, named by what ended before it and what started after
+ * it. Overlapping calls count once, so the parts add up to the time to result. */
+const newestUserText = (body) => {
+	const last = (body.messages ?? []).findLast((message) => message.role === 'user');
+	if (!last) return '';
+	return (Array.isArray(last.content) ? last.content : [{ type: 'text', text: last.content }])
+		.map((block) => (block.type === 'text' ? block.text : block.type === 'tool_result' ? '[tool result]' : ''))
+		.join('\n');
+};
+function gapKind(before, after) {
+	if (!after) return 'reply stored after the last model call';
+	if (!before) return 'owner message to the first model call';
+	if (!after.wake) {
+		if (/answer with JSON only|Required keys: decision, reason|^Continue\.$/im.test(after.input))
+			return 'end-of-turn bookkeeping before a decision call';
+		return before.actor === after.actor && before.step !== 'text'
+			? `${after.actor === 'exec' ? 'Exec' : 'Work'} tool run (container command)`
+			: 'handoff inside a turn';
+	}
+	if (after.actor === 'exec') return 'Work result to the Exec wake (settle, schedule, session start)';
+	if (before.actor === 'exec') return 'commission to the Work start (claim, schedule, session start)';
+	return 'Work to the next Work start (result, claim, schedule, session start)';
+}
+function profileOf(window, started, finished) {
+	const calls = window
+		.map((call) => {
+			const start = Date.parse(call.at) - started;
+			return {
+				actor: actorOf(call.body),
+				start,
+				end: start + (call.modeled_ms ?? 0),
+				step: call.step,
+				wake: startsTurn(call.body),
+				input: newestUserText(call.body)
+			};
+		})
+		.filter((call) => finished == null || call.start < finished)
+		.sort((a, b) => a.start - b.start);
+	const parts = {};
+	const add = (name, ms) => {
+		if (ms > 0) parts[name] = (parts[name] ?? 0) + ms;
+	};
+	let cursor = 0;
+	let last = null;
+	for (const call of calls) {
+		if (call.start > cursor) add(gapKind(last, call), call.start - cursor);
+		const end = finished == null ? call.end : Math.min(call.end, finished);
+		if (end > cursor) {
+			add('model', end - Math.max(cursor, call.start));
+			cursor = end;
+			last = call;
+		}
+	}
+	if (finished != null && finished > cursor) add(gapKind(last, null), finished - cursor);
+	return Object.fromEntries(Object.entries(parts).map(([name, ms]) => [name, seconds(ms)]));
+}
+
+/* Task a sends under the owner's standing email permission, as a real company would: before any
+ * task is measured, Exec asks for the mandate (`restless mandate propose`) and the runner approves
+ * the Inbox card the way the owner does, then waits out its Undo window and the turns it causes. */
+async function grantEmailMandate() {
+	await tellExec('BENCH-SETUP-MANDATE: please ask me for standing permission to send our welcome emails.');
+	const owner = { Origin: origin };
+	let card = null;
+	for (const deadline = Date.now() + 180_000; !card && Date.now() < deadline; await pause(2_000)) {
+		const view = await (await fetch(`${api}/attention`, { headers: owner })).json().catch(() => ({}));
+		card = (view.items ?? []).find((item) => item.source?.kind === 'email_mandate_proposal');
+	}
+	assert(card, 'Exec did not ask for the email mandate');
+	const decision = await fetch(`${api}/approvals/pending-decision`, {
+		method: 'POST',
+		headers: { ...owner, 'content-type': 'application/json' },
+		body: JSON.stringify({
+			id: randomUUID(),
+			item_id: card.id,
+			target: { kind: 'email_mandate', proposal: card.source.reference },
+			decision: { action: 'grant' }
+		})
+	});
+	if (!decision.ok) throw new Error(`mandate approval ${decision.status}: ${await decision.text()}`);
+	const { id } = await decision.json();
+	for (const deadline = Date.now() + 120_000; ; await pause(1_000)) {
+		const read = await (await fetch(`${api}/approval-decisions`, { headers: owner })).json();
+		const saved = (read.items ?? []).find((item) => item.id === id);
+		if (saved?.state === 'applied') break;
+		assert(saved?.state !== 'failed' && Date.now() < deadline, `mandate approval did not apply: ${JSON.stringify(saved)}`);
+	}
+	await settle();
+}
+
+if (TASKS.some((task) => task.id === 'a_email')) await grantEmailMandate();
 const results = [];
 for (const task of TASKS) {
 	await stats(true);
@@ -588,7 +685,9 @@ for (const task of TASKS) {
 		first_reply_s: seconds(owner[0]?.at_ms ?? null),
 		free_s: owner.length ? seconds(finished - owner[0].at_ms) : 0,
 		last_call_s: seconds(lastCall),
-		owner_messages: owner.length
+		owner_messages: owner.length,
+		started_at: startedAt.toISOString(),
+		profile: profileOf(window, started, finished)
 	};
 	const checked = quality(task.id, { trace, owner, assignments: assignmentsOf(trace) });
 	const direct = await baseline(task, 'solo');
@@ -704,6 +803,16 @@ const table = [
 	...report.tasks.map(
 		({ task, ratio: x, ratio_subagents: y }) =>
 			`| ${task} | ${x.input_weighted} | ${y.input_weighted} | ${x.cost} | ${y.cost} | ${x.wall_clock} | ${y.wall_clock} |`
+	),
+	'',
+	"Where Restless's time to result went (seconds; model is modeled model time, the rest is Restless's own):",
+	'',
+	'| Task | Part | Seconds |',
+	'| --- | --- | ---: |',
+	...report.tasks.flatMap(({ task, restless: r }) =>
+		Object.entries(r.timing.profile ?? {})
+			.sort(([, a], [, b]) => b - a)
+			.map(([part, value]) => `| ${task} | ${part} | ${value} |`)
 	)
 ].join('\n');
 report.table = table;

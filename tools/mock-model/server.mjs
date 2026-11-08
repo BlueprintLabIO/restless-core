@@ -16,9 +16,14 @@
 // a rule with a tool step then a text step calls the tool, gets its result, then replies. A step may
 // also carry `delay_ms` (between streamed pieces), `error` (an HTTP status to answer with) and
 // `message` (that error's text). With no matching rule the mock answers "Mock reply: <their text>".
-// A tool step's strings may name the rule's capture groups as `{{1}}`, `{{2}}`…, taken from its
+// A step's strings may name the rule's capture groups as `{{1}}`, `{{2}}`…, taken from its
 // latest match, so a check can make Exec cite the very message that matched ("message (\\d+)…").
 // Every request is appended to --log as one JSON line, for checks to read.
+//
+// It also stands in for Resend, so an email effect can run end to end with no real provider:
+// `POST /emails` accepts and returns an id, and the `GET` lists Restless observes after a send
+// (`/emails`, `/emails/receiving`, `/suppressions`) return what was sent here. Point a stack at it
+// with RESTLESS_TEST_RESEND_API_BASE=http://127.0.0.1:<port>.
 //
 // `--latency model` (or `--latency ttft_ms=600,prefill_tps=5000,read_tps=50000,decode_tps=50`)
 // makes every answer take as long as a hosted model's might, from its own token counts: a fixed
@@ -162,9 +167,13 @@ function chooseStep(body) {
 	return { step: { text: `Mock reply: ${text.slice(0, 400)}` }, text };
 }
 
-/* `{{N}}` in a tool step's strings becomes the rule's Nth capture group. */
+/* `{{N}}` in a step's strings becomes the rule's Nth capture group. */
 function withGroups(step, groups) {
-	if (!step.tool || !groups.length) return step;
+	if (!groups.length) return step;
+	if (!step.tool)
+		return typeof step.text === 'string'
+			? { ...step, text: step.text.replace(/\{\{(\d+)\}\}/g, (_, n) => groups[Number(n)] ?? '') }
+			: step;
 	const fill = (value) =>
 		typeof value === 'string'
 			? value.replace(/\{\{(\d+)\}\}/g, (_, n) => groups[Number(n)] ?? '')
@@ -187,6 +196,7 @@ const tokens = (text) => Math.ceil(String(text ?? '').length / 4);
  * (5 minutes, or 1 hour for `ttl: "1h"`), reads it from cache; the rest of the prefix up to the
  * last breakpoint is written. Totals are served at GET /stats and reset by DELETE /stats. */
 const cache = new Map(); // prefix hash -> expiry (ms)
+const emails = []; // what was sent to the Resend stand-in, newest first
 const freshStats = () => ({
 	calls: 0,
 	input_tokens: 0,
@@ -387,6 +397,15 @@ const server = createServer(async (request, response) => {
 		if (request.method === 'DELETE') stats = freshStats();
 		return json(response, 200, stats);
 	}
+	/* Resend, for email effects (see the top of this file). */
+	if (request.method === 'POST' && url.pathname === '/emails') {
+		const sent = { id: randomUUID(), created_at: new Date().toISOString(), from: body.from, to: body.to, subject: body.subject, last_event: 'sent' };
+		emails.unshift(sent);
+		if (log) appendFileSync(log, JSON.stringify({ at: sent.created_at, method: 'POST', path: '/emails', body }) + '\n');
+		return json(response, 200, { id: sent.id });
+	}
+	if (request.method === 'GET' && ['/emails', '/emails/receiving', '/suppressions'].includes(url.pathname))
+		return json(response, 200, { object: 'list', has_more: false, data: url.pathname === '/emails' ? emails.slice(0, 100) : [] });
 	const isCall = request.method === 'POST' && url.pathname.endsWith('/messages');
 	/* A scripted caller (the token-parity baselines) may name its own move in `x-mock-step`, so its
 	 * output tokens and modeled time are those of the move it replays, not of a mock reply. The

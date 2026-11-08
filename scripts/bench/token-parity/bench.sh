@@ -56,8 +56,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# The stack's own launcher, on the mock: any key works there and none is real.
+# The stack's own launcher, on the mock: any key works there and none is real. The mock also
+# stands in for Resend, so task a's email is really sent, under a mandate, to the mock.
 BENCH_MOCK_KEY=bench-mock-not-a-secret \
+BENCH_RESEND_KEY=bench-resend-not-a-secret \
+RESTLESS_TEST_RESEND_API_BASE="http://127.0.0.1:${port}" \
 RESTLESS_ANTHROPIC_BASE_URL="http://127.0.0.1:${port}/v1" \
 RESTLESS_DEV_MODEL="${BENCH_MODEL:-anthropic/claude-sonnet-5-5}" \
 RESTLESS_DEV_CREDENTIAL_REFERENCE=env:BENCH_MOCK_KEY \
@@ -93,6 +96,7 @@ if [ "${BENCH_ROUTE:-api}" = subscription ]; then
   cli company set -c "$company" credentials.model.inference omp-oauth:anthropic
   node "$here/seed-sign-in.mjs" --broker "$broker" --token-file "$profile/auth-broker.token" --wait 300
 fi
+cli company set -c "$company" credentials.resend.production env:BENCH_RESEND_KEY
 for setting in ${BENCH_COMPANY_SETTINGS:-}; do # key=value, e.g. everyday_model=anthropic/claude-sonnet-5-5
   cli company set -c "$company" "${setting%%=*}" "${setting#*=}"
 done

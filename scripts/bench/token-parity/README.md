@@ -8,11 +8,11 @@ pass or fail quality check, each against a solo agent and an agent that uses sub
 
 | Task | Owner message | What Restless does |
 | --- | --- | --- |
-| a | send one templated email | Exec sends it under the mandate |
+| a | send one templated email | Exec sends it under the email mandate the owner granted before the run |
 | b | write a one-page document from a brief, and review it | Exec commissions a lead, the lead's Work writes and reviews it, the result reaches Exec |
 | c | what is in progress, and who is doing it? | Exec answers |
 | d | have someone write a one-page document and bring it to me | Exec commissions a lead (`restless commission`), the lead's Work writes and checks it, the result wakes Exec, Exec tells the owner |
-| e | have it drafted, then checked by someone else, before it comes to me | Exec commissions a lead and says it will check back; the lead's Work drafts it and adds the Work that checks it; the result reaches Exec |
+| e | have it drafted, then checked by someone else, before it comes to me | Exec commissions a lead and says it will check back; the lead's Work drafts it and commissions its check from a different agent (`--requires` and `--revises` the draft); the result reaches Exec |
 
 ## Run
 
@@ -35,7 +35,19 @@ BENCH_ROUTE=subscription BENCH_MODEL=anthropic/claude-opus-5-5 scripts/bench/tok
 - `BENCH_LATENCY` sets the mock's model latency: `model` (the default), `off` (answers at once, as
   before 8 November), or rates such as `ttft_ms=600,prefill_tps=5000,read_tps=50000,decode_tps=50`.
 
-Each task also reports two breakdowns:
+Before the tasks, the runner grants the email mandate task a sends under, the way an owner does:
+the Exec asks for it (`restless mandate propose`), the runner approves the owner's Inbox card and
+waits out its Undo window. The mock stands in for Resend (`RESTLESS_TEST_RESEND_API_BASE`), so the
+send and the observation after it really run and nothing reaches a real provider.
+
+Each task also reports three breakdowns:
+
+- **`timing.profile`**: where its time to result went. `model` is the modeled model time; every
+  other part is a stretch with no model call running, named by what ended before it and what
+  started after it (the owner message to the first call, a container command, a commission to its
+  Work's start, a Work result to the Exec's wake, the reply stored after the last call).
+  Overlapping calls count once, so the parts add up to the time to result. The report prints
+  them as a fourth table.
 
 - **`actors`**, from Restless's own spend records: calls, input tokens per call and models, for
   Exec, `chat:<actor>` and `work:<actor>`.
@@ -120,7 +132,8 @@ Columns:
   - c: the owner got an answer that names the open work.
   - e: as d, plus the checker is not the drafter. The checker is the session that read the
     document back. For Restless, it is the owner of the check's own Work (`work add --owner`), or
-    the drafter when the check ran inside the drafting Work.
+    the drafter when the check ran inside the drafting Work. The scripted drafter gives the check
+    to a different agent it adds (`restless people create`), as the owner asked.
   - The model is scripted, so this checks that the work reached the owner complete and by the route
     the owner asked for. It does not measure how well a model writes.
 
