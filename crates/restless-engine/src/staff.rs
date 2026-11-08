@@ -219,6 +219,8 @@ pub struct StaffRegistry {
     resources: ResourceClaims,
     resource_retry: Arc<AtomicBool>,
     resource_limits: Arc<Mutex<HashMap<String, (std::time::Instant, runtime::ActorCapacity)>>>,
+    /// Why each company's next actor start is waiting, so the log says so once per change.
+    capacity_waits: Arc<Mutex<HashMap<String, String>>>,
     /// Coordination messages remain durable in OrgIntel. This local timer
     /// only prevents one unavailable lead session from being relaunched on
     /// every five-second scan; a daemon restart deliberately permits one new
@@ -226,9 +228,28 @@ pub struct StaffRegistry {
     conversation_backoff: Arc<Mutex<HashMap<ActorKey, ConversationBackoff>>>,
 }
 
-type ResourceClaims = Arc<Mutex<HashMap<uuid::Uuid, (String, bool)>>>;
+/// How long a launched actor keeps its startup memory reserved. Its harness shows up in the
+/// pool's live memory within seconds (about 3 to 6 s to a ready session on a loaded host); after
+/// this the working set counts it, and a reservation would count it twice.
+const STARTUP_MEMORY_WINDOW: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// Covers setup and execution, including starts not yet visible in cgroups.
+struct ResourceClaim {
+    company: String,
+    shared: bool,
+    launched_at: Option<std::time::Instant>,
+}
+
+impl ResourceClaim {
+    fn holds_startup_memory(&self) -> bool {
+        self.launched_at
+            .is_none_or(|launched| launched.elapsed() < STARTUP_MEMORY_WINDOW)
+    }
+}
+
+type ResourceClaims = Arc<Mutex<HashMap<uuid::Uuid, ResourceClaim>>>;
+
+/// Covers setup and execution. It holds an actor slot for the whole turn, and startup memory only
+/// until the process can be seen in the pool's live memory.
 pub struct ActorResourcePermit {
     claims: ResourceClaims,
     id: uuid::Uuid,
@@ -239,6 +260,11 @@ pub struct ActorResourcePermit {
 impl ActorResourcePermit {
     pub fn activate(&mut self) {
         self.started = true;
+        if let Ok(mut claims) = self.claims.lock() {
+            if let Some(claim) = claims.get_mut(&self.id) {
+                claim.launched_at = Some(std::time::Instant::now());
+            }
+        }
     }
 }
 
@@ -310,25 +336,68 @@ impl StaffRegistry {
             .resources
             .lock()
             .map_err(|_| anyhow::anyhow!("actor resource guard"))?;
-        let company_active = claims.values().filter(|(name, _)| name == company).count();
-        let shared_active = claims.values().filter(|(_, shared)| *shared).count();
-        if capacity.waits_for_memory(company_active, shared_active)
-            || company_active >= capacity.company_slots
-            || capacity
+        let company_active = claims.values().filter(|c| c.company == company).count();
+        let shared_active = claims.values().filter(|c| c.shared).count();
+        // The memory bound compares free memory with starts it cannot see yet. An actor already
+        // running is in the working set that free memory was computed from, so counting it here
+        // too makes one running actor look like a full pool and starts go one at a time.
+        let starting = || claims.values().filter(|c| c.holds_startup_memory());
+        let company_starting = starting().filter(|c| c.company == company).count();
+        let shared_starting = starting().filter(|c| c.shared).count();
+        let wait = if capacity.waiting_for_memory {
+            Some("the pool's memory in use is above its start threshold".to_string())
+        } else if capacity.waits_for_memory(company_starting, shared_starting) {
+            Some(format!(
+                "free memory is already reserved by starts in progress ({company_starting} here, {shared_starting} across the host)"
+            ))
+        } else if company_active >= capacity.company_slots {
+            Some(format!(
+                "all {} of this company's actor slots are in use",
+                capacity.company_slots
+            ))
+        } else {
+            capacity
                 .shared_slots
-                .is_some_and(|slots| shared_active >= slots)
-        {
+                .filter(|slots| shared_active >= *slots)
+                .map(|slots| format!("all {slots} actor slots on this host are in use"))
+        };
+        self.note_capacity_wait(company, wait.as_deref());
+        if wait.is_some() {
             self.resource_retry.store(true, Ordering::SeqCst);
             return Ok(None);
         }
         let id = uuid::Uuid::new_v4();
-        claims.insert(id, (company.to_string(), capacity.shared_slots.is_some()));
+        claims.insert(
+            id,
+            ResourceClaim {
+                company: company.to_string(),
+                shared: capacity.shared_slots.is_some(),
+                launched_at: None,
+            },
+        );
         Ok(Some(ActorResourcePermit {
             claims: Arc::clone(&self.resources),
             id,
             wake: Arc::clone(wake),
             started: false,
         }))
+    }
+
+    /// Log why a company's next actor start waits, once each time the reason changes.
+    fn note_capacity_wait(&self, company: &str, wait: Option<&str>) {
+        let Ok(mut waits) = self.capacity_waits.lock() else {
+            return;
+        };
+        match wait {
+            None => {
+                waits.remove(company);
+            }
+            Some(reason) if waits.get(company).map(String::as_str) != Some(reason) => {
+                tracing::info!(company, reason, "actor start waits for capacity");
+                waits.insert(company.to_string(), reason.to_string());
+            }
+            Some(_) => {}
+        }
     }
 
     pub fn take_resource_retry_hint(&self) -> bool {
@@ -338,8 +407,8 @@ impl StaffRegistry {
     pub fn resource_counts(&self, company: &str) -> Option<(usize, usize)> {
         let claims = self.resources.lock().ok()?;
         Some((
-            claims.values().filter(|(name, _)| name == company).count(),
-            claims.values().filter(|(_, shared)| *shared).count(),
+            claims.values().filter(|c| c.company == company).count(),
+            claims.values().filter(|c| c.shared).count(),
         ))
     }
 
@@ -1303,6 +1372,23 @@ mod tests {
                 .is_none(),
             "another company shares the same startup RAM allowance"
         );
+        // Launched and past its startup window, it is in the live working set, so the free memory
+        // already excludes it: it no longer holds back the next start, though it keeps its slot.
+        let mut held = held;
+        held.activate();
+        registry
+            .resources
+            .lock()
+            .unwrap()
+            .get_mut(&held.id)
+            .unwrap()
+            .launched_at = Some(std::time::Instant::now() - super::STARTUP_MEMORY_WINDOW);
+        let next = registry
+            .try_reserve_actor_capacity("ram_test", headroom, &wake)
+            .unwrap()
+            .expect("a running actor is not a start in progress");
+        assert_eq!(registry.resource_counts("ram_test").map(|c| c.0), Some(2));
+        drop(next);
         drop(held);
         let busy = crate::runtime::ActorCapacity {
             waiting_for_memory: true,
