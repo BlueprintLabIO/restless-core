@@ -666,19 +666,14 @@ pub async fn dispatch_claimed_work(
             .any(|team| team.lead_actor_id == actor);
         let mut escalation = None;
         let candidates = if is_lead {
-            let turn = crate::lead_tier::LeadTurn::Work {
-                work: &claimed.work,
-                attempt_no: claimed.attempt_no,
-                reviews: !claimed.review_targets.is_empty(),
-                feedback: !claimed.feedback.is_empty(),
-                prerequisites: !claimed.inputs.is_empty(),
-            };
+            let facts = crate::lead_tier::WorkFacts::of(org, &claimed).await;
+            let turn = facts.turn(&claimed);
             let turn_id = format!("attempt:{}", claimed.attempt_id);
             let route =
                 crate::lead_tier::route(org, config, &actor, config.worker_harness, turn, &turn_id)
                     .await;
             if route.everyday {
-                let ordered = crate::model_gateway::with_everyday_model(
+                let ordered = crate::model_gateway::with_lead_everyday_model(
                     config,
                     &actor,
                     config.worker_harness,
@@ -1543,6 +1538,7 @@ mod tests {
             input_fingerprint: "input-fingerprint".into(),
             inputs: Vec::new(),
             feedback: Vec::new(),
+            fresh_feedback_ids: Vec::new(),
             previous_attempt_state: None,
             previous_attempt_summary: None,
         };

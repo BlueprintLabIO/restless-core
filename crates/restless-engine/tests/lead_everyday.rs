@@ -7,7 +7,7 @@ use restless_engine::lead_tier::{
     record_escalation, route, sticky_subject, Escalation, LeadTurn, LEAD_ESCALATION, LEAD_TIER,
 };
 use restless_engine::runtime::{AgentHarness, CompanyConfig};
-use restless_orgintel::{OrgIntel, WorkRow, WorkStatus};
+use restless_orgintel::{OrgIntel, WorkAttemptState, WorkRow, WorkStatus};
 
 fn work(commissioned_by: &str, owner_review_required: bool) -> WorkRow {
     WorkRow {
@@ -38,8 +38,10 @@ fn step(work: &WorkRow) -> LeadTurn<'_> {
     LeadTurn::Work {
         work,
         attempt_no: 1,
+        previous: None,
         reviews: false,
-        feedback: false,
+        fresh_feedback: false,
+        person_feedback: false,
         prerequisites: false,
     }
 }
@@ -78,8 +80,10 @@ async fn routine_lead_turns_use_the_everyday_model_and_escalations_stick() {
     let review = LeadTurn::Work {
         work: &own,
         attempt_no: 1,
+        previous: None,
         reviews: true,
-        feedback: false,
+        fresh_feedback: false,
+        person_feedback: false,
         prerequisites: true,
     };
     assert!(
@@ -90,8 +94,10 @@ async fn routine_lead_turns_use_the_everyday_model_and_escalations_stick() {
     let repair = LeadTurn::Work {
         work: &own,
         attempt_no: 2,
+        previous: Some(WorkAttemptState::Failed),
         reviews: false,
-        feedback: false,
+        fresh_feedback: false,
+        person_feedback: false,
         prerequisites: false,
     };
     assert!(

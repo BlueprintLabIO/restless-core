@@ -442,6 +442,18 @@ impl OrgIntel {
         .bind(work.id)
         .fetch_all(&mut *tx)
         .await?;
+        let delivered: Vec<i64> = sqlx::query_scalar(
+            "SELECT DISTINCT af.message_id FROM work_attempt_feedback af \
+             JOIN work_attempts a ON a.id=af.attempt_id WHERE a.work_id=$1",
+        )
+        .bind(work.id)
+        .fetch_all(&mut *tx)
+        .await?;
+        let fresh_feedback_ids = feedback
+            .iter()
+            .map(|message| message.id)
+            .filter(|id| !delivered.contains(id))
+            .collect();
         let attempt_id = Uuid::new_v4();
         let session_id = Uuid::new_v4().to_string();
         sqlx::query(
@@ -496,6 +508,7 @@ impl OrgIntel {
             input_fingerprint,
             inputs,
             feedback,
+            fresh_feedback_ids,
             previous_attempt_state: previous_attempt.as_ref().map(|(state, _)| *state),
             previous_attempt_summary: previous_attempt.map(|(_, summary)| summary),
         }))
