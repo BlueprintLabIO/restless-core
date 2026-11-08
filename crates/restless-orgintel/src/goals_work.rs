@@ -918,6 +918,25 @@ impl OrgIntel {
                 "review Work that may revise {unpaired} must require that same producer in the atomic creation call"
             )));
         }
+        // A review is independent of what it reviews: the Work that may revise a producer is never
+        // owned by that producer's own owner. A check by its own producer is no check, and the
+        // owner who asked for "checked by someone else" would be told it was.
+        if !revises.is_empty() {
+            let own_producer: Option<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM work WHERE id = ANY($1) AND owner_id=$2 ORDER BY id LIMIT 1",
+            )
+            .bind(revises.to_vec())
+            .bind(work.owner_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(producer) = own_producer {
+                tx.rollback().await?;
+                return Err(OrgIntelError::InvalidWork(self_review_refusal(
+                    work.owner_id,
+                    producer,
+                )));
+            }
+        }
 
         sqlx::query(
             "INSERT INTO work \
@@ -1502,6 +1521,17 @@ impl OrgIntel {
                     "review Work {from} may revise {to} only after the paired requires edge {to} -> {from} exists"
                 )));
             }
+            let own_producer: Option<String> = sqlx::query_scalar(
+                "SELECT reviewer.owner_id FROM work reviewer JOIN work producer                  ON producer.owner_id=reviewer.owner_id WHERE reviewer.id=$1 AND producer.id=$2",
+            )
+            .bind(from)
+            .bind(to)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(owner) = own_producer {
+                tx.rollback().await?;
+                return Err(OrgIntelError::InvalidWork(self_review_refusal(&owner, to)));
+            }
         }
         if kind == WorkEdgeKind::Requires {
             let closes_cycle = sqlx::query_scalar::<_, bool>(
@@ -1630,4 +1660,11 @@ impl OrgIntel {
         .fetch_all(&self.pool)
         .await?)
     }
+}
+
+/// Why Work cannot review (revise) a producer its own owner owns, and the way on.
+fn self_review_refusal(owner: &str, producer: Uuid) -> String {
+    format!(
+        "{owner} owns producer Work {producer}, so it cannot also own the review that may revise it:          a check by its own producer is not independent. Give the review to someone else: choose          another actor from `restless people`, or add one with `restless people create`, and make          them its --owner"
+    )
 }
