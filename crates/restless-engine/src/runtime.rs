@@ -460,6 +460,42 @@ impl ActorCapacity {
 }
 
 const ACTOR_MEMORY_RESERVATION: u64 = 512 * 1024 * 1024;
+/// Most actors that start side by side on a host with no workload pool to bound them.
+const UNPOOLED_ACTOR_SLOTS: usize = 4;
+
+/// Actor starts on a host with no workload cgroup pool (a self-hosted computer, a dev stack):
+/// bounded by its CPUs and by the memory it has available now, twice the per-actor reservation
+/// each, at most [`UNPOOLED_ACTOR_SLOTS`] and at least one. Unreadable memory serializes starts.
+pub fn host_actor_capacity() -> ActorCapacity {
+    let available = std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|meminfo| mem_available_bytes(&meminfo));
+    let cpus = std::thread::available_parallelism().map_or(1, usize::from);
+    let slots = unpooled_actor_slots(available, cpus);
+    ActorCapacity {
+        company_slots: slots,
+        shared_slots: Some(slots),
+        company_memory_slots: usize::MAX,
+        shared_memory_slots: None,
+        waiting_for_memory: false,
+    }
+}
+
+fn mem_available_bytes(meminfo: &str) -> Option<u64> {
+    let line = meminfo
+        .lines()
+        .find(|line| line.starts_with("MemAvailable:"))?;
+    let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    kib.checked_mul(1024)
+}
+
+fn unpooled_actor_slots(available_bytes: Option<u64>, cpus: usize) -> usize {
+    let Some(available) = available_bytes else {
+        return 1;
+    };
+    let by_memory = (available / (2 * ACTOR_MEMORY_RESERVATION)) as usize;
+    by_memory.min(cpus).clamp(1, UNPOOLED_ACTOR_SLOTS)
+}
 
 fn actor_slots(memory: u64, cpu_max: &str) -> Result<usize> {
     let mut fields = cpu_max.split_whitespace();
@@ -8344,5 +8380,38 @@ worker_harness = "claude_agent"
             "a directory is not a file"
         );
         let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod unpooled_capacity_tests {
+    use super::{mem_available_bytes, unpooled_actor_slots};
+
+    #[test]
+    fn an_unpooled_host_runs_as_many_actors_as_its_cpus_and_memory_allow() {
+        let gib = 1024 * 1024 * 1024;
+        assert_eq!(
+            mem_available_bytes(
+                "MemTotal: 32 kB
+MemAvailable:    2048 kB
+"
+            ),
+            Some(2048 * 1024)
+        );
+        assert_eq!(
+            mem_available_bytes(
+                "MemTotal: 32 kB
+"
+            ),
+            None
+        );
+        // A roomy computer: the Exec and its team's Work start together, up to the cap.
+        assert_eq!(unpooled_actor_slots(Some(24 * gib), 16), 4);
+        // Memory or CPUs bound it below the cap.
+        assert_eq!(unpooled_actor_slots(Some(2 * gib), 16), 2);
+        assert_eq!(unpooled_actor_slots(Some(24 * gib), 2), 2);
+        // A tight or unreadable host still starts one at a time, never none.
+        assert_eq!(unpooled_actor_slots(Some(gib / 4), 16), 1);
+        assert_eq!(unpooled_actor_slots(None, 16), 1);
     }
 }
