@@ -6,6 +6,7 @@ import {
 	connectionUnavailable,
 	holdLoaded,
 	listedConnection,
+	pinsOwnModel,
 	routeActionLabel,
 	routeProvider,
 	withAssignment
@@ -125,7 +126,12 @@ test('an agent whose account was replaced thinks on the company’s current one,
 		...connected,
 		company_issue: null,
 		connections: [
-			{ id: `account:openai-codex@${OTHER}`, provider: 'openai-codex', kind: 'direct', loaded: true },
+			{
+				id: `account:openai-codex@${OTHER}`,
+				provider: 'openai-codex',
+				kind: 'direct',
+				loaded: true
+			},
 			{
 				id: `account-harness:codex:openai-codex@${OTHER}`,
 				provider: 'codex',
@@ -167,7 +173,9 @@ test('an agent whose account was replaced thinks on the company’s current one,
 	// The company's current binding is a plain key, not an account: the daemon refuses, so does this.
 	const keyed: IntelligenceView = {
 		...view,
-		connections: [{ id: 'direct:openai-codex', provider: 'openai-codex', kind: 'direct', loaded: true }]
+		connections: [
+			{ id: 'direct:openai-codex', provider: 'openai-codex', kind: 'direct', loaded: true }
+		]
 	};
 	assert.equal(agentRouteState(keyed, 'ebenezer'), 'unavailable');
 	// No account for that provider at all: genuinely unavailable, and the button still shows.
@@ -240,4 +248,31 @@ test('a gateway reload does not flash a serving connection to "starting"; a new 
 	// Back up: the hold is forgotten.
 	holdLoaded(later, connected, since, 62_000);
 	assert.equal(since.size, 0);
+});
+
+test('the main model on a second login of the same provider is not a model of its own', () => {
+	const company = {
+		connection: 'account:anthropic@e69f625023c149158e3b9d79ce9f7d63',
+		model: 'claude-opus-5-5'
+	};
+	const secondLogin = 'account:anthropic@dcbf955c63a14e58958cf9efa0d6f97a';
+	// Reno's Staff: Opus on a second Claude login spreads the plan's limits.
+	assert.equal(pinsOwnModel({ connection: secondLogin, model: 'claude-opus-5-5' }, company), false);
+	assert.equal(
+		pinsOwnModel({ connection: secondLogin, model: 'anthropic/claude-opus-5-5' }, company),
+		false
+	);
+	// Another model, another provider or a harness is the owner's exact choice.
+	assert.equal(pinsOwnModel({ connection: secondLogin, model: 'claude-haiku-5-5' }, company), true);
+	assert.equal(
+		pinsOwnModel({ connection: 'direct:openai', model: 'claude-opus-5-5' }, company),
+		true
+	);
+	assert.equal(
+		pinsOwnModel({ connection: 'harness:claude-agent', model: 'claude-opus-5-5' }, company),
+		true
+	);
+	// No company default to compare: any assignment pins; no assignment never does.
+	assert.equal(pinsOwnModel({ connection: secondLogin, model: 'claude-opus-5-5' }, null), true);
+	assert.equal(pinsOwnModel(null, company), false);
 });

@@ -57,6 +57,25 @@ export function routeProvider(connection: string): string | null {
 	return account.split('@')[0] || null;
 }
 
+/** Whether an agent's assignment pins it to a model of its own, as the engine decides
+ * (`pins_own_model`): a model or provider other than the company default's. The company's main
+ * model on another connection of the same provider (a second Claude login, to spread a plan's
+ * limits) only chooses where the agent thinks; the everyday model still runs there. */
+export function pinsOwnModel(
+	assignment: { connection: string; model: string } | null | undefined,
+	companyDefault: { connection: string; model: string } | null | undefined
+): boolean {
+	if (!assignment) return false;
+	if (!companyDefault) return true;
+	const bare = (model: string) => model.trim().split('/').pop() ?? '';
+	const own = routeProvider(assignment.connection);
+	return (
+		bare(assignment.model) !== bare(companyDefault.model) ||
+		!own ||
+		own !== routeProvider(companyDefault.connection)
+	);
+}
+
 /** The model a choice runs, written as the server reports `effective_model`. */
 function effectiveModel(choice: { connection: string; model: string }) {
 	const provider = routeProvider(choice.connection);
