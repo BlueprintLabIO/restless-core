@@ -30,6 +30,60 @@ const SESSION_TTL: Duration = Duration::hours(3);
 /// "invalid model capability: capability expired") and blocked it.
 const WORK_SESSION_TTL: Duration = Duration::hours(12);
 
+/// A turn-bound session id. Its grants name it inside the signed claim and are honoured only
+/// while the turn that launched them is open, so a grant of a finished turn is refused at once
+/// rather than at its expiry. Launches outside this scheme keep expiry as their only limit.
+const TURN_SESSION_PREFIX: &str = "turn-";
+
+pub fn turn_session_id() -> String {
+    format!("{TURN_SESSION_PREFIX}{}", Uuid::new_v4().simple())
+}
+
+pub fn is_turn_session(session: &str) -> bool {
+    session.starts_with(TURN_SESSION_PREFIX)
+}
+
+fn open_turns() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static OPEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    OPEN.get_or_init(Default::default)
+}
+
+/// A turn's grants are honoured only while this lives. The set is kept in memory on purpose: after
+/// a daemon restart no earlier turn is open, so its grants are refused.
+#[must_use = "the turn's grants are refused as soon as this is dropped"]
+pub struct TurnScope {
+    session: String,
+}
+
+impl Drop for TurnScope {
+    fn drop(&mut self) {
+        if let Ok(mut open) = open_turns().lock() {
+            open.remove(&self.session);
+        }
+    }
+}
+
+/// Open the turn named by a turn-bound session id; other sessions are not turn-bound.
+pub fn open_turn(session: &str) -> Option<TurnScope> {
+    if !is_turn_session(session) {
+        return None;
+    }
+    open_turns()
+        .lock()
+        .ok()?
+        .insert(session.to_string());
+    Some(TurnScope {
+        session: session.to_string(),
+    })
+}
+
+fn turn_is_open(session: &str) -> bool {
+    open_turns()
+        .lock()
+        .is_ok_and(|open| open.contains(session))
+}
+
 fn session_ttl(work_id: Option<Uuid>) -> Duration {
     if work_id.is_some() {
         WORK_SESSION_TTL
@@ -377,6 +431,18 @@ impl CapabilityIssuer {
         work_id: Option<Uuid>,
         attempt_id: Option<Uuid>,
     ) -> Result<String> {
+        self.issue_tool_session_for(company, actor, work_id, attempt_id, None)
+    }
+
+    /// A tool session bound to one turn: refused with the rest of that turn's grants.
+    pub fn issue_tool_session_for(
+        &self,
+        company: &str,
+        actor: &str,
+        work_id: Option<Uuid>,
+        attempt_id: Option<Uuid>,
+        turn: Option<&str>,
+    ) -> Result<String> {
         if work_id.is_some() != attempt_id.is_some() {
             bail!("a tool session names both Work and Attempt or neither");
         }
@@ -402,7 +468,10 @@ impl CapabilityIssuer {
             volume_name: None,
             source_revision: None,
             model_credential_reference: None,
-            session: format!("tools-{}", Uuid::new_v4().simple()),
+            session: turn.map_or_else(
+                || format!("tools-{}", Uuid::new_v4().simple()),
+                str::to_string,
+            ),
             expires_at: Utc::now() + session_ttl(work_id),
         })
     }
@@ -575,6 +644,9 @@ impl CapabilityIssuer {
         validate_claims(&claims)?;
         if claims.expires_at <= Utc::now() {
             bail!("capability expired at {}", claims.expires_at.to_rfc3339());
+        }
+        if is_turn_session(&claims.session) && !turn_is_open(&claims.session) {
+            bail!("capability's turn has ended");
         }
         Ok(claims)
     }
@@ -819,6 +891,75 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let issuer = CapabilityIssuer::open(&root).unwrap();
         (root, issuer)
+    }
+
+    fn turn_grants(issuer: &CapabilityIssuer, turn: &str) -> (String, String, String) {
+        (
+            issuer
+                .issue_actor_session("acme_test", "exec", turn, None, None)
+                .unwrap(),
+            issuer
+                .issue_tool_session_for("acme_test", "exec", None, None, Some(turn))
+                .unwrap(),
+            issuer
+                .issue_model_session(
+                    "acme_test",
+                    "exec",
+                    turn,
+                    "moonshot",
+                    "moonshot/kimi-k3",
+                    "metered_api",
+                    "exec:portfolio",
+                    None,
+                    None,
+                )
+                .unwrap(),
+        )
+    }
+
+    #[test]
+    fn a_finished_turns_grants_are_refused_while_the_next_turns_are_accepted() {
+        let (root, issuer) = issuer();
+        let (first, second) = (turn_session_id(), turn_session_id());
+        let first_scope = open_turn(&first).unwrap();
+        let (coordination, tools, model) = turn_grants(&issuer, &first);
+        issuer.verify_coordination(&coordination).unwrap();
+        issuer.verify_tool_session(&tools).unwrap();
+        issuer.verify_model(&model).unwrap();
+
+        drop(first_scope);
+        let _second_scope = open_turn(&second).unwrap();
+        let (next_coordination, next_tools, next_model) = turn_grants(&issuer, &second);
+        issuer.verify_coordination(&next_coordination).unwrap();
+        issuer.verify_tool_session(&next_tools).unwrap();
+        issuer.verify_model(&next_model).unwrap();
+        for refused in [
+            issuer.verify_coordination(&coordination).map(|_| ()),
+            issuer.verify_tool_session(&tools).map(|_| ()),
+            issuer.verify_model(&model).map(|_| ()),
+        ] {
+            assert!(refused.unwrap_err().to_string().contains("turn has ended"));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_turn_grant_is_refused_before_its_turn_opens_and_other_sessions_are_not_turn_bound() {
+        let (root, issuer) = issuer();
+        let turn = turn_session_id();
+        let (_, _, model) = turn_grants(&issuer, &turn);
+        assert!(issuer.verify_model(&model).is_err());
+        let _scope = open_turn(&turn).unwrap();
+        issuer.verify_model(&model).unwrap();
+        assert!(open_turn("session_123").is_none());
+        issuer
+            .verify_coordination(
+                &issuer
+                    .issue_actor_session("acme_test", "exec", "session_123", None, None)
+                    .unwrap(),
+            )
+            .unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

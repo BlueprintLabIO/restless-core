@@ -368,6 +368,7 @@ pub async fn session_servers(
     actor: &str,
     work_id: Option<Uuid>,
     attempt_id: Option<Uuid>,
+    turn: Option<&str>,
 ) -> anyhow::Result<Vec<McpServer>> {
     if connections::usable_tools(pool, company, actor)
         .await?
@@ -382,7 +383,7 @@ pub async fn session_servers(
         (Some(work_id), Some(attempt_id)) => (Some(work_id), Some(attempt_id)),
         _ => (None, None),
     };
-    let grant = capabilities.issue_tool_session(company, actor, work_id, attempt_id)?;
+    let grant = capabilities.issue_tool_session_for(company, actor, work_id, attempt_id, turn)?;
     // The nonce changes the ACP/Codex launch contract when a new grant is
     // issued; the URL carries no secret.
     let url = format!(
@@ -2071,7 +2072,7 @@ mod tests {
         // one gateway server, carrying its own tool-session capability; an
         // actor with no grant receives no MCP server at all.
         let issuer = crate::capability::CapabilityIssuer::open(&root).unwrap();
-        let launched = session_servers(&pool, &issuer, &company, "exec", None, None)
+        let launched = session_servers(&pool, &issuer, &company, "exec", None, None, None)
             .await
             .unwrap();
         let [McpServer::Http(server)] = launched.as_slice() else {
@@ -2082,7 +2083,7 @@ mod tests {
         let bearer = server.headers[0].value.strip_prefix("Bearer ").unwrap();
         assert_eq!(issuer.verify_tool_session(bearer).unwrap().actor, "exec");
         assert!(
-            session_servers(&pool, &issuer, &company, "staff-a", None, None)
+            session_servers(&pool, &issuer, &company, "staff-a", None, None, None)
                 .await
                 .unwrap()
                 .is_empty()

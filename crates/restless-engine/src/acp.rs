@@ -38,6 +38,11 @@ use tokio::io::AsyncWriteExt as _;
 use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
 use tokio_util::sync::CancellationToken;
 
+mod warm;
+pub use warm::{drain_all as drain_warm_processes, drain_company as drain_company_warm_processes, evict_idle_for_capacity};
+pub use warm::CredentialDelivery;
+use warm::{AgentProcess, WarmKey, MODEL_CAPABILITY_FILE_ENV, SESSION_CAPABILITY_FILE_ENV};
+
 #[cfg(test)]
 static TEST_COORDINATOR_OVERRIDE: std::sync::OnceLock<Mutex<Option<String>>> =
     std::sync::OnceLock::new();
@@ -809,17 +814,27 @@ pub async fn prepare_agent_runtime(
     harness: crate::runtime::AgentHarness,
     auth: &AgentAuth,
 ) -> Result<()> {
+    prepare_agent_runtime_with(container, harness, auth, CredentialDelivery::Environment).await
+}
+
+async fn prepare_agent_runtime_with(
+    container: &str,
+    harness: crate::runtime::AgentHarness,
+    auth: &AgentAuth,
+    delivery: CredentialDelivery,
+) -> Result<()> {
     let profile = AcpProfile::new(harness)?;
     profile.session_model(&auth.model)?;
     if harness == crate::runtime::AgentHarness::CustomAcp {
         return Ok(());
     }
     if harness == crate::runtime::AgentHarness::RestlessManaged {
-        let config = crate::model_gateway::models_config(
+        let config = crate::model_gateway::models_config_with(
             &auth.model,
             &auth.gateway_url,
             &auth.gateway_token_env,
             auth.billing,
+            delivery,
         )?;
         let runtime_config = omp_runtime_config(&auth.model, auth.billing);
         let models_path = format!("{AGENT_CONFIG_DIR}/models.yml");
@@ -1241,6 +1256,9 @@ pub struct AgentSession {
     pub reconstruction_reason: Option<String>,
     pub tool_contract_digest: String,
     pub capabilities: serde_json::Value,
+    /// Set when a prompt did not complete: the agent's state is unknown, so its process is not
+    /// kept for another turn.
+    poisoned: Arc<AtomicBool>,
 }
 
 pub fn required_readiness_text<'a>(
@@ -1407,6 +1425,8 @@ impl AgentSession {
         budget: impl Fn(&TurnUsage) -> bool + Send,
         cancellation: &CancellationToken,
     ) -> TurnEnd {
+        // Anything but a completed prompt leaves the agent in an unknown state.
+        self.poisoned.store(true, Ordering::Release);
         let prompt = self.prompt(text);
         tokio::pin!(prompt);
         loop {
@@ -1418,6 +1438,7 @@ impl AgentSession {
                 finished = &mut prompt => {
                     return match finished {
                         Ok(response) => {
+                            self.poisoned.store(false, Ordering::Release);
                             let output_tokens = response.usage.as_ref().map(|usage| usage.output_tokens);
                             if let Some(tokens) = output_tokens {
                                 if self.live_observer_enabled.load(Ordering::Acquire) {
@@ -1740,6 +1761,7 @@ where
                     reconstruction_reason: None,
                     tool_contract_digest,
                     capabilities,
+                    poisoned: Arc::new(AtomicBool::new(false)),
                 };
                 drive(&agent).await
             };
@@ -1854,18 +1876,295 @@ where
     let session_meta = profile.session_meta(&controls.system_prompt, &session_model);
     let reported_native_tools = controls.native_tools(profile);
     let locator_path = session_locator_path(harness, &auth.company, actor, responsibility)?;
-    // Every docker-exec process is a Linux session leader. Record this turn's
-    // session id inside the container so cleanup can reap only its process
-    // tree. A before/after PID diff is not ownership: a staff turn may start
-    // while the Exec is running, and the Exec must never kill it on exit.
-    let launch_id = auth.session_id.clone();
-    let launched_at = chrono::Utc::now();
-    let session_marker = format!("/tmp/restless-agent-{launch_id}.sid");
+    // A turn-bound launch's grants are accepted only while this scope lives: it ends when this
+    // function returns, on every path.
+    let turn_scope = crate::capability::open_turn(&auth.session_id);
+    let delivery =
+        warm::credential_delivery(harness, &auth.model, turn_scope.is_some(), container).await;
+    let warm_key = (delivery == CredentialDelivery::TurnFile && !controls.completion_only).then(|| {
+        WarmKey::new(
+            &auth.company,
+            actor,
+            container,
+            profile.build(),
+            &auth.model,
+            &auth.effort,
+            workdir,
+            &controls.system_prompt,
+            &reported_native_tools,
+            controls.team_coordination_wake,
+        )
+    });
+    let mut parked = match &warm_key {
+        Some(key) => warm::take(key).await,
+        None => None,
+    };
+    let mcp_servers = controls.mcp_servers.clone();
+    let mcp_server_count = mcp_servers.len();
+    let live_observer_enabled = Arc::new(AtomicBool::new(true));
+
+    // A warm process that has died, or fails before the prompt, falls back to a cold start here:
+    // the drive has not run, so nothing of the Attempt is lost.
+    let (mut process, transcript, poisoned, established) = loop {
+        let was_warm = parked.is_some();
+        let turn_files = if let Some(process) = parked.take() {
+            match tokio::try_join!(
+                write_turn_credentials(container, &process, auth),
+                read_session_locator(container, &locator_path),
+            ) {
+                Ok(((), locator)) => Some((process, locator)),
+                Err(error) => {
+                    tracing::warn!(actor, %error, "warm agent process could not take this turn");
+                    warm::retire(process, "turn start failed").await;
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+        let (process, prior_locator, tool_contract) = match turn_files {
+            Some((process, locator)) => (process, locator, None),
+            None => {
+                let prior_locator = launch_and_prepare(
+                    container,
+                    harness,
+                    auth,
+                    delivery,
+                    &controls.system_prompt,
+                    &locator_path,
+                )
+                .await?;
+                // The coordination probe needs this launch's capability, not the agent: it runs
+                // while the agent starts and its session opens, and the first prompt still waits
+                // for it. A warm process proved its tool contract when it launched.
+                let tool_contract = {
+                    let container = container.to_string();
+                    let auth = auth.clone();
+                    let actor = actor.to_string();
+                    tokio::spawn(
+                        async move { prove_tool_contract(&container, profile, &auth, &actor).await },
+                    )
+                };
+                let process = launch_process(
+                    container,
+                    harness,
+                    profile,
+                    auth,
+                    workdir,
+                    actor,
+                    &controls,
+                    &reported_native_tools,
+                    delivery,
+                )
+                .await?;
+                (process, prior_locator, Some(tool_contract))
+            }
+        };
+        if let Some(locator) = &prior_locator {
+            if let Err(error) =
+                validate_session_locator(locator, profile, &auth.company, actor, responsibility)
+            {
+                let _ = process.terminate().await;
+                return Err(error);
+            }
+        }
+        let transcript = Arc::new(Mutex::new(TurnTranscript::default()));
+        let poisoned = Arc::new(AtomicBool::new(false));
+        let capture_notifications = Arc::new(AtomicBool::new(false));
+        let live_locator = Arc::new(Mutex::new(None::<SessionLocator>));
+        if let Ok(mut hooks) = process.hooks.lock() {
+            *hooks = Some(TurnHooks {
+                sink: Arc::clone(&transcript),
+                observer: observer.clone(),
+                observer_enabled: Arc::clone(&live_observer_enabled),
+                capture: Arc::clone(&capture_notifications),
+                live_locator: Arc::clone(&live_locator),
+                container: container.to_string(),
+                locator_path: locator_path.clone(),
+            });
+        }
+        let established = establish_session(EstablishSession {
+            cx: &process.cx,
+            profile,
+            auth,
+            actor,
+            responsibility,
+            workdir,
+            container,
+            locator_path: &locator_path,
+            session_model: &session_model,
+            session_meta: session_meta.clone(),
+            mcp_servers: mcp_servers.clone(),
+            mcp_server_count,
+            native_tools: &reported_native_tools,
+            load_session_advertised: process.load_session_advertised,
+            prior_locator,
+            tool_contract,
+            live_session: process.live_session.as_deref(),
+            had_mcp: process.has_mcp,
+            transcript: &transcript,
+            live_locator: &live_locator,
+        })
+        .await;
+        match established {
+            Err(error) if was_warm => {
+                tracing::warn!(actor, %error, "warm agent process failed before the prompt; starting cold");
+                if let Ok(mut hooks) = process.hooks.lock() {
+                    *hooks = None;
+                }
+                warm::retire(process, "session start failed").await;
+                parked = None;
+                continue;
+            }
+            established => {
+                if established.is_ok() {
+                    capture_notifications.store(true, Ordering::Release);
+                }
+                break (process, transcript, poisoned, established);
+            }
+        }
+    };
+
+    let result: Result<T> = match established {
+        Ok(ready) => {
+            process.live_session = Some(ready.session_id.to_string());
+            process.has_mcp = mcp_server_count > 0;
+            tracing::info!(
+                actor = %actor,
+                responsibility = %responsibility,
+                launch_id = %auth.session_id,
+                session_id = %ready.session_id,
+                resumed = ready.resumed,
+                reconstructed = ready.reconstructed,
+                warm = ready.warm,
+                tool_contract_digest = %ready.tool_contract_digest,
+                "ACP session ready before production prompt"
+            );
+            let agent = AgentSession {
+                cx: process.cx.clone(),
+                session_id: ready.session_id,
+                transcript: Arc::clone(&transcript),
+                observer: observer.clone(),
+                live_observer_enabled,
+                launch_id: auth.session_id.clone(),
+                harness,
+                harness_build: profile.build().to_string(),
+                transport: profile.transport().to_string(),
+                model: auth.model.clone(),
+                effort: auth.effort.clone(),
+                resumed: ready.resumed,
+                reconstructed: ready.reconstructed,
+                reconstruction_reason: ready.reconstruction_reason,
+                tool_contract_digest: ready.tool_contract_digest,
+                capabilities: ready.capabilities,
+                poisoned: Arc::clone(&poisoned),
+            };
+            drive(&agent).await
+        }
+        Err(error) => Err(error),
+    };
+
+    // End the turn before anything else: from here the relays refuse this turn's grants, whatever
+    // happens to the process.
+    drop(turn_scope);
+    if let Ok(mut hooks) = process.hooks.lock() {
+        *hooks = None;
+    }
+    let keep = warm_key.is_some()
+        && result.is_ok()
+        && !poisoned.load(Ordering::Acquire)
+        && process.is_running();
+    let profile_root = if harness == crate::runtime::AgentHarness::CustomAcp {
+        format!(
+            "{}/{}",
+            profile.config_dir(),
+            crate::custom_harness::split_model(&auth.model)?.0
+        )
+    } else {
+        profile.config_dir().to_string()
+    };
+    let secret_cleanup = async {
+        if !auth.model.starts_with("native-") {
+            purge_exact_secret_residue(container, &profile_root, &auth.gateway_token).await?;
+        }
+        purge_exact_secret_residue(container, &profile_root, &auth.coordination_token).await
+    };
+    if keep {
+        let (secrets, turn_end) =
+            tokio::join!(secret_cleanup, warm::end_turn_in_process(&process));
+        return match secrets.and(turn_end) {
+            Ok(()) => {
+                warm::park(warm_key.expect("checked above"), process).await;
+                result.map(SessionOutcome::Completed)
+            }
+            Err(error) => {
+                warm::retire(process, "turn cleanup failed").await;
+                result.map(|outcome| SessionOutcome::CleanupFailed { outcome, error })
+            }
+        };
+    }
+    let (secrets, terminated) = tokio::join!(secret_cleanup, process.terminate());
+    let (agent_stderr, process_cleanup) = match terminated {
+        Ok(stderr) => (stderr, Ok(())),
+        Err(error) => (String::new(), Err(error)),
+    };
+    let cleanup = process_cleanup.and(secrets);
+    match (result, cleanup) {
+        (Ok(outcome), Ok(())) => Ok(SessionOutcome::Completed(outcome)),
+        (Ok(outcome), Err(error)) => Ok(SessionOutcome::CleanupFailed { outcome, error }),
+        (Err(error), cleanup) => {
+            if let Err(cleanup) = cleanup {
+                tracing::error!(
+                    container,
+                    "agent failed and terminal cleanup also failed: {cleanup:#}"
+                );
+            }
+            #[cfg(test)]
+            let error = if agent_stderr.trim().is_empty() {
+                error
+            } else {
+                error.context(format!("ACP test stderr: {}", agent_stderr.trim()))
+            };
+            #[cfg(not(test))]
+            if !agent_stderr.trim().is_empty() {
+                tracing::warn!(
+                    container,
+                    actor,
+                    stderr = agent_stderr.trim(),
+                    "agent session failed; agent stderr tail"
+                );
+            }
+            Err(error)
+        }
+    }
+}
+
+/// Everything one turn's notifications reach. A warm process serves many turns, so its connection
+/// reads the current turn's hooks; between turns there are none and notifications are dropped.
+#[derive(Clone)]
+struct TurnHooks {
+    sink: Arc<Mutex<TurnTranscript>>,
+    observer: Option<SessionObserver>,
+    observer_enabled: Arc<AtomicBool>,
+    capture: Arc<AtomicBool>,
+    live_locator: Arc<Mutex<Option<SessionLocator>>>,
+    container: String,
+    locator_path: String,
+}
+
+/// The container work one cold launch waits on. These are independent commands, so they run side
+/// by side, and the agent starts once each has succeeded. Returns the prior provider session.
+async fn launch_and_prepare(
+    container: &str,
+    harness: crate::runtime::AgentHarness,
+    auth: &AgentAuth,
+    delivery: CredentialDelivery,
+    system_prompt: &str,
+    locator_path: &str,
+) -> Result<Option<SessionLocator>> {
+    let launch_id = &auth.session_id;
     let system_prompt_path = format!("/tmp/restless-agent-{launch_id}.system.md");
     let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
-    // The agent's config, its prior session and this turn's directories and system prompt are
-    // independent container commands. Every turn's start waits on all of them, so they run side
-    // by side; the agent starts once each has succeeded.
     let runtime_files = async {
         let runtime_dirs = tokio::process::Command::new("docker")
             .args([
@@ -1887,16 +2186,76 @@ where
                 String::from_utf8_lossy(&runtime_dirs.stderr)
             );
         }
-        write_private_container_file(container, &system_prompt_path, &controls.system_prompt).await
+        write_private_container_file(container, &system_prompt_path, system_prompt).await
     };
-    let ((), prior_locator, ()) = tokio::try_join!(
-        prepare_agent_runtime(container, harness, auth),
-        read_session_locator(container, &locator_path),
+    let credentials = async {
+        if delivery == CredentialDelivery::TurnFile {
+            let dir = credentials_dir(launch_id);
+            let (model, coordination) = (format!("{dir}/model"), format!("{dir}/coordination"));
+            tokio::try_join!(
+                write_private_container_file(container, &model, &auth.gateway_token),
+                write_private_container_file(container, &coordination, &auth.coordination_token),
+            )?;
+        }
+        Ok::<(), anyhow::Error>(())
+    };
+    let ((), prior_locator, (), ()) = tokio::try_join!(
+        prepare_agent_runtime_with(container, harness, auth, delivery),
+        read_session_locator(container, locator_path),
         runtime_files,
+        credentials,
     )?;
-    if let Some(locator) = &prior_locator {
-        validate_session_locator(locator, profile, &auth.company, actor, responsibility)?;
-    }
+    Ok(prior_locator)
+}
+
+fn credentials_dir(launch_id: &str) -> String {
+    format!("/tmp/restless-warm-{launch_id}")
+}
+
+/// Deliver this turn's grants to a running process.
+async fn write_turn_credentials(
+    container: &str,
+    process: &AgentProcess,
+    auth: &AgentAuth,
+) -> Result<()> {
+    let (Some(model), Some(coordination)) = (process.model_file(), process.coordination_file())
+    else {
+        anyhow::bail!("this agent process does not read its grants from files");
+    };
+    tokio::try_join!(
+        write_private_container_file(container, &model, &auth.gateway_token),
+        write_private_container_file(container, &coordination, &auth.coordination_token),
+    )?;
+    Ok(())
+}
+
+/// Start the agent process and open its ACP connection.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the ACP launch boundary keeps identity, authority and delivery explicit"
+)]
+async fn launch_process(
+    container: &str,
+    harness: crate::runtime::AgentHarness,
+    profile: AcpProfile,
+    auth: &AgentAuth,
+    workdir: &str,
+    actor: &str,
+    controls: &AgentControls,
+    native_tools: &[&'static str],
+    delivery: CredentialDelivery,
+) -> Result<AgentProcess> {
+    // Every docker-exec process is a Linux session leader. Record this launch's session id inside
+    // the container so cleanup can reap only its process tree. A before/after PID diff is not
+    // ownership: a staff turn may start while the Exec is running, and the Exec must never kill it
+    // on exit.
+    let launch_id = auth.session_id.clone();
+    let launched_at = chrono::Utc::now();
+    let session_marker = format!("/tmp/restless-agent-{launch_id}.sid");
+    let system_prompt_path = format!("/tmp/restless-agent-{launch_id}.system.md");
+    let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
+    let credentials =
+        (delivery == CredentialDelivery::TurnFile).then(|| credentials_dir(&launch_id));
     // docker exec takes its -e flags BEFORE the container name; anything after
     // it belongs to the command. Build the vector explicitly rather than
     // chaining .args() and hoping the order is right — appending the base-URL
@@ -1933,38 +2292,47 @@ where
     args.push(format!("XDG_CACHE_HOME={session_runtime}/cache"));
     args.push("-e".to_string());
     args.push(format!("TMPDIR={session_runtime}/tmp"));
-    args.push("-e".to_string());
-    args.push(auth.coordination_token_env.clone());
-    args.push("-e".to_string());
-    // `docker exec -e NAME` copies NAME from the docker client's environment.
-    // Passing NAME=VALUE in argv would expose the scoped model capability to
-    // host process listings during session bootstrap.
-    if auth.model.starts_with("native-claude-") {
-        args.push(auth.gateway_token_env.clone());
-        for value in [
-            "ANTHROPIC_AUTH_TOKEN=",
-            "CLAUDE_CODE_OAUTH_TOKEN=",
-            "ANTHROPIC_BASE_URL=https://api.anthropic.com",
-        ] {
-            args.push("-e".into());
-            args.push(value.into());
-        }
-        if auth.model.starts_with("native-claude-oauth/") {
-            args.push("-e".into());
-            args.push("ANTHROPIC_API_KEY=".into());
-        }
-    } else if harness == crate::runtime::AgentHarness::ClaudeAgent {
-        args.push("ANTHROPIC_AUTH_TOKEN".to_string());
-        for value in [
-            format!("ANTHROPIC_BASE_URL={}", auth.gateway_url),
-            "ANTHROPIC_API_KEY=".to_string(),
-            "CLAUDE_CODE_OAUTH_TOKEN=".to_string(),
-        ] {
-            args.push("-e".to_string());
-            args.push(value);
-        }
+    if let Some(dir) = &credentials {
+        // Grants arrive by file: the process environment, which every tool inherits and which
+        // would outlive the turn, holds only where to find them.
+        args.push("-e".to_string());
+        args.push(format!("{SESSION_CAPABILITY_FILE_ENV}={dir}/coordination"));
+        args.push("-e".to_string());
+        args.push(format!("{MODEL_CAPABILITY_FILE_ENV}={dir}/model"));
     } else {
-        args.push(auth.gateway_token_env.clone());
+        args.push("-e".to_string());
+        args.push(auth.coordination_token_env.clone());
+        args.push("-e".to_string());
+        // `docker exec -e NAME` copies NAME from the docker client's environment.
+        // Passing NAME=VALUE in argv would expose the scoped model capability to
+        // host process listings during session bootstrap.
+        if auth.model.starts_with("native-claude-") {
+            args.push(auth.gateway_token_env.clone());
+            for value in [
+                "ANTHROPIC_AUTH_TOKEN=",
+                "CLAUDE_CODE_OAUTH_TOKEN=",
+                "ANTHROPIC_BASE_URL=https://api.anthropic.com",
+            ] {
+                args.push("-e".into());
+                args.push(value.into());
+            }
+            if auth.model.starts_with("native-claude-oauth/") {
+                args.push("-e".into());
+                args.push("ANTHROPIC_API_KEY=".into());
+            }
+        } else if harness == crate::runtime::AgentHarness::ClaudeAgent {
+            args.push("ANTHROPIC_AUTH_TOKEN".to_string());
+            for value in [
+                format!("ANTHROPIC_BASE_URL={}", auth.gateway_url),
+                "ANTHROPIC_API_KEY=".to_string(),
+                "CLAUDE_CODE_OAUTH_TOKEN=".to_string(),
+            ] {
+                args.push("-e".to_string());
+                args.push(value);
+            }
+        } else {
+            args.push(auth.gateway_token_env.clone());
+        }
     }
     args.extend(
         [
@@ -1982,23 +2350,20 @@ where
         .iter()
         .map(|arg| (*arg).to_string()),
     );
-    args.extend(profile.command_args(
-        &auth.model,
-        &auth.effort,
-        &system_prompt_path,
-        &reported_native_tools,
-    ));
+    args.extend(profile.command_args(&auth.model, &auth.effort, &system_prompt_path, native_tools));
     let mut command = tokio::process::Command::new("docker");
+    if credentials.is_none() {
+        command
+            .env(&auth.coordination_token_env, &auth.coordination_token)
+            .env(&auth.gateway_token_env, &auth.gateway_token)
+            .env("ANTHROPIC_AUTH_TOKEN", &auth.gateway_token);
+    }
     command
-        .env(&auth.coordination_token_env, &auth.coordination_token)
-        .env(&auth.gateway_token_env, &auth.gateway_token)
-        .env("ANTHROPIC_AUTH_TOKEN", &auth.gateway_token)
         .args(&args)
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped());
-    command.stderr(Stdio::piped());
-    let spawned = command.kill_on_drop(true).spawn();
-    let mut child = match spawned {
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = match command.kill_on_drop(true).spawn() {
         Ok(child) => child,
         Err(error) => {
             let _ = tokio::process::Command::new("docker")
@@ -2035,522 +2400,501 @@ where
     let stdin = child.stdin.take().expect("piped stdin");
     let stdout = child.stdout.take().expect("piped stdout");
     let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
-
-    let transcript = Arc::new(Mutex::new(TurnTranscript::default()));
-    let sink = Arc::clone(&transcript);
-    let capture_notifications = Arc::new(AtomicBool::new(false));
-    let notification_capture = Arc::clone(&capture_notifications);
-    let live_locator = Arc::new(Mutex::new(None::<SessionLocator>));
-    let notification_locator = Arc::clone(&live_locator);
-    let notification_container = container.to_string();
-    let notification_locator_path = locator_path.clone();
-    let event_observer = observer.clone();
-    let live_observer_enabled = Arc::new(AtomicBool::new(true));
-    let observer_enabled = Arc::clone(&live_observer_enabled);
-    let workdir = workdir.to_string();
-    let mcp_servers = controls.mcp_servers;
-    let mcp_server_count = mcp_servers.len();
-    let responsibility = responsibility.to_string();
-    let launch_auth = auth.clone();
-    let launch_profile = profile;
-    let launch_native_tools = reported_native_tools.clone();
-    let launch_session_model = session_model;
-    let launch_session_meta = session_meta;
-    let launch_container = container.to_string();
-    let launch_actor = actor.to_string();
-    let launch_id_for_session = launch_id.clone();
-    let session_locator_path = locator_path.clone();
-    // The coordination probe needs this launch's capability, not the agent: it runs while the
-    // agent starts and its session opens, and the first prompt still waits for it.
-    let tool_contract = {
-        let container = container.to_string();
-        let auth = auth.clone();
-        let actor = actor.to_string();
-        tokio::spawn(async move { prove_tool_contract(&container, profile, &auth, &actor).await })
-    };
-    // connect_with speaks acp::Error; the real anyhow chain is parked here
-    // and restored after the connection closes.
-    let failure = Arc::new(Mutex::new(None::<anyhow::Error>));
-    let failure_slot = Arc::clone(&failure);
-
-    let result = Client
-        .builder()
-        .on_receive_notification(
-            move |notification: SessionNotification, _cx| {
-                let sink = Arc::clone(&sink);
-                let event_observer = event_observer.clone();
-                let observer_enabled = Arc::clone(&observer_enabled);
-                let capture_notifications = Arc::clone(&notification_capture);
-                let live_locator = Arc::clone(&notification_locator);
-                let locator_container = notification_container.clone();
-                let locator_path = notification_locator_path.clone();
-                async move {
-                    // session/load may replay historical notifications to
-                    // reconstruct the agent. They are not current work,
-                    // usage, owner text, or organisational activity.
-                    if !capture_notifications.load(Ordering::Acquire) {
-                        return Ok(());
-                    }
-                    let mut event = live_event(&notification.update);
-                    if let Ok(mut transcript) = sink.lock() {
-                        transcript.note(&notification.update);
-                        if matches!(&notification.update, SessionUpdate::UsageUpdate(_)) {
-                            event = transcript.usage.map(|usage| LiveSessionEvent::UsageUpdate {
-                                used: usage.used,
-                                size: usage.size,
-                                cost_usd: usage.cost_usd,
-                            });
-                        }
-                    }
-                    if observer_enabled.load(Ordering::Acquire) {
-                        if let (Some(observer), Some(event)) = (event_observer.as_ref(), event) {
-                            observer(event);
-                        }
-                    }
-                    if let SessionUpdate::UsageUpdate(usage) = &notification.update {
-                        let updated = if let Ok(mut current) = live_locator.lock() {
-                            current.as_mut().map(|locator| {
-                                locator.context_observation = Some(ContextObservation {
-                                    used: usage.used,
-                                    at: chrono::Utc::now(),
-                                });
-                                if let Some(observed) = usage.cost.as_ref().map(|cost| cost.amount) {
-                                    if locator
-                                        .cumulative_cost_usd
-                                        .is_none_or(|previous| observed >= previous)
-                                    {
-                                        locator.cumulative_cost_usd = Some(observed);
-                                    }
-                                }
-                                locator.clone()
-                            })
-                        } else {
-                            None
+    let hooks = Arc::new(Mutex::new(None::<TurnHooks>));
+    let notification_hooks = Arc::clone(&hooks);
+    let stop = CancellationToken::new();
+    let stop_connection = stop.clone();
+    let (connected_tx, connected_rx) =
+        tokio::sync::oneshot::channel::<ConnectionTo<Agent>>();
+    tokio::spawn(async move {
+        let _ = Client
+            .builder()
+            .on_receive_notification(
+                move |notification: SessionNotification, _cx| {
+                    let hooks = notification_hooks
+                        .lock()
+                        .ok()
+                        .and_then(|hooks| hooks.clone());
+                    async move {
+                        // session/load may replay historical notifications to
+                        // reconstruct the agent. They are not current work,
+                        // usage, owner text, or organisational activity.
+                        let Some(hooks) = hooks else {
+                            return Ok(());
                         };
-                        if let Some(locator) = updated {
-                            if let Err(error) = persist_session_locator(
-                                &locator_container,
-                                &locator_path,
-                                &locator,
-                            )
-                            .await
-                            {
-                                tracing::warn!(%error, "could not persist cumulative ACP usage");
+                        if !hooks.capture.load(Ordering::Acquire) {
+                            return Ok(());
+                        }
+                        let mut event = live_event(&notification.update);
+                        if let Ok(mut transcript) = hooks.sink.lock() {
+                            transcript.note(&notification.update);
+                            if matches!(&notification.update, SessionUpdate::UsageUpdate(_)) {
+                                event = transcript.usage.map(|usage| LiveSessionEvent::UsageUpdate {
+                                    used: usage.used,
+                                    size: usage.size,
+                                    cost_usd: usage.cost_usd,
+                                });
                             }
                         }
-                    }
-                    Ok(())
-                }
-            },
-            acp::on_receive_notification!(),
-        )
-        .on_receive_request(
-            move |request: RequestPermissionRequest,
-                  responder: acp::Responder<RequestPermissionResponse>,
-                  _cx| async move {
-                // Permissive inside the company environment (§2.1): pick the
-                // first allow-kind option, else the first option.
-                let option = request
-                    .options
-                    .iter()
-                    .find(|option| {
-                        matches!(
-                            option.kind,
-                            PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways
-                        )
-                    })
-                    .or_else(|| request.options.first());
-                let outcome = match option {
-                    Some(option) => RequestPermissionOutcome::Selected(
-                        SelectedPermissionOutcome::new(option.option_id.clone()),
-                    ),
-                    None => RequestPermissionOutcome::Cancelled,
-                };
-                responder.respond(RequestPermissionResponse::new(outcome))
-            },
-            acp::on_receive_request!(),
-        )
-        .connect_with(transport, async move |cx: ConnectionTo<Agent>| {
-            let step = async {
-                // Client capabilities are left at their defaults, and that is
-                // load-bearing: advertising `fs.writeTextFile` tells the agent
-                // to route file writes back over ACP to us. Probed live — with
-                // fs advertised, omp narrates the write and no file appears,
-                // which reads exactly like the model ignoring instructions.
-                // Agents here work directly on the company volume, so the
-                // client must decline fs. See `declines_client_side_filesystem`.
-                let initialized = cx
-                    .send_request(InitializeRequest::new(ProtocolVersion::V1))
-                    .block_task()
-                    .await
-                    .context("acp initialize")?;
-                if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent {
-                    let info = initialized.agent_info.as_ref().context(
-                        "Claude Agent ACP initialize omitted its adapter build identity",
-                    )?;
-                    if info.name != "@agentclientprotocol/claude-agent-acp"
-                        || info.version != "0.90.0"
-                    {
-                        anyhow::bail!(
-                            "Claude Agent ACP build mismatch: observed {} v{}, required @agentclientprotocol/claude-agent-acp v0.90.0",
-                            info.name,
-                            info.version
-                        );
-                    }
-                }
-                let agent_name = initialized
-                    .agent_info
-                    .as_ref()
-                    .map(|info| format!("{} v{}", info.name, info.version))
-                    .unwrap_or_else(|| "unknown".to_string());
-                tracing::info!(agent = %agent_name, "acp agent initialized");
-
-                let prior_context = prior_locator
-                    .as_ref()
-                    .and_then(|locator| locator.context_observation.clone());
-                let (
-                    session_id,
-                    resumed,
-                    reconstructed,
-                    reconstruction_reason,
-                    baseline_cost,
-                    config_options,
-                ) = match prior_locator {
-                        Some(prior)
-                            if session_locator_is_reusable(
-                                &prior,
-                                launch_profile,
-                                &workdir,
-                                &launch_auth.model,
-                                &launch_auth.effort,
-                                initialized.agent_capabilities.load_session,
-                                prompt_cache_ttl(launch_profile.harness, &launch_auth.model, launch_auth.billing),
-                            ) =>
-                        {
-                            let prior_id: SessionId = prior.session_id.clone().into();
-                            match cx
-                                .send_request(
-                                    LoadSessionRequest::new(prior_id.clone(), workdir.clone())
-                                        .mcp_servers(mcp_servers.clone())
-                                        .meta(launch_session_meta.clone()),
-                                )
-                                .block_task()
-                                .await
+                        if hooks.observer_enabled.load(Ordering::Acquire) {
+                            if let (Some(observer), Some(event)) = (hooks.observer.as_ref(), event)
                             {
-                                Ok(loaded) => (
-                                    prior_id,
-                                    true,
-                                    false,
-                                    None,
-                                    prior.cumulative_cost_usd,
-                                    loaded.config_options.unwrap_or_default(),
-                                ),
-                                Err(error) => {
-                                    let session = cx
-                                        .send_request(
-                                            NewSessionRequest::new(workdir.clone())
-                                                .mcp_servers(mcp_servers.clone())
-                                                .meta(launch_session_meta.clone()),
-                                        )
-                                        .block_task()
-                                        .await
-                                        .context("acp session/new after failed load")?;
-                                    (
-                                        session.session_id,
-                                        false,
-                                        true,
-                                        Some(format!("session/load failed: {error}")),
-                                        None,
-                                        session.config_options.unwrap_or_default(),
-                                    )
+                                observer(event);
+                            }
+                        }
+                        if let SessionUpdate::UsageUpdate(usage) = &notification.update {
+                            let updated = if let Ok(mut current) = hooks.live_locator.lock() {
+                                current.as_mut().map(|locator| {
+                                    locator.context_observation = Some(ContextObservation {
+                                        used: usage.used,
+                                        at: chrono::Utc::now(),
+                                    });
+                                    if let Some(observed) =
+                                        usage.cost.as_ref().map(|cost| cost.amount)
+                                    {
+                                        if locator
+                                            .cumulative_cost_usd
+                                            .is_none_or(|previous| observed >= previous)
+                                        {
+                                            locator.cumulative_cost_usd = Some(observed);
+                                        }
+                                    }
+                                    locator.clone()
+                                })
+                            } else {
+                                None
+                            };
+                            if let Some(locator) = updated {
+                                if let Err(error) = persist_session_locator(
+                                    &hooks.container,
+                                    &hooks.locator_path,
+                                    &locator,
+                                )
+                                .await
+                                {
+                                    tracing::warn!(%error, "could not persist cumulative ACP usage");
                                 }
                             }
                         }
-                        Some(prior) => {
-                            let reason = if prior.context_observation.as_ref().is_some_and(|observed| {
-                                observed.requires_fresh_session_at(chrono::Utc::now(), prompt_cache_ttl(launch_profile.harness, &launch_auth.model, launch_auth.billing))
-                            }) {
-                                "Provider history exceeded the lean limit or its prompt cache expired".to_string()
-                            } else if prior.cwd != workdir {
-                                format!(
-                                    "workspace changed from {} to {}; prior provider session is not reusable",
-                                    prior.cwd, workdir
-                                )
-                            } else if prior.model != launch_auth.model {
-                                format!(
-                                    "model changed from {} to {}; prior provider session is not reusable",
-                                    prior.model, launch_auth.model
-                                )
-                            } else if prior.effort != launch_auth.effort {
-                                format!(
-                                    "reasoning effort changed from {} to {}; prior provider session is not reusable",
-                                    prior.effort, launch_auth.effort
-                                )
-                            } else if launch_profile.harness == crate::runtime::AgentHarness::CustomAcp {
-                                "Custom harness session is reconstructed with current launch settings".to_string()
-                            } else {
-                                "ACP agent does not advertise session/load".to_string()
-                            };
-                            let session = cx
-                                .send_request(
-                                    NewSessionRequest::new(workdir.clone())
-                                        .mcp_servers(mcp_servers.clone())
-                                        .meta(launch_session_meta.clone()),
-                                )
-                                .block_task()
-                                .await
-                                .context("acp session/new for explicit reconstruction")?;
-                            (
-                                session.session_id,
-                                false,
-                                true,
-                                Some(reason),
-                                None,
-                                session.config_options.unwrap_or_default(),
+                        Ok(())
+                    }
+                },
+                acp::on_receive_notification!(),
+            )
+            .on_receive_request(
+                move |request: RequestPermissionRequest,
+                      responder: acp::Responder<RequestPermissionResponse>,
+                      _cx| async move {
+                    // Permissive inside the company environment (§2.1): pick the
+                    // first allow-kind option, else the first option.
+                    let option = request
+                        .options
+                        .iter()
+                        .find(|option| {
+                            matches!(
+                                option.kind,
+                                PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways
                             )
-                        }
-                        None => {
-                            let session = cx
-                                .send_request(
-                                    NewSessionRequest::new(workdir.clone())
-                                        .mcp_servers(mcp_servers.clone())
-                                        .meta(launch_session_meta.clone()),
-                                )
-                                .block_task()
-                                .await
-                                .context("acp session/new")?;
-                            (
-                                session.session_id,
-                                false,
-                                false,
-                                None,
-                                None,
-                                session.config_options.unwrap_or_default(),
-                            )
-                        }
+                        })
+                        .or_else(|| request.options.first());
+                    let outcome = match option {
+                        Some(option) => RequestPermissionOutcome::Selected(
+                            SelectedPermissionOutcome::new(option.option_id.clone()),
+                        ),
+                        None => RequestPermissionOutcome::Cancelled,
                     };
-
-                let (model_config_id, model_value) =
-                    exact_model_config_selection(&config_options, &launch_session_model)
-                        .context("select exact ACP session model")?;
-                let configured = cx
-                    .send_request(SetSessionConfigOptionRequest::new(
-                        session_id.clone(),
-                        model_config_id.clone(),
-                        model_value.as_str(),
-                    ))
-                    .block_task()
-                    .await
-                    .context("acp session/set_config_option for exact model")?;
-                if !model_config_is_selected(
-                    &configured.config_options,
-                    &model_config_id,
-                    &model_value,
-                ) {
-                    anyhow::bail!(
-                        "ACP agent did not confirm exact selected model {}",
-                        launch_auth.model
-                    );
-                }
-                let mut confirmed_options = configured.config_options;
-                if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent {
-                    let (effort_id, effort_value) = exact_named_config_selection(
-                        &confirmed_options,
-                        "effort",
-                        &launch_auth.effort,
-                    )
-                    .context("select exact Claude Agent effort")?;
-                    confirmed_options = cx
-                        .send_request(SetSessionConfigOptionRequest::new(
-                            session_id.clone(),
-                            effort_id.clone(),
-                            effort_value.as_str(),
-                        ))
-                        .block_task()
-                        .await
-                        .context("acp session/set_config_option for exact effort")?
-                        .config_options;
-                    if !model_config_is_selected(
-                        &confirmed_options,
-                        &effort_id,
-                        &effort_value,
-                    ) {
-                        anyhow::bail!("Claude Agent did not confirm exact selected effort");
-                    }
-
-                    // The adapter consults project settings while constructing a
-                    // session. Reasserting the ordinary permission mode before
-                    // the first prompt prevents a hostile project default from
-                    // turning into ambient bypass or plan-only behavior.
-                    let (mode_id, mode_value) =
-                        exact_named_config_selection(&confirmed_options, "mode", "default")
-                            .context("select isolated Claude Agent permission mode")?;
-                    confirmed_options = cx
-                        .send_request(SetSessionConfigOptionRequest::new(
-                            session_id.clone(),
-                            mode_id.clone(),
-                            mode_value.as_str(),
-                        ))
-                        .block_task()
-                        .await
-                        .context("acp session/set_config_option for isolated mode")?
-                        .config_options;
-                    if !model_config_is_selected(&confirmed_options, &mode_id, &mode_value) {
-                        anyhow::bail!("Claude Agent did not confirm isolated permission mode");
-                    }
-                }
-
-                let locator = SessionLocator {
-                    version: 2,
-                    harness: launch_profile.harness,
-                    harness_build: launch_profile.build().to_string(),
-                    company: launch_auth.company.clone(),
-                    actor: launch_actor.clone(),
-                    responsibility: responsibility.clone(),
-                    cwd: workdir.clone(),
-                    model: launch_auth.model.clone(),
-                    effort: launch_auth.effort.clone(),
-                    session_id: session_id.to_string(),
-                    cumulative_cost_usd: baseline_cost,
-                    context_observation: if resumed { prior_context } else { None },
-                };
-                persist_session_locator(&launch_container, &session_locator_path, &locator)
-                    .await
-                    .context("persist ACP session scope before prompt")?;
-                if let Ok(mut active) = live_locator.lock() {
-                    *active = Some(locator);
-                }
-                if let Ok(mut current) = transcript.lock() {
-                    current.session_cost_baseline_usd = baseline_cost;
-                }
-                let tool_contract_digest = tool_contract
-                    .await
-                    .context("probe actor coordination tool contract")??;
-                let capabilities = serde_json::json!({
-                    "native_tools": launch_native_tools,
-                    "native_agent_build": launch_profile.native_agent_build(),
-                    "mcp_server_count": mcp_server_count,
-                    "session_load": initialized.agent_capabilities.load_session,
-                    "model_selection": "exact",
-                    "effort_selection": if launch_profile.harness == crate::runtime::AgentHarness::CustomAcp { "harness_default" } else if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent { "exact_acp" } else { "exact_process_flag" },
-                    "permission_mode": if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent { "default_reasserted" } else { "runtime_sandbox" },
-                    "tariff_version": if launch_auth.model.starts_with("native-") {None} else {launch_profile.tariff_version()},
-                });
-                capture_notifications.store(true, Ordering::Release);
-                tracing::info!(
-                    actor = %launch_actor,
-                    responsibility = %responsibility,
-                    launch_id = %launch_id_for_session,
-                    session_id = %session_id,
-                    resumed,
-                    reconstructed,
-                    tool_contract_digest = %tool_contract_digest,
-                    "ACP session ready before production prompt"
-                );
-
-                let agent = AgentSession {
-                    cx,
-                    session_id,
-                    transcript,
-                    observer,
-                    live_observer_enabled,
-                    launch_id: launch_id_for_session,
-                    harness: launch_profile.harness,
-                    harness_build: launch_profile.build().to_string(),
-                    transport: launch_profile.transport().to_string(),
-                    model: launch_auth.model.clone(),
-                    effort: launch_auth.effort.clone(),
-                    resumed,
-                    reconstructed,
-                    reconstruction_reason,
-                    tool_contract_digest,
-                    capabilities,
-                };
-                drive(&agent).await
-            };
-            match step.await {
-                Ok(outcome) => Ok(outcome),
-                Err(error) => {
-                    let message = format!("{error:#}");
-                    if let Ok(mut slot) = failure_slot.lock() {
-                        *slot = Some(error);
-                    }
-                    Err(acp::Error::internal_error().data(serde_json::json!(message)))
-                }
-            }
-        })
-        .await;
-
-    let owned_session = read_session_marker(container, &session_marker).await;
-    let _ = child.kill().await;
-    let agent_stderr = stderr_task.await.unwrap_or_default();
-    let (process_cleanup, keep_marker) = clean_up_session_processes(
-        container,
-        &session_marker,
-        owned_session,
+                    responder.respond(RequestPermissionResponse::new(outcome))
+                },
+                acp::on_receive_request!(),
+            )
+            .connect_with(transport, async move |cx: ConnectionTo<Agent>| {
+                let _ = connected_tx.send(cx);
+                stop_connection.cancelled().await;
+                Ok(())
+            })
+            .await;
+    });
+    let cx = connected_rx
+        .await
+        .context("the ACP connection closed before it opened")?;
+    let mut process = AgentProcess {
+        child,
+        cx,
+        hooks,
+        stop,
+        stderr_task,
+        container: container.to_string(),
+        actor: actor.to_string(),
         launched_at,
-        actor,
-    )
-    .await;
-    let profile_root = if harness == crate::runtime::AgentHarness::CustomAcp {
-        format!(
-            "{}/{}",
-            profile.config_dir(),
-            crate::custom_harness::split_model(&auth.model)?.0
-        )
-    } else {
-        profile.config_dir().to_string()
+        session_marker,
+        system_prompt_path,
+        session_runtime,
+        credentials_dir: credentials,
+        load_session_advertised: false,
+        live_session: None,
+        has_mcp: false,
+        started: std::time::Instant::now(),
+        turns: 0,
     };
-    let secret_cleanup = async {
-        if !auth.model.starts_with("native-") {
-            purge_exact_secret_residue(container, &profile_root, &auth.gateway_token).await?;
-        }
-        purge_exact_secret_residue(container, &profile_root, &auth.coordination_token).await
-    };
-    let artifacts: &[&str] = if keep_marker {
-        &[&system_prompt_path, &session_runtime]
-    } else {
-        &[&session_marker, &system_prompt_path, &session_runtime]
-    };
-    // The profile scrub and the session files are separate paths: clean both at once, since the
-    // turn's result waits on this teardown.
-    let (secret_cleanup, artifact_cleanup) = tokio::join!(
-        secret_cleanup,
-        remove_and_verify_session_artifacts(container, artifacts)
-    );
-    if let Ok(mut slot) = failure.lock() {
-        if let Some(error) = slot.take() {
-            if let Err(cleanup) = process_cleanup.and(secret_cleanup).and(artifact_cleanup) {
-                tracing::error!(
-                    container,
-                    "agent failed and terminal cleanup also failed: {cleanup:#}"
-                );
-            }
-            #[cfg(test)]
-            let error = if agent_stderr.trim().is_empty() {
-                error
-            } else {
-                error.context(format!("ACP test stderr: {}", agent_stderr.trim()))
-            };
-            #[cfg(not(test))]
-            if !agent_stderr.trim().is_empty() {
-                tracing::warn!(
-                    container,
-                    actor,
-                    stderr = agent_stderr.trim(),
-                    "agent session failed; agent stderr tail"
-                );
-            }
+    // Client capabilities are left at their defaults, and that is
+    // load-bearing: advertising `fs.writeTextFile` tells the agent
+    // to route file writes back over ACP to us. Probed live — with
+    // fs advertised, omp narrates the write and no file appears,
+    // which reads exactly like the model ignoring instructions.
+    // Agents here work directly on the company volume, so the
+    // client must decline fs. See `declines_client_side_filesystem`.
+    let initialized = process
+        .cx
+        .send_request(InitializeRequest::new(ProtocolVersion::V1))
+        .block_task()
+        .await
+        .context("acp initialize");
+    let initialized = match initialized {
+        Ok(initialized) => initialized,
+        Err(error) => {
+            let _ = process.terminate().await;
             return Err(error);
         }
+    };
+    if profile.harness == crate::runtime::AgentHarness::ClaudeAgent {
+        let name = initialized.agent_info.as_ref();
+        if !name.is_some_and(|info| {
+            info.name == "@agentclientprotocol/claude-agent-acp" && info.version == "0.90.0"
+        }) {
+            let _ = process.terminate().await;
+            anyhow::bail!(
+                "Claude Agent ACP build mismatch: required @agentclientprotocol/claude-agent-acp v0.90.0"
+            );
+        }
     }
-    let cleanup = process_cleanup.and(secret_cleanup).and(artifact_cleanup);
-    match (result, cleanup) {
-        (Ok(outcome), Ok(())) => Ok(SessionOutcome::Completed(outcome)),
-        (Ok(outcome), Err(error)) => Ok(SessionOutcome::CleanupFailed { outcome, error }),
-        (Err(error), Ok(())) => Err(error.into()),
-        (Err(_), Err(error)) => Err(error),
+    let agent_name = initialized
+        .agent_info
+        .as_ref()
+        .map(|info| format!("{} v{}", info.name, info.version))
+        .unwrap_or_else(|| "unknown".to_string());
+    tracing::info!(agent = %agent_name, "acp agent initialized");
+    process.load_session_advertised = initialized.agent_capabilities.load_session;
+    Ok(process)
+}
+
+struct EstablishSession<'a> {
+    cx: &'a ConnectionTo<Agent>,
+    profile: AcpProfile,
+    auth: &'a AgentAuth,
+    actor: &'a str,
+    responsibility: &'a str,
+    workdir: &'a str,
+    container: &'a str,
+    locator_path: &'a str,
+    session_model: &'a str,
+    session_meta: Option<serde_json::Map<String, serde_json::Value>>,
+    mcp_servers: Vec<McpServer>,
+    mcp_server_count: usize,
+    native_tools: &'a [&'static str],
+    load_session_advertised: bool,
+    prior_locator: Option<SessionLocator>,
+    /// `None` on a warm process, which proved its tool contract at launch.
+    tool_contract: Option<tokio::task::JoinHandle<Result<String>>>,
+    /// The provider session already open in this process.
+    live_session: Option<&'a str>,
+    had_mcp: bool,
+    transcript: &'a Arc<Mutex<TurnTranscript>>,
+    live_locator: &'a Arc<Mutex<Option<SessionLocator>>>,
+}
+
+struct SessionReady {
+    session_id: SessionId,
+    resumed: bool,
+    reconstructed: bool,
+    reconstruction_reason: Option<String>,
+    tool_contract_digest: String,
+    capabilities: serde_json::Value,
+    warm: bool,
+}
+
+fn tool_contract_digest(profile: AcpProfile, actor: &str) -> String {
+    format!(
+        "{:x}",
+        Sha256::digest(
+            format!(
+                "harness:{}\0native:{}\0coordination:restless-people\0actor:{actor}",
+                profile.harness.as_str(),
+                profile.native_tools().join(",")
+            )
+            .as_bytes()
+        )
+    )
+}
+
+/// Open or resume the provider session this turn needs on a connected process.
+async fn establish_session(args: EstablishSession<'_>) -> Result<SessionReady> {
+    let EstablishSession {
+        cx,
+        profile,
+        auth,
+        actor,
+        responsibility,
+        workdir,
+        container,
+        locator_path,
+        session_model,
+        session_meta,
+        mcp_servers,
+        mcp_server_count,
+        native_tools,
+        load_session_advertised,
+        prior_locator,
+        tool_contract,
+        live_session,
+        had_mcp,
+        transcript,
+        live_locator,
+    } = args;
+    let warm = tool_contract.is_none();
+    let workdir = workdir.to_string();
+    let prior_context = prior_locator
+        .as_ref()
+        .and_then(|locator| locator.context_observation.clone());
+    let ttl = prompt_cache_ttl(profile.harness, &auth.model, auth.billing);
+    let open_new = |reason_prefix: &'static str| {
+        let request = NewSessionRequest::new(workdir.clone())
+            .mcp_servers(mcp_servers.clone())
+            .meta(session_meta.clone());
+        async move {
+            cx.send_request(request)
+                .block_task()
+                .await
+                .context(reason_prefix)
+        }
+    };
+    let (session_id, resumed, reconstructed, reconstruction_reason, baseline_cost, config_options) =
+        match prior_locator {
+            // The session this warm process already holds: nothing to load. Only a change of
+            // connections, or a fresh tool grant over ones already attached, has to reach it.
+            Some(prior)
+                if live_session == Some(prior.session_id.as_str())
+                    && session_locator_is_reusable(
+                        &prior,
+                        profile,
+                        &workdir,
+                        &auth.model,
+                        &auth.effort,
+                        load_session_advertised,
+                        ttl,
+                    ) =>
+            {
+                let prior_id: SessionId = prior.session_id.clone().into();
+                if mcp_server_count > 0 || had_mcp {
+                    cx.send_request(
+                        LoadSessionRequest::new(prior_id.clone(), workdir.clone())
+                            .mcp_servers(mcp_servers.clone())
+                            .meta(session_meta.clone()),
+                    )
+                    .block_task()
+                    .await
+                    .context("acp session/load to deliver this turn's tool grant")?;
+                }
+                (prior_id, true, false, None, prior.cumulative_cost_usd, Vec::new())
+            }
+            Some(prior)
+                if session_locator_is_reusable(
+                    &prior,
+                    profile,
+                    &workdir,
+                    &auth.model,
+                    &auth.effort,
+                    load_session_advertised,
+                    ttl,
+                ) =>
+            {
+                let prior_id: SessionId = prior.session_id.clone().into();
+                match cx
+                    .send_request(
+                        LoadSessionRequest::new(prior_id.clone(), workdir.clone())
+                            .mcp_servers(mcp_servers.clone())
+                            .meta(session_meta.clone()),
+                    )
+                    .block_task()
+                    .await
+                {
+                    Ok(loaded) => (
+                        prior_id,
+                        true,
+                        false,
+                        None,
+                        prior.cumulative_cost_usd,
+                        loaded.config_options.unwrap_or_default(),
+                    ),
+                    Err(error) => {
+                        let session = open_new("acp session/new after failed load").await?;
+                        (
+                            session.session_id,
+                            false,
+                            true,
+                            Some(format!("session/load failed: {error}")),
+                            None,
+                            session.config_options.unwrap_or_default(),
+                        )
+                    }
+                }
+            }
+            Some(prior) => {
+                let reason = if prior.context_observation.as_ref().is_some_and(|observed| {
+                    observed.requires_fresh_session_at(chrono::Utc::now(), ttl)
+                }) {
+                    "Provider history exceeded the lean limit or its prompt cache expired"
+                        .to_string()
+                } else if prior.cwd != workdir {
+                    format!(
+                        "workspace changed from {} to {}; prior provider session is not reusable",
+                        prior.cwd, workdir
+                    )
+                } else if prior.model != auth.model {
+                    format!(
+                        "model changed from {} to {}; prior provider session is not reusable",
+                        prior.model, auth.model
+                    )
+                } else if prior.effort != auth.effort {
+                    format!(
+                        "reasoning effort changed from {} to {}; prior provider session is not reusable",
+                        prior.effort, auth.effort
+                    )
+                } else if profile.harness == crate::runtime::AgentHarness::CustomAcp {
+                    "Custom harness session is reconstructed with current launch settings"
+                        .to_string()
+                } else {
+                    "ACP agent does not advertise session/load".to_string()
+                };
+                let session = open_new("acp session/new for explicit reconstruction").await?;
+                (
+                    session.session_id,
+                    false,
+                    true,
+                    Some(reason),
+                    None,
+                    session.config_options.unwrap_or_default(),
+                )
+            }
+            None => {
+                let session = open_new("acp session/new").await?;
+                (
+                    session.session_id,
+                    false,
+                    false,
+                    None,
+                    None,
+                    session.config_options.unwrap_or_default(),
+                )
+            }
+        };
+
+    // The session this process already holds keeps its confirmed model and needs no new choice.
+    if !config_options.is_empty() || !resumed || !warm {
+        let (model_config_id, model_value) =
+            exact_model_config_selection(&config_options, session_model)
+                .context("select exact ACP session model")?;
+        let configured = cx
+            .send_request(SetSessionConfigOptionRequest::new(
+                session_id.clone(),
+                model_config_id.clone(),
+                model_value.as_str(),
+            ))
+            .block_task()
+            .await
+            .context("acp session/set_config_option for exact model")?;
+        if !model_config_is_selected(&configured.config_options, &model_config_id, &model_value) {
+            anyhow::bail!("ACP agent did not confirm exact selected model {}", auth.model);
+        }
+        let mut confirmed_options = configured.config_options;
+        if profile.harness == crate::runtime::AgentHarness::ClaudeAgent {
+            let (effort_id, effort_value) =
+                exact_named_config_selection(&confirmed_options, "effort", &auth.effort)
+                    .context("select exact Claude Agent effort")?;
+            confirmed_options = cx
+                .send_request(SetSessionConfigOptionRequest::new(
+                    session_id.clone(),
+                    effort_id.clone(),
+                    effort_value.as_str(),
+                ))
+                .block_task()
+                .await
+                .context("acp session/set_config_option for exact effort")?
+                .config_options;
+            if !model_config_is_selected(&confirmed_options, &effort_id, &effort_value) {
+                anyhow::bail!("Claude Agent did not confirm exact selected effort");
+            }
+
+            // The adapter consults project settings while constructing a
+            // session. Reasserting the ordinary permission mode before
+            // the first prompt prevents a hostile project default from
+            // turning into ambient bypass or plan-only behavior.
+            let (mode_id, mode_value) =
+                exact_named_config_selection(&confirmed_options, "mode", "default")
+                    .context("select isolated Claude Agent permission mode")?;
+            confirmed_options = cx
+                .send_request(SetSessionConfigOptionRequest::new(
+                    session_id.clone(),
+                    mode_id.clone(),
+                    mode_value.as_str(),
+                ))
+                .block_task()
+                .await
+                .context("acp session/set_config_option for isolated mode")?
+                .config_options;
+            if !model_config_is_selected(&confirmed_options, &mode_id, &mode_value) {
+                anyhow::bail!("Claude Agent did not confirm isolated permission mode");
+            }
+        }
     }
+
+    let locator = SessionLocator {
+        version: 2,
+        harness: profile.harness,
+        harness_build: profile.build().to_string(),
+        company: auth.company.clone(),
+        actor: actor.to_string(),
+        responsibility: responsibility.to_string(),
+        cwd: workdir.clone(),
+        model: auth.model.clone(),
+        effort: auth.effort.clone(),
+        session_id: session_id.to_string(),
+        cumulative_cost_usd: baseline_cost,
+        context_observation: if resumed { prior_context } else { None },
+    };
+    persist_session_locator(container, locator_path, &locator)
+        .await
+        .context("persist ACP session scope before prompt")?;
+    if let Ok(mut active) = live_locator.lock() {
+        *active = Some(locator);
+    }
+    if let Ok(mut current) = transcript.lock() {
+        current.session_cost_baseline_usd = baseline_cost;
+    }
+    let tool_contract_digest = match tool_contract {
+        Some(probe) => probe
+            .await
+            .context("probe actor coordination tool contract")??,
+        None => tool_contract_digest(profile, actor),
+    };
+    let capabilities = serde_json::json!({
+        "native_tools": native_tools,
+        "native_agent_build": profile.native_agent_build(),
+        "mcp_server_count": mcp_server_count,
+        "session_load": load_session_advertised,
+        "model_selection": "exact",
+        "effort_selection": if profile.harness == crate::runtime::AgentHarness::CustomAcp { "harness_default" } else if profile.harness == crate::runtime::AgentHarness::ClaudeAgent { "exact_acp" } else { "exact_process_flag" },
+        "permission_mode": if profile.harness == crate::runtime::AgentHarness::ClaudeAgent { "default_reasserted" } else { "runtime_sandbox" },
+        "tariff_version": if auth.model.starts_with("native-") {None} else {profile.tariff_version()},
+    });
+    Ok(SessionReady {
+        session_id,
+        resumed,
+        reconstructed,
+        reconstruction_reason,
+        tool_contract_digest,
+        capabilities,
+        warm,
+    })
 }
 
 /// Docker's process cwd and ACP's `session/new` cwd must agree. Otherwise an
