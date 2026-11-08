@@ -283,14 +283,10 @@ impl StaffRegistry {
         } else {
             match runtime::actor_capacity(company).await {
                 Ok(Some(capacity)) => capacity,
-                // Without observed host bounds, serialize local harness starts.
-                Ok(None) => runtime::ActorCapacity {
-                    company_slots: 1,
-                    shared_slots: Some(1),
-                    company_memory_slots: usize::MAX,
-                    shared_memory_slots: None,
-                    waiting_for_memory: false,
-                },
+                // No workload pool: bound starts by what the host itself has, so the Exec's turn
+                // and the Work it just commissioned can run together rather than one after the
+                // other.
+                Ok(None) => runtime::host_actor_capacity(),
                 Err(error) => {
                     self.resource_retry.store(true, Ordering::SeqCst);
                     return Err(error);
