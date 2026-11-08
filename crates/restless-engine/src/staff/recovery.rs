@@ -243,6 +243,9 @@ pub async fn record_staff_outcome(
         if terminal_fact_recorded {
             org.release_attempt_resources(attempt_id, "Attempt reached terminal state")
                 .await?;
+            // The result goes to whoever waits on it first; tidying the Attempt's scratch files
+            // in the container does not change it, so it no longer holds the notice back.
+            org.flush_terminal_supervisor_notices(16).await?;
             let cleanup = cleanup_attempt_runtime(container, workdir, attempt_id).await?;
             org.emit_event(
                 "attempt_runtime_cleaned",
@@ -250,7 +253,6 @@ pub async fn record_staff_outcome(
                 serde_json::to_value(&cleanup)?,
             )
             .await?;
-            org.flush_terminal_supervisor_notices(16).await?;
             if let Some(cause) = interrupted {
                 resume_interrupted(org, work_id, &cause).await;
             }

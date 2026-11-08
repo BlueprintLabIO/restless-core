@@ -821,14 +821,14 @@ pub async fn prepare_agent_runtime(
             &auth.gateway_token_env,
             auth.billing,
         )?;
-        write_private_container_file(
-            container,
-            &format!("{AGENT_CONFIG_DIR}/models.yml"),
-            &config,
-        )
-        .await?;
         let runtime_config = omp_runtime_config(&auth.model, auth.billing);
-        write_private_container_file(container, OMP_RUNTIME_CONFIG, &runtime_config).await?;
+        let models_path = format!("{AGENT_CONFIG_DIR}/models.yml");
+        // Two files, two container commands: write them side by side rather than one after the
+        // other, since every turn's start waits on them.
+        tokio::try_join!(
+            write_private_container_file(container, &models_path, &config),
+            write_private_container_file(container, OMP_RUNTIME_CONFIG, &runtime_config),
+        )?;
     } else {
         let model = profile.session_model(&auth.model)?;
         let settings = claude_agent_settings(&model)?;
@@ -1850,15 +1850,10 @@ where
         anyhow::bail!("completion-only ACP mode requires the Restless-managed harness");
     }
     let profile = AcpProfile::new(harness)?;
-    prepare_agent_runtime(container, harness, auth).await?;
     let session_model = profile.session_model(&auth.model)?;
     let session_meta = profile.session_meta(&controls.system_prompt, &session_model);
     let reported_native_tools = controls.native_tools(profile);
     let locator_path = session_locator_path(harness, &auth.company, actor, responsibility)?;
-    let prior_locator = read_session_locator(container, &locator_path).await?;
-    if let Some(locator) = &prior_locator {
-        validate_session_locator(locator, profile, &auth.company, actor, responsibility)?;
-    }
     // Every docker-exec process is a Linux session leader. Record this turn's
     // session id inside the container so cleanup can reap only its process
     // tree. A before/after PID diff is not ownership: a staff turn may start
@@ -1868,27 +1863,40 @@ where
     let session_marker = format!("/tmp/restless-agent-{launch_id}.sid");
     let system_prompt_path = format!("/tmp/restless-agent-{launch_id}.system.md");
     let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
-    let runtime_dirs = tokio::process::Command::new("docker")
-        .args([
-            "exec",
-            "-u",
-            "company",
-            container,
-            "mkdir",
-            "-p",
-            &format!("{session_runtime}/cache"),
-            &format!("{session_runtime}/tmp"),
-        ])
-        .output()
-        .await
-        .context("prepare external agent cache directories")?;
-    if !runtime_dirs.status.success() {
-        anyhow::bail!(
-            "prepare external agent cache directories: {}",
-            String::from_utf8_lossy(&runtime_dirs.stderr)
-        );
+    // The agent's config, its prior session and this turn's directories and system prompt are
+    // independent container commands. Every turn's start waits on all of them, so they run side
+    // by side; the agent starts once each has succeeded.
+    let runtime_files = async {
+        let runtime_dirs = tokio::process::Command::new("docker")
+            .args([
+                "exec",
+                "-u",
+                "company",
+                container,
+                "mkdir",
+                "-p",
+                &format!("{session_runtime}/cache"),
+                &format!("{session_runtime}/tmp"),
+            ])
+            .output()
+            .await
+            .context("prepare external agent cache directories")?;
+        if !runtime_dirs.status.success() {
+            anyhow::bail!(
+                "prepare external agent cache directories: {}",
+                String::from_utf8_lossy(&runtime_dirs.stderr)
+            );
+        }
+        write_private_container_file(container, &system_prompt_path, &controls.system_prompt).await
+    };
+    let ((), prior_locator, ()) = tokio::try_join!(
+        prepare_agent_runtime(container, harness, auth),
+        read_session_locator(container, &locator_path),
+        runtime_files,
+    )?;
+    if let Some(locator) = &prior_locator {
+        validate_session_locator(locator, profile, &auth.company, actor, responsibility)?;
     }
-    write_private_container_file(container, &system_prompt_path, &controls.system_prompt).await?;
     // docker exec takes its -e flags BEFORE the container name; anything after
     // it belongs to the command. Build the vector explicitly rather than
     // chaining .args() and hoping the order is right — appending the base-URL
@@ -2052,6 +2060,14 @@ where
     let launch_actor = actor.to_string();
     let launch_id_for_session = launch_id.clone();
     let session_locator_path = locator_path.clone();
+    // The coordination probe needs this launch's capability, not the agent: it runs while the
+    // agent starts and its session opens, and the first prompt still waits for it.
+    let tool_contract = {
+        let container = container.to_string();
+        let auth = auth.clone();
+        let actor = actor.to_string();
+        tokio::spawn(async move { prove_tool_contract(&container, profile, &auth, &actor).await })
+    };
     // connect_with speaks acp::Error; the real anyhow chain is parked here
     // and restored after the connection closes.
     let failure = Arc::new(Mutex::new(None::<anyhow::Error>));
@@ -2407,13 +2423,9 @@ where
                 if let Ok(mut current) = transcript.lock() {
                     current.session_cost_baseline_usd = baseline_cost;
                 }
-                let tool_contract_digest = prove_tool_contract(
-                    &launch_container,
-                    launch_profile,
-                    &launch_auth,
-                    &launch_actor,
-                )
-                .await?;
+                let tool_contract_digest = tool_contract
+                    .await
+                    .context("probe actor coordination tool contract")??;
                 let capabilities = serde_json::json!({
                     "native_tools": launch_native_tools,
                     "native_agent_build": launch_profile.native_agent_build(),
@@ -2494,18 +2506,18 @@ where
             purge_exact_secret_residue(container, &profile_root, &auth.gateway_token).await?;
         }
         purge_exact_secret_residue(container, &profile_root, &auth.coordination_token).await
-    }
-    .await;
-    let artifact_cleanup = if keep_marker {
-        remove_and_verify_session_artifacts(container, &[&system_prompt_path, &session_runtime])
-            .await
-    } else {
-        remove_and_verify_session_artifacts(
-            container,
-            &[&session_marker, &system_prompt_path, &session_runtime],
-        )
-        .await
     };
+    let artifacts: &[&str] = if keep_marker {
+        &[&system_prompt_path, &session_runtime]
+    } else {
+        &[&session_marker, &system_prompt_path, &session_runtime]
+    };
+    // The profile scrub and the session files are separate paths: clean both at once, since the
+    // turn's result waits on this teardown.
+    let (secret_cleanup, artifact_cleanup) = tokio::join!(
+        secret_cleanup,
+        remove_and_verify_session_artifacts(container, artifacts)
+    );
     if let Ok(mut slot) = failure.lock() {
         if let Some(error) = slot.take() {
             if let Err(cleanup) = process_cleanup.and(secret_cleanup).and(artifact_cleanup) {
