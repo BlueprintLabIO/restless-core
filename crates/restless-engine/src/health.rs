@@ -184,7 +184,10 @@ pub async fn preflight(company: &str) -> Result<Option<Blocked>> {
     }
 
     let root = runtime::state_root();
-    if let Some(free) = free_bytes_host(&root).await? {
+    // Both disks are read at once; every turn's start waits on them.
+    let (host_free, container_free) =
+        tokio::join!(free_bytes_host(&root), free_bytes_container(company));
+    if let Some(free) = host_free? {
         if free < MIN_FREE_BYTES {
             return Ok(Some(Blocked::new(
                 BlockKind::Disk,
@@ -197,7 +200,7 @@ pub async fn preflight(company: &str) -> Result<Option<Blocked>> {
         }
     }
 
-    if let Some(free) = free_bytes_container(company).await? {
+    if let Some(free) = container_free? {
         if free < MIN_FREE_BYTES {
             return Ok(Some(Blocked::new(
                 BlockKind::Disk,

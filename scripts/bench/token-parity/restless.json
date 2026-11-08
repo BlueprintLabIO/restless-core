@@ -2,9 +2,17 @@
 	"_about": "Scripted agent behaviour for scripts/bench/token-parity on the current prompts: each step is what the prompt tells the actor to do, at its fewest calls. restless-before.json is the same tasks as the prompts before the token diet told the actors to do them.",
 	"rules": [
 		{
+			"_about": "Setup before any task is measured: Exec asks for the email mandate task a sends under, and the runner grants it as the owner does in the Inbox.",
+			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-SETUP-MANDATE",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "cat > /tmp/bench-mandate.json <<J\n{\"purpose\":\"Welcome emails to customers who sign up\",\"audience_guidance\":\"Only people who signed up on the site\",\"sender\":\"hello@bench.example\",\"sender_name\":\"Bench Bakery\",\"max_per_day\":50,\"max_total\":500,\"timezone\":\"Australia/Sydney\",\"expires_at\":\"$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ)\"}\nJ\nrestless mandate propose --proposal-file /tmp/bench-mandate.json --reason 'So I can send the welcome email to each new customer.'" } } },
+				{ "text": "I asked for standing permission to send welcome emails; it is in your Inbox.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"I asked for permission to send welcome emails.\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"The owner decides the mandate.\"}-->" }
+			]
+		},
+		{
 			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-EMAIL to ([a-z0-9.]+@[a-z0-9.]+[a-z])",
 			"steps": [
-				{ "tool": { "name": "bash", "input": { "command": "cat > /tmp/bench-email.json <<'J'\n{\"from\":\"hello@bench.example\",\"to\":\"{{1}}\",\"subject\":\"Welcome to Bench Bakery\",\"text\":\"Hi, thanks for signing up. Your first loaf is on us this week.\",\"effect_key\":\"bench-welcome-{{1}}\"}\nJ\nrestless email send --request-file /tmp/bench-email.json --rationale 'They signed up on the site today and asked for the welcome note.' --evidence 'owner message'" } } },
+				{ "tool": { "name": "bash", "input": { "command": "cat > /tmp/bench-email.json <<'J'\n{\"from\":\"hello@bench.example\",\"from_name\":\"Bench Bakery\",\"to\":\"{{1}}\",\"subject\":\"Welcome to Bench Bakery\",\"text\":\"Hi, thanks for signing up. Your first loaf is on us this week.\",\"effect_key\":\"bench-welcome-{{1}}\"}\nJ\nrestless email send --request-file /tmp/bench-email.json --rationale 'They signed up on the site today and asked for the welcome note.' --evidence 'owner message'" } } },
 				{ "text": "Sent the welcome email to {{1}}.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"I sent the welcome email.\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"The email is sent.\"}-->" }
 			]
 		},
@@ -23,6 +31,29 @@
 				{ "tool": { "name": "bash", "input": { "command": "mkdir -p /company/outputs && cat > /company/outputs/delivery-policy.md <<'D'\n# Delivery policy\n\nWe deliver within 10 km of the bakery. Orders placed by 8 pm arrive the next morning. Delivery is $5, free over $40.\nD" } } },
 				{ "tool": { "name": "bash", "input": { "command": "cat /company/outputs/delivery-policy.md" } } },
 				{ "text": "Wrote and reviewed the one-page delivery policy at /company/outputs/delivery-policy.md.\n<!--restless-turn:{\"decision\":\"outcome_met\",\"reason\":\"The policy is written and checked.\"}-->" }
+			]
+		},
+		{
+			"_about": "Task f: three Work items become ready together; the bench measures how far apart their first model calls land.",
+			"match": "Owner input [^]{0,120}?- owner message [0-9]+: BENCH-PARALLEL",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "restless commission --lead shelf-a --role 'writer' --team ShelfA --charter 'The shelf labels.' --title 'Shelf A label' --outcome 'BENCH-PAR: write the label at /company/outputs/shelf-a.md' --reason 'The owner asked for the shelf labels.' --expected-artifact /company/outputs/shelf-a.md && restless commission --lead shelf-b --role 'writer' --team ShelfB --charter 'The shelf labels.' --title 'Shelf B label' --outcome 'BENCH-PAR: write the label at /company/outputs/shelf-b.md' --reason 'The owner asked for the shelf labels.' --expected-artifact /company/outputs/shelf-b.md && restless commission --lead shelf-c --role 'writer' --team ShelfC --charter 'The shelf labels.' --title 'Shelf C label' --outcome 'BENCH-PAR: write the label at /company/outputs/shelf-c.md' --reason 'The owner asked for the shelf labels.' --expected-artifact /company/outputs/shelf-c.md" } } },
+				{ "text": "Three leads are writing the shelf labels; I will tell you when they are done.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"The shelf labels are in progress.\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"Three leads have the Work.\"}-->" }
+			]
+		},
+		{
+			"match": "# Work ([0-9a-f-]{36}) revision[^]*BENCH-PAR: write the label at (/company/outputs/shelf-[abc]\\.md)",
+			"scope": "all",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "mkdir -p /company/outputs && cat > {{2}} <<'D'\nShelf label: sourdough, baked daily.\nD" } } },
+				{ "text": "Wrote the label at {{2}}.\n<!--restless-turn:{\"decision\":\"outcome_met\",\"reason\":\"The label is written.\"}-->" }
+			]
+		},
+		{
+			"match": "Completed Work result for Exec delivery consideration[^]*Shelf [ABC] label",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "cat /company/outputs/shelf-a.md /company/outputs/shelf-b.md /company/outputs/shelf-c.md" } } },
+				{ "text": "The three shelf labels are ready.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"The shelf labels are ready.\"}-->\n<!--restless-turn:{\"decision\":\"waiting\",\"reason\":\"The owner has the labels.\"}-->" }
 			]
 		},
 		{
@@ -47,12 +78,22 @@
 			]
 		},
 		{
+			"_about": "The check is someone else's Work: it reads the draft against the brief. Listed before the drafter's rule, so a checker whose prompt also names the draft's Work takes this one.",
+			"match": "# Work ([0-9a-f-]{36}) revision[^]*BENCH-CHECK",
+			"scope": "all",
+			"steps": [
+				{ "tool": { "name": "bash", "input": { "command": "cat /company/outputs/delivery-policy.md" } } },
+				{ "text": "Checked /company/outputs/delivery-policy.md against the brief: zones, fees and cut-off times are all there.\n<!--restless-turn:{\"decision\":\"outcome_met\",\"reason\":\"The policy is checked against the brief.\"}-->" }
+			]
+		},
+		{
+			"_about": "The drafter writes the draft, then commissions its check from a different agent (the owner asked for someone else), as Work that requires and may revise the draft.",
 			"match": "# Work ([0-9a-f-]{36}) revision[^]*BENCH-STEP",
 			"scope": "all",
 			"steps": [
 				{ "delay_ms": 2500, "tool": { "name": "bash", "input": { "command": "mkdir -p /company/outputs && cat > /company/outputs/delivery-policy.md <<'D'\n# Delivery policy\n\nWe deliver within 10 km of the bakery. Orders placed by 8 pm arrive the next morning. Delivery is $5, free over $40.\nD" } } },
-				{ "delay_ms": 2500, "tool": { "name": "bash", "input": { "command": "restless work add --owner docs-writer --title 'Check the delivery policy' --outcome 'BENCH-WORK: check /company/outputs/delivery-policy.md against the brief (zones, fees, cut-off times)' --expected-artifact /company/outputs/delivery-policy.md --requires {{1}}" } } },
-				{ "text": "Drafted the delivery policy at /company/outputs/delivery-policy.md; its check is the next Work.\n<!--restless-turn:{\"decision\":\"outcome_met\",\"reason\":\"The draft is written and its check is commissioned.\"}-->" }
+				{ "delay_ms": 2500, "tool": { "name": "bash", "input": { "command": "restless people create --id policy-checker --role 'checker' --reason 'The owner asked for the policy to be checked by someone other than its writer.' && restless teams assign --actor policy-checker --team Docs --reason 'Checks the team documents before they reach the owner.' && restless work add --owner policy-checker --role 'checker' --title 'Check the delivery policy' --outcome 'BENCH-CHECK: check /company/outputs/delivery-policy.md against the brief (zones, fees, cut-off times)' --expected-artifact /company/outputs/delivery-policy.md --requires {{1}} --revises {{1}}" } } },
+				{ "text": "Drafted the delivery policy at /company/outputs/delivery-policy.md; the policy checker checks it next.\n<!--restless-turn:{\"decision\":\"outcome_met\",\"reason\":\"The draft is written and its independent check is commissioned.\"}-->" }
 			]
 		},
 		{

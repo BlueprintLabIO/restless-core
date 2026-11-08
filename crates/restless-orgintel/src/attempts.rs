@@ -107,6 +107,18 @@ fn resolve_attempt_base(
 }
 
 impl OrgIntel {
+    /// Whether anything in the company may still add machine mail soon: a running Work Attempt, an
+    /// actor turn in flight (it holds its cognitive lease), or Work ready for the scheduler to start.
+    /// Machine mail waits to coalesce only while something is in motion (`MailSettle`).
+    pub async fn has_work_in_motion(&self) -> Result<bool> {
+        let running: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM work_attempts WHERE state='running')                  OR EXISTS(SELECT 1 FROM actor_cognitive_leases WHERE claimed_until > now())",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(running || self.has_ready_work().await?)
+    }
+
     /// Whether the scheduler could claim at least one Work node right now.
     ///
     /// This is the read-only half of [`Self::claim_ready_work`]. The hosted

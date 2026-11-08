@@ -4669,35 +4669,47 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Err(error) => return Response::err(format!("invalid email request: {error}")),
             };
             let original = input.clone();
-            let prepared = match email::prepare_from_company(company, input).await {
-                Ok(prepared) => prepared,
-                Err(error) => return Response::err(format!("prepare email: {error:#}")),
-            };
-            if request.cmd == "email-send" && prepared.permit_id().is_nil() {
-                // No mandate permit: the owner approves this exact email in the Inbox (S109 H2).
-                let actor = request.orgintel.actor.as_deref().unwrap_or_default();
-                if actor.trim().is_empty() {
-                    return Response::err("email send needs an authenticated acting actor");
+            let actor = request.orgintel.actor.as_deref().unwrap_or_default();
+            let sending = request.cmd == "email-send";
+            let result = async {
+                let prepared = email::prepare_from_company(company, input)
+                    .await
+                    .context("prepare email")?;
+                if sending && prepared.permit_id().is_nil() {
+                    // No mandate permit: the owner approves this exact email in the Inbox (S109 H2).
+                    anyhow::ensure!(
+                        !actor.trim().is_empty(),
+                        "email send needs an authenticated acting actor"
+                    );
+                    return send_owner_approved_email(daemon, company, actor, prepared, &original)
+                        .await;
                 }
-                return match send_owner_approved_email(daemon, company, actor, prepared, &original).await {
-                    Ok(outcome) => Response::ok(outcome),
-                    Err(error) => Response::err(format!("{error:#}")),
-                };
+                if !sending {
+                    return Ok(serde_json::json!({
+                        "sender": prepared.sender(),
+                        "sender_name": prepared.sender_name(),
+                        "recipient": prepared.recipient(),
+                        "payload_sha256": prepared.payload_sha256(),
+                        "effect_key": prepared.effect_key(),
+                        "note": "Preview only; no email was sent or reserved",
+                    }));
+                }
+                send_mandated_email(daemon, company, prepared).await
             }
-            if request.cmd == "email-preview" {
-                Response::ok(serde_json::json!({
-                    "sender": prepared.sender(),
-                    "sender_name": prepared.sender_name(),
-                    "recipient": prepared.recipient(),
-                    "payload_sha256": prepared.payload_sha256(),
-                    "effect_key": prepared.effect_key(),
-                    "note": "Preview only; no email was sent or reserved",
-                }))
-            } else {
-                match send_mandated_email(daemon, company, prepared).await {
-                    Ok(outcome) => Response::ok(outcome),
-                    Err(error) => Response::err(format!("{error:#}")),
-                }
+            .await;
+            // The turn's reply carries how this send ended (`email::with_unsent_receipts`), so a
+            // reply cannot tell the owner an email went out when it did not.
+            if sending {
+                email::record_send_receipt(
+                    company,
+                    actor,
+                    &original.to,
+                    email::SendReceipt::of(&result),
+                );
+            }
+            match result {
+                Ok(outcome) => Response::ok(outcome),
+                Err(error) => Response::err(format!("{error:#}")),
             }
         }
         "effect" => match (

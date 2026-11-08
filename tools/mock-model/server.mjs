@@ -16,9 +16,22 @@
 // a rule with a tool step then a text step calls the tool, gets its result, then replies. A step may
 // also carry `delay_ms` (between streamed pieces), `error` (an HTTP status to answer with) and
 // `message` (that error's text). With no matching rule the mock answers "Mock reply: <their text>".
-// A tool step's strings may name the rule's capture groups as `{{1}}`, `{{2}}`…, taken from its
+// A step's strings may name the rule's capture groups as `{{1}}`, `{{2}}`…, taken from its
 // latest match, so a check can make Exec cite the very message that matched ("message (\\d+)…").
 // Every request is appended to --log as one JSON line, for checks to read.
+//
+// It also stands in for Resend, so an email effect can run end to end with no real provider:
+// `POST /emails` accepts and returns an id, and the `GET` lists Restless observes after a send
+// (`/emails`, `/emails/receiving`, `/suppressions`) return what was sent here. Point a stack at it
+// with RESTLESS_TEST_RESEND_API_BASE=http://127.0.0.1:<port>.
+//
+// `--latency model` (or `--latency ttft_ms=600,prefill_tps=5000,read_tps=50000,decode_tps=50`)
+// makes every answer take as long as a hosted model's might, from its own token counts: a fixed
+// time to first token, uncached input (and cache writes) at the prefill rate, cache reads at the
+// read rate and output at the decode rate. The answer is held for that long (streamed pieces are
+// spread over the decode time), and a step's own `delay_ms` is ignored, so every caller is timed by
+// the same rule. These are assumptions, not a provider's measured latency. Without it (`off`, the
+// default) answers come at once, streamed pieces `delay_ms` (20 ms) apart.
 import { createServer } from 'node:http';
 import { readFileSync, appendFileSync } from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';
@@ -33,6 +46,28 @@ const port = Number(args.port ?? 18080);
 const scenarioPath = args.scenario;
 const log = args.log;
 const MODELS = ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-4-5-20251001'];
+const LATENCY_DEFAULTS = { ttft_ms: 600, prefill_tps: 5_000, read_tps: 50_000, decode_tps: 50 };
+const latency = (() => {
+	const value = String(args.latency ?? 'off').trim();
+	if (value === 'off' || value === '') return null;
+	const rates = { ...LATENCY_DEFAULTS };
+	if (value !== 'model')
+		for (const pair of value.split(',')) {
+			const [key, number] = pair.split('=');
+			if (!(key in rates) || !(Number(number) > 0)) throw new Error(`mock-model: bad --latency ${pair}`);
+			rates[key] = Number(number);
+		}
+	return rates;
+})();
+/* How long a hosted model might take for this call: [before the first token, decoding]. */
+function modeledMs(input, outputTokens) {
+	if (!latency) return null;
+	const prefill =
+		latency.ttft_ms +
+		(1000 * (input.input_tokens + input.cache_creation_input_tokens)) / latency.prefill_tps +
+		(1000 * input.cache_read_input_tokens) / latency.read_tps;
+	return [Math.round(prefill), Math.round((1000 * outputTokens) / latency.decode_tps)];
+}
 
 /* Re-read on every request, so a check can change the scenario while the stack runs. */
 function scenario() {
@@ -132,9 +167,13 @@ function chooseStep(body) {
 	return { step: { text: `Mock reply: ${text.slice(0, 400)}` }, text };
 }
 
-/* `{{N}}` in a tool step's strings becomes the rule's Nth capture group. */
+/* `{{N}}` in a step's strings becomes the rule's Nth capture group. */
 function withGroups(step, groups) {
-	if (!step.tool || !groups.length) return step;
+	if (!groups.length) return step;
+	if (!step.tool)
+		return typeof step.text === 'string'
+			? { ...step, text: step.text.replace(/\{\{(\d+)\}\}/g, (_, n) => groups[Number(n)] ?? '') }
+			: step;
 	const fill = (value) =>
 		typeof value === 'string'
 			? value.replace(/\{\{(\d+)\}\}/g, (_, n) => groups[Number(n)] ?? '')
@@ -157,6 +196,7 @@ const tokens = (text) => Math.ceil(String(text ?? '').length / 4);
  * (5 minutes, or 1 hour for `ttl: "1h"`), reads it from cache; the rest of the prefix up to the
  * last breakpoint is written. Totals are served at GET /stats and reset by DELETE /stats. */
 const cache = new Map(); // prefix hash -> expiry (ms)
+const emails = []; // what was sent to the Resend stand-in, newest first
 const freshStats = () => ({
 	calls: 0,
 	input_tokens: 0,
@@ -165,6 +205,8 @@ const freshStats = () => ({
 	cache_creation_1h_input_tokens: 0,
 	output_tokens: 0,
 	request_bytes: 0,
+	/* The time `--latency` held answers for, summed over calls (0 without it). */
+	modeled_ms: 0,
 	by_model: {},
 	usage_by_model: {},
 	ttl_breakpoints: {}
@@ -275,7 +317,7 @@ function wireToolName(body, name) {
 }
 const outputOf = (step) => (step.tool ? tokens(JSON.stringify(step.tool)) : Math.max(1, tokens(step.text ?? '')));
 
-async function stream(response, model, step, input) {
+async function stream(response, model, step, input, modeled) {
 	response.writeHead(200, {
 		'content-type': 'text/event-stream',
 		'cache-control': 'no-cache',
@@ -283,7 +325,11 @@ async function stream(response, model, step, input) {
 	});
 	const send = (event, data) => response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 	const id = `msg_mock_${randomUUID().slice(0, 12)}`;
-	const delay = step.delay_ms ?? 20;
+	const pieces = step.tool
+		? Math.max(1, Math.ceil(JSON.stringify(step.tool.input ?? {}).length / 24))
+		: words(step.text ?? '').length;
+	if (modeled) await pause(modeled[0]);
+	const delay = modeled ? modeled[1] / pieces : (step.delay_ms ?? 20);
 	send('message_start', {
 		type: 'message_start',
 		message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, usage: { ...usageOf(input), output_tokens: 0 } }
@@ -351,15 +397,36 @@ const server = createServer(async (request, response) => {
 		if (request.method === 'DELETE') stats = freshStats();
 		return json(response, 200, stats);
 	}
+	/* Resend, for email effects (see the top of this file). */
+	if (request.method === 'POST' && url.pathname === '/emails') {
+		const sent = { id: randomUUID(), created_at: new Date().toISOString(), from: body.from, to: body.to, subject: body.subject, last_event: 'sent' };
+		emails.unshift(sent);
+		if (log) appendFileSync(log, JSON.stringify({ at: sent.created_at, method: 'POST', path: '/emails', body }) + '\n');
+		return json(response, 200, { id: sent.id });
+	}
+	if (request.method === 'GET' && ['/emails', '/emails/receiving', '/suppressions'].includes(url.pathname))
+		return json(response, 200, { object: 'list', has_more: false, data: url.pathname === '/emails' ? emails.slice(0, 100) : [] });
 	const isCall = request.method === 'POST' && url.pathname.endsWith('/messages');
-	let step = isCall ? chooseStep(body).step : null;
+	/* A scripted caller (the token-parity baselines) may name its own move in `x-mock-step`, so its
+	 * output tokens and modeled time are those of the move it replays, not of a mock reply. The
+	 * header is the step's JSON in base64. */
+	const forced = request.headers['x-mock-step'];
+	let step = isCall
+		? forced
+			? JSON.parse(Buffer.from(String(forced), 'base64').toString('utf8'))
+			: chooseStep(body).step
+		: null;
 	if (step?.tool) step = { ...step, tool: { ...step.tool, name: wireToolName(body, step.tool.name) } };
 	const input = isCall ? account(body) : null;
-	if (isCall && !step.error) record(input, outputOf(step), body, Buffer.byteLength(raw));
+	const modeled = isCall && !step.error ? modeledMs(input, outputOf(step)) : null;
+	if (isCall && !step.error) {
+		record(input, outputOf(step), body, Buffer.byteLength(raw));
+		if (modeled) stats.modeled_ms += modeled[0] + modeled[1];
+	}
 	if (log)
 		appendFileSync(
 			log,
-			JSON.stringify({ at: new Date().toISOString(), method: request.method, path: url.pathname, key, usage: input, step: step && (step.tool?.name ?? 'text'), body }) + '\n'
+			JSON.stringify({ at: new Date().toISOString(), method: request.method, path: url.pathname, key, usage: input, modeled_ms: modeled && modeled[0] + modeled[1], step: step && (step.tool?.name ?? 'text'), body }) + '\n'
 		);
 
 	if (request.method === 'GET' && url.pathname.endsWith('/models')) {
@@ -380,7 +447,9 @@ const server = createServer(async (request, response) => {
 				error: { type: 'api_error', message: step.message ?? 'Mock provider error' }
 			});
 		const model = body.model ?? MODELS[0];
-		return body.stream ? stream(response, model, step, input) : whole(response, model, step, input);
+		if (body.stream) return stream(response, model, step, input, modeled);
+		if (modeled) await pause(modeled[0] + modeled[1]);
+		return whole(response, model, step, input);
 	}
 	json(response, 404, { type: 'error', error: { type: 'not_found_error', message: `mock: no ${request.method} ${url.pathname}` } });
 });
