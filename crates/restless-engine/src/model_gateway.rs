@@ -480,6 +480,29 @@ pub fn has_own_model(config: &CompanyConfig, actor: &str) -> bool {
     actor != "default" && config.agent_intelligence.contains_key(actor)
 }
 
+/// Whether the owner pinned this agent to a model of its own: an assignment whose model or
+/// provider differs from the company default's. An assignment of the company's main model on
+/// another connection of the same provider (Reno's lead on a second Claude login, to spread the
+/// plan's limits) chooses where the agent thinks, not what it thinks with: the everyday model
+/// runs on that same connection. Without a company default to compare, any assignment pins.
+pub fn pins_own_model(config: &CompanyConfig, actor: &str) -> bool {
+    if !has_own_model(config, actor) {
+        return false;
+    }
+    let (Some(own), Some(default)) = (
+        config.agent_intelligence.get(actor),
+        config.agent_intelligence.get("default"),
+    ) else {
+        return true;
+    };
+    let bare = |model: &str| model.trim().rsplit('/').next().unwrap_or("").to_string();
+    let provider =
+        |connection: &str| crate::runtime::route_provider(connection).map(str::to_string);
+    bare(&own.model) != bare(&default.model)
+        || provider(&own.connection).is_none()
+        || provider(&own.connection) != provider(&default.connection)
+}
+
 /// The company's everyday model ahead of `candidates`, which stay behind it as failover (S102).
 /// An unset or cooling everyday model, or one already first keeps today's order. An agent the
 /// owner gave its own model on People keeps exactly that model. On a native harness (Claude or
@@ -491,11 +514,47 @@ pub async fn with_everyday_model(
     candidates: Vec<String>,
     authority: &crate::authority::AuthorityStore,
 ) -> Result<Vec<String>> {
+    everyday_ahead(
+        config,
+        has_own_model(config, actor),
+        harness,
+        candidates,
+        authority,
+    )
+    .await
+}
+
+/// [`with_everyday_model`] for a team lead routed to the everyday model (`lead_tier`): only a
+/// model of its own pins it ([`pins_own_model`]); its own connection keeps serving it.
+pub async fn with_lead_everyday_model(
+    config: &CompanyConfig,
+    actor: &str,
+    harness: crate::runtime::AgentHarness,
+    candidates: Vec<String>,
+    authority: &crate::authority::AuthorityStore,
+) -> Result<Vec<String>> {
+    everyday_ahead(
+        config,
+        pins_own_model(config, actor),
+        harness,
+        candidates,
+        authority,
+    )
+    .await
+}
+
+async fn everyday_ahead(
+    config: &CompanyConfig,
+    pinned: bool,
+    harness: crate::runtime::AgentHarness,
+    candidates: Vec<String>,
+    authority: &crate::authority::AuthorityStore,
+) -> Result<Vec<String>> {
     if config.native_model(harness).is_some() {
         let Some(everyday) = config.native_everyday_model(harness) else {
             return Ok(candidates);
         };
-        if has_own_model(config, actor) || candidates.first() == Some(&everyday) {
+        if pinned || candidates.first() == Some(&everyday) {
             return Ok(candidates);
         }
         let cooldowns = authority.active_model_cooldowns(&config.name).await?;
@@ -516,7 +575,7 @@ pub async fn with_everyday_model(
         .first()
         .and_then(|model| model.split_once('/'))
         .map(|(provider, _)| provider);
-    if has_own_model(config, actor)
+    if pinned
         || candidates.first().map(String::as_str) == Some(everyday)
         || (automatic && first_provider != everyday.split_once('/').map(|(provider, _)| provider))
     {

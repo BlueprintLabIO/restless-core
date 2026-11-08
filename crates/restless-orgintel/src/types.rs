@@ -635,6 +635,10 @@ pub struct ClaimedWork {
     pub input_fingerprint: String,
     pub inputs: Vec<ArtifactRefRow>,
     pub feedback: Vec<MessageRow>,
+    /// The `feedback` messages no earlier Attempt of this Work received. `feedback` is the Work's
+    /// whole recent thread (its commissioning message and every Staff note stay on it), so only
+    /// these are new to this Attempt.
+    pub fresh_feedback_ids: Vec<i64>,
     /// The newest prior Attempt in this Work revision, when one exists. The
     /// launch membrane uses this bounded terminal fact to prevent a successor
     /// from repeating context-heavy capture work after provider rejection.
