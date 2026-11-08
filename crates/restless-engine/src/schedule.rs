@@ -1272,6 +1272,8 @@ async fn run_exec_turn_with_lease(
     cancellation: &CancellationToken,
     lease_guard: &crate::staff::CognitiveLeaseGuard,
 ) -> Result<exec::WakeReport> {
+    // Emails this turn tries to send are told to the owner by how they ended, whatever the reply says.
+    let turn_started = std::time::Instant::now();
     let (conversation_inbox, human_sender) = org.conversation_inbox_for_turn("exec").await?;
     let membership_owner = org.current_membership_owner_actor_id().await?;
     let (owner_actor_id, human_is_membership_owner) = crate::context::human_conversation_audience(
@@ -1479,6 +1481,8 @@ async fn run_exec_turn_with_lease(
                 attempted.store(true, Ordering::Release);
                 let reply = exec_owner_update(Some(&raw_reply), true)?
                     .context("complete Exec reply did not contain an owner-facing message")?;
+                let reply =
+                    crate::email::with_unsent_receipts(&reply, &company, "exec", turn_started);
                 let message_id = org
                     .finalize_cognitive_conversation_to_with_owner_scope(
                         &lease,
@@ -1636,7 +1640,10 @@ async fn run_exec_turn_with_lease(
                 let reply = exec_owner_update(
                     report.owner_reply.as_deref(),
                     !owner_message_ids.is_empty(),
-                )?;
+                )?
+                .map(|reply| {
+                    crate::email::with_unsent_receipts(&reply, &config.name, "exec", turn_started)
+                });
                 let reply = reply.as_deref();
                 // A productive reply can survive a broken completion ask.
                 // Preserve it, but do not consume the wake while hiding the
