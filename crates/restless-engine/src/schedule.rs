@@ -580,6 +580,13 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
         }
         if runtime_running || runtime_sleeping {
             if let Ok(Some(next)) = org.next_mail_settles_at(mail_settle()).await {
+                // Nothing left that could add to it: it is owed now, not when its window ends.
+                let next =
+                    if mail_settle_now(&org).await == restless_orgintel::MailSettle::IMMEDIATE {
+                        now
+                    } else {
+                        next
+                    };
                 earliest = Some(
                     earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
                         current.min(next)
@@ -830,7 +837,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     // accountable leads. Re-derive recipients from unread mail on every scan
     // so a lost NOTIFY or daemon restart cannot strand a colleague's question.
     match org
-        .actors_owing_conversation_mail_settled(128, mail_settle())
+        .actors_owing_conversation_mail_settled(128, mail_settle_now(&org).await)
         .await
     {
         Ok(actors) => {
@@ -999,7 +1006,7 @@ async fn recover_owed_exec_work(
 
     let judgements = org.undelivered_handoff_count("exec").await.unwrap_or(0);
     let conversation = org
-        .owed_conversation_count_settled("exec", mail_settle())
+        .owed_conversation_count_settled("exec", mail_settle_now(org).await)
         .await
         .unwrap_or(0);
     let mention = crate::mentions::pending(org, "exec").await.unwrap_or(false);
@@ -1456,7 +1463,10 @@ async fn run_exec_turn_with_lease(
     let observer = Some(live_turn.observer());
     let early_reply_message_id = Arc::new(Mutex::new(None::<i64>));
     let early_reply_commit_attempted = Arc::new(AtomicBool::new(false));
-    let complete_reply_hook = (!owner_message_ids.is_empty()).then(|| {
+    // The reply is stored as soon as it is complete, before the session is torn down: for an owner's
+    // message, and for the result or report a turn delivers, which the owner waits on just the same.
+    let owner_wrote = !owner_message_ids.is_empty();
+    let complete_reply_hook = (!message_ids.is_empty()).then(|| {
         let org = org.clone();
         let lease = lease_guard.lease().clone();
         let owner_actor_id = owner_actor_id.clone();
@@ -1478,8 +1488,13 @@ async fn run_exec_turn_with_lease(
             let message_id_slot = Arc::clone(&message_id_slot);
             let attempted = Arc::clone(&attempted);
             Box::pin(async move {
+                let update = exec_owner_update(Some(&raw_reply), owner_wrote);
+                // A quiet background reply has nothing to show early; the turn's end records it.
+                if matches!(update, Ok(None)) {
+                    anyhow::bail!("a quiet Exec reply is recorded when the turn ends");
+                }
                 attempted.store(true, Ordering::Release);
-                let reply = exec_owner_update(Some(&raw_reply), true)?
+                let reply = update?
                     .context("complete Exec reply did not contain an owner-facing message")?;
                 let reply =
                     crate::email::with_unsent_receipts(&reply, &company, "exec", turn_started);
@@ -1837,7 +1852,16 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
             .lock()
             .map(|claims| claims.pending.contains_key(&company))
             .unwrap_or(false);
-        if follow_up_queued {
+        // Mail that settled behind this turn (a result, a lead's report) is owed as soon as the
+        // turn was the last thing in motion; look again now rather than when its window ends.
+        let mail_settling = match daemon.orgintel.get(&company).await {
+            Ok(org) => org
+                .next_mail_settles_at(mail_settle())
+                .await
+                .is_ok_and(|next| next.is_some()),
+            Err(_) => false,
+        };
+        if follow_up_queued || mail_settling {
             daemon.schedule_wake.notify_one();
         }
     });
@@ -2095,6 +2119,21 @@ pub(crate) fn mail_settle() -> restless_orgintel::MailSettle {
     restless_orgintel::MailSettle {
         quiet_secs: quiet,
         max_secs: quiet.max(90),
+    }
+}
+
+/// [`mail_settle`] for one company now. Machine mail waits to coalesce only while something in the
+/// company could still add to it: Work running or ready to start, or a turn in flight. With
+/// nothing in motion there is no burst to wait for, so it is owed at once (owner, 8 November: keep
+/// the coalescing that saves tokens, with no wait when the queue is empty).
+async fn mail_settle_now(org: &OrgIntel) -> restless_orgintel::MailSettle {
+    let settle = mail_settle();
+    if settle == restless_orgintel::MailSettle::IMMEDIATE {
+        return settle;
+    }
+    match org.has_work_in_motion().await {
+        Ok(false) => restless_orgintel::MailSettle::IMMEDIATE,
+        _ => settle,
     }
 }
 
