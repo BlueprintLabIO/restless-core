@@ -439,9 +439,19 @@ pub async fn settle_exec_results(
 }
 
 pub const WORK_TIER: &str = "work_tier";
-/// A first Attempt goes to the everyday model only when the decision model is at least this sure a
-/// smaller model will do the Work well (S102). Anything less, or no decision, keeps the primary.
-const EVERYDAY_TIER_AT: f64 = 0.8;
+/// A routine Staff first Attempt stays on the primary when the decision model's routine signal is
+/// below this: it leans not routine. As for leads (`lead_tier::MAIN_BELOW`), the rule has already
+/// kept repairs, reviews, feedback and owner-facing Work on the primary, and a failed everyday
+/// Attempt's rerun is a repair. Until 8 November the bar was "at least 0.8" (S102); the decision
+/// model hedges between about 0.3 and 0.7, so Reno's 11 recent Staff routings all went to the
+/// primary. A missing answer keeps the primary.
+pub const WORK_TIER_MAIN_BELOW: f64 = 0.5;
+
+/// Work the owner will see as such: owner review required, or the owner commissioned it. It stays
+/// on the primary model whatever the decision model says, as a lead's does (`lead_tier`).
+pub fn owner_facing_work(work: &restless_orgintel::WorkRow) -> bool {
+    work.owner_review_required || work.commissioned_by == "owner"
+}
 
 fn work_tier_questions() -> Value {
     json!({
@@ -452,7 +462,8 @@ fn work_tier_questions() -> Value {
 }
 
 /// Whether this Work's first Attempt may start on the everyday model. Recorded per Work with its
-/// probability; a repair, a review or any doubt stays on the primary model.
+/// probability; a repair, a review, owner-facing Work or a lean against routine (below
+/// [`WORK_TIER_MAIN_BELOW`]) stays on the primary model.
 ///
 /// With no decision model to ask (none on this plane, decisions off, or it failed), the owner's
 /// own choice decides: an everyday model the owner picked takes routine first Attempts, as the
@@ -499,7 +510,7 @@ async fn work_tier(
     };
     let everyday = decision
         .noul("routine")
-        .is_some_and(|routine| routine >= EVERYDAY_TIER_AT);
+        .is_some_and(|routine| routine >= WORK_TIER_MAIN_BELOW);
     let subject = work.id.to_string();
     if let Err(error) = org
         .record_decision(NewDecision {

@@ -6,21 +6,33 @@
 
 use axum::{routing::post, Json, Router};
 use restless_engine::decisions::{
-    decision_route, shadow_exec_results, work_suits_everyday_model, DecisionRoute, EXEC_GATE,
-    WORK_TIER,
+    decision_route, owner_facing_work, shadow_exec_results, work_suits_everyday_model,
+    DecisionRoute, EXEC_GATE, WORK_TIER, WORK_TIER_MAIN_BELOW,
 };
 use restless_engine::runtime::CompanyConfig;
-use restless_orgintel::{NewWork, OrgIntel, WorkspaceSpec};
+use restless_orgintel::{NewWork, OrgIntel, WorkRow, WorkStatus, WorkspaceSpec};
 use serde_json::{json, Value};
 
-/// A scripted relay: a nightly backup and a rename are routine, anything else matters.
+/// A scripted relay: a nightly backup and a rename are routine, anything else matters. A tidy-up
+/// and a pricing call get the hedged signals the production decision model gives (0.62, 0.3).
 async fn decide(Json(request): Json<Value>) -> Json<Value> {
     let state = request["state"].to_string();
     let routine = state.contains("Nightly backup") || state.contains("Rename");
     let p = if routine { 0.05 } else { 0.95 };
+    let hedged = if state.contains("Tidy") {
+        Some(0.62)
+    } else if state.contains("pricing") {
+        Some(0.3)
+    } else {
+        None
+    };
     let mut answers = serde_json::Map::new();
     for id in request["questions"].as_object().unwrap().keys() {
-        let noul = if id == "routine" { 1.0 - p } else { p };
+        let noul = if id == "routine" {
+            hedged.unwrap_or(1.0 - p)
+        } else {
+            p
+        };
         answers.insert(id.clone(), json!({ "type": "noul", "noul": noul }));
     }
     Json(json!({ "model": "relay/scripted", "answers": answers }))
@@ -78,6 +90,37 @@ fn included_is_the_relay_with_the_gate_active() {
     );
 }
 
+#[test]
+fn staff_routing_keeps_owner_facing_work_on_the_primary_below_a_lower_bar() {
+    assert_eq!(WORK_TIER_MAIN_BELOW, 0.5);
+    let work = |commissioned_by: &str, owner_review_required: bool| WorkRow {
+        id: uuid::Uuid::new_v4(),
+        goal_id: None,
+        owner_id: "scrooge".into(),
+        title: "Draft the reply".into(),
+        outcome: "Draft the reply.".into(),
+        status: WorkStatus::Active,
+        resolution: String::new(),
+        priority: 0,
+        expected_artifact: String::new(),
+        owner_review_required,
+        producing_topology: Default::default(),
+        commissioned_by: commissioned_by.into(),
+        repo: None,
+        base_ref: None,
+        integration_branch: None,
+        worktree: None,
+        revision: 1,
+        attempt_limit: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    assert!(owner_facing_work(&work("owner", false)));
+    assert!(owner_facing_work(&work("reno-supervisor", true)));
+    assert!(!owner_facing_work(&work("reno-supervisor", false)));
+    assert!(!owner_facing_work(&work("exec", false)));
+}
+
 #[tokio::test]
 async fn included_decisions_gate_results_and_tier_work_through_the_relay() {
     let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
@@ -129,9 +172,13 @@ async fn included_decisions_gate_results_and_tier_work_through_the_relay() {
     assert_eq!(of(routine).model, "relay/scripted");
 
     // Routine Work tiers to the everyday model through the same relay; judgement Work does not.
+    // A hedge (0.62) is routine enough: the primary takes a first Attempt only when the decision
+    // model leans not routine (below 0.5). Under the old 0.8 bar it went to the primary.
     for (title, everyday) in [
         ("Rename the invoices folder", true),
         ("Design the new brand", false),
+        ("Tidy the changelog headings", true),
+        ("Rework the pricing for trades", false),
     ] {
         let id = org
             .add_work(NewWork {
@@ -158,7 +205,7 @@ async fn included_decisions_gate_results_and_tier_work_through_the_relay() {
             .await
             .unwrap()
             .len(),
-        2
+        4
     );
 
     // Unset: the same relay decides, in shadow, and nothing is consumed.
