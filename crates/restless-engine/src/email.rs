@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use uuid::Uuid;
 
-const RESEND_EMAILS_URL: &str = "https://api.resend.com/emails";
-const RESEND_RECEIVING_URL: &str = "https://api.resend.com/emails/receiving";
-const RESEND_SUPPRESSIONS_URL: &str = "https://api.resend.com/suppressions";
+const RESEND_EMAILS_PATH: &str = "/emails";
+const RESEND_RECEIVING_PATH: &str = "/emails/receiving";
+const RESEND_SUPPRESSIONS_PATH: &str = "/suppressions";
 
 /// Resend's API, or a local stand-in for the end-to-end check (`scripts/verify-incoming-email.py`).
 /// `RESTLESS_TEST_RESEND_API_BASE` is honoured only for a loopback `http://127.0.0.1:<port>`
@@ -414,7 +414,7 @@ pub async fn observe(
         Some(
             observe_list(
                 &client,
-                RESEND_RECEIVING_URL,
+                &format!("{}{RESEND_RECEIVING_PATH}", resend_api_base()),
                 resend_production_key,
                 (list == Some("inbound")).then_some(after).flatten(),
             )
@@ -427,7 +427,7 @@ pub async fn observe(
         Some(
             observe_list(
                 &client,
-                RESEND_EMAILS_URL,
+                &format!("{}{RESEND_EMAILS_PATH}", resend_api_base()),
                 resend_production_key,
                 (list == Some("outbound")).then_some(after).flatten(),
             )
@@ -440,7 +440,7 @@ pub async fn observe(
         Some(
             observe_list(
                 &client,
-                RESEND_SUPPRESSIONS_URL,
+                &format!("{}{RESEND_SUPPRESSIONS_PATH}", resend_api_base()),
                 resend_production_key,
                 (list == Some("suppressions")).then_some(after).flatten(),
             )
@@ -833,6 +833,39 @@ fn canonical_address(value: &str, field: &str) -> Result<String> {
 
 fn hex_sha256(value: &[u8]) -> String {
     format!("{:x}", Sha256::digest(value))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{routing::get, Json, Router};
+
+    /// Observation reads the same Resend base as a send, so a local stand-in sees both and a test
+    /// or benchmark never sends a company key to the real provider.
+    #[tokio::test]
+    async fn observation_uses_the_local_resend_stand_in() {
+        let _resend = super::TEST_RESEND_BASE.lock().await;
+        let list = |id: &'static str| {
+            move || async move { Json(serde_json::json!({ "data": [{ "id": id }], "has_more": false })) }
+        };
+        let app = Router::new()
+            .route("/emails", get(list("sent-here")))
+            .route("/emails/receiving", get(list("received-here")))
+            .route("/suppressions", get(list("suppressed-here")));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.ok() });
+        // SAFETY: only Resend calls read this, under TEST_RESEND_BASE.
+        unsafe { std::env::set_var("RESTLESS_TEST_RESEND_API_BASE", format!("http://{address}")) };
+        let observed = super::observe("re_stand_in", None, None).await;
+        unsafe { std::env::remove_var("RESTLESS_TEST_RESEND_API_BASE") };
+        let observed = observed.unwrap();
+        assert_eq!(observed["outbound"]["messages"][0]["id"], "sent-here");
+        assert_eq!(observed["inbound"]["messages"][0]["id"], "received-here");
+        assert_eq!(
+            observed["suppressions"]["messages"][0]["id"],
+            "suppressed-here"
+        );
+    }
 }
 
 #[cfg(test)]
