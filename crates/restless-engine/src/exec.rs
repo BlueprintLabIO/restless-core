@@ -1779,10 +1779,11 @@ async fn gather_snapshot(
 ) -> Result<ContextSnapshot> {
     let (current_plan, latest_journal) = match hosted_files {
         Some(files) => files,
-        None => (
-            read_company_file(container, "/company/org/exec/current-plan.md").await?,
-            latest_journal_entry(container).await?,
-        ),
+        // Two container commands every Exec turn waits on: run them side by side.
+        None => tokio::try_join!(
+            read_company_file(container, "/company/org/exec/current-plan.md"),
+            latest_journal_entry(container),
+        )?,
     };
     // These reads use independent records and never mutate company state. Run
     // two queries concurrently within each existing database pool, keeping
