@@ -107,13 +107,6 @@ fn resolve_attempt_base(
 }
 
 impl OrgIntel {
-    /// Whether the scheduler could claim at least one Work node right now.
-    ///
-    /// This is the read-only half of [`Self::claim_ready_work`]. The hosted
-    /// account plane uses it to decide whether a sleeping company Runtime is
-    /// owed a wake. It deliberately repeats the claim predicate: reporting a
-    /// merely active or proposed Work row would turn blocked work into a
-    /// permanent wake loop.
     /// Whether anything in the company may still add machine mail soon: a running Work Attempt, an
     /// actor turn in flight (it holds its cognitive lease), or Work ready for the scheduler to start.
     /// Machine mail waits to coalesce only while something is in motion (`MailSettle`).
@@ -126,6 +119,13 @@ impl OrgIntel {
         Ok(running || self.has_ready_work().await?)
     }
 
+    /// Whether the scheduler could claim at least one Work node right now.
+    ///
+    /// This is the read-only half of [`Self::claim_ready_work`]. The hosted
+    /// account plane uses it to decide whether a sleeping company Runtime is
+    /// owed a wake. It deliberately repeats the claim predicate: reporting a
+    /// merely active or proposed Work row would turn blocked work into a
+    /// permanent wake loop.
     pub async fn has_ready_work(&self) -> Result<bool> {
         Ok(sqlx::query_scalar(
             "SELECT EXISTS( \
