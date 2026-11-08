@@ -93,6 +93,7 @@ ENV NODE_OPTIONS=--no-network-family-autoselection
 # without a second tool. Explicitly refresh the base image's PCRE2 library from
 # Ubuntu security; installing curl alone does not describe that dependency.
 RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade --yes --no-install-recommends \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
         curl \

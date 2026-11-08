@@ -18,6 +18,7 @@ FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd
 COPY --from=build /usr/local/bin/node /usr/local/bin/node
 
 RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade --yes --no-install-recommends \
     && apt-get install --yes --no-install-recommends ca-certificates libpcre2-8-0 libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
