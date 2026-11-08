@@ -60,6 +60,19 @@ known_groups() { # tree groups
   return 0
 }
 
+# Runs the tree's own Core qualify. Each worker slot has its own Cargo target volumes: Cargo trusts
+# mtimes, so a slot sharing a target with another commit tests that commit's code. A branch from
+# before --cache-slot has only the one shared volume, so those branches take turns.
+qualify_core() { # tree [qualify arguments]
+  local tree="$1"; shift
+  cd "$tree" || return 1
+  if grep -q "cacheSlot: string" .dagger/src/index.ts; then
+    timeout 3h "$dagger" --silent call qualify --source=. --cache-slot="pr-$slot" "$@"
+  else
+    timeout 3h flock "$state/.shared-target.lock" "$dagger" --silent call qualify --source=. "$@"
+  fi
+}
+
 status() { # repo sha state description
   gh api -X POST "repos/$1/statuses/$2" -f state="$3" -f context=local-ci -f description="$4" >/dev/null 2>&1 \
     || log "could not post $3 for $1@${2:0:12}"
@@ -88,10 +101,10 @@ check() { # repo checkout number sha
         echo "no qualified input changed (docs only)" >"$state/$name.log"
       elif [ "$groups" = all ] || ! grep -q "only: string = ''" "$tree/.dagger/src/index.ts"; then
         # The PR's own qualify runs; one from before scoped groups runs everything.
-        (cd "$tree" && timeout 3h "$dagger" --silent call qualify --source=.) >"$state/$name.log" 2>&1
+        (qualify_core "$tree") >"$state/$name.log" 2>&1
       else
         log "$repo#$number qualifying $groups"
-        (cd "$tree" && timeout 3h "$dagger" --silent call qualify --source=. --only="$groups") >"$state/$name.log" 2>&1
+        (qualify_core "$tree" --only="$groups") >"$state/$name.log" 2>&1
       fi ;;
     */restless-cloud)
       (cd "$tree" && timeout 2h env -i HOME="$HOME" USER="${USER:-}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" \

@@ -40,14 +40,25 @@ function cockpit(source: Directory): Container {
   return project(source, 'web').withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']);
 }
 
-function rust(source: Directory): Container {
+/**
+ * Cargo trusts mtimes for workspace crates, and Dagger gives a source tree it has seen before the
+ * mtimes of its first upload, so a retried tree can look older than another tree's artifacts in the
+ * volume. Run this in the same exec as cargo: a separate exec would be cached with its old stamps.
+ * Every check already rebuilds the workspace crates (its worktree is new), so this costs nothing.
+ */
+const FRESH_SOURCES = 'find /src -path /src/target -prune -o -type f -exec touch {} +';
+
+/** One target volume per concurrent qualify (PR worker slot): Cargo would take another commit's newer artifacts as current. */
+const targetVolume = (name: string, slot: string) => dag.cacheVolume(`restless-core-cargo-${name}-${slot}-v1`);
+
+function rust(source: Directory, cacheSlot: string): Container {
   return dag.container().from(RUST_IMAGE)
     .withEnvVariable('CARGO_BUILD_JOBS', cargoJobs()).withEnvVariable('CARGO_INCREMENTAL', '0')
     // Cargo's download lock is $CARGO_HOME/.package-cache, outside these volumes, so concurrent
     // pipelines unpacked the same crate at once (release run 40199351038). Dagger serialises them.
     .withMountedCache('/usr/local/cargo/registry', dag.cacheVolume('restless-core-cargo-registry-v1'), { sharing: CacheSharingMode.Locked })
     .withMountedCache('/usr/local/cargo/git', dag.cacheVolume('restless-core-cargo-git-v1'), { sharing: CacheSharingMode.Locked })
-    .withMountedCache('/src/target', dag.cacheVolume('restless-core-cargo-check-v1'))
+    .withMountedCache('/src/target', targetVolume('check', cacheSlot))
     .withDirectory('/src', source, { include: ['Cargo.toml', 'Cargo.lock', 'crates/**', 'contracts/**', 'docs/COMPANY_OPERATING_RULES.md',
       'docs/sprints/sprint-36/contract/v1/*.json',
       'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py'], exclude: EXCLUDES })
@@ -66,7 +77,7 @@ const NEXTEST_SHA256 = '32d1d8c0567b7a80bee2bad8bb09125c846da96bc009b2de11ec0855
  * locked registry, and keep a warm test-profile build between PRs. Tests that need Docker, a
  * company image or a model key skip on their own.
  */
-function engineTests(source: Directory): Container {
+function engineTests(source: Directory, cacheSlot: string): Container {
   const database = dag.container().from(POSTGRES_IMAGE)
     .withEnvVariable('POSTGRES_USER', 'restless').withEnvVariable('POSTGRES_PASSWORD', 'restless')
     .withEnvVariable('POSTGRES_DB', 'restless_test')
@@ -84,7 +95,7 @@ function engineTests(source: Directory): Container {
       + ` && echo "${NEXTEST_SHA256}  /tmp/nextest.tgz" | sha256sum -c - && tar -xzf /tmp/nextest.tgz -C /usr/local/cargo/bin && rm /tmp/nextest.tgz`])
     .withMountedCache('/usr/local/cargo/registry', dag.cacheVolume('restless-core-cargo-registry-engine-v1'), { sharing: CacheSharingMode.Locked })
     .withMountedCache('/usr/local/cargo/git', dag.cacheVolume('restless-core-cargo-git-engine-v1'), { sharing: CacheSharingMode.Locked })
-    .withMountedCache('/src/target', dag.cacheVolume('restless-core-cargo-engine-test-v1'))
+    .withMountedCache('/src/target', targetVolume('engine-test', cacheSlot))
     .withDirectory('/src', source, { include: ['Cargo.toml', 'Cargo.lock', 'crates/**', 'contracts/**', 'docs/COMPANY_OPERATING_RULES.md',
       'docs/sprints/sprint-36/contract/v1/*.json', 'docs/dogfood/company-identity/*.json', '.config/nextest.toml', '.config/nextest/**',
       'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py',
@@ -95,7 +106,7 @@ function engineTests(source: Directory): Container {
     .withEnvVariable('RESTLESS_TEST_ADMIN_URL', 'postgres://restless:restless@postgres:5432/restless_test')
     .withEnvVariable('RESTLESS_NATIVE_TEST_ROOT', '/tmp/restless-native-tests')
     .withEnvVariable('RUST_MIN_STACK', '16777216')
-    .withExec(['/bin/sh', '-ec', 'mkdir -p "$RESTLESS_NATIVE_TEST_ROOT"'
+    .withExec(['/bin/sh', '-ec', `${FRESH_SOURCES} && mkdir -p "$RESTLESS_NATIVE_TEST_ROOT"`
       + ' && exec cargo nextest run --locked --profile qualify -p restless-engine -p restless-orgintel']);
 }
 
@@ -328,6 +339,8 @@ export class RestlessCore {
     /** Comma list of check groups to run (rust, engine, web, documents, sheets, issuer, release); empty runs all.
      * PR checks pass only the groups a change can affect; a release always runs all of them. */
     only: string = '',
+    /** Names this qualify's Cargo target volumes. Qualifies that run at the same time need different slots. */
+    cacheSlot: string = 'main',
   ): Promise<string> {
     const timings: Timing[] = [];
     const groups = new Set(only.split(',').map((group) => group.trim()).filter(Boolean));
@@ -336,12 +349,13 @@ export class RestlessCore {
     const runs = (group: string) => groups.size === 0 || groups.has(group);
     const checks: [string, string, () => Promise<unknown>][] = [
       ['release', 'schema version', () => this.verifySchemaVersion(source).sync()],
-      ['rust', 'rust check and boundary tests', () => rust(source).withExec(['cargo', 'check', '--workspace', '--locked'])
-        .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'company_projection::tests'])
-        .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync()],
-      ['rust', 'paired machine isolation tests', () => rust(source)
-        .withExec(['cargo', 'test', '--locked', '-p', 'restless-machine']).sync()],
-      ['engine', 'engine and orgintel tests', () => engineTests(source).sync()],
+      ['rust', 'rust check and boundary tests', () => rust(source, cacheSlot).withExec(['/bin/sh', '-ec', `${FRESH_SOURCES}`
+        + ' && cargo check --workspace --locked'
+        + ' && cargo test --locked -p restlessd company_projection::tests'
+        + ' && cargo test --locked -p restlessd public_jwks_routes_are_method_and_path_exact']).sync()],
+      ['rust', 'paired machine isolation tests', () => rust(source, cacheSlot)
+        .withExec(['/bin/sh', '-ec', `${FRESH_SOURCES} && cargo test --locked -p restless-machine`]).sync()],
+      ['engine', 'engine and orgintel tests', () => engineTests(source, cacheSlot).sync()],
       ['web', 'cockpit check and build', () => cockpit(source).sync()],
       ['web', 'cockpit unit tests', () => project(source, 'web').withExec(['npm', 'test']).sync()],
       ['web', 'browser overlays', () => this.verifyOverlays(source).sync()],
