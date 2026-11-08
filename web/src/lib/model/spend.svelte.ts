@@ -104,11 +104,36 @@ export interface LeadSplit {
 	tokens: number;
 	everyday_tokens: number;
 	everyday_model: string;
+	/** Lead turns the router decided in the period, and how many went to the everyday model. */
+	turns?: number;
+	everyday_turns?: number;
+	escalated_turns?: number;
+	/** Why the other turns stayed on the main model, most common first. */
+	main_reasons?: Array<{ reason: string; turns: number }>;
 }
-/** "Lead turns · 70% everyday": the share of team leads' calls on the everyday model. */
+/** "Lead turns · 70% everyday": the share of team leads' routed turns on the everyday model, or
+ * of their calls when no turn was routed in the period. */
 export function leadSplitLine(split: LeadSplit | null | undefined): string | null {
-	if (!split || !split.calls) return null;
-	return `Lead turns · ${Math.round((100 * split.everyday_calls) / split.calls)}% everyday`;
+	if (!split) return null;
+	if (split.turns) {
+		return `Lead turns · ${Math.round((100 * (split.everyday_turns ?? 0)) / split.turns)}% everyday`;
+	}
+	if (!split.calls) return null;
+	return `Lead calls · ${Math.round((100 * split.everyday_calls) / split.calls)}% everyday`;
+}
+/** The hover text behind that line: what was counted, and why the rest ran on the main model. */
+export function leadSplitDetail(split: LeadSplit, count: (value: number) => string): string {
+	const model = split.everyday_model.split('/').at(-1);
+	const calls = `${count(split.everyday_calls)} of ${count(split.calls)} team lead calls ran on ${model}, the everyday model.`;
+	if (!split.turns) return `${calls} No lead turn was routed in this period.`;
+	const reasons = (split.main_reasons ?? [])
+		.slice(0, 3)
+		.map((entry) => `${entry.reason} (${count(entry.turns)})`)
+		.join(', ');
+	const escalated = split.escalated_turns
+		? ` ${count(split.escalated_turns)} reran on the main model.`
+		: '';
+	return `${count(split.everyday_turns ?? 0)} of ${count(split.turns)} lead turns ran on ${model}.${escalated}${reasons ? ` On the main model: ${reasons}.` : ''} ${calls}`;
 }
 export interface SpendFilters {
 	days: number;

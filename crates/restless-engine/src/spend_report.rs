@@ -167,6 +167,54 @@ pub struct LeadSplit {
     pub everyday_tokens: u64,
     /// The everyday model those calls were counted against.
     pub everyday_model: String,
+    /// Lead turns the router decided in the period (`lead_tier` in the decision log), and how
+    /// many it sent to the everyday model. Calls also count the days before a lead was routed and
+    /// every tool step of a turn, so the share of turns is the one the owner reads.
+    pub turns: u64,
+    pub everyday_turns: u64,
+    /// Everyday turns that reran on the main model.
+    pub escalated_turns: u64,
+    /// Why the other turns stayed on the main model, most common first.
+    pub main_reasons: Vec<LeadReason>,
+}
+
+/// One reason lead turns stayed on the main model, and how many did.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct LeadReason {
+    pub reason: String,
+    pub turns: u64,
+}
+
+/// Count the router's lead turns since `since` into `split` (8 Nov: Reno's report said "0%
+/// everyday" with no hint that its lead's own connection kept every turn on the main model).
+pub fn add_lead_turns(
+    split: &mut LeadSplit,
+    decisions: &[restless_orgintel::DecisionRow],
+    since: Option<DateTime<Utc>>,
+) {
+    let mut reasons: Vec<LeadReason> = Vec::new();
+    for row in decisions.iter().filter(|row| {
+        row.kind == crate::lead_tier::LEAD_TIER && since.is_none_or(|since| row.created_at >= since)
+    }) {
+        split.turns += 1;
+        if row.choice == "everyday" {
+            split.everyday_turns += 1;
+            if row.outcome.as_deref() == Some("escalated") {
+                split.escalated_turns += 1;
+            }
+            continue;
+        }
+        let reason = row.answers["reason"]
+            .as_str()
+            .unwrap_or("not recorded")
+            .to_string();
+        match reasons.iter_mut().find(|known| known.reason == reason) {
+            Some(known) => known.turns += 1,
+            None => reasons.push(LeadReason { reason, turns: 1 }),
+        }
+    }
+    reasons.sort_by(|a, b| b.turns.cmp(&a.turns).then_with(|| a.reason.cmp(&b.reason)));
+    split.main_reasons = reasons;
 }
 
 /// Over `rows`: the calls of the current team leads, and those on the everyday model (compared by
@@ -575,7 +623,7 @@ pub async fn report(
     for row in &rows {
         totals.add(row);
     }
-    let lead_turns = lead_split(
+    let mut lead_turns = lead_split(
         &rows,
         &leads,
         config
@@ -583,6 +631,16 @@ pub async fn report(
             .and_then(|config| config.everyday_for(config.coordination_harness))
             .as_deref(),
     );
+    // Turns are the company's whole lead routing; a filter by person or model shows calls only.
+    if let (Some(split), Some(org), None, None) =
+        (lead_turns.as_mut(), &org, &query.actor, &query.model)
+    {
+        let decisions = org
+            .recent_decisions(Some(crate::lead_tier::LEAD_TIER), 5000)
+            .await
+            .unwrap_or_default();
+        add_lead_turns(split, &decisions, since);
+    }
     let mut by_actor = groups(&rows, |row| (row.actor.clone(), row.person.clone()));
     by_actor.sort_by_key(|group| std::cmp::Reverse(group.totals.tokens));
     let by_model = groups(&rows, |row| (row.model.clone(), row.model.clone()));
@@ -722,6 +780,58 @@ mod tests {
         assert_eq!((split.calls, split.everyday_calls), (3, 2));
         assert_eq!((split.tokens, split.everyday_tokens), (3600, 2400));
         assert_eq!(lead_split(&rows, &leads, None), None);
+
+        // Turns come from the router's records in the period, with why the rest stayed on main.
+        let decision = |choice: &str, reason: &str, outcome: Option<&str>, days_ago: i64| {
+            restless_orgintel::DecisionRow {
+                id: 0,
+                kind: crate::lead_tier::LEAD_TIER.into(),
+                subject: "attempt:x".into(),
+                mode: "active".into(),
+                model: "rule".into(),
+                answers: serde_json::json!({ "reason": reason }),
+                choice: choice.into(),
+                latency_ms: 0,
+                outcome: outcome.map(str::to_string),
+                outcome_at: None,
+                created_at: Utc::now() - Duration::days(days_ago),
+            }
+        };
+        let decisions = [
+            decision("everyday", "routine coordination", None, 1),
+            decision("everyday", "routine coordination", Some("escalated"), 1),
+            decision("main", "the lead has its own model", None, 1),
+            decision("main", "the lead has its own model", None, 2),
+            decision("main", "a repair or retry", None, 2),
+            decision("main", "a repair or retry", None, 30),
+        ];
+        let mut counted = split.clone();
+        add_lead_turns(
+            &mut counted,
+            &decisions,
+            Some(Utc::now() - Duration::days(7)),
+        );
+        assert_eq!(
+            (
+                counted.turns,
+                counted.everyday_turns,
+                counted.escalated_turns
+            ),
+            (5, 2, 1)
+        );
+        assert_eq!(
+            counted.main_reasons,
+            [
+                LeadReason {
+                    reason: "the lead has its own model".into(),
+                    turns: 2
+                },
+                LeadReason {
+                    reason: "a repair or retry".into(),
+                    turns: 1
+                },
+            ]
+        );
         assert_eq!(
             lead_split(
                 &rows,
