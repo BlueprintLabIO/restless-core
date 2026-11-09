@@ -387,7 +387,8 @@ pub async fn wake(
             "exec",
             None,
             None,
-            crate::capability::is_turn_session(&auth.session_id).then_some(auth.session_id.as_str()),
+            crate::capability::is_turn_session(&auth.session_id)
+                .then_some(auth.session_id.as_str()),
         )
         .await?;
         // The first output of this turn lifts the model's cooldown at once (3 Nov 2026).

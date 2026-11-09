@@ -69,19 +69,14 @@ pub fn open_turn(session: &str) -> Option<TurnScope> {
     if !is_turn_session(session) {
         return None;
     }
-    open_turns()
-        .lock()
-        .ok()?
-        .insert(session.to_string());
+    open_turns().lock().ok()?.insert(session.to_string());
     Some(TurnScope {
         session: session.to_string(),
     })
 }
 
 fn turn_is_open(session: &str) -> bool {
-    open_turns()
-        .lock()
-        .is_ok_and(|open| open.contains(session))
+    open_turns().lock().is_ok_and(|open| open.contains(session))
 }
 
 fn session_ttl(work_id: Option<Uuid>) -> Duration {

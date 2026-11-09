@@ -39,8 +39,11 @@ use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt 
 use tokio_util::sync::CancellationToken;
 
 mod warm;
-pub use warm::{drain_all as drain_warm_processes, drain_company as drain_company_warm_processes, evict_idle_for_capacity};
 pub use warm::CredentialDelivery;
+pub use warm::{
+    drain_all as drain_warm_processes, drain_company as drain_company_warm_processes,
+    evict_idle_for_capacity,
+};
 use warm::{AgentProcess, WarmKey, MODEL_CAPABILITY_FILE_ENV, SESSION_CAPABILITY_FILE_ENV};
 
 #[cfg(test)]
@@ -1881,20 +1884,21 @@ where
     let turn_scope = crate::capability::open_turn(&auth.session_id);
     let delivery =
         warm::credential_delivery(harness, &auth.model, turn_scope.is_some(), container).await;
-    let warm_key = (delivery == CredentialDelivery::TurnFile && !controls.completion_only).then(|| {
-        WarmKey::new(
-            &auth.company,
-            actor,
-            container,
-            profile.build(),
-            &auth.model,
-            &auth.effort,
-            workdir,
-            &controls.system_prompt,
-            &reported_native_tools,
-            controls.team_coordination_wake,
-        )
-    });
+    let warm_key =
+        (delivery == CredentialDelivery::TurnFile && !controls.completion_only).then(|| {
+            WarmKey::new(
+                &auth.company,
+                actor,
+                container,
+                profile.build(),
+                &auth.model,
+                &auth.effort,
+                workdir,
+                &controls.system_prompt,
+                &reported_native_tools,
+                controls.team_coordination_wake,
+            )
+        });
     let mut parked = match &warm_key {
         Some(key) => warm::take(key).await,
         None => None,
@@ -1941,9 +1945,9 @@ where
                     let container = container.to_string();
                     let auth = auth.clone();
                     let actor = actor.to_string();
-                    tokio::spawn(
-                        async move { prove_tool_contract(&container, profile, &auth, &actor).await },
-                    )
+                    tokio::spawn(async move {
+                        prove_tool_contract(&container, profile, &auth, &actor).await
+                    })
                 };
                 let process = launch_process(
                     container,
@@ -2090,8 +2094,7 @@ where
         purge_exact_secret_residue(container, &profile_root, &auth.coordination_token).await
     };
     if keep {
-        let (secrets, turn_end) =
-            tokio::join!(secret_cleanup, warm::end_turn_in_process(&process));
+        let (secrets, turn_end) = tokio::join!(secret_cleanup, warm::end_turn_in_process(&process));
         return match secrets.and(turn_end) {
             Ok(()) => {
                 warm::park(warm_key.expect("checked above"), process).await;
@@ -2269,7 +2272,10 @@ async fn write_credential_files(
     if !output.status.success() {
         anyhow::bail!(
             "deliver this turn's grants: {}",
-            String::from_utf8_lossy(&output.stderr).chars().take(300).collect::<String>()
+            String::from_utf8_lossy(&output.stderr)
+                .chars()
+                .take(300)
+                .collect::<String>()
         );
     }
     Ok(())
@@ -2450,8 +2456,7 @@ async fn launch_process(
     let notification_hooks = Arc::clone(&hooks);
     let stop = CancellationToken::new();
     let stop_connection = stop.clone();
-    let (connected_tx, connected_rx) =
-        tokio::sync::oneshot::channel::<ConnectionTo<Agent>>();
+    let (connected_tx, connected_rx) = tokio::sync::oneshot::channel::<ConnectionTo<Agent>>();
     tokio::spawn(async move {
         let _ = Client
             .builder()
@@ -2743,7 +2748,14 @@ async fn establish_session(args: EstablishSession<'_>) -> Result<SessionReady> {
                     .await
                     .context("acp session/load to deliver this turn's tool grant")?;
                 }
-                (prior_id, true, false, None, prior.cumulative_cost_usd, Vec::new())
+                (
+                    prior_id,
+                    true,
+                    false,
+                    None,
+                    prior.cumulative_cost_usd,
+                    Vec::new(),
+                )
             }
             Some(prior)
                 if session_locator_is_reusable(
@@ -2852,7 +2864,10 @@ async fn establish_session(args: EstablishSession<'_>) -> Result<SessionReady> {
             .await
             .context("acp session/set_config_option for exact model")?;
         if !model_config_is_selected(&configured.config_options, &model_config_id, &model_value) {
-            anyhow::bail!("ACP agent did not confirm exact selected model {}", auth.model);
+            anyhow::bail!(
+                "ACP agent did not confirm exact selected model {}",
+                auth.model
+            );
         }
         let mut confirmed_options = configured.config_options;
         if profile.harness == crate::runtime::AgentHarness::ClaudeAgent {

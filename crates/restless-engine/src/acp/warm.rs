@@ -148,7 +148,10 @@ impl AgentProcess {
             &self.actor,
         )
         .await;
-        let mut artifacts = vec![self.system_prompt_path.clone(), self.session_runtime.clone()];
+        let mut artifacts = vec![
+            self.system_prompt_path.clone(),
+            self.session_runtime.clone(),
+        ];
         if !keep_marker {
             artifacts.push(self.session_marker.clone());
         }
@@ -439,7 +442,10 @@ mod tests {
     fn any_change_to_the_launch_contract_changes_the_key() {
         let original = key("a prompt", "anthropic/claude-sonnet-5-5");
         assert_eq!(original, key("a prompt", "anthropic/claude-sonnet-5-5"));
-        assert_ne!(original, key("another prompt", "anthropic/claude-sonnet-5-5"));
+        assert_ne!(
+            original,
+            key("another prompt", "anthropic/claude-sonnet-5-5")
+        );
         assert_ne!(original, key("a prompt", "anthropic/claude-opus-5-5"));
     }
 
