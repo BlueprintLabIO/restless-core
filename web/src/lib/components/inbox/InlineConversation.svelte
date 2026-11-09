@@ -6,7 +6,8 @@
 	 * typed in the rail. */
 	import { sendActorMessage } from '$lib/model/attention';
 	import { failureSentence } from '$lib/model/failure';
-	import { quickAnswers, replyBody } from '$lib/model/inline-reply';
+	import { quickAnswers, replyBody, stuckWorkAnswer } from '$lib/model/inline-reply';
+	import { steerWork } from '$lib/model/work-actions';
 	import InlinePanel from './InlinePanel.svelte';
 	import InlineChoice from './InlineChoice.svelte';
 	import Field from '$lib/ui/forms/Field.svelte';
@@ -21,6 +22,7 @@
 		workId,
 		answers,
 		fields = [],
+		settlesWork = false,
 		ondone
 	}: {
 		companyId: string;
@@ -33,6 +35,8 @@
 		answers?: string[];
 		/** The facts the asker wants, a field each. */
 		fields?: { id: string; label: string }[];
+		/** A stuck-Work card: Resume and Stop act on the Work itself rather than asking the lead. */
+		settlesWork?: boolean;
 		/** A reply from the card went: the card shows the receipt. */
 		ondone?: (receipt: string) => void;
 	} = $props();
@@ -59,12 +63,32 @@
 		}
 	}
 
-	const answer = (text: string): CardAction => ({
-		label: text,
-		busyLabel: 'Sending…',
-		title: `Sends “${text}” to ${actorName}`,
-		run: () => send(text, `Sent to ${actorName}: “${text}”. They carry on with your answer.`)
-	});
+	async function settle(work: string, direct: NonNullable<ReturnType<typeof stuckWorkAnswer>>) {
+		error = '';
+		try {
+			await steerWork(companyId, work, direct.steer, direct.reason);
+			ondone?.(direct.receipt);
+		} catch (cause) {
+			error = failureSentence(cause, 'That was not recorded. Try again.');
+		}
+	}
+
+	const answer = (text: string): CardAction => {
+		const direct = settlesWork && workId ? stuckWorkAnswer(text) : null;
+		if (direct && workId)
+			return {
+				label: text,
+				busyLabel: direct.busyLabel,
+				title: direct.title,
+				run: () => settle(workId, direct)
+			};
+		return {
+			label: text,
+			busyLabel: 'Sending…',
+			title: `Sends “${text}” to ${actorName}`,
+			run: () => send(text, `Sent to ${actorName}: “${text}”. They carry on with your answer.`)
+		};
+	};
 
 	cardActions(() => {
 		if (!ondone) return {};

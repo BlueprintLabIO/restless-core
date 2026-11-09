@@ -45,3 +45,26 @@ export function replyBody(question: string, answer: string): string {
 	const asked = question.trim().replace(/^>\s*/, '');
 	return asked ? `> ${asked}\n\n${answer.trim()}` : answer.trim();
 }
+
+/** A stuck-Work card's buttons that the owner's press settles itself, so the card clears at once
+ * instead of waiting for the lead's next turn. Anything else, such as dropping a requirement,
+ * needs the lead's judgement and stays a reply. */
+export function stuckWorkAnswer(answer: string) {
+	if (answer === 'Resume it')
+		return {
+			steer: 'resume',
+			reason: 'Resumed by the owner from the Inbox',
+			busyLabel: 'Resuming…',
+			title: 'Starts this Work again',
+			receipt: 'Resumed. It is back in the queue.'
+		} as const;
+	if (answer === 'Stop it for good')
+		return {
+			steer: 'abandon',
+			reason: 'Stopped by the owner from the Inbox',
+			busyLabel: 'Stopping…',
+			title: 'Stops this Work now. It moves to Stopped, where it can be restored.',
+			receipt: 'Stopped for good. It can be restored from Stopped on the Work page.'
+		} as const;
+	return null;
+}

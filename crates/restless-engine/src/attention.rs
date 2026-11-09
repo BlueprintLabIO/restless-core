@@ -2692,8 +2692,8 @@ fn stalled_work_item(
         account_request: None,
         request_fields: None,
         setting_proposal: None,
-        // Answered in the card: the owner's answer goes to the lead, who resumes, drops the
-        // requirement or stops it (S101: every card is completed inside the card).
+        // Answered in the card (S101). Resume and Stop act on the Work at once; dropping a
+        // requirement needs the lead's judgement, so that answer goes to the lead.
         owner_replies: replies,
         actions: vec![AttentionAction {
             id: "open-work".into(),

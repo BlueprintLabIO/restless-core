@@ -924,6 +924,7 @@
 								question={item.requestedAction}
 								workId={item.workId}
 								answers={item.ownerReplies}
+								settlesWork={item.source.kind === 'work_stalled'}
 								fields={fields.map((field) => ({ id: field.id, label: field.label }))}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
