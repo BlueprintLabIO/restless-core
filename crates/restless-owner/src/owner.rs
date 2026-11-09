@@ -3396,6 +3396,11 @@ fn network_boundary_violation<'a>(
     }
 
     let Some(identity) = identity else {
+        // "Which session does this browser hold?" has the honest answer "none": a refusal here
+        // was a 401 in the console on every Account page, and it reads no company state.
+        if *method == Method::GET && path == "/api/session/scope" {
+            return None;
+        }
         return Some(BoundaryRefusal {
             status: StatusCode::UNAUTHORIZED,
             code: "no_session",
@@ -5197,13 +5202,11 @@ fn company_connection_is_assigned(
 /// Cloud's Settings asks before it mounts a plane section (Cloud ADR 0008). Answering from the
 /// principal alone keeps the check to one request; `/connections` used to answer it, and probes
 /// every saved credential on the way (about a second, 19 October).
-async fn session_scope(Extension(principal): Extension<RequestPrincipal>) -> Response<Body> {
-    let scope = if principal.is_account_owner() {
-        "account"
-    } else if principal.scoped_company().is_some() {
-        "company"
-    } else {
-        "none"
+async fn session_scope(principal: Option<Extension<RequestPrincipal>>) -> Response<Body> {
+    let scope = match principal {
+        Some(Extension(principal)) if principal.is_account_owner() => "account",
+        Some(Extension(principal)) if principal.scoped_company().is_some() => "company",
+        _ => "none",
     };
     Json(serde_json::json!({ "scope": scope })).into_response()
 }

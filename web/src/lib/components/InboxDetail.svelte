@@ -88,7 +88,7 @@
 	import { Fold, Notice } from '$lib/ui/page';
 	import { formatMoment } from '$lib/ui/time';
 	import { initials } from '$lib/model/initials';
-	import { companyFileLinks, type CompanyFileLink } from '$lib/model/inbox-files';
+	import { companyFileLinks, companyPathsIn, type CompanyFileLink } from '$lib/model/inbox-files';
 	import type { LibraryArtifact } from '$lib/model/library-files';
 	import ExecNote from './inbox/ExecNote.svelte';
 
@@ -188,10 +188,29 @@
 	/* Files the item points at (a receipt, an invoice, a draft's attachment), each opening in the
 	 * Library viewer. Other evidence stays in the fold. */
 	const fileLink = $derived(companyFileLinks(companyId, artifacts));
+	/* What the agent wrote counts too: the files a decision is about are often named only in its
+	 * text, so the card never depends on the agent having recorded them. */
+	const namedFiles = $derived(
+		companyPathsIn(
+			[
+				item.requestedAction,
+				item.whatHappened,
+				item.whyItMatters,
+				item.recommendation,
+				item.uncertainty ?? '',
+				...item.evidence
+					.filter((entry) => entry.kind !== 'artifact' && entry.kind !== 'command')
+					.map((entry) => entry.content ?? '')
+			].join('\n')
+		)
+	);
 	const files = $derived(
-		item.evidence
-			.filter((entry) => entry.kind === 'artifact' && entry.content)
-			.map((entry) => fileLink(entry.content ?? '', entry.label))
+		[
+			...item.evidence
+				.filter((entry) => entry.kind === 'artifact' && entry.content)
+				.map((entry) => fileLink(entry.content ?? '', entry.label)),
+			...namedFiles.map((path) => fileLink(path))
+		]
 			.filter(
 				(link, index, all): link is CompanyFileLink =>
 					!!link && all.findIndex((other) => other?.href === link.href) === index
@@ -398,10 +417,12 @@
 	);
 	/* An agent's question about doing something on a site (register a domain, sign in, pay) shows
 	 * the company computer too, at the page the agent left open, so it is done in the card. A
-	 * decision never does: its links are evidence (see model/site-ask). */
+	 * decision never does: its links are evidence (see model/site-ask), and a card about files
+	 * shows those files, not a screen. */
 	const siteAsk = $derived(
 		item.source.kind === 'conversation_owner_need' &&
 			canSetAside &&
+			files.length === 0 &&
 			isSiteTask(item.requestedAction, item.whatHappened)
 	);
 	/* A live outcome to review renders in the card's content beside the decision. */

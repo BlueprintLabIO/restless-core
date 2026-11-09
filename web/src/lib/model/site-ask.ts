@@ -8,8 +8,10 @@
 
 const SITE_TASK = /\b(?:sign|log) ?in\b|\bregister\b|\bcheck ?out\b|\bpay(?:ment)?\b|\bverify\b/i;
 const ON_THE_COMPUTER = /company (?:browser|computer)|shared desktop/i;
+/* Asking whether something may go ahead, including one that opens with what will happen ("Send the
+ * packs"): on 9 November such a card gave its main area to a computer viewer. */
 const DECISION =
-	/^\s*(?:approve|allow|decline|decide|choose|confirm|review|ok(?:ay)?)\b|\bapprov(?:e|al)\b|\bpermission\b/i;
+	/^\s*(?:approve|allow|decline|decide|choose|confirm|review|ok(?:ay)?|send|publish|post|launch|release|ship|go ahead|sign off|should (?:i|we)|shall (?:i|we))\b|\bapprov(?:e|al)\b|\bpermission\b/i;
 
 export function isSiteTask(ask: string, context = ''): boolean {
 	if (DECISION.test(ask)) return false;
