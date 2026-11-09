@@ -2166,6 +2166,20 @@ async fn launch_and_prepare(
     let system_prompt_path = format!("/tmp/restless-agent-{launch_id}.system.md");
     let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
     let runtime_files = async {
+        if delivery == CredentialDelivery::TurnFile {
+            // The turn's grants and these directories go in one command, so a warm-capable launch
+            // runs exactly as many container commands as any other.
+            tokio::try_join!(
+                write_credential_files(
+                    container,
+                    &credentials_dir(launch_id),
+                    auth,
+                    Some(&session_runtime)
+                ),
+                write_private_container_file(container, &system_prompt_path, system_prompt),
+            )?;
+            return Ok(());
+        }
         let runtime_dirs = tokio::process::Command::new("docker")
             .args([
                 "exec",
@@ -2188,17 +2202,10 @@ async fn launch_and_prepare(
         }
         write_private_container_file(container, &system_prompt_path, system_prompt).await
     };
-    let credentials = async {
-        if delivery == CredentialDelivery::TurnFile {
-            write_credential_files(container, &credentials_dir(launch_id), auth).await?;
-        }
-        Ok::<(), anyhow::Error>(())
-    };
-    let ((), prior_locator, (), ()) = tokio::try_join!(
+    let ((), prior_locator, ()) = tokio::try_join!(
         prepare_agent_runtime_with(container, harness, auth, delivery),
         read_session_locator(container, locator_path),
         runtime_files,
-        credentials,
     )?;
     Ok(prior_locator)
 }
@@ -2216,12 +2223,22 @@ async fn write_turn_credentials(
     let Some(dir) = process.credentials_dir.as_deref() else {
         anyhow::bail!("this agent process does not read its grants from files");
     };
-    write_credential_files(container, dir, auth).await
+    write_credential_files(container, dir, auth, None).await
 }
 
 /// Both grants in one container command, atomically each: every turn start waits on this. The
 /// grants arrive on stdin, one per line; a signed capability holds no newline.
-async fn write_credential_files(container: &str, dir: &str, auth: &AgentAuth) -> Result<()> {
+async fn write_credential_files(
+    container: &str,
+    dir: &str,
+    auth: &AgentAuth,
+    session_runtime: Option<&str>,
+) -> Result<()> {
+    let (cache, tmp) = match session_runtime {
+        Some(runtime) => (format!("{runtime}/cache"), format!("{runtime}/tmp")),
+        // `mkdir -p` of the grant directory twice is harmless, and keeps one script.
+        None => (dir.to_string(), dir.to_string()),
+    };
     let mut child = tokio::process::Command::new("docker")
         .args([
             "exec",
@@ -2231,9 +2248,11 @@ async fn write_credential_files(container: &str, dir: &str, auth: &AgentAuth) ->
             container,
             "sh",
             "-c",
-            "set -eu; dir=$1; umask 077; mkdir -p \"$dir\"; IFS= read -r model; IFS= read -r coordination; printf '%s' \"$model\" > \"$dir/model.$$\"; printf '%s' \"$coordination\" > \"$dir/coordination.$$\"; mv \"$dir/model.$$\" \"$dir/model\"; mv \"$dir/coordination.$$\" \"$dir/coordination\"",
+            "set -eu; mkdir -p \"$2\" \"$3\"; dir=$1; umask 077; mkdir -p \"$dir\"; IFS= read -r model; IFS= read -r coordination; printf '%s' \"$model\" > \"$dir/model.$$\"; printf '%s' \"$coordination\" > \"$dir/coordination.$$\"; mv \"$dir/model.$$\" \"$dir/model\"; mv \"$dir/coordination.$$\" \"$dir/coordination\"",
             "restless-write-grants",
             dir,
+            cache.as_str(),
+            tmp.as_str(),
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
