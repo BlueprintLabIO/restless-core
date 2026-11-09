@@ -321,8 +321,11 @@
 
 <style>
 	.message-context {
-		display: inline-block;
-		max-width: 100%;
+		/* Zero width, then the bubble's: a long screen name truncates here instead of widening the
+		 * bubble past the rail and cutting off the message's start. */
+		display: block;
+		width: 0;
+		min-width: 100%;
 		margin-top: var(--chat-space-meta);
 		overflow: hidden;
 		color: var(--text-tertiary);

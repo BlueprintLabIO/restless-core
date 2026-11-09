@@ -5959,6 +5959,8 @@ async fn down_locked(company: &str) -> Result<String> {
 
 async fn down_running_locked(company: &str) -> Result<()> {
     let name = container_name(company);
+    // A company update or stop takes its warm agent processes with it.
+    crate::acp::drain_company_warm_processes(company, &name).await;
     // Chromium's supervisor stop window is 20 seconds. Use a longer
     // container deadline so cookies and profile state reach disk before
     // Docker escalates to SIGKILL. The computer goes first: it lives in the Runtime's network.

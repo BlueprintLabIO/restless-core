@@ -12,7 +12,11 @@
 	import { celebrate } from '$lib/ui/celebrate';
 	import { failureSentence } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
-	import { decideDirectionRequest, targetPhrase } from '$lib/model/direction';
+	import {
+		decideDirectionRequest,
+		decideDirectionRequestOnLeave,
+		targetPhrase
+	} from '$lib/model/direction';
 	import { askExec } from '$lib/model/ask-exec';
 	import type { DirectionDecisionInput, DirectionRequest } from '$lib/model/generated/direction';
 	import type { AttentionItem } from '$lib/model/view';
@@ -88,18 +92,29 @@
 	/* An approval is held for a few seconds with Undo before it is sent: Exec starts carrying it
 	 * out as soon as it lands. */
 	const UNDO_WINDOW_MS = 5000;
+	/* Leaving during the window sends what was approved: "Approving…" must not quietly become
+	 * nothing because the tab closed or reloaded (9 November). */
+	let sendNow: (() => void) | null = null;
 	function approveSoon(input: DirectionDecisionInput, from?: EventTarget | null) {
 		if (busy || pending || !open) return;
 		pending = true;
+		const requestId = current.id;
 		const timer = setTimeout(() => {
 			pending = false;
+			sendNow = null;
 			dismissToast(id);
 			void answer(input, from);
 		}, UNDO_WINDOW_MS);
+		sendNow = () => {
+			clearTimeout(timer);
+			sendNow = null;
+			decideDirectionRequestOnLeave(companyId, requestId, input);
+		};
 		const id = toast(`Approving “${current.summary}”`, {
 			undo: () => {
 				clearTimeout(timer);
 				pending = false;
+				sendNow = null;
 			}
 		});
 	}
@@ -135,6 +150,8 @@
 	/* An answer that failed is a toast, never a banner that pushes the request down. */
 	toastWhile(() => !!error && { text: error, tone: 'failure' });
 </script>
+
+<svelte:window onpagehide={() => sendNow?.()} />
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <article

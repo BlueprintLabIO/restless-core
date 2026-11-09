@@ -4363,6 +4363,34 @@ pub fn models_config(
     token_env: &str,
     billing: ModelBilling,
 ) -> Result<String> {
+    models_config_with(
+        model,
+        runtime_url,
+        token_env,
+        billing,
+        crate::acp::CredentialDelivery::Environment,
+    )
+}
+
+/// How OMP finds this turn's grant. A command-backed key is cached, but a refused request makes
+/// OMP run it again, which is how a warm process picks up each new turn's grant from its file:
+/// its first model call of the turn is refused with the ended turn's grant, and retried once.
+fn model_key_reference(token_env: &str, delivery: crate::acp::CredentialDelivery) -> String {
+    match delivery {
+        crate::acp::CredentialDelivery::Environment => token_env.to_string(),
+        crate::acp::CredentialDelivery::TurnFile => {
+            "'!cat \"$RESTLESS_MODEL_CAPABILITY_FILE\"'".to_string()
+        }
+    }
+}
+
+pub fn models_config_with(
+    model: &str,
+    runtime_url: &str,
+    token_env: &str,
+    billing: ModelBilling,
+    delivery: crate::acp::CredentialDelivery,
+) -> Result<String> {
     let (provider, model_id) = split_model(model)?;
     if !provider
         .bytes()
@@ -4384,13 +4412,14 @@ pub fn models_config(
     if !recognised_runtime_relay || token_env != MODEL_CAPABILITY_ENV {
         bail!("refusing an unrecognised model gateway route");
     }
+    let api_key = model_key_reference(token_env, delivery);
     if is_metered_anthropic(model, billing) && is_dual_provider(provider) {
         // The broker's Anthropic credential is the account sign-in, so this per-token company
         // goes to the relay's Messages route, which sends its own API key to Anthropic.
         let id = serde_json::to_string(&runtime_model_id(model_id))?;
         return Ok(format!(
             "# Managed by Restless. Contains a gateway route, never a provider credential.\n\
-providers:\n  anthropic:\n    baseUrl: {runtime_url}\n    apiKey: {token_env}\n    api: anthropic-messages\n    models:\n      - id: {id}\n        name: {id}\n"
+providers:\n  anthropic:\n    baseUrl: {runtime_url}\n    apiKey: {api_key}\n    api: anthropic-messages\n    models:\n      - id: {id}\n        name: {id}\n"
         ));
     }
     let api = if matches!(provider, "moonshot" | "zai" | "zhipu-coding-plan") {
@@ -4423,12 +4452,12 @@ providers:\n  anthropic:\n    baseUrl: {runtime_url}\n    apiKey: {token_env}\n 
         let id = serde_json::to_string(&runtime_model_id(model_id))?;
         return Ok(format!(
             "# Managed by Restless. Contains a gateway route, never a provider credential.\n\
-providers:\n  {provider}:\n    baseUrl: {runtime_url}\n    apiKey: {token_env}\n    transport: pi-native\n    api: {api}\n    discovery:\n      type: proxy\n    models:\n      - id: {id}\n        name: {id}\n"
+providers:\n  {provider}:\n    baseUrl: {runtime_url}\n    apiKey: {api_key}\n    transport: pi-native\n    api: {api}\n    discovery:\n      type: proxy\n    models:\n      - id: {id}\n        name: {id}\n"
         ));
     };
     Ok(format!(
         "# Managed by Restless. Contains a gateway route, never a provider credential.\n\
-providers:\n  {provider}:\n    baseUrl: {runtime_url}\n    apiKey: {token_env}\n    transport: pi-native\n    api: {api}\n"
+providers:\n  {provider}:\n    baseUrl: {runtime_url}\n    apiKey: {api_key}\n    transport: pi-native\n    api: {api}\n"
     ) + catalogue)
 }
 
@@ -6239,6 +6268,81 @@ mission = "Choose native intelligence"
             }
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_relay_refuses_a_finished_turns_grant_and_serves_the_next_turn() {
+        let root = test_root();
+        let (issuer, _spend, mut state) = test_relay_state(&root);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        state.upstream_url = format!("http://{}", listener.local_addr().unwrap());
+        let app = Router::new().route(
+            "/v1/pi/stream",
+            post(|| async { (StatusCode::BAD_REQUEST, "synthetic refusal") }),
+        );
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let grant = |turn: &str| {
+            issuer
+                .issue_model_session(
+                    "acme_test",
+                    "delivery-lead",
+                    turn,
+                    "moonshot",
+                    "moonshot/kimi-k3",
+                    "metered_api",
+                    "work:delivery",
+                    None,
+                    None,
+                )
+                .unwrap()
+        };
+        let request = Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "modelId":"moonshot/kimi-k3", "stream":true, "options":{},
+                "context":{"systemPrompt":["Keep"], "messages":[], "tools":[], "inactiveTools":[]}
+            }))
+            .unwrap(),
+        );
+        let (first, second) = (
+            crate::capability::turn_session_id(),
+            crate::capability::turn_session_id(),
+        );
+        let first_scope = crate::capability::open_turn(&first).unwrap();
+        let earlier = grant(&first);
+        let during = relay_pi_stream(
+            State(state.clone()),
+            bearer_headers(&earlier),
+            request.clone(),
+        )
+        .await;
+        assert_eq!(during.status(), StatusCode::BAD_REQUEST);
+        drop(first_scope);
+        let _second_scope = crate::capability::open_turn(&second).unwrap();
+        let next = relay_pi_stream(
+            State(state.clone()),
+            bearer_headers(&grant(&second)),
+            request.clone(),
+        )
+        .await;
+        assert_eq!(next.status(), StatusCode::BAD_REQUEST);
+        let refused = relay_pi_stream(State(state), bearer_headers(&earlier), request).await;
+        assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+        server.abort();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_turn_file_route_names_the_file_and_never_the_grant() {
+        let config = models_config_with(
+            "moonshot/kimi-k3",
+            "http://host.docker.internal:7790",
+            MODEL_CAPABILITY_ENV,
+            ModelBilling::MeteredApi,
+            crate::acp::CredentialDelivery::TurnFile,
+        )
+        .unwrap();
+        assert!(config.contains(r#"apiKey: '!cat "$RESTLESS_MODEL_CAPABILITY_FILE"'"#));
+        assert!(!config.contains("apiKey: RESTLESS_MODEL_CAPABILITY\n"));
     }
 
     #[tokio::test]

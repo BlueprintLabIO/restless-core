@@ -14,8 +14,9 @@ leave out what only the owner knows (an ABN, an address) and they type it in the
 The everyday model is a cheaper model of the same provider (Sonnet for an Opus company) that
 takes Staff chat and routine first tasks while you, team leads, repairs and reviews stay on the
 main model; `--decision-model included` lets the plan's own decision model skip your wake for a
-routine result. The Inbox card is where the owner changes these two: never send the owner to a
-page or setting you have not seen exist.
+routine result. The owner can set both on Company › Intelligence (the Everyday and Decisions rows),
+or by answering the Inbox card this command raises, so propose them rather than saying they cannot
+be changed. Never tell the owner a setting is missing, or send them to a page, you have not seen.
 
 A step on someone else's site (buying a domain, a government registration) is an owner handoff
 whose `--action` holds the exact page address: the owner does it on the company computer inside

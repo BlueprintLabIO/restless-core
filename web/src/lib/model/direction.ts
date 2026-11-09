@@ -53,6 +53,22 @@ export function decideDirectionRequest(
 	return post(path(companyId, `requests/${encodeURIComponent(requestId)}/decision`), input);
 }
 
+/** The same decision while the page is going away: the browser finishes it after the tab has left,
+ * and nobody is there to read the answer. */
+export function decideDirectionRequestOnLeave(
+	companyId: string,
+	requestId: string,
+	input: DirectionDecisionInput
+): void {
+	void fetch(path(companyId, `requests/${encodeURIComponent(requestId)}/decision`), {
+		method: 'POST',
+		credentials: 'same-origin',
+		keepalive: true,
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(input)
+	}).catch(() => {});
+}
+
 /** Put back what one applied change replaced. A change made on top since is never overwritten:
  * the answer says `changed_since` instead. */
 export function undoDirectionApplied(

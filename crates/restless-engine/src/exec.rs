@@ -286,6 +286,9 @@ pub async fn wake(
             "exec:portfolio",
             None,
             None,
+            hosted_identity.is_none()
+                && config.coordination_harness == crate::runtime::AgentHarness::RestlessManaged
+                && !model.starts_with("native-"),
         )
         .await
         {
@@ -384,6 +387,8 @@ pub async fn wake(
             "exec",
             None,
             None,
+            crate::capability::is_turn_session(&auth.session_id)
+                .then_some(auth.session_id.as_str()),
         )
         .await?;
         // The first output of this turn lifts the model's cooldown at once (3 Nov 2026).
@@ -810,8 +815,13 @@ pub async fn agent_auth_for_model(
     responsibility: &str,
     work_id: Option<uuid::Uuid>,
     attempt_id: Option<uuid::Uuid>,
+    turn_bound: bool,
 ) -> Result<acp::AgentAuth> {
-    let session_id = uuid::Uuid::new_v4().simple().to_string();
+    let session_id = if turn_bound {
+        crate::capability::turn_session_id()
+    } else {
+        uuid::Uuid::new_v4().simple().to_string()
+    };
     let root = restless_contracts::appliance::MachineProfile::from_env()?.state_root;
     let company_config = CompanyConfig::load(&root, company)?;
     if let Some(route) = company_config
