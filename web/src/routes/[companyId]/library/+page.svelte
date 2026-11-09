@@ -497,8 +497,8 @@
 			? (libraryFileById(files, openFileId) ??
 					archivedLibraryFiles.find((file) => file.id === openFileId) ??
 					null)
-			: openPath && owner
-				? (files.find((file) => file.uri === openPath) ?? fileAtPath(openPath))
+			: openPath
+				? (files.find((file) => file.uri === openPath) ?? (owner ? fileAtPath(openPath) : null))
 				: null
 	);
 	/* A live site has nothing to save; only a file in the company home downloads. */
@@ -2420,7 +2420,17 @@
 			>
 				{#snippet action()}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
 			</Empty>
-		{:else if openPath && owner}
+		{:else if openPath && !owner}
+			<!-- A teammate opens the files of the Work they can see; the server opens only those. -->
+			<Empty
+				page
+				icon={FileQuestion}
+				title="You can’t open this file yet"
+				info="It belongs to Work you can’t see, or it isn’t in the Library yet. Ask whoever sent you the link to share it with you."
+			>
+				{#snippet action()}<a class="btn small" href={backHref}>Back to the Library</a>{/snippet}
+			</Empty>
+		{:else if openPath}
 			<Empty
 				page
 				icon={FileQuestion}

@@ -786,6 +786,14 @@ async fn open_review_origin(
                     "This file is larger than the 16 GiB the cockpit can open or download.",
                 ));
             }
+            // Gone is not the computer failing: nothing will bring it back by trying again.
+            if format!("{error:#}").contains("No such file") {
+                return Err(api_error(
+                    StatusCode::NOT_FOUND,
+                    "review_file_missing",
+                    "This file is no longer on the company computer.",
+                ));
+            }
             return Err(api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "review",

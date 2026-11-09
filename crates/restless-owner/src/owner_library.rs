@@ -79,7 +79,7 @@ pub(super) async fn upload_attachments(
         return api_error(
             StatusCode::FORBIDDEN,
             "company_out_of_scope",
-            "this session is not scoped to that company",
+            "You don't have access to that company.",
         );
     }
     let mut files: Vec<(String, String, Vec<u8>)> = Vec::new();

@@ -22,6 +22,9 @@
 #                                    and Inbox card, empty/populated/slow/failure, cold/warm/nav, 1440 and
 #                                    390 wide; fails on layout shift, unstyled frames or edges off the grid
 #                                    not listed in services/identity/test/jank-allowlist.json
+#   --hold                           keep the plane up afterwards for a live sweep: a verified owner,
+#                                    admin and member, a scripted model, each person's browser state
+#                                    saved under the evidence folder (multiplayer-hold-journey.mjs)
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,7 +35,8 @@ for argument in "$@"; do
     --skip-build) skip_build=1 ;;
     --stress) journey=multiplayer-stress-journey.mjs ;;
     --jank) journey=multiplayer-jank-journey.mjs ;;
-    *) echo "usage: scripts/multiplayer-smoke [--skip-build] [--stress|--jank]" >&2; exit 2 ;;
+    --hold) journey=multiplayer-hold-journey.mjs ;;
+    *) echo "usage: scripts/multiplayer-smoke [--skip-build] [--stress|--jank|--hold]" >&2; exit 2 ;;
   esac
 done
 

@@ -7,7 +7,7 @@
 	import { Page, Section, Item, Empty, Row } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { page } from '$app/state';
-	import { attentionQuery, companySpendQuery } from '$lib/model/queries.svelte';
+	import { attentionQuery, companyPrincipalQuery, companySpendQuery } from '$lib/model/queries.svelte';
 	import { fetchDecisionHistory, sendActorMessage } from '$lib/model/attention';
 	import { getGovernanceActivity, type CompanyExternalAction } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
@@ -17,7 +17,15 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
-	const attention = $derived(attentionQuery(companyId, true, true));
+	const principal = $derived(companyPrincipalQuery(companyId));
+	/* The Work graph is the owner's; an admin reads this page without it. */
+	const attention = $derived(
+		attentionQuery(
+			companyId,
+			() => !!principal.view,
+			() => principal.view?.membership_role === 'owner'
+		)
+	);
 	/* Only the spend summary: an admin reads this page too, and the whole company view is the
 	 * owner's. */
 	const company = $derived(companySpendQuery(companyId));

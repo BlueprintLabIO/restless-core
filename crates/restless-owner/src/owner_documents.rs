@@ -833,7 +833,7 @@ async fn document_orgintel(
         return Err(document_api_error(
             StatusCode::FORBIDDEN,
             "company_out_of_scope",
-            "this session is not scoped to that company",
+            "You don't have access to that company.",
         ));
     }
     let org = state.orgintel(company).await.map_err(|error| {

@@ -135,11 +135,39 @@
 	overflow-y: auto;
 }
 
-/* Room for a reply to grow into beneath a message that has just been sent (follow-chat). */
+/* Room for a reply to grow into beneath a message that has just been sent (follow-chat). It is
+ * empty: hidden, so its top moving as the reply fills it is no shift of anything anyone sees. */
 .bridge-root .exr-msgs::after {
 	content: '';
 	flex: none;
 	height: var(--chat-anchor-room, 0px);
+	visibility: hidden;
+}
+
+/* Jump to latest keeps the reserved line's height on a phone too (rows never grow); a taller
+ * invisible strip behind it is the 44 px touch target. */
+.bridge-root .exr-chat .chat-edge .jump-latest {
+	position: relative;
+	min-height: 0;
+}
+.bridge-root .exr-chat .chat-edge .jump-latest::after {
+	content: '';
+	position: absolute;
+	inset: -11px 0;
+}
+
+/* The reply's status line sits after that room, so the reply grows up to it and it stays where
+ * it is; a line under the text was pushed down with every sentence (no shifts, 9 November). */
+.bridge-root .exr-msgs > .conversation-turn-dock {
+	order: 1;
+}
+/* Past the room, and scrolled up, it holds the same place at the foot of the transcript instead
+ * of being pushed out of view. Opened, its notes scroll with the conversation (21 October). */
+.bridge-root .exr-msgs > .conversation-turn-dock:not(.expanded) {
+	position: sticky;
+	bottom: 0;
+	z-index: 1;
+	background: var(--surface-rail);
 }
 
 .bridge-root .exr-empty {
