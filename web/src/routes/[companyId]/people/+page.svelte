@@ -601,6 +601,7 @@
 				edges: graph.edges ?? [],
 				work: graph.work,
 				attempts: graph.attempts ?? [],
+				waits: 'waits' in graph ? graph.waits : [],
 				/* Someone at work now has a model that answers (3 Nov 2026). */
 				route: intelligence.view
 					? (actor) =>

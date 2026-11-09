@@ -1291,10 +1291,9 @@ pub async fn dispatch_actor_conversation(
         // Inputs received during this turn were observed while the actor was
         // busy. Drain them after releasing both ownership guards, rather than
         // relying on a later unrelated event or the five-minute repair sweep.
-        // Unusable turns retain the existing failure backoff.
-        if usable {
-            schedule_wake.notify_one();
-        }
+        // The conversation backoff still holds an unusable turn's own mail; a scan
+        // now lets the actor's ready Work take the turn it just freed.
+        schedule_wake.notify_one();
     });
     Ok(true)
 }

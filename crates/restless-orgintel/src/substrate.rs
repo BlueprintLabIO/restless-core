@@ -244,6 +244,24 @@ impl OrgIntel {
     /// inputs; an idle peer reply or the owner's question can therefore reach
     /// a running worker without a second actor session.
     pub async fn checkpoint_attempt_feedback(&self, attempt_id: Uuid) -> Result<Vec<MessageRow>> {
+        self.checkpoint_attempt_inputs(attempt_id, true).await
+    }
+
+    /// The checkpoint once the worker has declared its outcome: Work feedback and a person's
+    /// direct messages may still reopen the turn, but agent mail stays unread and wakes the actor
+    /// when the Attempt ends. Otherwise steady mail holds a finished Attempt open indefinitely.
+    pub async fn checkpoint_attempt_directed_feedback(
+        &self,
+        attempt_id: Uuid,
+    ) -> Result<Vec<MessageRow>> {
+        self.checkpoint_attempt_inputs(attempt_id, false).await
+    }
+
+    async fn checkpoint_attempt_inputs(
+        &self,
+        attempt_id: Uuid,
+        include_agent_mail: bool,
+    ) -> Result<Vec<MessageRow>> {
         let mut tx = self.pool.begin().await?;
         let attempt = sqlx::query(
             "SELECT work_id, actor_id, state, feedback_checkpoint_cursor \
@@ -273,7 +291,7 @@ impl OrgIntel {
                   AND COALESCE(feedback.routed_to_actor,message.to_actor)=$2 \
                   AND message.id>$3) \
                  OR (feedback.message_id IS NULL AND message.to_actor=$2 \
-                     AND (sender.actor_class='agent' \
+                     AND (($5 AND sender.actor_class='agent') \
                           OR (sender.actor_class='human' AND EXISTS (SELECT 1 FROM rooms room \
                               WHERE room.id=message.room_id AND room.kind='direct' \
                                 AND room.archived_at IS NULL))) \
@@ -290,6 +308,7 @@ impl OrgIntel {
         .bind(&actor_id)
         .bind(cursor)
         .bind(attempt_id)
+        .bind(include_agent_mail)
         .fetch_all(&mut *tx)
         .await?;
         for message in &messages {

@@ -3,6 +3,7 @@ import { attentionAsker } from '../model/attention-presentation.ts';
 import { routeActionLabel, type AgentRouteState } from '../model/intelligence-route.ts';
 import { ownerText } from '../model/owner-copy.ts';
 import { blockerSentence } from '../model/work-actions.ts';
+import type { WorkWaitReason } from '../model/generated/orgintel.ts';
 import { newestAttempt } from './status.ts';
 
 /* Why something waits, and on whom, in one plain line (S109 A1): "Waiting on you: approve the
@@ -74,6 +75,8 @@ export type WaitingSources = {
 	attempts?: readonly WaitingAttempt[];
 	/** Whether an actor's model can reply now; omitted when the routes are not read. */
 	route?: (actorId: string) => AgentRouteState;
+	/** Why the scheduler has not started each ready Work (S113), when it can say. */
+	waits?: readonly { work_id: string; reason: WorkWaitReason }[];
 };
 
 /** The one line for an open Work, or null when nothing waits. `reason: false` leaves a blocker's
@@ -104,7 +107,9 @@ export function workWaitingLine(
 		return `Waiting on ${sources.viewerIsOwner ? 'you' : 'the owner'}: ${asked}`;
 	}
 
-	if (work.status === 'proposed' || work.status === 'blocked') {
+	const wait = sources.waits?.find((row) => row.work_id === work.id)?.reason;
+
+	if (work.status === 'proposed' || work.status === 'blocked' || wait === 'waiting_on_work') {
 		const open = new Map((sources.work ?? []).map((row) => [row.id, row] as const));
 		const before = (sources.edges ?? [])
 			.filter((edge) => edge.kind === 'requires' && edge.to_work_id === work.id)
@@ -126,6 +131,13 @@ export function workWaitingLine(
 	const doer = attempt?.state === 'running' ? attempt.actor_id : work.owner_id;
 	const action = sources.route ? routeActionLabel(sources.route(doer)) : null;
 	if (action) return `Waiting on a model: ${actionPhrase(action)} for ${who(doer)}`;
+
+	if (wait === 'waiting_on_work') return 'Waiting on other Work';
+	if (wait === 'owner_on_other_work') return `Waiting on ${who(work.owner_id)}: finishing other Work`;
+	if (wait === 'owner_in_conversation')
+		return `Waiting on ${who(work.owner_id)}: in a conversation`;
+	if (wait === 'no_actor_slot') return 'Waiting on a free slot: every agent is at capacity';
+	if (wait === 'not_enough_memory') return 'Waiting on memory: not enough free to start an agent';
 
 	if (work.status === 'proposed') return `Waiting on ${who(work.owner_id)}: not started yet`;
 	if (attempt?.state === 'running') return `Waiting on ${who(attempt.actor_id)}: running`;

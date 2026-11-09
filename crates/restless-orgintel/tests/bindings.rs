@@ -35,7 +35,8 @@ use restless_orgintel::{
     VoiceEvidenceDetailRow, VoiceEvidenceKind, VoiceLearningKind, VoiceRenderEvidenceRow,
     VoiceReviewRow, VoiceReviewVerdict, VoiceWorkContractRow, WorkAttemptFeedbackRow,
     WorkAttemptInputRow, WorkAttemptRow, WorkAttemptState, WorkEdgeKind, WorkEdgeRow, WorkGateRow,
-    WorkGateRunRow, WorkGraphSnapshot, WorkProgressRow, WorkRow, WorkStatus, WorkspaceSpec,
+    WorkGateRunRow, WorkGraphSnapshot, WorkProgressRow, WorkRow, WorkStatus, WorkWait,
+    WorkWaitReason, WorkspaceSpec,
 };
 use ts_rs::TS;
 
@@ -110,6 +111,8 @@ fn render() -> String {
         OwnerHandoffRow::decl(&cfg),
         WorkProgressRow::decl(&cfg),
         WorkGraphSnapshot::decl(&cfg),
+        WorkWait::decl(&cfg),
+        WorkWaitReason::decl(&cfg),
         MessageReactionRow::decl(&cfg),
         ScheduleRow::decl(&cfg),
         SkillRow::decl(&cfg),

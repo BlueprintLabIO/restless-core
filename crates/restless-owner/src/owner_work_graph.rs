@@ -46,7 +46,15 @@ pub(super) async fn view(
         };
     }
     match org.work_graph_snapshot().await {
-        Ok(graph) => Json(graph).into_response(),
+        Ok(mut graph) => {
+            // Live scheduler facts: the graph is still correct without them, the line just falls
+            // back to what the graph alone can say.
+            match restless_engine::staff::work_waits(&state.daemon.staff, &org, &company).await {
+                Ok(waits) => graph.waits = waits,
+                Err(error) => tracing::warn!(company, "could not read why Work waits: {error:#}"),
+            }
+            Json(graph).into_response()
+        }
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",

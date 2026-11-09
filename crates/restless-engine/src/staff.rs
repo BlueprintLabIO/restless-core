@@ -290,6 +290,79 @@ impl std::fmt::Display for CapacityDeferred {
 
 impl std::error::Error for CapacityDeferred {}
 
+/// Why the next actor cannot start in `company`, given the claims held now and this capacity
+/// reading: the one rule behind both a reservation and the Work board's waiting line.
+fn capacity_wait(
+    claims: &HashMap<uuid::Uuid, ResourceClaim>,
+    company: &str,
+    capacity: runtime::ActorCapacity,
+) -> Option<(restless_orgintel::WorkWaitReason, String)> {
+    use restless_orgintel::WorkWaitReason::{NoActorSlot, NotEnoughMemory};
+    let company_active = claims.values().filter(|c| c.company == company).count();
+    let shared_active = claims.values().filter(|c| c.shared).count();
+    // The memory bound compares free memory with starts it cannot see yet. An actor already
+    // running is in the working set that free memory was computed from, so counting it here
+    // too makes one running actor look like a full pool and starts go one at a time.
+    let starting = || claims.values().filter(|c| c.holds_startup_memory());
+    let company_starting = starting().filter(|c| c.company == company).count();
+    let shared_starting = starting().filter(|c| c.shared).count();
+    if capacity.waiting_for_memory {
+        Some((
+            NotEnoughMemory,
+            "the pool's memory in use is above its start threshold".to_string(),
+        ))
+    } else if capacity.waits_for_memory(company_starting, shared_starting) {
+        Some((
+            NotEnoughMemory,
+            format!(
+                "free memory is already reserved by starts in progress ({company_starting} here, {shared_starting} across the host)"
+            ),
+        ))
+    } else if company_active >= capacity.company_slots {
+        Some((
+            NoActorSlot,
+            format!(
+                "all {} of this company's actor slots are in use",
+                capacity.company_slots
+            ),
+        ))
+    } else {
+        capacity
+            .shared_slots
+            .filter(|slots| shared_active >= *slots)
+            .map(|slots| {
+                (
+                    NoActorSlot,
+                    format!("all {slots} actor slots on this host are in use"),
+                )
+            })
+    }
+}
+
+/// Why each ready Work has not started, from the facts the scan claims by. The Work board's and
+/// the member view's waiting lines read this.
+pub async fn work_waits(
+    registry: &StaffRegistry,
+    org: &restless_orgintel::OrgIntel,
+    company: &str,
+) -> Result<Vec<restless_orgintel::WorkWait>> {
+    let facts = org.work_start_facts().await?;
+    if facts.is_empty() {
+        return Ok(Vec::new());
+    }
+    let capacity = registry.work_capacity_wait(company);
+    Ok(facts
+        .iter()
+        .filter_map(|fact| {
+            fact.wait(registry.is_actor_running(company, &fact.owner_id), capacity)
+                .map(|reason| restless_orgintel::WorkWait {
+                    work_id: fact.work_id,
+                    reason,
+                })
+        })
+        .collect())
+}
+
 impl StaffRegistry {
     pub async fn reserve_actor_capacity(
         &self,
@@ -336,32 +409,8 @@ impl StaffRegistry {
             .resources
             .lock()
             .map_err(|_| anyhow::anyhow!("actor resource guard"))?;
-        let company_active = claims.values().filter(|c| c.company == company).count();
-        let shared_active = claims.values().filter(|c| c.shared).count();
-        // The memory bound compares free memory with starts it cannot see yet. An actor already
-        // running is in the working set that free memory was computed from, so counting it here
-        // too makes one running actor look like a full pool and starts go one at a time.
-        let starting = || claims.values().filter(|c| c.holds_startup_memory());
-        let company_starting = starting().filter(|c| c.company == company).count();
-        let shared_starting = starting().filter(|c| c.shared).count();
-        let wait = if capacity.waiting_for_memory {
-            Some("the pool's memory in use is above its start threshold".to_string())
-        } else if capacity.waits_for_memory(company_starting, shared_starting) {
-            Some(format!(
-                "free memory is already reserved by starts in progress ({company_starting} here, {shared_starting} across the host)"
-            ))
-        } else if company_active >= capacity.company_slots {
-            Some(format!(
-                "all {} of this company's actor slots are in use",
-                capacity.company_slots
-            ))
-        } else {
-            capacity
-                .shared_slots
-                .filter(|slots| shared_active >= *slots)
-                .map(|slots| format!("all {slots} actor slots on this host are in use"))
-        };
-        self.note_capacity_wait(company, wait.as_deref());
+        let wait = capacity_wait(&claims, company, capacity);
+        self.note_capacity_wait(company, wait.as_ref().map(|(_, why)| why.as_str()));
         if wait.is_some() {
             self.resource_retry.store(true, Ordering::SeqCst);
             return Ok(None);
@@ -381,6 +430,33 @@ impl StaffRegistry {
             wake: Arc::clone(wake),
             started: false,
         }))
+    }
+
+    /// Why a new Work Attempt cannot start in this company now, by the last capacity reading the
+    /// scan took, and without taking anything. `None` means nothing about capacity holds it.
+    pub fn work_capacity_wait(&self, company: &str) -> Option<restless_orgintel::WorkWaitReason> {
+        if !self.has_work_capacity(company) {
+            return Some(restless_orgintel::WorkWaitReason::NoActorSlot);
+        }
+        let at_cap = self
+            .running
+            .lock()
+            .ok()?
+            .keys()
+            .filter(|(c, _)| c == company)
+            .count()
+            >= STAFF_CAP_PER_COMPANY;
+        if at_cap {
+            return Some(restless_orgintel::WorkWaitReason::NoActorSlot);
+        }
+        let capacity = self
+            .resource_limits
+            .lock()
+            .ok()?
+            .get(company)
+            .map(|(_, c)| *c)?;
+        let claims = self.resources.lock().ok()?;
+        capacity_wait(&claims, company, capacity).map(|(reason, _)| reason)
     }
 
     /// Log why a company's next actor start waits, once each time the reason changes.
