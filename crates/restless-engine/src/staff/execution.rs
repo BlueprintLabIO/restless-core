@@ -1761,7 +1761,16 @@ impl StaffDrive {
             }
 
             if let Some(attempt_id) = self.attempt_id {
-                let feedback = self.org.checkpoint_attempt_feedback(attempt_id).await?;
+                let declared_outcome = declared
+                    .as_ref()
+                    .is_some_and(|decision| decision.termination != Termination::Continue);
+                let feedback = if declared_outcome {
+                    self.org
+                        .checkpoint_attempt_directed_feedback(attempt_id)
+                        .await?
+                } else {
+                    self.org.checkpoint_attempt_feedback(attempt_id).await?
+                };
                 if !feedback.is_empty() {
                     next = format!(
                         "# Work feedback and peer messages delivered at a safe checkpoint\n{}\n\nUse these facts in the same Attempt. If a person wrote to you while you work, answer them now with one short `restless message --to <their id>` (what you are doing, and the answer if you have it), and change course if they asked you to. If a colleague asked a concrete question and you know the answer, reply directly with `restless message --to <actor>`. Do not send a courtesy acknowledgement; react with `restless react --message <id> --emoji 👍` if one is useful. Preserve useful work already completed, then continue until the assigned outcome is done or genuinely blocked.",

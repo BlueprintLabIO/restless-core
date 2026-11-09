@@ -115,6 +115,24 @@ impl MemberCollaborationState {
         }
     }
 
+    /// Why ready Work has not started. Only a live scheduler knows; a failed read leaves the
+    /// waiting line to what the graph alone can say.
+    async fn work_waits(
+        &self,
+        company: &str,
+        org: &restless_orgintel::OrgIntel,
+    ) -> Vec<restless_orgintel::WorkWait> {
+        match &self.source {
+            MemberCollaborationSource::Daemon(daemon) => {
+                restless_engine::staff::work_waits(&daemon.staff, org, company)
+                    .await
+                    .unwrap_or_default()
+            }
+            #[cfg(test)]
+            MemberCollaborationSource::Fixed { .. } => Vec::new(),
+        }
+    }
+
     #[cfg(test)]
     fn fixed(
         companies: impl IntoIterator<Item = (String, String, restless_orgintel::OrgIntel)>,
@@ -246,6 +264,8 @@ struct MemberWorkGraphView {
     artifacts: Vec<MemberArtifactView>,
     /// Rough progress estimates on the visible Work, oldest first.
     progress: Vec<restless_orgintel::WorkProgressRow>,
+    /// Why each ready, visible Work has not started.
+    waits: Vec<restless_orgintel::WorkWait>,
 }
 
 #[derive(Debug, Serialize)]
@@ -443,8 +463,15 @@ async fn collaboration_bootstrap(
         .filter(|row| visible_work_ids.contains(&row.work_id))
         .cloned()
         .collect();
+    let waits = state
+        .work_waits(&company, &source.org)
+        .await
+        .into_iter()
+        .filter(|wait| visible_work_ids.contains(&wait.work_id))
+        .collect();
     let work_graph = MemberWorkGraphView {
         progress,
+        waits,
         work: graph
             .work
             .into_iter()

@@ -111,6 +111,13 @@ test('a judgement a lead holds names the lead; one owed to the owner names them'
 		handoffs: [{ work_id: 'w1', state: 'resolved', assigned_to: 'aang', requested_action: 'x' }]
 	};
 	assert.equal(workWaitingLine(work('proposed'), resolved), 'Waiting on Baloo: not started yet');
+	const because = (reason: NonNullable<WaitingSources['waits']>[number]['reason']) =>
+		workWaitingLine(work('proposed'), { ...resolved, waits: [{ work_id: 'w1', reason }] });
+	assert.equal(because('owner_in_conversation'), 'Waiting on Baloo: in a conversation');
+	assert.equal(because('owner_on_other_work'), 'Waiting on Baloo: finishing other Work');
+	assert.equal(because('no_actor_slot'), 'Waiting on a free slot: every agent is at capacity');
+	assert.equal(because('not_enough_memory'), 'Waiting on memory: not enough free to start an agent');
+	assert.equal(because('waiting_on_work'), 'Waiting on other Work');
 });
 
 test('Next Work behind unfinished Work names what it waits for', () => {

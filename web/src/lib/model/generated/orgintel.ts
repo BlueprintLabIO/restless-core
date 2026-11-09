@@ -196,7 +196,16 @@ export type WorkGraphSnapshot = { work: Array<WorkRow>, edges: Array<WorkEdgeRow
 /**
  * Each Work's recent progress estimates, oldest first; the newest is current.
  */
-progress: Array<WorkProgressRow>, };
+progress: Array<WorkProgressRow>,
+/**
+ * Why each ready Work has not started. Only a live scheduler knows, so OrgIntel leaves this
+ * empty and the surface that shows the graph fills it in.
+ */
+waits: Array<WorkWait>, };
+
+export type WorkWait = { work_id: string, reason: WorkWaitReason, };
+
+export type WorkWaitReason = "waiting_on_work" | "owner_on_other_work" | "owner_in_conversation" | "no_actor_slot" | "not_enough_memory";
 
 export type MessageReactionRow = { message_id: number, actor_id: string, emoji: string, };
 

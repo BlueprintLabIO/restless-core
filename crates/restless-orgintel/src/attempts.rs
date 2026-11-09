@@ -106,6 +106,76 @@ fn resolve_attempt_base(
     }
 }
 
+/// What makes a Work node startable, apart from its dependencies and its owner being free. The
+/// claim, the sleeping-company check and the waiting line all read these fragments, so a label can
+/// never name a reason the scheduler is not deciding by.
+macro_rules! work_startable_sql {
+    () => {
+        "w.status IN ('proposed','active') \
+         AND w.owner_id NOT IN ('owner','exec','world','daemon') \
+         AND NOT EXISTS (SELECT 1 FROM work_attempts a \
+                         WHERE a.work_id = w.id AND a.state = 'running') \
+         AND NOT EXISTS (SELECT 1 FROM owner_handoffs h \
+                         WHERE h.work_id = w.id AND h.state = 'pending') \
+         AND (w.attempt_limit IS NULL OR ( \
+              SELECT count(*) FROM work_attempts a \
+              WHERE a.work_id = w.id AND a.revision = w.revision \
+                AND a.state <> 'superseded' \
+         ) < w.attempt_limit)"
+    };
+}
+
+macro_rules! work_requirements_met_sql {
+    () => {
+        "NOT EXISTS ( \
+           SELECT 1 FROM work_edges e JOIN work upstream ON upstream.id = e.from_work_id \
+           WHERE e.to_work_id = w.id AND e.kind = 'requires' \
+             AND upstream.status <> 'completed' \
+         )"
+    };
+}
+
+macro_rules! owner_has_no_attempt_sql {
+    () => {
+        "NOT EXISTS (SELECT 1 FROM work_attempts a \
+                     WHERE a.actor_id = w.owner_id AND a.state = 'running')"
+    };
+}
+
+macro_rules! owner_has_no_lease_sql {
+    () => {
+        "NOT EXISTS (SELECT 1 FROM actor_cognitive_leases lease \
+                     WHERE lease.actor_id = w.owner_id AND lease.claimed_until > now())"
+    };
+}
+
+macro_rules! work_claimable_sql {
+    () => {
+        concat!(
+            work_startable_sql!(),
+            " AND ",
+            work_requirements_met_sql!(),
+            " AND ",
+            owner_has_no_attempt_sql!(),
+            " AND ",
+            owner_has_no_lease_sql!()
+        )
+    };
+}
+
+/// When a Work last became ready: made, edited or reopened, its last Attempt over, or a
+/// requirement finished. Not `created_at` alone, so a chain does not count its time queued behind
+/// its own dependencies as time waiting for a turn.
+macro_rules! ready_since_sql {
+    () => {
+        "GREATEST(w.created_at, w.updated_at, \
+           (SELECT max(a.finished_at) FROM work_attempts a WHERE a.work_id = w.id), \
+           (SELECT max(a.finished_at) FROM work_edges e \
+            JOIN work_attempts a ON a.work_id = e.from_work_id \
+            WHERE e.to_work_id = w.id AND e.kind = 'requires'))"
+    };
+}
+
 impl OrgIntel {
     /// Whether anything in the company may still add machine mail soon: a running Work Attempt, an
     /// actor turn in flight (it holds its cognitive lease), or Work ready for the scheduler to start.
@@ -127,33 +197,50 @@ impl OrgIntel {
     /// merely active or proposed Work row would turn blocked work into a
     /// permanent wake loop.
     pub async fn has_ready_work(&self) -> Result<bool> {
-        Ok(sqlx::query_scalar(
-            "SELECT EXISTS( \
-               SELECT 1 FROM work w \
-               WHERE w.status IN ('proposed','active') \
-                 AND w.owner_id NOT IN ('owner','exec','world','daemon') \
-                 AND NOT EXISTS (SELECT 1 FROM work_attempts a \
-                                 WHERE a.work_id = w.id AND a.state = 'running') \
-                 AND NOT EXISTS (SELECT 1 FROM work_attempts a \
-                                 WHERE a.actor_id = w.owner_id AND a.state = 'running') \
-                 AND NOT EXISTS (SELECT 1 FROM actor_cognitive_leases lease \
-                                 WHERE lease.actor_id = w.owner_id \
-                                   AND lease.claimed_until > now()) \
-                 AND NOT EXISTS (SELECT 1 FROM owner_handoffs h \
-                                 WHERE h.work_id = w.id AND h.state = 'pending') \
-                 AND NOT EXISTS ( \
-                   SELECT 1 FROM work_edges e JOIN work upstream ON upstream.id = e.from_work_id \
-                   WHERE e.to_work_id = w.id AND e.kind = 'requires' \
-                     AND upstream.status <> 'completed' \
-                 ) \
-                 AND (w.attempt_limit IS NULL OR ( \
-                      SELECT count(*) FROM work_attempts a \
-                      WHERE a.work_id = w.id AND a.revision = w.revision \
-                        AND a.state <> 'superseded' \
-                 ) < w.attempt_limit) \
-             )",
-        )
+        Ok(sqlx::query_scalar(concat!(
+            "SELECT EXISTS(SELECT 1 FROM work w WHERE ",
+            work_claimable_sql!(),
+            ")"
+        ))
         .fetch_one(&self.pool)
+        .await?)
+    }
+
+    /// Whether Work that has already waited `waited` could be claimed once `excluded_actor_ids`
+    /// are left out. The read-only check before the scheduler reserves a slot for it.
+    pub async fn has_overdue_ready_work(
+        &self,
+        excluded_actor_ids: &[String],
+        waited: std::time::Duration,
+    ) -> Result<bool> {
+        Ok(sqlx::query_scalar(concat!(
+            "SELECT EXISTS(SELECT 1 FROM work w WHERE ",
+            work_claimable_sql!(),
+            " AND w.owner_id <> ALL($1::text[]) AND ",
+            ready_since_sql!(),
+            " <= now() - make_interval(secs => $2))"
+        ))
+        .bind(excluded_actor_ids)
+        .bind(waited.as_secs_f64())
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    /// The facts that decide whether each startable Work can be claimed, in the same SQL the claim
+    /// runs. Work with a pending handoff, spent attempts or a running Attempt of its own is not
+    /// here: it is not waiting for a turn.
+    pub async fn work_start_facts(&self) -> Result<Vec<WorkStartFacts>> {
+        Ok(sqlx::query_as::<_, WorkStartFacts>(concat!(
+            "SELECT w.id AS work_id, w.owner_id, NOT (",
+            work_requirements_met_sql!(),
+            ") AS waiting_on_work, NOT (",
+            owner_has_no_attempt_sql!(),
+            ") AS owner_on_work, NOT (",
+            owner_has_no_lease_sql!(),
+            ") AS owner_in_conversation FROM work w WHERE ",
+            work_startable_sql!(),
+        ))
+        .fetch_all(&self.pool)
         .await?)
     }
 
@@ -173,43 +260,49 @@ impl OrgIntel {
         trigger: &str,
         excluded_actor_ids: &[String],
     ) -> Result<Option<ClaimedWork>> {
+        self.claim_ready_work_waited(trigger, excluded_actor_ids, None)
+            .await
+    }
+
+    /// [`Self::claim_ready_work_excluding`], only for Work that has already waited `waited`: the
+    /// scheduler's pass that puts overdue Work ahead of mail on the owner's next free turn.
+    pub async fn claim_overdue_work_excluding(
+        &self,
+        trigger: &str,
+        excluded_actor_ids: &[String],
+        waited: std::time::Duration,
+    ) -> Result<Option<ClaimedWork>> {
+        self.claim_ready_work_waited(trigger, excluded_actor_ids, Some(waited))
+            .await
+    }
+
+    async fn claim_ready_work_waited(
+        &self,
+        trigger: &str,
+        excluded_actor_ids: &[String],
+        waited: Option<std::time::Duration>,
+    ) -> Result<Option<ClaimedWork>> {
         let mut tx = self.pool.begin().await?;
         // Supersession means the frozen input snapshot changed. It is not an
         // attributable execution failure and must leave room for the promised
         // successor Attempt even when the Work allows only one real attempt.
-        let work = sqlx::query_as::<_, WorkRow>(
+        let work = sqlx::query_as::<_, WorkRow>(concat!(
             "SELECT w.id, w.goal_id, w.owner_id, w.title, w.outcome, w.status, \
                     w.resolution, w.priority, w.expected_artifact, w.owner_review_required, \
                     w.producing_topology, w.commissioned_by, w.repo, w.base_ref, \
                     w.integration_branch, w.worktree, w.revision, w.attempt_limit, \
                     w.created_at, w.updated_at \
-             FROM work w \
-             WHERE w.status IN ('proposed','active') \
-               AND w.owner_id <> ALL($1::text[]) \
-               AND w.owner_id NOT IN ('owner','exec','world','daemon') \
-               AND NOT EXISTS (SELECT 1 FROM work_attempts a \
-                               WHERE a.work_id = w.id AND a.state = 'running') \
-               AND NOT EXISTS (SELECT 1 FROM work_attempts a \
-                               WHERE a.actor_id = w.owner_id AND a.state = 'running') \
-               AND NOT EXISTS (SELECT 1 FROM actor_cognitive_leases lease \
-                               WHERE lease.actor_id = w.owner_id \
-                                 AND lease.claimed_until > now()) \
-               AND NOT EXISTS (SELECT 1 FROM owner_handoffs h \
-                               WHERE h.work_id = w.id AND h.state = 'pending') \
-               AND NOT EXISTS (\
-                 SELECT 1 FROM work_edges e JOIN work upstream ON upstream.id = e.from_work_id \
-                 WHERE e.to_work_id = w.id AND e.kind = 'requires' \
-                   AND upstream.status <> 'completed'\
-               ) \
-               AND (w.attempt_limit IS NULL OR (\
-                    SELECT count(*) FROM work_attempts a \
-                    WHERE a.work_id = w.id AND a.revision = w.revision \
-                      AND a.state <> 'superseded'\
-               ) < w.attempt_limit) \
+             FROM work w WHERE ",
+            work_claimable_sql!(),
+            " AND w.owner_id <> ALL($1::text[]) \
+              AND ($2::float8 IS NULL OR ",
+            ready_since_sql!(),
+            " <= now() - make_interval(secs => $2)) \
              ORDER BY w.priority DESC, w.created_at \
              FOR UPDATE OF w SKIP LOCKED LIMIT 1",
-        )
+        ))
         .bind(excluded_actor_ids)
+        .bind(waited.map(|waited| waited.as_secs_f64()))
         .fetch_optional(&mut *tx)
         .await?;
         let Some(work) = work else {

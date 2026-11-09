@@ -10,6 +10,7 @@ import type {
 import type { CompanyMembershipRole } from './query-persistence';
 import { responseFailure } from './failure.ts';
 import type { ProgressRow } from '../work/progress.ts';
+import type { WorkWait } from './generated/orgintel.ts';
 
 export const COLLABORATION_SCHEMA_VERSION = 'member-collaboration.v1';
 
@@ -137,6 +138,8 @@ export interface CollaborationBootstrap {
 		artifacts: CollaborationArtifact[];
 		/** Rough progress estimates on the visible Work, oldest first. */
 		progress: ProgressRow[];
+		/** Why each ready, visible Work has not started. */
+		waits: WorkWait[];
 	};
 	attention: {
 		handoffs: CollaborationHandoff[];
@@ -149,6 +152,11 @@ function invalid(): never {
 	throw Object.assign(new Error('The company collaboration response is invalid.'), {
 		code: 'invalid_collaboration'
 	});
+}
+
+function parseWait(value: unknown): WorkWait {
+	const wait = object(value);
+	return { work_id: text(wait.work_id), reason: text(wait.reason) as WorkWait['reason'] };
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -402,7 +410,8 @@ export function parseCollaborationBootstrap(value: unknown): CollaborationBootst
 			attempts: list(workGraph.attempts).map(parseAttempt),
 			artifacts: list(workGraph.artifacts).map(parseArtifact),
 			/* Older servers send no estimates: nothing is shown, never 0%. */
-			progress: list(workGraph.progress ?? []).map(parseProgress)
+			progress: list(workGraph.progress ?? []).map(parseProgress),
+			waits: list(workGraph.waits ?? []).map(parseWait)
 		},
 		attention: {
 			handoffs: list(attention.handoffs).map(parseHandoff)

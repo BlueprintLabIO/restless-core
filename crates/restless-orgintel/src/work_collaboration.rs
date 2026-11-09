@@ -361,6 +361,7 @@ impl OrgIntel {
             gate_runs,
             handoffs,
             progress,
+            waits: Vec::new(),
         })
     }
 }

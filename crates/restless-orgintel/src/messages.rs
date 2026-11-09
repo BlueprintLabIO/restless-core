@@ -2634,6 +2634,65 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Agents a person is waiting on: unread direct mail from a person, or an unanswered named
+    /// mention in a person's Room message. These go first, ahead of overdue Work. Document
+    /// comments are not messages here; they wait their turn with mail.
+    pub async fn actors_owed_by_a_person(&self, limit: i64) -> Result<Vec<String>> {
+        Ok(sqlx::query_scalar(&format!(
+            "SELECT recipient.id FROM actors recipient \
+             WHERE recipient.actor_class='agent' AND recipient.retired_at IS NULL AND (\
+               EXISTS (SELECT 1 FROM messages message WHERE {owed} AND {human}) \
+               OR EXISTS (SELECT 1 FROM message_mentions mention \
+                          JOIN messages message ON message.id=mention.message_id \
+                          JOIN room_participants participant \
+                            ON participant.room_id=mention.room_id \
+                           AND participant.actor_id=mention.mentioned_actor_id \
+                          JOIN rooms room ON room.id=mention.room_id \
+                          WHERE mention.mentioned_actor_id=recipient.id \
+                            AND mention.resolution_message_id IS NULL \
+                            AND mention.cancelled_event_id IS NULL \
+                            AND participant.left_at IS NULL AND room.archived_at IS NULL \
+                            AND {human})\
+             ) ORDER BY recipient.id LIMIT $1",
+            human = HUMAN_SENDER_SQL,
+            owed = owed_mail_predicate("recipient.id"),
+        ))
+        .bind(limit.clamp(1, 1024))
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Agents whose settled mail has already sat through one of their own Attempts. Overdue Work
+    /// goes ahead of mail once, not every time: when the Attempt ends, this mail wakes the actor
+    /// even if more overdue Work is queued, so neither side can starve the other.
+    pub async fn actors_with_mail_passed_by_work(
+        &self,
+        limit: i64,
+        settle: MailSettle,
+    ) -> Result<Vec<String>> {
+        Ok(sqlx::query_scalar(&format!(
+            "SELECT recipient.id FROM actors recipient \
+             JOIN LATERAL (SELECT count(*) AS waiting, bool_or({human}) AS human, \
+                                  max(message.created_at) AS newest, \
+                                  min(message.created_at) AS oldest \
+                           FROM messages message WHERE {owed}) owed ON owed.waiting > 0 \
+             WHERE recipient.actor_class='agent' AND recipient.retired_at IS NULL \
+               AND (owed.human OR owed.newest <= now() - make_interval(secs => $2) \
+                    OR owed.oldest <= now() - make_interval(secs => $3)) \
+               AND EXISTS (SELECT 1 FROM work_attempts attempt \
+                           WHERE attempt.actor_id=recipient.id \
+                             AND attempt.finished_at > owed.oldest) \
+             ORDER BY recipient.id LIMIT $1",
+            human = HUMAN_SENDER_SQL,
+            owed = owed_mail_predicate("recipient.id"),
+        ))
+        .bind(limit.clamp(1, 1024))
+        .bind(f64::from(settle.quiet_secs))
+        .bind(f64::from(settle.max_secs))
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// When unread machine mail next settles, if some is still settling: the scheduler looks again
     /// then rather than at its slow repair sweep. Mail that settled already, or mail that is not
     /// conversation at all, never makes this due, so it cannot spin the scheduler.

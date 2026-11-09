@@ -1038,6 +1038,64 @@ pub struct WorkGraphSnapshot {
     pub handoffs: Vec<OwnerHandoffRow>,
     /// Each Work's recent progress estimates, oldest first; the newest is current.
     pub progress: Vec<WorkProgressRow>,
+    /// Why each ready Work has not started. Only a live scheduler knows, so OrgIntel leaves this
+    /// empty and the surface that shows the graph fills it in.
+    pub waits: Vec<WorkWait>,
+}
+
+/// Why a ready Work that is not running has not started. Derived from the facts the scheduler
+/// claims by ([`WorkStartFacts`]), so the line cannot name something else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkWaitReason {
+    /// A requirement has not completed.
+    WaitingOnWork,
+    /// The owner is running another Attempt.
+    OwnerOnOtherWork,
+    /// The owner is in a conversation turn.
+    OwnerInConversation,
+    /// Every actor slot the company may use is taken.
+    NoActorSlot,
+    /// Memory is too tight to start another actor.
+    NotEnoughMemory,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
+pub struct WorkWait {
+    pub work_id: Uuid,
+    pub reason: WorkWaitReason,
+}
+
+/// One startable Work and what holds it back in the database.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct WorkStartFacts {
+    pub work_id: Uuid,
+    pub owner_id: String,
+    pub waiting_on_work: bool,
+    pub owner_on_work: bool,
+    pub owner_in_conversation: bool,
+}
+
+impl WorkStartFacts {
+    /// `owner_supervised` is the live registry's view of the owner; `capacity` is why no new
+    /// Attempt can start in this company now, if so. The order is the scan's: nothing about the
+    /// company's capacity matters while this Work could not be claimed anyway. `None` means
+    /// nothing holds it: the next scan claims it.
+    pub fn wait(
+        &self,
+        owner_supervised: bool,
+        capacity: Option<WorkWaitReason>,
+    ) -> Option<WorkWaitReason> {
+        if self.waiting_on_work {
+            Some(WorkWaitReason::WaitingOnWork)
+        } else if self.owner_on_work {
+            Some(WorkWaitReason::OwnerOnOtherWork)
+        } else if self.owner_in_conversation || owner_supervised {
+            Some(WorkWaitReason::OwnerInConversation)
+        } else {
+            capacity
+        }
+    }
 }
 
 /// One rough estimate of how far a Work has come, recorded by its creator (or Exec) at a

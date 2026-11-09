@@ -378,6 +378,7 @@
 					edges: graph?.edges ?? [],
 					work: graph?.work ?? [],
 					attempts: graph?.attempts ?? [],
+					waits: graph && 'waits' in graph ? graph.waits : [],
 					/* The run streaming below is proof its actor's model answers: no "Waiting on a
 					 * model" over a run in motion (3 Nov 2026). */
 					route: intelligence.view

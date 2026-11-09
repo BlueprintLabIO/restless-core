@@ -798,39 +798,54 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         return;
     }
 
+    // A person is waiting on these actors: they take a free slot before anything else.
+    let persons_first = match org.actors_owed_by_a_person(128).await {
+        Ok(actors) => actors,
+        Err(error) => {
+            tracing::warn!(company, "could not scan mail from people: {error:#}");
+            Vec::new()
+        }
+    };
+    wake_actors(
+        daemon,
+        &config,
+        &org,
+        company,
+        &persons_first,
+        "a person's message is owed",
+    )
+    .await;
+
+    // Ready Work past the age limit takes its owner's next free turn, ahead of Staff and lead
+    // mail; that mail stays unread and wakes the actor when the Attempt ends. A running turn is
+    // never interrupted: an owner still in one is simply excluded here until it ends.
+    claim_and_start_work(
+        daemon,
+        in_flight,
+        &config,
+        &org,
+        company,
+        Some(mail_ahead_of_overdue_work(&org, persons_first).await),
+    )
+    .await;
+
     // Team judgement and owner-to-lead conversation take precedence over
     // launching more member Work. Otherwise a full staff cap can starve the
     // coordinator that must repair what is already blocked.
     if let Ok(teams) = org.list_teams().await {
-        for team in teams {
-            if !daemon.staff.has_capacity(company) {
-                break;
-            }
-            match crate::staff::dispatch_actor_conversation(
-                &config,
-                &org,
-                crate::staff::ConversationRuntime {
-                    spend: &daemon.spend,
-                    authority: &daemon.authority,
-                    capabilities: &daemon.capabilities,
-                    registry: &daemon.staff,
-                    activities: &daemon.activities,
-                    runtime_bridges: &daemon.runtime_bridges,
-                    schedule_wake: &daemon.schedule_wake,
-                },
-                &team.lead_actor_id,
-                "addressed message or team judgement became ready",
-            )
-            .await
-            {
-                Ok(_) => {}
-                Err(error) => tracing::warn!(
-                    company,
-                    actor = %team.lead_actor_id,
-                    "could not wake team lead: {error:#}"
-                ),
-            }
-        }
+        let leads = teams
+            .into_iter()
+            .map(|team| team.lead_actor_id)
+            .collect::<Vec<_>>();
+        wake_actors(
+            daemon,
+            &config,
+            &org,
+            company,
+            &leads,
+            "addressed message or team judgement became ready",
+        )
+        .await;
     }
 
     // Direct mail is a durable peer wake, including for Staff who are not
@@ -841,30 +856,15 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         .await
     {
         Ok(actors) => {
-            for actor in actors {
-                if !daemon.staff.has_capacity(company) {
-                    break;
-                }
-                if let Err(error) = crate::staff::dispatch_actor_conversation(
-                    &config,
-                    &org,
-                    crate::staff::ConversationRuntime {
-                        spend: &daemon.spend,
-                        authority: &daemon.authority,
-                        capabilities: &daemon.capabilities,
-                        registry: &daemon.staff,
-                        activities: &daemon.activities,
-                        runtime_bridges: &daemon.runtime_bridges,
-                        schedule_wake: &daemon.schedule_wake,
-                    },
-                    &actor,
-                    "addressed direct message remains owed",
-                )
-                .await
-                {
-                    tracing::warn!(company, actor = %actor, "could not wake addressed Actor: {error:#}");
-                }
-            }
+            wake_actors(
+                daemon,
+                &config,
+                &org,
+                company,
+                &actors,
+                "addressed direct message remains owed",
+            )
+            .await;
         }
         Err(error) => tracing::warn!(company, "could not scan addressed Actor mail: {error:#}"),
     }
@@ -883,43 +883,119 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     }
     .await;
     if let Ok(actors) = mention_actors {
-        for actor in actors {
-            if !daemon.staff.has_capacity(company) {
-                break;
-            }
-            match crate::staff::dispatch_actor_conversation(
-                &config,
-                &org,
-                crate::staff::ConversationRuntime {
-                    spend: &daemon.spend,
-                    authority: &daemon.authority,
-                    capabilities: &daemon.capabilities,
-                    registry: &daemon.staff,
-                    activities: &daemon.activities,
-                    runtime_bridges: &daemon.runtime_bridges,
-                    schedule_wake: &daemon.schedule_wake,
-                },
-                &actor,
-                "a durable named-Actor collaboration mention remains owed",
-            )
-            .await
-            {
-                Ok(_) => {}
-                Err(error) => tracing::warn!(
-                    company,
-                    actor = %actor,
-                    "could not wake mentioned Actor: {error:#}"
-                ),
-            }
-        }
+        wake_actors(
+            daemon,
+            &config,
+            &org,
+            company,
+            &actors,
+            "a durable named-Actor collaboration mention remains owed",
+        )
+        .await;
     }
 
+    claim_and_start_work(daemon, in_flight, &config, &org, company, None).await;
+}
+
+/// Dispatch a conversation to each actor owed one, while the company has room.
+async fn wake_actors(
+    daemon: &Arc<Daemon>,
+    config: &CompanyConfig,
+    org: &OrgIntel,
+    company: &str,
+    actors: &[String],
+    reason: &str,
+) {
+    for actor in actors {
+        if !daemon.staff.has_capacity(company) {
+            break;
+        }
+        if let Err(error) = crate::staff::dispatch_actor_conversation(
+            config,
+            org,
+            crate::staff::ConversationRuntime {
+                spend: &daemon.spend,
+                authority: &daemon.authority,
+                capabilities: &daemon.capabilities,
+                registry: &daemon.staff,
+                activities: &daemon.activities,
+                runtime_bridges: &daemon.runtime_bridges,
+                schedule_wake: &daemon.schedule_wake,
+            },
+            actor,
+            reason,
+        )
+        .await
+        {
+            tracing::warn!(company, actor = %actor, "could not wake addressed Actor: {error:#}");
+        }
+    }
+}
+
+/// Which owners overdue Work must not go ahead of: those a person is waiting on, and those whose
+/// mail has already sat through one of their Attempts.
+async fn mail_ahead_of_overdue_work(org: &OrgIntel, persons_first: Vec<String>) -> OverduePass {
+    let mut mail_first = persons_first;
+    match org
+        .actors_with_mail_passed_by_work(128, mail_settle_now(org).await)
+        .await
+    {
+        Ok(actors) => mail_first.extend(actors),
+        Err(error) => tracing::warn!("could not scan mail passed by Work: {error:#}"),
+    }
+    OverduePass {
+        waited: ready_work_age_limit(),
+        mail_first,
+    }
+}
+
+/// The overdue half of the Work scan; see [`claim_and_start_work`].
+struct OverduePass {
+    waited: Duration,
+    mail_first: Vec<String>,
+}
+
+/// Claim and start ready Work while the company has room. With `overdue`, only Work past the age
+/// limit, leaving out the owners whose mail goes first.
+async fn claim_and_start_work(
+    daemon: &Arc<Daemon>,
+    in_flight: &InFlight,
+    config: &CompanyConfig,
+    org: &OrgIntel,
+    company: &str,
+    overdue: Option<OverduePass>,
+) {
+    // Conversation turns and Work Attempts share one supervised actor.
+    // Exclude the registry snapshot before the database claim so a busy
+    // actor's ready node stays untouched rather than being claimed and
+    // then misclassified as a failed Attempt by dispatch.
+    // The singleton Exec also has a free-form wake path outside the Staff
+    // registry. Work created during that wake must wait for it to finish;
+    // otherwise one durable Exec runs two ACP processes concurrently.
+    let busy_actors = || {
+        let exec_waking = in_flight
+            .lock()
+            .expect("in-flight guard")
+            .is_active(company);
+        let mut busy = actor_exclusions(daemon.staff.running_actors(company), exec_waking);
+        if let Some(overdue) = &overdue {
+            busy.extend(overdue.mail_first.iter().cloned());
+        }
+        busy
+    };
     // Leave Work ready in OrgIntel while the shared pool is under pressure.
     // No Attempt, model invocation or failure is created merely to wait.
     // Missing configured counters also defer new turns. Owner controls remain
     // available; conversations retain their durable input and scheduling priority.
     while daemon.staff.has_capacity(company) && daemon.staff.has_work_capacity(company) {
-        if !org.has_ready_work().await.unwrap_or(false) {
+        let has_work = match &overdue {
+            Some(overdue) => {
+                org.has_overdue_ready_work(&busy_actors(), overdue.waited)
+                    .await
+            }
+            None => org.has_ready_work().await,
+        };
+        if !has_work.unwrap_or(false) {
             break;
         }
         let resources = match daemon
@@ -934,22 +1010,18 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
                 break;
             }
         };
-        // Conversation turns and Work Attempts share one supervised actor.
-        // Exclude the registry snapshot before the database claim so a busy
-        // actor's ready node stays untouched rather than being claimed and
-        // then misclassified as a failed Attempt by dispatch.
-        // The singleton Exec also has a free-form wake path outside the Staff
-        // registry. Work created during that wake must wait for it to finish;
-        // otherwise one durable Exec runs two ACP processes concurrently.
-        let exec_waking = in_flight
-            .lock()
-            .expect("in-flight guard")
-            .is_active(company);
-        let busy_actors = actor_exclusions(daemon.staff.running_actors(company), exec_waking);
-        let claimed = match org
-            .claim_ready_work_excluding("dependency graph became ready", &busy_actors)
-            .await
-        {
+        let trigger = "dependency graph became ready";
+        let claim = match &overdue {
+            Some(overdue) => {
+                org.claim_overdue_work_excluding(trigger, &busy_actors(), overdue.waited)
+                    .await
+            }
+            None => {
+                org.claim_ready_work_excluding(trigger, &busy_actors())
+                    .await
+            }
+        };
+        let claimed = match claim {
             Ok(Some(claimed)) => claimed,
             Ok(None) => break,
             Err(error) => {
@@ -959,11 +1031,11 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         };
         let attempt_id = claimed.attempt_id;
         if let Err(error) = crate::staff::dispatch_claimed_work(
-            &config,
+            config,
             &daemon.spend,
             &daemon.authority,
             &daemon.capabilities,
-            &org,
+            org,
             &daemon.staff,
             &daemon.activities,
             &daemon.runtime_bridges,
@@ -2135,6 +2207,17 @@ async fn mail_settle_now(org: &OrgIntel) -> restless_orgintel::MailSettle {
         Ok(false) => restless_orgintel::MailSettle::IMMEDIATE,
         _ => settle,
     }
+}
+
+/// How long ready Work may wait before it goes ahead of mail on its owner's next free turn (S113).
+/// Two minutes; `RESTLESS_READY_WORK_AGE_LIMIT_SECS` changes it. 0 puts every ready Work first.
+fn ready_work_age_limit() -> Duration {
+    Duration::from_secs(
+        std::env::var("RESTLESS_READY_WORK_AGE_LIMIT_SECS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(120),
+    )
 }
 
 /// How long judgement may wait on a person before Exec reminds them, and before it goes to the
