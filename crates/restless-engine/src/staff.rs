@@ -1552,8 +1552,8 @@ mod tests {
         assert!(context.contains("Sera Morn · environmental readability specialist"));
         assert!(!context.contains("Mina Vale"));
         assert!(context.contains("available capacity, not a headcount target"));
-        assert!(context.contains("Produce tightly coupled or single-piece work yourself"));
-        assert!(context.contains("in parallel by default"));
+        // Said once, in the accountable lead's posture (actor_posture), not again here.
+        assert!(!context.contains("Produce tightly coupled or single-piece work yourself"));
         assert!(!context.contains("lead-owned production Work is invalid"));
         assert!(context.contains("restless work add"));
     }
