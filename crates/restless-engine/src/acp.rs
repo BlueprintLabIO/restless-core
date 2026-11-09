@@ -2190,12 +2190,7 @@ async fn launch_and_prepare(
     };
     let credentials = async {
         if delivery == CredentialDelivery::TurnFile {
-            let dir = credentials_dir(launch_id);
-            let (model, coordination) = (format!("{dir}/model"), format!("{dir}/coordination"));
-            tokio::try_join!(
-                write_private_container_file(container, &model, &auth.gateway_token),
-                write_private_container_file(container, &coordination, &auth.coordination_token),
-            )?;
+            write_credential_files(container, &credentials_dir(launch_id), auth).await?;
         }
         Ok::<(), anyhow::Error>(())
     };
@@ -2218,14 +2213,50 @@ async fn write_turn_credentials(
     process: &AgentProcess,
     auth: &AgentAuth,
 ) -> Result<()> {
-    let (Some(model), Some(coordination)) = (process.model_file(), process.coordination_file())
-    else {
+    let Some(dir) = process.credentials_dir.as_deref() else {
         anyhow::bail!("this agent process does not read its grants from files");
     };
-    tokio::try_join!(
-        write_private_container_file(container, &model, &auth.gateway_token),
-        write_private_container_file(container, &coordination, &auth.coordination_token),
-    )?;
+    write_credential_files(container, dir, auth).await
+}
+
+/// Both grants in one container command, atomically each: every turn start waits on this. The
+/// grants arrive on stdin, one per line; a signed capability holds no newline.
+async fn write_credential_files(container: &str, dir: &str, auth: &AgentAuth) -> Result<()> {
+    let mut child = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-i",
+            "-u",
+            "company",
+            container,
+            "sh",
+            "-c",
+            "set -eu; dir=$1; umask 077; mkdir -p \"$dir\"; IFS= read -r model; IFS= read -r coordination; printf '%s' \"$model\" > \"$dir/model.$$\"; printf '%s' \"$coordination\" > \"$dir/coordination.$$\"; mv \"$dir/model.$$\" \"$dir/model\"; mv \"$dir/coordination.$$\" \"$dir/coordination\"",
+            "restless-write-grants",
+            dir,
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .context("deliver this turn's grants")?;
+    let mut stdin = child.stdin.take().context("open grant delivery stdin")?;
+    stdin
+        .write_all(format!("{}\n{}\n", auth.gateway_token, auth.coordination_token).as_bytes())
+        .await?;
+    stdin.shutdown().await?;
+    drop(stdin);
+    let output = child
+        .wait_with_output()
+        .await
+        .context("deliver this turn's grants")?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "deliver this turn's grants: {}",
+            String::from_utf8_lossy(&output.stderr).chars().take(300).collect::<String>()
+        );
+    }
     Ok(())
 }
 

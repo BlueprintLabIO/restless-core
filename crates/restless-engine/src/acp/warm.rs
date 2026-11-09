@@ -130,18 +130,6 @@ impl AgentProcess {
         matches!(self.child.try_wait(), Ok(None))
     }
 
-    pub(super) fn model_file(&self) -> Option<String> {
-        self.credentials_dir
-            .as_ref()
-            .map(|dir| format!("{dir}/model"))
-    }
-
-    pub(super) fn coordination_file(&self) -> Option<String> {
-        self.credentials_dir
-            .as_ref()
-            .map(|dir| format!("{dir}/coordination"))
-    }
-
     fn is_due_for_retirement(&self) -> bool {
         self.started.elapsed() >= MAX_AGE || self.turns >= MAX_TURNS
     }
