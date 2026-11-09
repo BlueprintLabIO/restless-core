@@ -471,7 +471,6 @@
 		return [
 			message.author,
 			markdownText(message.text),
-			message.from === 'agent' ? (message.intent?.summary ?? '') : '',
 			...message.attachments.map((attachment) => attachment.name),
 			// The account receipts under a message (AccountUseNote, compact): what it did, and how.
 			...(message.accountUses ?? []).flatMap((use) => [
@@ -1188,7 +1187,7 @@
 		if (!last || id <= announcedThrough) return;
 		announcedThrough = id;
 		if (last.from === 'agent')
-			announcement = `${last.author || participantName}: ${excerptOf(last.intent?.summary || last.text)}`;
+			announcement = `${last.author || participantName}: ${excerptOf(last.text)}`;
 	});
 
 	function firstMessageNumericId(messageId: string): number {
@@ -1736,7 +1735,6 @@
 								text={message.text}
 								createdAt={message.createdAt}
 								details={message.details}
-								intent={message.intent}
 								accountUses={message.accountUses}
 								attachments={message.attachments}
 								hrefFor={attachmentHref}
