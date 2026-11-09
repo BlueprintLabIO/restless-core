@@ -106,15 +106,6 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
         None
     };
     let mut continuity_note: Option<String> = None;
-    let mcp_servers = crate::tool_gateway::session_servers(
-        run.authority.pool(),
-        &run.capabilities,
-        &run.company,
-        &run.actor,
-        run.work_id,
-        run.attempt_id,
-    )
-    .await?;
     let connected_tools =
         crate::connections::context_summary(run.authority.pool(), &run.company, &run.actor)
             .await
@@ -148,6 +139,9 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
             &run.responsibility,
             run.work_id,
             run.attempt_id,
+            hosted_identity.is_none()
+                && run.worker_harness == crate::runtime::AgentHarness::RestlessManaged
+                && !model.starts_with("native-"),
         )
         .await
         {
@@ -184,6 +178,17 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
                 });
             }
         };
+        let mcp_servers = crate::tool_gateway::session_servers(
+            run.authority.pool(),
+            &run.capabilities,
+            &run.company,
+            &run.actor,
+            run.work_id,
+            run.attempt_id,
+            crate::capability::is_turn_session(&auth.session_id)
+                .then_some(auth.session_id.as_str()),
+        )
+        .await?;
 
         let billing = auth.billing;
         // The shared ledger gate is acquired before opening the ACP session.
@@ -1153,6 +1158,11 @@ impl StaffDrive {
             &responsibility,
             Some(work_id),
             Some(attempt_id),
+            // Repair runs in this company's container beside warm launches: it must use the same
+            // credential route, or its models.yml would be the shared file's last writer.
+            self.hosted_identity.is_none()
+                && self.worker_harness == crate::runtime::AgentHarness::RestlessManaged
+                && !self.model.starts_with("native-"),
         )
         .await
         {

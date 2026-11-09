@@ -363,6 +363,12 @@ impl StaffRegistry {
         };
         self.note_capacity_wait(company, wait.as_deref());
         if wait.is_some() {
+            // An idle warm process is the first thing to give up its memory.
+            if capacity.waiting_for_memory
+                || capacity.waits_for_memory(company_starting, shared_starting)
+            {
+                crate::acp::evict_idle_for_capacity(company);
+            }
             self.resource_retry.store(true, Ordering::SeqCst);
             return Ok(None);
         }

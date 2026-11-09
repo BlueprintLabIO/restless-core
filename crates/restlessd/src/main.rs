@@ -863,6 +863,7 @@ async fn drain_before_exit(daemon: &Daemon) {
     }
     daemon.lifecycle.begin_drain();
     tracing::info!("stop requested; draining in-flight work before exit");
+    restless_engine::acp::drain_warm_processes().await;
     let started = std::time::Instant::now();
     loop {
         let status = coordination::appliance_drain_status(daemon);

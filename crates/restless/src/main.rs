@@ -2618,6 +2618,14 @@ fn is_runtime() -> bool {
 /// by the host on up. Neither variable is meaningful on the local Unix owner
 /// transport.
 fn runtime_capability() -> Option<String> {
+    // A warm actor process receives each turn's grant in this file. When it is named and absent
+    // the turn has ended: fail closed rather than fall through to the bridge's Exec identity.
+    if let Ok(path) = std::env::var("RESTLESS_SESSION_CAPABILITY_FILE") {
+        return std::fs::read_to_string(path)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+    }
     std::env::var("RESTLESS_SESSION_CAPABILITY")
         .ok()
         .or_else(|| std::env::var("RESTLESS_RUNTIME_CAPABILITY").ok())
