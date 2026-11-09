@@ -125,7 +125,7 @@ pub fn team_capacity_context(team: &TeamRow, actors: &[ActorRow]) -> String {
         "\n# Your available team [internal decision]\n{} — {}\n{}\n\
          This is available capacity, not a headcount target. Produce tightly coupled or single-piece work yourself \
          through Work you own; when the outcome splits into pieces that can proceed independently, \
-         commission workers for them in parallel by default, up to four Work Attempts at once. Measured on the overhead bench, a handoff adds about four model calls, about twice the input tokens and 15 to 20 seconds before anything starts, so keep a job you can finish and check in one Attempt. Create each bounded Work, yours or a worker's, with `restless work \
+         commission workers for them in parallel by default, up to four Work Attempts at once. A handoff costs about four model calls, twice the tokens and 20 seconds, so keep a job you can finish and check in one Attempt. Create each bounded Work, yours or a worker's, with `restless work \
          add` before it starts; messages are not assignments. Quote titles and outcomes in single quotes, or pass them from a \
          file: double quotes let the shell expand `$`, so `A$500` would read `A00`. Only when a registered external message from `world` caused the outcome, add \
          `--source-message <message-id>` so source linkage and Work creation commit once together. Do not pass an owner or Exec conversation message id; commission their directions as ordinary Work.\n",

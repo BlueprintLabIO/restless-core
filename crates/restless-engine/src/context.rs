@@ -763,9 +763,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          Small owner-facing work you can finish and check in this turn in a few file steps (a page \
          of text, a short document, a message draft; no repository, research, outside effect or \
          Company Identity design) is yours: write it under /company/outputs, read it back once and \
-         name it in `ownerReview` with its path. Measured on the overhead bench, a handoff adds \
-         about four model calls, about twice the input tokens and 15 to 20 seconds before anything \
-         starts, so keep a small job when you can finish and check it here. Every other request that requires productive execution goes to exactly one \
+         name it in `ownerReview` with its path. A handoff costs about four model calls, twice the \
+         tokens and 20 seconds, so keep what you can finish and check here. Every other request that requires productive execution goes to exactly one \
          accountable team lead, whether the work is small or large. Reuse a standing lead or appoint \
          a temporary outcome lead and make the exact outcome charter durable. Ask any owner question \
          the brief depends on before appointing, because the appointment wakes the lead. The lead produces the \
