@@ -49,6 +49,7 @@ BUNDLE_MEDIA_TYPE='application/vnd.restless.core.release-bundle.v1+tar+gzip'
 # macOS: the same release's restless and restlessd, signed with the same key and published beside
 # the Linux bundle as <revision>-darwin-<arm64|x86_64>.
 MACOS_MEDIA_TYPE='application/vnd.restless.core.macos-binaries.v1+tar+gzip'
+MACOS_INFO_MEDIA_TYPE='application/vnd.restless.core.macos-release-info.v1+json'
 SIGSTORE_MEDIA_TYPE='application/vnd.dev.sigstore.bundle.v0.3+json'
 
 fail() { printf 'install-core: %s\n' "$*" >&2; exit 1; }
@@ -121,16 +122,42 @@ host_platform() {
 # Whether the registry holds <revision>-<suffix> (a Linux bundle or a macOS build).
 published() {
   curl -fsS -o /dev/null -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-    "https://${REGISTRY}/v2/${REPOSITORY}/manifests/$1-$2"
+    "https://${REGISTRY}/v2/${REPOSITORY}/manifests/$1-$2" 2>/dev/null
 }
 
-# The newest release this machine can install: the release last tagged `latest-<arch>`, which the
-# release script moves only once every signature verifies from the public registry. Only the
+# The release the newest macOS build belongs to. A Mac build lands after its Linux release, so a Mac
+# follows `latest-darwin-<arch>`, which macos-release.sh moves once that build verifies from the
+# public registry. Only the revision is read here; main() verifies the build itself.
+latest_macos_revision() {
+  local arch="$(uname -m)" work="$1" digest
+  curl -fsS -H 'Accept: application/vnd.oci.image.manifest.v1+json' -o "$work/macos-latest.json" \
+    "https://${REGISTRY}/v2/${REPOSITORY}/manifests/latest-darwin-${arch}" 2>/dev/null \
+    || fail "no macOS build for ${arch} is published yet"
+  digest="$(jq -er --arg type "$MACOS_INFO_MEDIA_TYPE" '[.layers[] | select(.mediaType == $type)] | if length == 1 then .[0].digest else error("expected one info layer") end' "$work/macos-latest.json")" \
+    || fail "the latest macOS build does not say which release it belongs to"
+  [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "a macOS artifact digest is malformed"
+  curl -fsSL -o "$work/macos-latest-info.json" "https://${REGISTRY}/v2/${REPOSITORY}/blobs/${digest}" \
+    || fail "could not download the latest macOS build's details"
+  [ "sha256:$(sha256_of "$work/macos-latest-info.json")" = "$digest" ] \
+    || fail "the latest macOS build's details do not match their digest ${digest}"
+  jq -er '.source_revision' "$work/macos-latest-info.json" || fail "the latest macOS build names no revision"
+}
+
+# The newest release this machine can install: on Linux the release last tagged `latest-<arch>`, which
+# the release script moves only once every signature verifies from the public registry. Only the
 # revision is read here; main() then fetches and verifies that release like any other.
 latest_revision() {
   local platform work revision
   platform="$(host_platform)"
   work="$(mktemp -d)"
+  if is_macos; then
+    latest_macos_revision "$work"
+    rm -rf "$work"
+    return 0
+  fi
+  if [ "$platform" = arm64 ] && ! published latest arm64; then
+    fail "Linux on ARM is not published yet; Restless installs on x86-64 Linux, on a Mac, or on Windows with WSL2"
+  fi
   fetch_bundle latest "$platform" "$work" >/dev/null
   revision="$(jq -er '.release_manifest.path' "$work/bundle/core-release-bundle.json")" \
     || fail "the latest release has no release manifest"
@@ -182,9 +209,9 @@ ensure_database() {
 # user; otherwise say the one command that does it.
 ensure_linger() {
   is_macos && return 0 # launchd keeps a user agent running while the user is logged in.
-  [ "$(loginctl show-user "$USER" --property=Linger --value 2>/dev/null)" = yes ] && return 0
-  loginctl enable-linger "$USER" 2>/dev/null && return 0
-  printf 'note: Restless stops when you log out until you run: sudo loginctl enable-linger %s\n' "$USER" >&2
+  [ "$(loginctl show-user "$(id -un)" --property=Linger --value 2>/dev/null)" = yes ] && return 0
+  loginctl enable-linger "$(id -un)" 2>/dev/null && return 0
+  printf 'note: Restless stops when you log out until you run: sudo loginctl enable-linger %s\n' "$(id -un)" >&2
 }
 
 # Fetch the bundle for <revision>-<platform>, verifying the manifest and the
@@ -524,7 +551,7 @@ open_cockpit() {
     return 0
   fi
   printf 'From another computer: ssh -L 7788:127.0.0.1:7788 %s@%s, then open %s\n' \
-    "$USER" "$(hostname -f 2>/dev/null || hostname)" "$url" >&2
+    "$(id -un)" "$(hostname -f 2>/dev/null || hostname)" "$url" >&2
   printf 'Later, on this machine: restless open\n' >&2
 }
 
