@@ -165,6 +165,9 @@ pub struct CoordinationGrant {
     pub session: String,
     pub work_id: Option<Uuid>,
     pub attempt_id: Option<Uuid>,
+    /// The company computer's standing identity rather than a supervised turn.
+    /// Every process in the Runtime can read it, so it may only observe.
+    pub runtime_bridge: bool,
 }
 
 /// Scope that the Runtime-facing model relay verifies before forwarding one
@@ -265,8 +268,9 @@ impl CapabilityIssuer {
         })
     }
 
-    /// A company computer's ordinary bridge identity. It is deliberately
-    /// less precise than an actor session, and therefore always becomes Exec.
+    /// A company computer's ordinary bridge identity. It names no Actor, and
+    /// any process in the Runtime can read it, so coordination admits it only
+    /// for the read-only commands in `RUNTIME_BRIDGE_COMMANDS`.
     /// restless up refreshes the file materialised inside the Runtime.
     pub fn issue_runtime_bridge(&self, company: &str) -> Result<String> {
         self.issue(Claims {
@@ -548,6 +552,7 @@ impl CapabilityIssuer {
 
     pub fn verify_coordination(&self, token: &str) -> Result<CoordinationGrant> {
         let claims = self.verify(token)?;
+        let runtime_bridge = claims.kind == CapabilityKind::RuntimeBridge;
         let actor = match claims.kind {
             CapabilityKind::RuntimeBridge => "exec".to_string(),
             CapabilityKind::HostedRuntimeBridge => {
@@ -567,6 +572,7 @@ impl CapabilityIssuer {
             session: claims.session,
             work_id: claims.work_id,
             attempt_id: claims.attempt_id,
+            runtime_bridge,
         })
     }
 
@@ -1010,6 +1016,7 @@ mod tests {
                 session: "session_1".into(),
                 work_id: None,
                 attempt_id: None,
+                runtime_bridge: false,
             }
         );
         assert!(issuer.verify_model(&coordination).is_err());

@@ -4766,6 +4766,11 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
     }
 }
 
+/// All that the company computer's standing identity may ask. The file holding it
+/// is readable by every process in the shared Runtime, including Staff, so it must
+/// never carry Exec's authority: supervised turns have their own signed session.
+const RUNTIME_BRIDGE_COMMANDS: &[&str] = &["status", "doctor"];
+
 pub fn authenticate_request(
     request: &mut Request,
     capabilities: &capability::CapabilityIssuer,
@@ -4798,6 +4803,12 @@ pub fn authenticate_request(
                 return Err(format!(
                     "Runtime capability is scoped to company {:?}, not {:?}",
                     grant.company, requested_company
+                ));
+            }
+            if grant.runtime_bridge && !RUNTIME_BRIDGE_COMMANDS.contains(&request.cmd.as_str()) {
+                return Err(format!(
+                    "{} needs an Actor's own session; the company computer's identity can only check status. An agent's turn already has its session, so run this from that turn, or ask Exec to do it",
+                    request.cmd
                 ));
             }
             bind_runtime_actor(request, &grant.actor)?;
@@ -6433,6 +6444,64 @@ mod tests {
     }
 
     #[test]
+    fn the_computers_standing_identity_can_observe_but_never_act_as_exec() {
+        let root = std::env::temp_dir().join(format!(
+            "restless-bridge-auth-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let issuer = capability::CapabilityIssuer::open(&root).unwrap();
+        let bridge = issuer.issue_runtime_bridge("acme_test").unwrap();
+        let request = |cmd: &str, token: &str| {
+            decoded_request(serde_json::json!({
+                "cmd": cmd, "company": "acme_test", "session_capability": token
+            }))
+        };
+
+        for cmd in RUNTIME_BRIDGE_COMMANDS {
+            authenticate_request(
+                &mut request(cmd, &bridge),
+                &issuer,
+                ConnectionOrigin::RuntimeTcp,
+            )
+            .unwrap_or_else(|refusal| panic!("{cmd} should be allowed: {refusal}"));
+        }
+        for cmd in [
+            "message",
+            "work-add",
+            "work-assign",
+            "attention-act",
+            "email-send",
+            "mandate-propose",
+            "mandate-permit",
+            "direction-operation",
+            "setting-propose",
+            "actor-create",
+            "effect",
+            "job-run",
+        ] {
+            let refusal = authenticate_request(
+                &mut request(cmd, &bridge),
+                &issuer,
+                ConnectionOrigin::RuntimeTcp,
+            )
+            .expect_err(cmd);
+            assert!(refusal.contains("own session"), "{cmd}: {refusal}");
+        }
+
+        // Exec's real turn is unaffected: its session names the Actor.
+        let exec = issuer
+            .issue_actor_session("acme_test", "exec", "exec_turn", None, None)
+            .unwrap();
+        authenticate_request(
+            &mut request("email-send", &exec),
+            &issuer,
+            ConnectionOrigin::RuntimeTcp,
+        )
+        .unwrap();
+    }
+
+    #[test]
     fn tcp_capability_derives_company_and_actor_before_dispatch() {
         let root =
             std::env::temp_dir().join(format!("restless-tcp-auth-test-{}", uuid::Uuid::new_v4()));
@@ -6608,7 +6677,7 @@ mod tests {
         assert!(
             authenticate_request(&mut ambient_exec, &issuer, ConnectionOrigin::RuntimeTcp,)
                 .unwrap_err()
-                .contains("Work-bound ActorSession")
+                .contains("own session")
         );
         let mut human_document = document_request("unused", attempt_id);
         assert!(
