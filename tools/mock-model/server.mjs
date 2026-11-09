@@ -406,6 +406,11 @@ const server = createServer(async (request, response) => {
 	}
 	if (request.method === 'GET' && ['/emails', '/emails/receiving', '/suppressions'].includes(url.pathname))
 		return json(response, 200, { object: 'list', has_more: false, data: url.pathname === '/emails' ? emails.slice(0, 100) : [] });
+	/* A healthy account with one receiving domain. Without this, incoming email's first connect
+	 * fails and puts an "isn't connected" card in Exec's Inbox, at a moment that depends on when
+	 * the daemon's two-minute loop runs against the bench's setup turn, so token counts varied. */
+	if (request.method === 'GET' && url.pathname === '/domains')
+		return json(response, 200, { object: 'list', has_more: false, data: [{ id: 'bench', name: 'bench.example', status: 'verified', capabilities: { sending: 'enabled', receiving: 'enabled' } }] });
 	const isCall = request.method === 'POST' && url.pathname.endsWith('/messages');
 	/* A scripted caller (the token-parity baselines) may name its own move in `x-mock-step`, so its
 	 * output tokens and modeled time are those of the move it replays, not of a mock reply. The

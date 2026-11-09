@@ -163,6 +163,46 @@ macro_rules! work_claimable_sql {
     };
 }
 
+/// A requirement of this Work finished within the last `$N` seconds: it was unblocked just now.
+macro_rules! just_unblocked_sql {
+    ($seconds:literal) => {
+        concat!(
+            "EXISTS (SELECT 1 FROM work_edges e JOIN work_attempts a ON a.work_id = e.from_work_id \
+              WHERE e.to_work_id = w.id AND e.kind = 'requires' \
+                AND a.finished_at > now() - make_interval(secs => ",
+            $seconds,
+            "))"
+        )
+    };
+}
+
+/// Whether something could still add to `recipient`'s next wake, as SQL: Work of its own in motion
+/// (a running Attempt, a colleague's turn in flight, ready Work) or a schedule of its own firing
+/// within the settle window. Exec receives every result, so all of the company's Work is its own;
+/// a lead's is what it commissioned or what its team owns. `quiet` is the window's bind.
+pub(crate) fn mail_source_in_motion_sql(recipient: &str, quiet: &str) -> String {
+    format!(
+        "(EXISTS (SELECT 1 FROM work_attempts a JOIN work w ON w.id = a.work_id \
+           LEFT JOIN actors o ON o.id = a.actor_id LEFT JOIN teams t ON t.id = o.team_id \
+           WHERE a.state = 'running' \
+             AND ({r} = 'exec' OR w.commissioned_by = {r} OR t.lead_actor_id = {r})) \
+         OR EXISTS (SELECT 1 FROM actor_cognitive_leases l \
+           LEFT JOIN actors o ON o.id = l.actor_id LEFT JOIN teams t ON t.id = o.team_id \
+           WHERE l.claimed_until > now() AND l.actor_id <> {r} \
+             AND ({r} = 'exec' OR t.lead_actor_id = {r})) \
+         OR EXISTS (SELECT 1 FROM work w \
+           LEFT JOIN actors o ON o.id = w.owner_id LEFT JOIN teams t ON t.id = o.team_id \
+           WHERE {claimable} \
+             AND ({r} = 'exec' OR w.commissioned_by = {r} OR t.lead_actor_id = {r})) \
+         OR EXISTS (SELECT 1 FROM schedules s \
+           WHERE s.actor_id = {r} AND s.fired_at IS NULL AND s.cancelled_at IS NULL \
+             AND s.paused_at IS NULL AND s.fire_at <= now() + make_interval(secs => {quiet})))",
+        r = recipient,
+        quiet = quiet,
+        claimable = work_claimable_sql!(),
+    )
+}
+
 /// When a Work last became ready: made, edited or reopened, its last Attempt over, or a
 /// requirement finished. Not `created_at` alone, so a chain does not count its time queued behind
 /// its own dependencies as time waiting for a turn.
@@ -260,7 +300,7 @@ impl OrgIntel {
         trigger: &str,
         excluded_actor_ids: &[String],
     ) -> Result<Option<ClaimedWork>> {
-        self.claim_ready_work_waited(trigger, excluded_actor_ids, None)
+        self.claim_ready_work_waited(trigger, excluded_actor_ids, None, None)
             .await
     }
 
@@ -272,7 +312,40 @@ impl OrgIntel {
         excluded_actor_ids: &[String],
         waited: std::time::Duration,
     ) -> Result<Option<ClaimedWork>> {
-        self.claim_ready_work_waited(trigger, excluded_actor_ids, Some(waited))
+        self.claim_ready_work_waited(trigger, excluded_actor_ids, Some(waited), None)
+            .await
+    }
+
+    /// Whether Work a just-finished requirement unblocked could be claimed. See
+    /// [`Self::claim_chain_work_excluding`].
+    pub async fn has_chain_work_ready(
+        &self,
+        excluded_actor_ids: &[String],
+        within: std::time::Duration,
+    ) -> Result<bool> {
+        Ok(sqlx::query_scalar(concat!(
+            "SELECT EXISTS(SELECT 1 FROM work w WHERE ",
+            work_claimable_sql!(),
+            " AND w.owner_id <> ALL($1::text[]) AND ",
+            just_unblocked_sql!("$2"),
+            ")"
+        ))
+        .bind(excluded_actor_ids)
+        .bind(within.as_secs_f64())
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    /// [`Self::claim_ready_work_excluding`], only for the next Work in a chain: one whose
+    /// requirement finished within `within`. The claim the scheduler makes the moment a dependency
+    /// completes, before its full scan; anything this leaves is the scan's as usual.
+    pub async fn claim_chain_work_excluding(
+        &self,
+        trigger: &str,
+        excluded_actor_ids: &[String],
+        within: std::time::Duration,
+    ) -> Result<Option<ClaimedWork>> {
+        self.claim_ready_work_waited(trigger, excluded_actor_ids, None, Some(within))
             .await
     }
 
@@ -281,6 +354,7 @@ impl OrgIntel {
         trigger: &str,
         excluded_actor_ids: &[String],
         waited: Option<std::time::Duration>,
+        unblocked_within: Option<std::time::Duration>,
     ) -> Result<Option<ClaimedWork>> {
         let mut tx = self.pool.begin().await?;
         // Supersession means the frozen input snapshot changed. It is not an
@@ -298,11 +372,15 @@ impl OrgIntel {
               AND ($2::float8 IS NULL OR ",
             ready_since_sql!(),
             " <= now() - make_interval(secs => $2)) \
+              AND ($3::float8 IS NULL OR ",
+            just_unblocked_sql!("$3"),
+            ") \
              ORDER BY w.priority DESC, w.created_at \
              FOR UPDATE OF w SKIP LOCKED LIMIT 1",
         ))
         .bind(excluded_actor_ids)
         .bind(waited.map(|waited| waited.as_secs_f64()))
+        .bind(unblocked_within.map(|within| within.as_secs_f64()))
         .fetch_optional(&mut *tx)
         .await?;
         let Some(work) = work else {
