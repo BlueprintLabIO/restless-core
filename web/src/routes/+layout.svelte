@@ -140,7 +140,8 @@
 	onMount(() =>
 		observeSessionEnd(
 			() => page.params.companyId,
-			(reason) =>
+			(reason) => {
+				if (reason === 'no_access') return;
 				toast(
 					reason === 'signed_out'
 						? 'You were signed out. Sign in again to keep working; your drafts are kept.'
@@ -158,7 +159,8 @@
 									}
 								: { label: 'Reload', run: () => window.location.reload() }
 					}
-				)
+				);
+			}
 		)
 	);
 	onMount(() => installTripwire(queryClient));

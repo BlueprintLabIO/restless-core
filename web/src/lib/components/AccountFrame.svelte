@@ -15,6 +15,10 @@
 	import { applianceQuery, companiesQuery } from '$lib/model/queries.svelte';
 	import { ACCOUNT_SECTIONS, type AccountSectionId } from '$lib/model/account-sections';
 	import CommandMenu, { type Command } from '$lib/components/CommandMenu.svelte';
+	import { sessionScope } from '$lib/model/session-scope';
+	import { toast } from '$lib/ui/feedback/toast.svelte';
+	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 
 	let {
 		appliance = null,
@@ -28,6 +32,15 @@
 		settings?: Snippet<[AccountGroup[]]> | null;
 		children?: Snippet | null;
 	} = $props();
+	/* A person in one company has no Account pages: their session cannot read them, and a page of
+	 * refusals is no answer. Their company is the way on. */
+	onMount(() => {
+		void sessionScope().then((session) => {
+			if (session?.scope !== 'company' || !session.company || session.role === 'owner') return;
+			toast('Account pages are the account owner’s. Here is your company.');
+			void goto(`/${encodeURIComponent(session.company)}`, { replaceState: true });
+		});
+	});
 	const identity = applianceQuery(() => !appliance);
 	const status = $derived(appliance ?? identity.view);
 	const profile = $derived(planeLabel(status));

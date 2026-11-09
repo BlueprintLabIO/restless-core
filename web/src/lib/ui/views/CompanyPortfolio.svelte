@@ -357,6 +357,13 @@
 		.portfolio-title {
 			grid-column: 2 / span 2;
 			grid-row: 1;
+			min-width: 0;
+		}
+		/* One line, whatever the name; a long one is cut, its tip holds the rest. */
+		.portfolio-title :global(strong) {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
 		}
 		.portfolio-signal,
 		.portfolio-card.blocked .portfolio-signal {

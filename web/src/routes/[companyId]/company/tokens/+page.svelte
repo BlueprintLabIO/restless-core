@@ -4,6 +4,7 @@
 	import { Page, Section, Notice, Empty, Segmented } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import { modelLabel } from '$lib/model/intelligence-labels';
 	import { mayReadCompanyRecord } from '$lib/model/company-access';
 	import {
 		spendReportQuery,
@@ -202,7 +203,7 @@
 						<summary
 							><span class="call-person"
 								><b>{row.person || 'Unattributed'}</b><small title={row.model}
-									>{row.model.split('/').at(-1)}</small
+									>{modelLabel(row.model)}</small
 								></span
 							><span class="call-measure"
 								><span>{tokenCount(row.tokens)} tokens</span><small

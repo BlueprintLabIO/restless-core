@@ -13,7 +13,7 @@ const serviceDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repo = resolve(serviceDir, "..", "..");
 // The protocol journey is the default; the multiplayer journey drives three
 // browser accounts through the same isolated plane and cleanup.
-const journeys = { "core-journey.mjs": 240, "multiplayer-journey.mjs": 900, "multiplayer-stress-journey.mjs": 1200, "multiplayer-jank-journey.mjs": 2700 };
+const journeys = { "core-journey.mjs": 240, "multiplayer-journey.mjs": 900, "multiplayer-stress-journey.mjs": 1200, "multiplayer-jank-journey.mjs": 2700, "multiplayer-hold-journey.mjs": 14400 };
 const journeyName = process.env.RESTLESS_TEST_JOURNEY ?? "core-journey.mjs";
 const journeySeconds = journeys[journeyName];
 const required = [
@@ -280,7 +280,7 @@ try {
   if (process.env.RESTLESS_BROWSER_EXECUTABLE) environment.RESTLESS_BROWSER_EXECUTABLE = process.env.RESTLESS_BROWSER_EXECUTABLE;
   // The stress journey's seed and size, so a failing storm replays exactly.
   // The jank gate's filter and allowlist recording.
-  for (const name of ["RESTLESS_MP_SEED", "RESTLESS_MP_ROUNDS", "RESTLESS_MP_STRICT", "RESTLESS_JANK_ONLY", "RESTLESS_JANK_RECORD"])
+  for (const name of ["RESTLESS_MP_SEED", "RESTLESS_MP_ROUNDS", "RESTLESS_MP_STRICT", "RESTLESS_JANK_ONLY", "RESTLESS_JANK_RECORD", "RESTLESS_MP_SCENARIO", "RESTLESS_MP_HOLD_SECONDS"])
     if (process.env[name]) environment[name] = process.env[name];
   Object.assign(environment, {
     RESTLESS_PROFILE: "dev",

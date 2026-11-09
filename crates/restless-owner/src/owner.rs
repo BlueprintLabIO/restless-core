@@ -2832,6 +2832,8 @@ fn membership_boundary_violation(
         // handlers perform their own principal and audience authorization.
         || !is_owner_data_surface(path)
         || path == "/entry/logout"
+        // A session may always ask what it holds; the answer is only about itself.
+        || (*method == Method::GET && path == "/api/session/scope")
         // Each person issues and revokes only their own MCP tokens.
         || path == mcp_api::ACCESS_PATH
         || path.starts_with("/api/mcp-access/")
@@ -3416,7 +3418,7 @@ fn network_boundary_violation<'a>(
                 return Some(BoundaryRefusal {
                     status: StatusCode::FORBIDDEN,
                     code: "company_out_of_scope",
-                    message: "this session is not scoped to that company",
+                    message: "You don't have access to that company.",
                 });
             }
         }
@@ -5203,12 +5205,19 @@ fn company_connection_is_assigned(
 /// principal alone keeps the check to one request; `/connections` used to answer it, and probes
 /// every saved credential on the way (about a second, 19 October).
 async fn session_scope(principal: Option<Extension<RequestPrincipal>>) -> Response<Body> {
+    let scope_company = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.scoped_company().map(str::to_owned));
+    let role = principal
+        .as_ref()
+        .map(|Extension(principal)| principal.membership_role().to_owned());
     let scope = match principal {
         Some(Extension(principal)) if principal.is_account_owner() => "account",
         Some(Extension(principal)) if principal.scoped_company().is_some() => "company",
         _ => "none",
     };
-    Json(serde_json::json!({ "scope": scope })).into_response()
+    let company = scope_company.filter(|_| scope == "company");
+    Json(serde_json::json!({ "scope": scope, "company": company, "role": role })).into_response()
 }
 
 async fn list_owner_connections(
@@ -9965,7 +9974,7 @@ async fn room_orgintel(
         return Err(api_error(
             StatusCode::FORBIDDEN,
             "company_out_of_scope",
-            "this session is not scoped to that company",
+            "You don't have access to that company.",
         ));
     }
     let org = state.orgintel(company).await.map_err(|error| {

@@ -24,8 +24,15 @@
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? '');
-	const attention = $derived(attentionQuery(companyId, true, true));
 	const principal = $derived(companyPrincipalQuery(companyId));
+	/* The Work graph is the owner's; an admin reads this page from the record without it. */
+	const attention = $derived(
+		attentionQuery(
+			companyId,
+			() => !!principal.view,
+			() => principal.view?.membership_role === 'owner'
+		)
+	);
 	/* Who acted, in words: the record holds actor ids such as `owner`. */
 	function actorName(id: string): string {
 		if (id === principal.view?.actor_id) return 'You';

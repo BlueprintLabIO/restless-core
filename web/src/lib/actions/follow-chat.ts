@@ -48,15 +48,23 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		const sent = node.querySelectorAll<HTMLElement>(anchorSelector);
 		const message = sent[sent.length - 1];
 		if (!message) return 'missing';
-		const top =
-			message.getBoundingClientRect().top -
-			node.getBoundingClientRect().top +
-			node.scrollTop -
-			ANCHOR_GAP;
-		const content = node.scrollHeight - room;
-		const below = content - top;
+		const nodeTop = node.getBoundingClientRect().top;
+		const top = message.getBoundingClientRect().top - nodeTop + node.scrollTop - ANCHOR_GAP;
+		/* Measured from the transcript's own end, room left out: `scrollHeight` cannot be used while
+		 * the transcript is shorter than the view (it reads the view's height), which grew the room
+		 * over several frames and moved the status line at the end of it. */
+		let end = 0;
+		let trailing = 0;
+		for (const child of node.children) {
+			const rect = child.getBoundingClientRect();
+			if (child.classList.contains('conversation-turn-dock') && getComputedStyle(child).order !== '0')
+				trailing += rect.height;
+			else end = Math.max(end, rect.bottom);
+		}
+		const below = end - nodeTop + node.scrollTop + trailing - top;
 		setRoom(node.clientHeight - below);
-		node.scrollTop = top;
+		/* Fractional line heights round either way between frames; the view stays put within that. */
+		if (Math.abs(node.scrollTop - top) > 1) node.scrollTop = top;
 		return room === 0 ? 'filled' : 'held';
 	}
 	function setFollowing(next: boolean) {
@@ -64,23 +72,26 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		following = next;
 		options.onfollow?.(next);
 	}
+	function settle() {
+		if (anchoring) {
+			const held = holdAnchor();
+			if (held === 'filled') {
+				// The reply has filled the room under the sent message: leave both where they are.
+				anchoring = false;
+				setFollowing(false);
+			} else if (held === 'missing') {
+				anchoring = false;
+				if (following) node.scrollTop = node.scrollHeight;
+			}
+		} else if (enabled && following) node.scrollTop = node.scrollHeight;
+		lastTop = node.scrollTop;
+		layout = [node.scrollHeight, node.clientHeight, node.clientWidth];
+	}
 	function schedule() {
 		if (!enabled || frame) return;
 		frame = requestAnimationFrame(() => {
 			frame = 0;
-			if (anchoring) {
-				const held = holdAnchor();
-				if (held === 'filled') {
-					// The reply has filled the room under the sent message: leave both where they are.
-					anchoring = false;
-					setFollowing(false);
-				} else if (held === 'missing') {
-					anchoring = false;
-					if (following) node.scrollTop = node.scrollHeight;
-				}
-			} else if (enabled && following) node.scrollTop = node.scrollHeight;
-			lastTop = node.scrollTop;
-			layout = [node.scrollHeight, node.clientHeight, node.clientWidth];
+			settle();
 		});
 	}
 	function onScroll() {
@@ -125,7 +136,11 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 		node.scrollTo({ top: node.scrollHeight, behavior: reduce ? 'auto' : 'smooth' });
 	}
-	const sizes = new ResizeObserver(schedule);
+	/* A growing reply is answered in the same frame, before it paints: a frame late, the line after
+	 * the room is pushed down by the new text and then pulled back up when the room shrinks. */
+	const sizes = new ResizeObserver(() => {
+		if (enabled) settle();
+	});
 	function observeChildren() {
 		sizes.disconnect();
 		sizes.observe(node);

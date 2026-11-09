@@ -28,7 +28,7 @@ const POLL_MS = 2_000;
 let waiting = false;
 
 /** Why a re-entry gave up: the session ended, or the page's code moved with an update. */
-export type ReentryGaveUp = 'signed_out' | 'updated';
+export type ReentryGaveUp = 'signed_out' | 'updated' | 'no_access';
 
 /** Resolve once the plane serves its health check again, or after the longest wait. */
 async function planeAnswers(fetcher: typeof fetch): Promise<void> {
@@ -116,7 +116,9 @@ export function observeSessionEnd(
 					.then((body: { error?: unknown; code?: unknown }) => {
 						const code = typeof body.code === 'string' ? body.code : body.error;
 						if (typeof code === 'string' && lapsed(code))
-							void reenter(original, 'signed_out', gaveUp, once);
+							/* A session that holds the plane but not this company was not signed out: the
+							 * page says it has no access, and "signed out" would be untrue. */
+							void reenter(original, once ? 'no_access' : 'signed_out', gaveUp, once);
 					})
 					.catch(() => {});
 			}

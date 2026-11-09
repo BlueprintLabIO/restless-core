@@ -2766,6 +2766,12 @@ fn an_admin_reads_activity_spend_and_apps_but_changes_none_of_them() {
     };
     let admin = RequestPrincipal::from_verified(&identity("admin")).unwrap();
     let member = RequestPrincipal::from_verified(&identity("member")).unwrap();
+    // A session may always ask what it holds, and nothing else opens with it.
+    assert!(membership_boundary_violation(&Method::GET, "/api/session/scope", &member).is_none());
+    assert!(membership_boundary_violation(&Method::POST, "/api/session/scope", &member).is_some());
+    assert!(
+        membership_boundary_violation(&Method::GET, "/api/session/scope/extra", &member).is_some()
+    );
     for path in [
         "/api/companies/aris/company/spend",
         "/api/companies/aris/company/spend/report",

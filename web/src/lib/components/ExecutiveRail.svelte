@@ -1954,10 +1954,11 @@
 					{#if awayFrom !== null && visibleMessages.length}<button
 							type="button"
 							class="jump-latest"
+							title={messages.length > awayFrom
+								? `${messages.length - awayFrom} new since you scrolled up`
+								: 'Back to the latest message'}
 							onclick={() => scrollEl?.dispatchEvent(new Event('chat-scroll-end'))}
-							>{messages.length > awayFrom
-								? `${messages.length - awayFrom} new ↓`
-								: 'Jump to latest ↓'}</button
+							>Jump to latest ↓</button
 						>{/if}
 				</div>
 				<!-- Queued sends wait here, not in the transcript: each is one fixed-height row saying

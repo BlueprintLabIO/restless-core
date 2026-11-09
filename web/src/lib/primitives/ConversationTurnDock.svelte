@@ -352,10 +352,12 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
+	/* One height in every phase: the working mark and the finished mark are different sizes. */
 	.turn-head {
 		display: flex;
 		align-items: center;
 		min-width: 0;
+		min-height: 24px;
 	}
 	.turn-action {
 		flex: none;
