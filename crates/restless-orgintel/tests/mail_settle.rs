@@ -29,7 +29,111 @@ async fn company() -> Option<OrgIntel> {
 const SETTLE: MailSettle = MailSettle {
     quiet_secs: 1,
     max_secs: 30,
+    only_while_in_motion: false,
 };
+
+/// As the scheduler settles mail (S113): only while something could add to the recipient's wake.
+const SCOPED: MailSettle = MailSettle {
+    quiet_secs: 30,
+    max_secs: 60,
+    only_while_in_motion: true,
+};
+
+fn work<'a>(owner: &'a str, title: &'a str) -> NewWork<'a> {
+    NewWork {
+        owner_id: owner,
+        title,
+        outcome: title,
+        goal_id: None,
+        priority: 1,
+        expected_artifact: "note",
+        workspace: WorkspaceSpec::default(),
+        attempt_limit: Some(1),
+    }
+}
+
+#[tokio::test]
+async fn a_result_waits_only_while_more_can_join_it() {
+    let Some(org) = company().await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping mail settle scenario");
+        return;
+    };
+    org.send_message("daemon", Some("exec"), "Completed Work result A")
+        .await
+        .unwrap();
+    // Nothing else can add to Exec's wake: owed at once, although the window has not passed.
+    assert_eq!(
+        org.owed_conversation_count_settled("exec", SCOPED)
+            .await
+            .unwrap(),
+        1
+    );
+    // Ready Work's result would land in the same turn, so now it waits for it.
+    org.add_work(work("bakery-web", "Next piece"))
+        .await
+        .unwrap();
+    assert_eq!(
+        org.owed_conversation_count_settled("exec", SCOPED)
+            .await
+            .unwrap(),
+        0
+    );
+    // The bound: however long Work stays in motion, the oldest result is not held past max_secs.
+    let bound = MailSettle {
+        quiet_secs: 30,
+        max_secs: 1,
+        only_while_in_motion: true,
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(1_300)).await;
+    assert_eq!(
+        org.owed_conversation_count_settled("exec", bound)
+            .await
+            .unwrap(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn another_teams_work_does_not_hold_a_leads_mail() {
+    let Some(org) = company().await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping mail settle scenario");
+        return;
+    };
+    org.ensure_actor("market-writer", "staff", "lead", "market-writer")
+        .await
+        .unwrap();
+    org.add_work(work("market-writer", "Unrelated"))
+        .await
+        .unwrap();
+    org.send_message("daemon", Some("bakery-web"), "A note for the lead")
+        .await
+        .unwrap();
+    assert_eq!(
+        org.actors_owing_conversation_mail_settled(128, SCOPED)
+            .await
+            .unwrap(),
+        ["bakery-web"],
+        "the other team's Work cannot add to this lead's wake"
+    );
+    // Work this lead commissioned can: its mail waits for that result.
+    org.add_commissioned_work_with_edges_and_gates(
+        work("market-writer", "Commissioned by the lead"),
+        &[],
+        &[],
+        &[],
+        false,
+        None,
+        "bakery-web",
+        ProducingTopology::default(),
+    )
+    .await
+    .unwrap();
+    assert!(org
+        .actors_owing_conversation_mail_settled(128, SCOPED)
+        .await
+        .unwrap()
+        .is_empty());
+}
 
 #[tokio::test]
 async fn result_notices_landing_together_owe_one_settled_wake() {

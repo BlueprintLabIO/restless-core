@@ -472,6 +472,7 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
                 Err(_) => true,
             };
             if !from_person && mail_settle() != restless_orgintel::MailSettle::IMMEDIATE {
+                wake_exec_for_settled_result(daemon, in_flight, company).await;
                 scan_company(daemon, in_flight, company).await;
                 return;
             }
@@ -514,11 +515,100 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
             // authority-bearing `work interrupt` operation.
             scan_company(daemon, in_flight, company).await;
         }
-        Some("work_changed" | "artifact_linked" | "handoff_changed" | "schedule_changed") => {
+        Some("work_changed") => {
+            start_unblocked_chain_work(daemon, in_flight, company).await;
+            scan_company(daemon, in_flight, company).await;
+        }
+        Some("artifact_linked" | "handoff_changed" | "schedule_changed") => {
             scan_company(daemon, in_flight, company).await;
         }
         _ => {}
     }
+}
+
+/// Whether this company's computer can take a turn right now, as the scan decides it for a running
+/// computer. A sleeping or stopped one is left to the scan, which knows how to wake it.
+async fn runtime_accepts_turns(daemon: &Arc<Daemon>, company: &str) -> bool {
+    if daemon.runtime_bridges.is_hosted() {
+        let Ok(identity) =
+            crate::runtime_bridge::expected_identity(&daemon.authority, company).await
+        else {
+            return false;
+        };
+        daemon.runtime_bridges.readiness(&identity) == crate::runtime_bridge::BridgeReadiness::Ready
+    } else {
+        matches!(runtime::status(company).await, Ok(ContainerStatus::Running))
+    }
+}
+
+/// A result that nothing else will join goes to Exec now, ahead of the rest of the scan: the
+/// same owed-mail check and routine-result decision the scan makes, without its Docker reads.
+/// Mail that is still settling is left alone; the scan and the settle timer deliver it.
+async fn wake_exec_for_settled_result(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str) {
+    let Some(_lifecycle_lease) = daemon.lifecycle.try_enter_company(company) else {
+        return;
+    };
+    let Ok(config) = CompanyConfig::load(&daemon.root, company) else {
+        return;
+    };
+    if !config.has_configured_model_route() {
+        return;
+    }
+    let Ok(org) = daemon.orgintel.get(company).await else {
+        return;
+    };
+    if !runtime_accepts_turns(daemon, company).await {
+        return;
+    }
+    crate::decisions::shadow_exec_results(&org, &config, true).await;
+    recover_owed_exec_work(daemon, in_flight, &org, company).await;
+}
+
+/// How recently a requirement must have finished for its dependent to count as the next Work in a
+/// chain. Past this the ordinary scan has long since looked at it.
+const CHAIN_WORK_WINDOW: Duration = Duration::from_secs(30);
+
+/// Start the next Work in a chain the moment its requirement completes, before the scan (S113).
+/// Still inside the scheduler's one loop, so a scan cannot miss the Attempt this claims. A person's
+/// message and owed mail keep their turn: those actors are left to the scan's usual order.
+async fn start_unblocked_chain_work(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str) {
+    let Some(_lifecycle_lease) = daemon.lifecycle.try_enter_company(company) else {
+        return;
+    };
+    if daemon.lifecycle.tasks_paused() {
+        return;
+    }
+    let Ok(org) = daemon.orgintel.get(company).await else {
+        return;
+    };
+    if !org
+        .has_chain_work_ready(&[], CHAIN_WORK_WINDOW)
+        .await
+        .unwrap_or(false)
+    {
+        return;
+    }
+    let Ok(config) = CompanyConfig::load(&daemon.root, company) else {
+        return;
+    };
+    if !config.has_configured_model_route() || !runtime_accepts_turns(daemon, company).await {
+        return;
+    }
+    let mut mail_first = org.actors_owed_by_a_person(128).await.unwrap_or_default();
+    mail_first.extend(
+        org.actors_owing_conversation_mail_settled(128, mail_settle_now(&org).await)
+            .await
+            .unwrap_or_default(),
+    );
+    claim_and_start_work(
+        daemon,
+        in_flight,
+        &config,
+        &org,
+        company,
+        WorkPass::Chain { mail_first },
+    )
+    .await;
 }
 
 async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
@@ -825,7 +915,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         &config,
         &org,
         company,
-        Some(mail_ahead_of_overdue_work(&org, persons_first).await),
+        WorkPass::Overdue(mail_ahead_of_overdue_work(&org, persons_first).await),
     )
     .await;
 
@@ -894,7 +984,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         .await;
     }
 
-    claim_and_start_work(daemon, in_flight, &config, &org, company, None).await;
+    claim_and_start_work(daemon, in_flight, &config, &org, company, WorkPass::Ready).await;
 }
 
 /// Dispatch a conversation to each actor owed one, while the company has room.
@@ -955,15 +1045,25 @@ struct OverduePass {
     mail_first: Vec<String>,
 }
 
-/// Claim and start ready Work while the company has room. With `overdue`, only Work past the age
-/// limit, leaving out the owners whose mail goes first.
+/// Which ready Work one claim pass takes.
+enum WorkPass {
+    /// Everything ready, as the end of the scan.
+    Ready,
+    /// Only Work past the age limit, leaving out the owners whose mail goes first.
+    Overdue(OverduePass),
+    /// Only the next Work in a chain, the moment its requirement finishes, leaving out the owners
+    /// whose mail goes first.
+    Chain { mail_first: Vec<String> },
+}
+
+/// Claim and start ready Work of `pass` while the company has room.
 async fn claim_and_start_work(
     daemon: &Arc<Daemon>,
     in_flight: &InFlight,
     config: &CompanyConfig,
     org: &OrgIntel,
     company: &str,
-    overdue: Option<OverduePass>,
+    pass: WorkPass,
 ) {
     // Conversation turns and Work Attempts share one supervised actor.
     // Exclude the registry snapshot before the database claim so a busy
@@ -978,8 +1078,10 @@ async fn claim_and_start_work(
             .expect("in-flight guard")
             .is_active(company);
         let mut busy = actor_exclusions(daemon.staff.running_actors(company), exec_waking);
-        if let Some(overdue) = &overdue {
-            busy.extend(overdue.mail_first.iter().cloned());
+        match &pass {
+            WorkPass::Overdue(overdue) => busy.extend(overdue.mail_first.iter().cloned()),
+            WorkPass::Chain { mail_first } => busy.extend(mail_first.iter().cloned()),
+            WorkPass::Ready => {}
         }
         busy
     };
@@ -988,12 +1090,16 @@ async fn claim_and_start_work(
     // Missing configured counters also defer new turns. Owner controls remain
     // available; conversations retain their durable input and scheduling priority.
     while daemon.staff.has_capacity(company) && daemon.staff.has_work_capacity(company) {
-        let has_work = match &overdue {
-            Some(overdue) => {
+        let has_work = match &pass {
+            WorkPass::Overdue(overdue) => {
                 org.has_overdue_ready_work(&busy_actors(), overdue.waited)
                     .await
             }
-            None => org.has_ready_work().await,
+            WorkPass::Chain { .. } => {
+                org.has_chain_work_ready(&busy_actors(), CHAIN_WORK_WINDOW)
+                    .await
+            }
+            WorkPass::Ready => org.has_ready_work().await,
         };
         if !has_work.unwrap_or(false) {
             break;
@@ -1011,12 +1117,16 @@ async fn claim_and_start_work(
             }
         };
         let trigger = "dependency graph became ready";
-        let claim = match &overdue {
-            Some(overdue) => {
+        let claim = match &pass {
+            WorkPass::Overdue(overdue) => {
                 org.claim_overdue_work_excluding(trigger, &busy_actors(), overdue.waited)
                     .await
             }
-            None => {
+            WorkPass::Chain { .. } => {
+                org.claim_chain_work_excluding(trigger, &busy_actors(), CHAIN_WORK_WINDOW)
+                    .await
+            }
+            WorkPass::Ready => {
                 org.claim_ready_work_excluding(trigger, &busy_actors())
                     .await
             }
@@ -2179,18 +2289,21 @@ mod tests {
 /// How long machine mail settles before it owes a wake (S110: fewer wakes). Result notices from
 /// Attempts finishing together, or a commission's appointment followed by its Work, then cost one
 /// model turn instead of one each. A person's message is never held.
-/// `RESTLESS_MAIL_SETTLE_SECS` sets the quiet period; 0 turns settling off.
+/// `RESTLESS_MAIL_SETTLE_SECS` sets the quiet period; 0 turns settling off. A window only opens
+/// while something could still add to the recipient's wake, and `max_secs` is the bound: S113
+/// shortened both (from 20 and 90) so a result waits eight seconds, or forty-five at the very most.
 pub(crate) fn mail_settle() -> restless_orgintel::MailSettle {
     let quiet = std::env::var("RESTLESS_MAIL_SETTLE_SECS")
         .ok()
         .and_then(|value| value.parse::<u32>().ok())
-        .unwrap_or(20);
+        .unwrap_or(8);
     if quiet == 0 {
         return restless_orgintel::MailSettle::IMMEDIATE;
     }
     restless_orgintel::MailSettle {
         quiet_secs: quiet,
-        max_secs: quiet.max(90),
+        max_secs: quiet.max(45),
+        only_while_in_motion: true,
     }
 }
 

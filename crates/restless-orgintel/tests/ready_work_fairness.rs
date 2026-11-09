@@ -369,3 +369,69 @@ async fn a_person_goes_first_and_mail_is_passed_at_most_once() {
         vec!["bakery-web".to_string()]
     );
 }
+
+/// S113 C: the next Work in a chain is claimable the moment its requirement finishes, and the
+/// chain claim takes only that Work, never unrelated ready Work ahead of the scan's order.
+#[tokio::test]
+async fn the_next_work_in_a_chain_starts_on_its_requirement_finishing() {
+    let Some(org) = company("chain").await else {
+        return;
+    };
+    const WINDOW: Duration = Duration::from_secs(30);
+    let draft = work(&org, "draft").await;
+    let check = org
+        .add_work(NewWork {
+            goal_id: None,
+            owner_id: "bakery-pack",
+            title: "check",
+            outcome: "checked",
+            priority: 10,
+            expected_artifact: "a note",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(5),
+        })
+        .await
+        .unwrap();
+    org.add_work_edge(draft, check, WorkEdgeKind::Requires)
+        .await
+        .unwrap();
+    // Unrelated ready Work the chain pass must leave for the scan.
+    let elsewhere = work(&org, "elsewhere").await;
+    assert!(!org.has_chain_work_ready(&[], WINDOW).await.unwrap());
+    assert!(org
+        .claim_chain_work_excluding("t", &[], WINDOW)
+        .await
+        .unwrap()
+        .is_none());
+
+    let claimed = org
+        .claim_ready_work_excluding("t", &["bakery-pack".to_string()])
+        .await
+        .unwrap()
+        .expect("the draft is ready");
+    assert_eq!(claimed.work.id, draft);
+    org.finish_work_attempt(claimed.attempt_id, WorkAttemptState::Failed, "ran")
+        .await
+        .unwrap();
+    sql(
+        &org,
+        "UPDATE work SET status='completed' WHERE id=$1",
+        draft,
+    )
+    .await;
+
+    // A person's mail keeps its turn: its owner is left out and the chain pass takes nothing.
+    assert!(org
+        .claim_chain_work_excluding("t", &["bakery-pack".to_string()], WINDOW)
+        .await
+        .unwrap()
+        .is_none());
+    let next = org
+        .claim_chain_work_excluding("t", &[], WINDOW)
+        .await
+        .unwrap()
+        .expect("the check starts now");
+    assert_eq!(next.work.id, check);
+    assert_eq!(next.work.owner_id, "bakery-pack");
+    assert!(org.get_work(elsewhere).await.unwrap().is_some());
+}
