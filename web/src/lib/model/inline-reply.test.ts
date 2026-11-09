@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { quickAnswers, replyBody } from './inline-reply.ts';
+import { stuckWorkAnswer } from './inline-reply.ts';
 
 test('a question with two choices offers both as answers', () => {
 	assert.deepEqual(quickAnswers('Needs you: quote S&I at A$1,000 for five pages, or A$500 for the single page?'), [
@@ -27,4 +28,10 @@ test('an open question offers nothing to click', () => {
 
 test('the reply quotes what it answers', () => {
 	assert.equal(replyBody('Quote A$500 or A$1,000?', 'A$500'), '> Quote A$500 or A$1,000?\n\nA$500');
+});
+
+test('a stuck-Work card settles Resume and Stop itself and leaves judgement to the lead', () => {
+	assert.equal(stuckWorkAnswer('Resume it')?.steer, 'resume');
+	assert.equal(stuckWorkAnswer('Stop it for good')?.steer, 'abandon');
+	assert.equal(stuckWorkAnswer('Drop the requirement'), null);
 });
