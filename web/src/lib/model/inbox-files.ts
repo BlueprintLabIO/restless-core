@@ -22,6 +22,32 @@ function fileName(path: string): string {
 	return path.split('/').filter(Boolean).at(-1) ?? path;
 }
 
+/* A path as agents write it in prose: `/company/...`, `file:///company/...`, or a home folder named
+ * on its own (`outputs/...`). Never the tail of a web address. */
+const NAMED_PATH =
+	/(?<![\w./-])(?:file:\/\/)?(\/company\/[^\s`'"<>()[\]{}]+|(?:company\/)?(?:outputs|downloads|projects)\/[^\s`'"<>()[\]{}]+)/g;
+const MOST_NAMED = 40;
+
+/** Every company file a piece of text names, as its `/company/...` path, in order and once each.
+ * Agents often say where the work is only in their message, so the card must not need a recorded
+ * artifact to reach it. A folder is not a file, and stays text. */
+export function companyPathsIn(text: string): string[] {
+	const found = new Set<string>();
+	for (const match of text.matchAll(NAMED_PATH)) {
+		let path = match[1].split(/[?#]/)[0].replace(/[.,:;!?*_]+$/, '');
+		try {
+			path = decodeURIComponent(path);
+		} catch {
+			/* Not percent-encoded after all: keep it as written. */
+		}
+		if (!path.startsWith('/')) path = `/${path.startsWith('company/') ? '' : 'company/'}${path}`;
+		if (path.split('/').includes('..') || !/\.[a-z0-9]{1,8}$/i.test(path)) continue;
+		found.add(path);
+		if (found.size === MOST_NAMED) break;
+	}
+	return [...found];
+}
+
 /** A resolver from a company path to its Library link, built once per artifact list. */
 export function companyFileLinks(companyId: string, artifacts: readonly LibraryArtifact[]) {
 	const base = `/${encodeURIComponent(companyId)}/library`;

@@ -290,7 +290,12 @@
 		{/if}
 		<div class="viewer-title">
 			<h1 title={file.label}>{file.label}</h1>
-			<small title={file.uri}>{owner ? `${owner} · ` : ''}{file.name}</small>
+			<!-- A file with no name of its own says where it lives instead of its name twice. -->
+			<small title={file.uri}
+				>{owner ? `${owner} · ` : ''}{file.label === file.name
+					? file.uri.replace(/^\/company\//, '').replace(/\/?[^/]*$/, '') || file.name
+					: file.name}</small
+			>
 		</div>
 		<span class="spacer"></span>
 		{#if file.kind === 'deck' && url && !isDownload}

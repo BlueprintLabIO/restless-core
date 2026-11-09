@@ -5019,3 +5019,23 @@ fn raw_errors_never_reach_the_owner() {
         "Type acme exactly to delete it."
     );
 }
+
+#[test]
+fn a_browser_without_a_session_may_ask_which_it_holds_and_nothing_else() {
+    let headers = network_headers(PLANE_HOST);
+    assert!(network_boundary_violation(
+        &Method::GET,
+        &headers,
+        "/api/session/scope",
+        PLANE_HOST,
+        None
+    )
+    .is_none());
+    for (method, path) in [
+        (Method::POST, "/api/session/scope"),
+        (Method::GET, "/api/connections"),
+        (Method::GET, "/api/session/scope/extra"),
+    ] {
+        assert!(network_boundary_violation(&method, &headers, path, PLANE_HOST, None).is_some());
+    }
+}

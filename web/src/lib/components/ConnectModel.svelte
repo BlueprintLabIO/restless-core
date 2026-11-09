@@ -111,6 +111,9 @@
 			await Promise.all([intelligence.refresh(), companies.refresh()]).catch(() => {});
 			const entry = companies.view.find((row) => row.id === companyId);
 			if (!entry?.unstartable_reason && agentRouteState(intelligence.view, 'exec') === 'ready') {
+				/* The route is live now; the announcement after saving came before the company's
+				 * own model settled, and left Models by job reading "Not chosen yet". */
+				announceIntelligenceChange(companyId);
 				onready?.();
 				return;
 			}
