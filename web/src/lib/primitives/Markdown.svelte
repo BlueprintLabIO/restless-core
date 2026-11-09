@@ -281,10 +281,17 @@
 		overflow-x: auto;
 		font-family: var(--font-mono);
 	}
-	.markdown :global([data-streamdown-code]),
-	.markdown :global([data-streamdown-table]) {
+	.markdown :global([data-streamdown-code]) {
 		min-width: 0;
 		max-width: 100%;
+	}
+	/* Zero width, then the container's: a wide table scrolls inside here and never widens a
+	 * shrink-to-fit bubble past the rail. */
+	.markdown :global([data-streamdown-table]) {
+		width: 0;
+		min-width: 100%;
+		max-width: 100%;
+		overflow-x: auto;
 	}
 	/* The language and copy button stay at the top of the visible part of a tall block while the
 	 * conversation scrolls past it (S85-09). */
@@ -513,16 +520,21 @@
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 	}
+	/* Each column takes the width its content reads best at, up to a measure, and the table scrolls
+	 * sideways when they don't all fit, rather than crushing every column to the same sliver. */
 	.markdown :global(table) {
-		width: 100%;
-		table-layout: fixed;
+		width: max-content;
+		min-width: 100%;
 		border-collapse: collapse;
 		margin: 0 0 0.6em;
 	}
 	.markdown :global(th),
 	.markdown :global(td) {
+		max-width: 40ch;
 		padding: 0.35em 0.5em;
 		border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+		overflow-wrap: break-word;
 		text-align: left;
+		vertical-align: top;
 	}
 </style>
