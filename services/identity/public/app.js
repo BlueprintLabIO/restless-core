@@ -4,7 +4,10 @@ let invitation = params.get("invite");
 /* Core sends a signed-out page load here as /account?return=/<company>/<page>: enter that company
  * again and land on the same page. */
 const returnTo = /^\/[^/]/.test(params.get("return") ?? "") ? params.get("return") : null;
-let selectedCompany = params.get("company") ?? (returnTo ? decodeURIComponent(returnTo.split(/[/?#]/)[1]) : null);
+const returnCompany = returnTo ? decodeURIComponent(returnTo.split(/[/?#]/)[1]) : null;
+let selectedCompany = params.get("company") ?? returnCompany;
+let returnFromAddress = false;
+let accountCompanies = 0;
 let refreshVersion = 0;
 let mode = params.has("token") ? "reset" : "sign-in";
 function message(id, text) {
@@ -87,6 +90,13 @@ async function refresh() {
   try {
     state = await api("/api/company" + (selectedCompany ? "?company=" + encodeURIComponent(selectedCompany) : ""));
   } catch (error) {
+    /* A signed-out page load names its company by its address in Core, which this service does
+     * not know by that name: enter the company this account has, and carry the page across. */
+    if (error.status === 404 && returnCompany && selectedCompany === returnCompany) {
+      selectedCompany = null;
+      returnFromAddress = true;
+      return refresh();
+    }
     if (error.status !== 401) throw error;
     state = null;
   }
@@ -101,6 +111,7 @@ async function refresh() {
     return refresh();
   }
   selectedCompany = state.companyId;
+  accountCompanies = state.companies?.length ?? 0;
   document.querySelectorAll(".company-name").forEach(element => element.textContent = state.companyName);
   document.title = `${state.companyName} · Restless`;
   const select = $("company-select");
@@ -224,7 +235,7 @@ $("enter-company").addEventListener("click", () =>
     token.name = "assertion";
     token.value = entry.assertion;
     form.append(token);
-    if (returnTo && returnTo.split(/[/?#]/)[1] === encodeURIComponent(selectedCompany ?? "")) {
+    if (returnTo && (returnTo.split(/[/?#]/)[1] === encodeURIComponent(selectedCompany ?? "") || (returnFromAddress && accountCompanies === 1))) {
       const landing = document.createElement("input");
       landing.type = "hidden";
       landing.name = "return_to";
