@@ -29,7 +29,7 @@
 	import ReactionAdd from './ReactionAdd.svelte';
 	import type { ReactionSummary } from '$lib/model/reactions.svelte';
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
-	import type { MessageAttachment, MessageIntentReceipt } from '$lib/model/view';
+	import type { MessageAttachment } from '$lib/model/view';
 	import { initials } from '$lib/model/initials';
 	import AccountUseNote from '$lib/components/AccountUseNote.svelte';
 	import type { AccountUseReceipt } from '$lib/model/owner-accounts';
@@ -41,7 +41,6 @@
 		createdAt,
 		details = null,
 		attachments = [],
-		intent = null,
 		accountUses = [],
 		hrefFor,
 		copyable = true,
@@ -64,7 +63,6 @@
 		createdAt: Date | string;
 		details?: string | null;
 		attachments?: MessageAttachment[];
-		intent?: MessageIntentReceipt | null;
 		/** Receipts for the accounts used in the turn that wrote this message (S98-09). */
 		accountUses?: AccountUseReceipt[];
 		hrefFor?: (attachment: MessageAttachment) => string;
@@ -130,14 +128,13 @@
 			: ''
 	);
 
-	/* Takeaway first: an agent's own one-line reading of the message leads. An agent's reply is
-	 * never folded; only the owner's own long paste (a report, a log) folds, and then late. */
+	/* An agent's reply is never folded; only the owner's own long paste (a report, a log) folds,
+	 * and then late. */
 	const providerError = $derived(sender === 'agent' && replyIsError(text, null));
 	const readableText = $derived(
 		providerError ? failureLine(text) || 'The model provider could not answer. Try again.' : text
 	);
 	const readableDetails = $derived(details || (providerError ? text : null));
-	const takeaway = $derived(sender === 'agent' ? (intent?.summary?.trim() ?? '') : '');
 	const long = $derived(sender !== 'agent' && text.split(/\s+/).length > 450);
 	let expanded = $state(false);
 	const folded = $derived(long && !expanded);
@@ -146,11 +143,8 @@
 		!!companyId && !!messageId && /^\d+$/.test(messageId) && sender !== 'owner'
 	);
 
-	/* The whole message as read: its takeaway line, then its text. */
 	async function copyMessage() {
-		copyState = (await copyText(takeaway ? `${takeaway}\n\n${readableText}` : readableText))
-			? 'copied'
-			: 'failed';
+		copyState = (await copyText(readableText)) ? 'copied' : 'failed';
 		window.clearTimeout(copyTimer);
 		copyTimer = window.setTimeout(() => (copyState = 'idle'), 1_800);
 	}
@@ -168,7 +162,7 @@
 	);
 	const speaking = $derived(speakingMessage() === speechId);
 	function speak() {
-		toggleSpeaking(speechId, takeaway ? `${takeaway}\n\n${readableText}` : readableText);
+		toggleSpeaking(speechId, readableText);
 	}
 
 	onDestroy(() => {
@@ -217,8 +211,7 @@
 			title={validDate ? formatMoment(messageDate) : undefined}>{gutterTime}</time
 		>{/if}
 	<div class="message-body">
-		{#if takeaway}<p class="takeaway">{takeaway}</p>{/if}
-		<div class="message-text" class:folded class:after-takeaway={!!takeaway}>
+		<div class="message-text" class:folded>
 			<Markdown
 				text={readableText}
 				{streaming}
@@ -670,19 +663,10 @@
 		color: var(--ink);
 	}
 
-	.takeaway {
-		max-width: 80ch;
-		margin: 0 0 var(--chat-space-meta);
-		color: var(--ink);
-		font-weight: 500;
-	}
 	.message-text.folded {
 		max-height: 30em;
 		overflow: hidden;
 		mask-image: linear-gradient(to bottom, black 70%, transparent);
-	}
-	.message-text.folded.after-takeaway {
-		max-height: 30em;
 	}
 	/* Folding is a small pill with a chevron that turns, so a long message reads as folded on
 	 * purpose rather than cut off. */

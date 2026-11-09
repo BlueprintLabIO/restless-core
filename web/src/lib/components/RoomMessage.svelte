@@ -382,7 +382,6 @@
 			attachments={!message.edited_at && presentation?.attachments?.length
 				? presentation.attachments
 				: files}
-			intent={message.edited_at ? null : (presentation?.intent ?? null)}
 			{hrefFor}
 			{continued}
 			messageId={message.id > 0 ? String(message.id) : ''}
