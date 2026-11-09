@@ -289,7 +289,8 @@
 		}
 		.item:hover .item-actions,
 		.item:focus-within .item-actions,
-		.item-actions:has(:global(details[open])) {
+		.item-actions:has(:global(details[open])),
+		.item-actions:has(:global([data-confirming])) {
 			opacity: 1;
 			pointer-events: auto;
 		}

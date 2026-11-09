@@ -134,7 +134,8 @@ async function refresh() {
   $("bootstrap-company").hidden = !state.canBootstrap;
   $("no-access").hidden = !!state.role || state.canBootstrap || !!invitation;
   $("suspended").hidden = state.status !== "suspended";
-  if (state.status === "suspended") $("no-access").hidden = true;
+  $("removed").hidden = state.status !== "removed" || !!invitation;
+  if (state.status === "suspended" || state.status === "removed") $("no-access").hidden = true;
 }
 $("switch-mode").addEventListener("click", () =>
   setMode(mode === "sign-in" ? "sign-up" : "sign-in"),

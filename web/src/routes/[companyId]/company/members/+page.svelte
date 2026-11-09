@@ -610,6 +610,7 @@
 								<button
 									class="btn small danger"
 									type="button"
+									data-confirming
 									disabled={!!busy}
 									title="Their past work stays in the company"
 									onclick={() =>
