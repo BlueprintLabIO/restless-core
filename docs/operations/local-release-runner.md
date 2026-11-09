@@ -267,3 +267,19 @@ The slow gates (connections smoke, zero-jank, constrained-host resources) no lon
 each new main commit in the background at low priority and posts the `post-merge-gates` status.
 A failure there is a fix to make, not a held release. `core-release.sh --with-gates` still runs
 them before publishing when a release needs them.
+
+## The macOS half of a release (9 November 2026)
+
+macOS binaries need a Mac, so `core-release.sh` cannot build them. After a Linux release, on the
+owner's Mac:
+
+```sh
+infisical run --projectId <id> --env prod --domain https://eu.infisical.com/api -- \
+  scripts/release/local/macos-release.sh
+```
+
+It builds `restless` and `restlessd` for Apple silicon and Intel from the newest published release,
+signs them with the release key, publishes `<revision>-darwin-<arch>` and moves
+`latest-darwin-<arch>` once the build verifies from `registry.restless.run`. A Mac's installer
+follows that tag, so Macs stay on the newest release that has a macOS build; company computers
+are the release's Linux x86-64 images, through Rosetta on Apple silicon.

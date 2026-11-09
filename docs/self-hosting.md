@@ -6,16 +6,15 @@ and backs it up and restores it. For a development checkout, use the
 
 ## Install
 
-On a Linux machine with Docker:
+On x86-64 Linux, a Mac, or Windows with WSL2, with Docker:
 
 ```sh
 curl -fsSL https://restless.run/install | bash
 ```
 
 That installs the newest release and opens the Cockpit (on a server it prints the SSH port
-forward instead). `restless.run/install` redirects to `scripts/install-core.sh` on `main`. To install one exact release instead, pass its
-revision, the 40-character commit of a successful **Immutable Core release** run
-on `main`: `... | bash -s -- <revision>`.
+forward instead). To install one exact release instead, pass its revision, the
+40-character commit it was built from: `... | bash -s -- <revision>`.
 
 A laptop that only drives Restless Cloud or another machine needs just the CLI:
 `... | bash -s -- --cli` verifies the same release the same way, puts `restless` in
@@ -39,11 +38,13 @@ reference from a dotenv file.
 
 ### Requirements
 
-- Linux on x86_64 or arm64 with `systemd --user`. Release binaries are built on
-  Debian 12, so the host needs glibc 2.36 or newer (Debian 12, Ubuntu 24.04 or
-  later).
+- Linux on x86-64 with `systemd --user` (Linux on ARM is not published yet).
+  Release binaries are built on Debian 12, so the host needs glibc 2.36 or newer
+  (Debian 12, Ubuntu 24.04 or later).
+- Or a Mac, with Docker Desktop or OrbStack. Company computers are Linux x86-64
+  containers, so Apple silicon runs them through Rosetta.
 - Docker, usable by your user. Company computers run as containers.
-- `curl`, `jq`, `tar` and `sha256sum`.
+- `curl`, `jq`, `tar` and `sha256sum` (`shasum` and `unzip` on a Mac).
 
 ### Database
 
