@@ -2169,13 +2169,9 @@ async fn launch_and_prepare(
         if delivery == CredentialDelivery::TurnFile {
             // The turn's grants and these directories go in one command, so a warm-capable launch
             // runs exactly as many container commands as any other.
+            let dir = credentials_dir(launch_id);
             tokio::try_join!(
-                write_credential_files(
-                    container,
-                    &credentials_dir(launch_id),
-                    auth,
-                    Some(&session_runtime)
-                ),
+                write_credential_files(container, &dir, auth, Some(&session_runtime)),
                 write_private_container_file(container, &system_prompt_path, system_prompt),
             )?;
             return Ok(());
