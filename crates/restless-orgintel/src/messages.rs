@@ -2582,6 +2582,7 @@ impl OrgIntel {
     ) -> Result<i64> {
         Ok(sqlx::query_scalar(&format!(
             "SELECT COALESCE(CASE WHEN bool_or(owed.human) \
+                    OR ($4 AND NOT {in_motion}) \
                     OR max(owed.created_at) <= now() - make_interval(secs => $2) \
                     OR min(owed.created_at) <= now() - make_interval(secs => $3) \
                   THEN count(*) END, 0) \
@@ -2589,10 +2590,12 @@ impl OrgIntel {
                    WHERE {owed}) owed",
             human = HUMAN_SENDER_SQL,
             owed = owed_mail_predicate("$1"),
+            in_motion = crate::attempts::mail_source_in_motion_sql("$1", "$2"),
         ))
         .bind(actor)
         .bind(f64::from(settle.quiet_secs))
         .bind(f64::from(settle.max_secs))
+        .bind(settle.only_while_in_motion)
         .fetch_one(&self.pool)
         .await?)
     }
@@ -2621,15 +2624,18 @@ impl OrgIntel {
                                   min(message.created_at) AS oldest \
                            FROM messages message WHERE {owed}) owed ON owed.waiting > 0 \
              WHERE recipient.kind='staff' AND recipient.actor_class='agent' AND recipient.retired_at IS NULL \
-               AND (owed.human OR owed.newest <= now() - make_interval(secs => $2) \
+               AND (owed.human OR ($4 AND NOT {in_motion}) \
+                    OR owed.newest <= now() - make_interval(secs => $2) \
                     OR owed.oldest <= now() - make_interval(secs => $3)) \
              ORDER BY recipient.id LIMIT $1",
             human = HUMAN_SENDER_SQL,
             owed = owed_mail_predicate("recipient.id"),
+            in_motion = crate::attempts::mail_source_in_motion_sql("recipient.id", "$2"),
         ))
         .bind(limit.clamp(1, 1024))
         .bind(f64::from(settle.quiet_secs))
         .bind(f64::from(settle.max_secs))
+        .bind(settle.only_while_in_motion)
         .fetch_all(&self.pool)
         .await?)
     }
@@ -2677,7 +2683,8 @@ impl OrgIntel {
                                   min(message.created_at) AS oldest \
                            FROM messages message WHERE {owed}) owed ON owed.waiting > 0 \
              WHERE recipient.actor_class='agent' AND recipient.retired_at IS NULL \
-               AND (owed.human OR owed.newest <= now() - make_interval(secs => $2) \
+               AND (owed.human OR ($4 AND NOT {in_motion}) \
+                    OR owed.newest <= now() - make_interval(secs => $2) \
                     OR owed.oldest <= now() - make_interval(secs => $3)) \
                AND EXISTS (SELECT 1 FROM work_attempts attempt \
                            WHERE attempt.actor_id=recipient.id \
@@ -2685,10 +2692,12 @@ impl OrgIntel {
              ORDER BY recipient.id LIMIT $1",
             human = HUMAN_SENDER_SQL,
             owed = owed_mail_predicate("recipient.id"),
+            in_motion = crate::attempts::mail_source_in_motion_sql("recipient.id", "$2"),
         ))
         .bind(limit.clamp(1, 1024))
         .bind(f64::from(settle.quiet_secs))
         .bind(f64::from(settle.max_secs))
+        .bind(settle.only_while_in_motion)
         .fetch_all(&self.pool)
         .await?)
     }
@@ -3492,14 +3501,20 @@ pub enum ConversationStop {
 pub struct MailSettle {
     /// Owed once no newer machine mail has arrived for this long.
     pub quiet_secs: u32,
-    /// Owed once the oldest waiting machine mail is this old, however busy it stays.
+    /// Owed once the oldest waiting machine mail is this old, however busy it stays. This is the
+    /// bound: no result waits past it, whatever keeps arriving.
     pub max_secs: u32,
+    /// Hold mail only while something could still add to this recipient's next wake (S113): its
+    /// own team's Work in motion, or a schedule of its own about to fire. Otherwise it is owed at
+    /// once, because no other result is coming to share the turn.
+    pub only_while_in_motion: bool,
 }
 
 impl MailSettle {
     pub const IMMEDIATE: MailSettle = MailSettle {
         quiet_secs: 0,
         max_secs: 0,
+        only_while_in_motion: false,
     };
 }
 

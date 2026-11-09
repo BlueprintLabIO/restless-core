@@ -1188,19 +1188,29 @@ async fn run_ready_exec_session(
         reconstructed,
     })
     .await?;
+    let session_id = provider_session_id.to_string();
     org.emit_event("model_session_ready", Some("exec"), readiness)
         .await?;
     session.set_live_observer_enabled(true);
     // A resumed session already holds the recent owner conversation as its own history; sending
     // it again re-wrote up to twelve messages into the prompt cache on every wake.
     let trimmed;
+    let inbox_seen = owner_inbox_seen(company, responsibility, &session_id);
+    let inbox_digest = crate::context::owner_inbox_fingerprint(turn_context);
     let turn_context = if resumed && !reconstructed {
-        trimmed = crate::context::without_recent_conversation(turn_context);
+        let without_conversation = crate::context::without_recent_conversation(turn_context);
+        // A resumed session keeps the Inbox block of every wake it has had, so the same block
+        // again paid for itself on every later call of the session (S113).
+        trimmed = if inbox_digest.is_some() && inbox_digest == inbox_seen {
+            crate::context::with_unchanged_owner_inbox(&without_conversation)
+        } else {
+            without_conversation
+        };
         trimmed.as_str()
     } else {
         turn_context
     };
-    run_turn(
+    let report = run_turn(
         session,
         turn_context,
         company,
@@ -1212,7 +1222,40 @@ async fn run_ready_exec_session(
         cancellation,
         Some(native_accounting),
     )
-    .await
+    .await;
+    if report.is_ok() {
+        note_owner_inbox_seen(company, responsibility, &session_id, inbox_digest);
+    }
+    report
+}
+
+type SeenOwnerInboxes = std::collections::HashMap<(String, String), (String, Option<u64>)>;
+
+/// The Inbox block each Exec session last read in a turn that finished. In memory on purpose: a
+/// restart only means the block is shown once more.
+fn seen_owner_inboxes() -> &'static std::sync::Mutex<SeenOwnerInboxes> {
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<SeenOwnerInboxes>> =
+        std::sync::OnceLock::new();
+    SEEN.get_or_init(Default::default)
+}
+
+fn owner_inbox_seen(company: &str, responsibility: &str, session: &str) -> Option<u64> {
+    let seen = seen_owner_inboxes().lock().ok()?;
+    let (seen_session, digest) = seen.get(&(company.to_string(), responsibility.to_string()))?;
+    (seen_session == session).then_some(*digest).flatten()
+}
+
+fn note_owner_inbox_seen(company: &str, responsibility: &str, session: &str, digest: Option<u64>) {
+    if let Ok(mut seen) = seen_owner_inboxes().lock() {
+        // One entry per responsibility; a responsibility is one owner conversation focus.
+        if seen.len() > 4096 {
+            seen.clear();
+        }
+        seen.insert(
+            (company.to_string(), responsibility.to_string()),
+            (session.to_string(), digest),
+        );
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1759,7 +1802,9 @@ fn protocol_blocked(reason: impl Into<String>) -> TerminationDecision {
 /// One owner Inbox item as Exec reads it: what it asks, its kind, who asked and since when. A
 /// handoff carries its id, which `ownerNeedHandoff` and `restless work` commands take.
 fn owner_inbox_line(item: &crate::attention::AttentionItem) -> String {
-    let mut line = format!("{} ({})", item.title.trim(), item.category);
+    // One line each: `context::owner_inbox_block` finds the block's end by its first blank line.
+    let one_line = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut line = format!("{} ({})", one_line(&item.title), item.category);
     if let Some(actor) = &item.responsible_actor {
         line.push_str(&format!(" · asked by {}", actor.display));
     }
@@ -1769,7 +1814,7 @@ fn owner_inbox_line(item: &crate::attention::AttentionItem) -> String {
     if item.source.kind == "owner_handoff" {
         line.push_str(&format!(" · handoff {}", item.source.reference));
     }
-    let ask = item.requested_action.trim();
+    let ask = one_line(&item.requested_action);
     if !ask.is_empty() {
         line.push_str(&format!(" · {}", ask.chars().take(160).collect::<String>()));
     }

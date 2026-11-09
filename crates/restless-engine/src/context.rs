@@ -144,6 +144,59 @@ pub struct ContextSnapshot {
 }
 
 const RECENT_CONVERSATION_HEADING: &str = "# Recent conversation in this focus";
+const OWNER_INBOX_HEADING: &str = "# Owner's Inbox now\n";
+const OWNER_INBOX_UNCHANGED: &str =
+    "(unchanged since you last read it in this session; `restless attention --summary` reads it now)\n\n";
+
+/// Where the wake's Inbox block is, from its heading through its blank line. Each line of the
+/// block is one line (`owner_inbox_line`), so its first blank line is its end.
+fn owner_inbox_block(turn: &str) -> Option<(usize, usize)> {
+    let start = turn.find(OWNER_INBOX_HEADING)?;
+    let end = turn[start..].find("\n\n")? + start + 2;
+    Some((start, end))
+}
+
+/// A digest of the Inbox block this wake shows, ignoring each item's age, or `None` when there is
+/// nothing to spare by not repeating it (an empty Inbox is shorter than the note that replaces it).
+pub fn owner_inbox_fingerprint(turn: &str) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let (start, end) = owner_inbox_block(turn)?;
+    let block = &turn[start..end];
+    if block[OWNER_INBOX_HEADING.len()..].trim() == "(empty)" {
+        return None;
+    }
+    let mut digest = std::collections::hash_map::DefaultHasher::new();
+    for line in block.lines() {
+        line_without_age(line).hash(&mut digest);
+    }
+    Some(digest.finish())
+}
+
+/// One Inbox line without its ` · since ...` part, which changes with the clock alone.
+fn line_without_age(line: &str) -> String {
+    const SINCE: &str = " \u{b7} since ";
+    let Some(at) = line.find(SINCE) else {
+        return line.to_string();
+    };
+    let rest = &line[at + SINCE.len()..];
+    match rest.find(" \u{b7} ") {
+        Some(next) => format!("{}{}", &line[..at], &rest[next..]),
+        None => line[..at].to_string(),
+    }
+}
+
+/// The wake's turn with its Inbox block replaced by a note: for a session that already read this
+/// same Inbox. The heading stays; a change to the Inbox makes the next wake show it again.
+pub fn with_unchanged_owner_inbox(turn: &str) -> String {
+    let Some((start, end)) = owner_inbox_block(turn) else {
+        return turn.to_string();
+    };
+    format!(
+        "{}{OWNER_INBOX_HEADING}{OWNER_INBOX_UNCHANGED}{}",
+        &turn[..start],
+        &turn[end..]
+    )
+}
 
 /// The wake's turn without its recent owner conversation, for a session that resumed with that
 /// conversation already in its history. The heading stays and says where it is.
@@ -710,8 +763,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          Small owner-facing work you can finish and check in this turn in a few file steps (a page \
          of text, a short document, a message draft; no repository, research, outside effect or \
          Company Identity design) is yours: write it under /company/outputs, read it back once and \
-         name it in `ownerReview` with its path; a lead and a second turn would cost more than the \
-         work. Every other request that requires productive execution goes to exactly one \
+         name it in `ownerReview` with its path. Measured on the overhead bench, a handoff adds \
+         about four model calls, about twice the input tokens and 15 to 20 seconds before anything \
+         starts, so keep a small job when you can finish and check it here. Every other request that requires productive execution goes to exactly one \
          accountable team lead, whether the work is small or large. Reuse a standing lead or appoint \
          a temporary outcome lead and make the exact outcome charter durable. Ask any owner question \
          the brief depends on before appointing, because the appointment wakes the lead. The lead produces the \
@@ -1225,6 +1279,30 @@ mod tests {
 
     /// A resumed session is not sent the recent conversation it already holds; the owner's new
     /// input and everything after it stay.
+    #[test]
+    fn a_session_is_not_resent_an_inbox_it_already_read() {
+        let turn = "intro\n\n# Owner's Inbox now\n- Key missing (risk) \u{b7} since 3m \u{b7} item a \u{b7} Fix it.\n\n# Current human: owner\nrest";
+        let later = "intro\n\n# Owner's Inbox now\n- Key missing (risk) \u{b7} since 2h \u{b7} item a \u{b7} Fix it.\n\n# Current human: owner\nrest";
+        let changed = "intro\n\n# Owner's Inbox now\n- Key missing (risk) \u{b7} since 2h \u{b7} item b \u{b7} Fix it.\n\n# Current human: owner\nrest";
+        assert_eq!(
+            owner_inbox_fingerprint(turn),
+            owner_inbox_fingerprint(later),
+            "an item's age alone is not a change"
+        );
+        assert_ne!(
+            owner_inbox_fingerprint(turn),
+            owner_inbox_fingerprint(changed)
+        );
+        let trimmed = with_unchanged_owner_inbox(turn);
+        assert!(trimmed.contains("# Owner's Inbox now\n(unchanged"));
+        assert!(!trimmed.contains("Key missing"));
+        assert!(trimmed.contains("# Current human: owner\nrest"));
+        // Nothing to spare: an empty Inbox stays as it is.
+        let empty = "# Owner's Inbox now\n(empty)\n\n# Current human: owner";
+        assert_eq!(owner_inbox_fingerprint(empty), None);
+        assert_eq!(with_unchanged_owner_inbox("no inbox"), "no inbox");
+    }
+
     #[test]
     fn a_resumed_session_is_not_resent_its_recent_conversation() {
         let turn = "# Company state now\nx\n# Recent conversation in this focus\n- owner message 1: old words\n\n# Current human: owner\n\n# Owner input\n- owner message 2: new words\n";
