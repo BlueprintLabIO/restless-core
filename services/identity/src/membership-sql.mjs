@@ -117,6 +117,16 @@ export async function createSqlMembershipStore({
     return { ...row, status: row.status ?? "active", version: Number(row.version ?? 1) };
   }
 
+  /* The membership row goes when someone is removed; the state row stays, so the account page can
+   * say that rather than "you haven't joined". */
+  async function wasRemoved(companyId, userId) {
+    const found = await pool.query(
+      `SELECT 1 FROM restless_membership_state WHERE company_id = $1 AND user_id = $2 AND status = 'removed' LIMIT 1`,
+      [companyId, userId],
+    );
+    return found.rowCount > 0;
+  }
+
   async function members(companyId, organization) {
     return (
       await pool.query(
@@ -432,6 +442,7 @@ export async function createSqlMembershipStore({
 
   return {
     membership,
+    wasRemoved,
     members,
     change,
     transferOwnership,

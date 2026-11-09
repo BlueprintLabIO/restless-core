@@ -136,18 +136,13 @@ await run("multiplayer-stress", async () => {
   await Promise.all(editors.map((who) => caretAtEnd(who, 1)));
   await Promise.all(editors.map((who) => who.page.keyboard.type(runs[who.key], { delay: 25 })));
   let text = await converged(editors, "one spot, three typists: every screen agrees");
-  /* Known defect (26 Oct): when carets coincide, concurrent runs interleave character by
-   * character, though every screen agrees. Kept visible as a note until the editor is fixed;
-   * set RESTLESS_MP_STRICT=1 to fail on it. */
   const broken = editors.filter((who) => !text.includes(runs[who.key].trim()));
-  if (broken.length && process.env.RESTLESS_MP_STRICT === "1")
-    assert.fail(`runs split up (${broken.map((who) => who.key).join(", ")}):\n${text}`);
-  if (broken.length)
-    note(`typing at the same spot at once interleaves characters (${broken.map((who) => who.key).join(", ")} split up): ${JSON.stringify(text.split("\n")[1])}`);
+  assert.equal(broken.length, 0, `runs split up (${broken.map((who) => who.key).join(", ")}):
+${text}`);
   await alice.page.reload();
   await alice.page.getByLabel("Collaborative document body").waitFor({ timeout: 30000 });
   await until(async () => (await bodyText(alice)) === text, "the merged text survives a reload", 30);
-  pass(broken.length ? "three people typed at the same spot at once; every screen agrees (runs interleave, see note)" : "three people typed at the same spot at once; every run survives whole and every screen agrees");
+  pass("three people typed at the same spot at once; every run survives whole and every screen agrees");
 
   // 3. A seeded storm of random edits from everyone at once must converge.
   const rand = random(seed);

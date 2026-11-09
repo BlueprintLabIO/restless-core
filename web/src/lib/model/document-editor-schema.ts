@@ -32,7 +32,8 @@ import {
 import type { Mappable } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import type { HocuspocusProvider } from '@hocuspocus/provider';
-import type { Doc } from 'yjs';
+import { getItem, type Doc, type RelativePosition } from 'yjs';
+import { ySyncPluginKey } from '@tiptap/y-tiptap';
 import type { DocumentContent, DocumentMark, DocumentNode } from './documents';
 import { commentRangeBinding, resolveCommentRange, type CommentRange } from './document-margin.ts';
 import { SuggestedDelete, SuggestedInsert, suggestionsExtension } from './document-suggestions.ts';
@@ -1430,6 +1431,64 @@ const blockIdentityExtension = Extension.create({
 	addProseMirrorPlugins: () => [blockIdentityPlugin()]
 });
 
+/* Two guards on the local caret while others edit.
+ *
+ * Typing: y-tiptap 3.0.9 throws away Yjs's caret after any remote edit that changes the caret's
+ * paragraph (isMisresolvedAfterStructuralChange compares its text) and puts the caret back at its
+ * old offset. Text arriving before the caret then leaves it short of what was just typed, so the
+ * next letters land before the last ones: two people at one spot came out scrambled. While the
+ * character the caret follows is alive Yjs's answer is right; the recovery is only for positions
+ * whose text has gone (a block moved by delete and insert).
+ *
+ * Clicking: a press of a frame or less (a phone tap, a trackpad tap) is over before the browser
+ * reports the new selection, and the next transaction writes the old selection back over it, so
+ * the first tap into a document put the caret at its start. The click itself says where it went. */
+const collaborativeCaretGuards = Extension.create({
+	name: 'collaborativeCaretGuards',
+	addProseMirrorPlugins() {
+		return [
+			new Plugin({
+				key: new PluginKey('collaborativeCaretGuards'),
+				props: {
+					handleClick(view, pos, event) {
+						if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey) return false;
+						const $pos = view.state.doc.resolve(pos);
+						const { selection } = view.state;
+						if ($pos.parent.inlineContent && !(selection.empty && selection.from === pos))
+							view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, pos)));
+						return false;
+					}
+				},
+				view() {
+					let bound: unknown = null;
+					let release = () => {};
+					return {
+						update(view) {
+							const binding = ySyncPluginKey.getState(view.state)?.binding;
+							if (!binding || binding === bound) return;
+							release();
+							bound = binding;
+							const doc = binding.doc as Doc;
+							const alive = (position: RelativePosition | null) =>
+								!!position?.item && !getItem(doc.store, position.item).deleted;
+							/* After the binding's own listener, which has just read the selection. */
+							const trustYjs = () => {
+								const before = binding.beforeTransactionSelection;
+								if (before?.type !== 'text' || !alive(before.anchor) || !alive(before.head)) return;
+								before.absAnchor = undefined;
+								before.absHead = undefined;
+							};
+							doc.on('beforeAllTransactions', trustYjs);
+							release = () => doc.off('beforeAllTransactions', trustYjs);
+						},
+						destroy: () => release()
+					};
+				}
+			})
+		];
+	}
+});
+
 function caretExtension(provider: HocuspocusProvider, carets: DocumentCarets) {
 	return CollaborationCaret.configure({
 		provider,
@@ -2131,6 +2190,7 @@ export function createDocumentEditorExtensions(
 			field: DOCUMENT_COLLABORATION_FRAGMENT,
 			provider
 		}),
+		collaborativeCaretGuards,
 		...(carets ? [caretExtension(provider, carets)] : [])
 	];
 }

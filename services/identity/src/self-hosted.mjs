@@ -281,7 +281,7 @@ export async function createSelfHostedIssuer(
           user: { name: user.name, email: user.email },
           companyId, companyName: selected.companyName, companies: choices,
           role: active ? member.role : null,
-          status: member?.status ?? null,
+          status: member?.status ?? ((await store.wasRemoved?.(companyId, user.id)) ? "removed" : null),
           available: active && placement.checkReady ? await placement.checkReady(companyId) : null,
           canBootstrap:
             !(await organizationRow(companyId)) && user.email.toLowerCase() === config.ownerEmail,
