@@ -57,7 +57,7 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		let trailing = 0;
 		for (const child of node.children) {
 			const rect = child.getBoundingClientRect();
-			if (child.classList.contains('conversation-turn-dock') && getComputedStyle(child).order !== '0')
+			if (child.matches('.conversation-turn-dock, .room-turn-docks') && getComputedStyle(child).order !== '0')
 				trailing += rect.height;
 			else end = Math.max(end, rect.bottom);
 		}

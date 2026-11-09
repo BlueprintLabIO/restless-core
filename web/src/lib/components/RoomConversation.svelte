@@ -1827,12 +1827,16 @@
 								/>
 							</div>{/if}
 					{/each}
-					{#if directTurn}
-						<ConversationTurnDock participantName={actorDisplay} turn={directTurn} />
-					{/if}
-					{#each agentTurns as agent (agent.actor)}
-						<ConversationTurnDock participantName={actorName(agent.actor)} turn={agent.turn} />
-					{/each}
+					<!-- After the room replies grow into, held at the foot of the transcript: one block,
+					     so several agents at once stack rather than overlap (no shifts, 9 November). -->
+					{#if directTurn || agentTurns.length}<div class="room-turn-docks">
+							{#if directTurn}
+								<ConversationTurnDock participantName={actorDisplay} turn={directTurn} />
+							{/if}
+							{#each agentTurns as agent (agent.actor)}
+								<ConversationTurnDock participantName={actorName(agent.actor)} turn={agent.turn} />
+							{/each}
+						</div>{/if}
 				{/if}
 			</div>
 
@@ -1995,10 +1999,11 @@
 		{#if main && awayFrom !== null && visibleRoots.length && !hasMessageSearch}<button
 				type="button"
 				class="jump-latest"
+				title={visibleRoots.length > awayFrom
+					? `${visibleRoots.length - awayFrom} new since you scrolled up`
+					: 'Back to the latest message'}
 				onclick={() => roomScrollEl?.dispatchEvent(new Event('chat-scroll-end'))}
-				>{visibleRoots.length > awayFrom
-					? `${visibleRoots.length - awayFrom} new ↓`
-					: 'Jump to latest ↓'}</button
+				>Jump to latest ↓</button
 			>{/if}
 	</div>
 	{#if archivedRoom}
@@ -2212,6 +2217,16 @@
 	}
 	.jump-latest:hover {
 		background: var(--surface-hover);
+	}
+	/* One height on a phone too (rows never grow); a taller invisible strip is the 44 px target. */
+	.room-edge .jump-latest {
+		position: relative;
+		min-height: 0;
+	}
+	.room-edge .jump-latest::after {
+		content: '';
+		position: absolute;
+		inset: -11px 0;
 	}
 	.chat-attention-strip {
 		display: flex;
@@ -2542,12 +2557,34 @@
 		overscroll-behavior: contain;
 		background: var(--surface-pane);
 	}
+	.room-message-list {
+		display: flex;
+		flex-direction: column;
+	}
+	.room-message-list > :global(*) {
+		flex: none;
+	}
 
-	/* Room for replies to grow into beneath a message that has just been sent (follow-chat). */
+	/* Room for replies to grow into beneath a message that has just been sent (follow-chat). It is
+	 * empty: hidden, so its top moving as a reply fills it is no shift of anything anyone sees. */
 	.room-message-list::after {
 		content: '';
-		display: block;
+		flex: none;
 		height: var(--chat-anchor-room, 0px);
+		visibility: hidden;
+	}
+
+	/* The turns' status lines sit after that room, so a reply grows up to them and they stay where
+	 * they are. Past the room, and scrolled up, they hold the same place at the foot of the
+	 * transcript instead of being pushed out of view. An opened one scrolls with the conversation. */
+	.room-turn-docks {
+		order: 1;
+		background: var(--surface-pane);
+	}
+	.room-turn-docks:not(:has(:global(.conversation-turn-dock.expanded))) {
+		position: sticky;
+		bottom: 0;
+		z-index: 1;
 	}
 
 	.message-search-results {

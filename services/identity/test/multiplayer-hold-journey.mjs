@@ -124,8 +124,38 @@ async function seed(owner, alice) {
       return false;
     }
   }, "the company computer takes a file", 120);
-  pass("seeded documents (one restricted), a sheet, a goal, a team, a room and two requests for the Inbox");
-  return { documents, room };
+  // A judgement the owner can hand to a member: blocked Work with a handoff escalated to the Inbox.
+  const judgedWork = randomUUID();
+  const judgement = randomUUID();
+  await cellPool.query(
+    `INSERT INTO "${company}".work (id, owner_id, title, outcome, status, resolution, created_at, updated_at, priority, commissioned_by)
+     VALUES ($1, 'exec', 'Choose the joinery supplier', 'A supplier is chosen.', 'blocked', 'Waiting for a decision', now(), now(), 2, 'exec')`,
+    [judgedWork],
+  );
+  // A trigger on owner_handoffs reads `actors` unqualified, so this connection names the schema.
+  const client = await cellPool.connect();
+  try {
+    await client.query(`SET search_path TO "${company}"`);
+    await client.query(
+      `INSERT INTO owner_handoffs (id, work_id, requested_by, assigned_to, category, requested_action, prepared_state, resume_condition)
+       VALUES ($1, $2, 'exec', 'exec', 'owner_judgement', 'Choose the joinery supplier', 'Harbour Joinery quotes $18,400 and Bay Timber $21,000.', 'A person chooses a supplier')`,
+      [judgement, judgedWork],
+    );
+  } finally {
+    await client.query("RESET search_path");
+    client.release();
+  }
+  await daemonCommand({
+    cmd: "work-handoff-prepare-brief", company, id: judgement, as_actor: "exec", owner_kind: "decision",
+    headline: "Choose the joinery supplier",
+    situation: "Harbour Joinery quotes $18,400 and Bay Timber $21,000.",
+    impact: "The fit-out waits for this.",
+    recommendation: "Harbour Joinery: cheaper and local.",
+    no_action: "The fit-out stays on hold.",
+  });
+  await daemonCommand({ cmd: "work-handoff-escalate", company, id: judgement, as_actor: "exec", reason: "Needs a person." });
+  pass("seeded documents (one restricted), a sheet, a goal, a team, a room, two requests and a judgement for the Inbox");
+  return { documents, room, judgedWork, judgement };
 }
 
 await run("hold", async () => {
@@ -168,6 +198,8 @@ await run("hold", async () => {
       actors: { owner: owner.principal.actor_id, admin: bob.principal.actor_id, member: alice.principal.actor_id },
       documents: seeded.documents.map((item) => item.document_id ?? item.document?.id),
       room: seeded.room.id,
+      judgement: seeded.judgement,
+      judgedWork: seeded.judgedWork,
     }, null, 2),
     { mode: 0o600 },
   );

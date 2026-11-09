@@ -69,10 +69,13 @@
 		work
 			.filter(
 				(item) =>
-					owners.has(item.owner_id) && ['active', 'blocked', 'proposed'].includes(item.status)
+					owners.has(item.owner_id) &&
+					/* A Work opened from a link is shown and marked even once it has finished (S88-06). */
+					(['active', 'blocked', 'proposed'].includes(item.status) || item.id === highlight)
 			)
 			.toSorted(
 				(a, b) =>
+					Number(b.id === highlight) - Number(a.id === highlight) ||
 					Number(b.status === 'active') - Number(a.status === 'active') ||
 					Date.parse(b.updated_at) - Date.parse(a.updated_at)
 			)
@@ -126,7 +129,7 @@
 			<ul class="monitoring">
 				{#each monitored as item (item.id)}
 					{@const estimate = estimateOf(item)}
-					<li>
+					<li class:highlighted={item.id === highlight}>
 						<div class="monitor-owner">
 							<a
 								href={'/' +
@@ -377,6 +380,7 @@
 		background: var(--surface-pane);
 	}
 	/* The Work just opened: a soft wash that reaches past the text, not a square ring hugging it. */
+	.monitoring li.highlighted,
 	.work-now.highlighted {
 		border-radius: var(--radius-control);
 		background: var(--intent-conversation-soft);

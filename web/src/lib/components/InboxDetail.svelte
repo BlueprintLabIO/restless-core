@@ -161,7 +161,8 @@
 		`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(askerId)}&view=people`
 	);
 	/* A decision answer reaches the Work's owner, who may not be whoever wrote the brief. */
-	const cockpit = cockpitQuery(() => companyId);
+	/* The full company projection is the owner's; a member's Inbox item names the recipient from its own fields. */
+	const cockpit = cockpitQuery(() => companyId, () => canSetAside);
 	const recipientId = $derived(workOwnerId || askerId);
 	const recipient = $derived(
 		recipientId === askerId
