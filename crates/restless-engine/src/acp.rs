@@ -2667,6 +2667,9 @@ async fn establish_session(args: EstablishSession<'_>) -> Result<SessionReady> {
                 .context(reason_prefix)
         }
     };
+    let continues_live_session =
+        |prior: &SessionLocator| warm && live_session == Some(prior.session_id.as_str());
+    let same_live_session = prior_locator.as_ref().is_some_and(&continues_live_session);
     let (session_id, resumed, reconstructed, reconstruction_reason, baseline_cost, config_options) =
         match prior_locator {
             // The session this warm process already holds: nothing to load. Only a change of
@@ -2861,9 +2864,13 @@ async fn establish_session(args: EstablishSession<'_>) -> Result<SessionReady> {
         cumulative_cost_usd: baseline_cost,
         context_observation: if resumed { prior_context } else { None },
     };
-    persist_session_locator(container, locator_path, &locator)
-        .await
-        .context("persist ACP session scope before prompt")?;
+    // A warm process continuing its own session keeps the locator already on disk; every usage
+    // update during the turn writes it again. Skip the container command the prompt would wait on.
+    if !same_live_session {
+        persist_session_locator(container, locator_path, &locator)
+            .await
+            .context("persist ACP session scope before prompt")?;
+    }
     if let Ok(mut active) = live_locator.lock() {
         *active = Some(locator);
     }
@@ -3277,6 +3284,13 @@ pub async fn reap_orphan_sessions(container: &str) -> usize {
         )
         .await;
     }
+    // Grant files of processes from before the restart. Their turns are no longer open, so the
+    // grants are already refused; this only clears them away.
+    let _ = crate::runtime::docker_bounded(
+        &["exec", container, "sh", "-c", "rm -rf /tmp/restless-warm-*"],
+        std::time::Duration::from_secs(8),
+    )
+    .await;
     reaped
 }
 

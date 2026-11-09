@@ -26,6 +26,15 @@ use super::{
 /// Sprint 113 starts here. Long enough to carry a conversation, short enough that an idle
 /// company gives its memory back within a minute.
 const IDLE_LIMIT: Duration = Duration::from_secs(60);
+/// Override for measuring: `0` keeps every launch cold.
+const IDLE_LIMIT_ENV: &str = "RESTLESS_WARM_IDLE_SECONDS";
+
+fn idle_limit() -> Duration {
+    std::env::var(IDLE_LIMIT_ENV)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .map_or(IDLE_LIMIT, Duration::from_secs)
+}
 /// A process serves many turns of one actor, and OMP keeps its sessions in memory.
 const MAX_AGE: Duration = Duration::from_secs(30 * 60);
 const MAX_TURNS: u32 = 100;
@@ -238,6 +247,11 @@ pub(super) async fn take(key: &WarmKey) -> Option<AgentProcess> {
 /// Keep a process for this actor's next turn, or stop it when the company has no room for it.
 pub(super) async fn park(key: WarmKey, mut process: AgentProcess) {
     process.turns += 1;
+    let idle = idle_limit();
+    if idle.is_zero() {
+        retire(process, "warm processes are turned off").await;
+        return;
+    }
     if process.is_due_for_retirement() {
         retire(process, "reached its age or turn limit").await;
         return;
@@ -271,7 +285,7 @@ pub(super) async fn park(key: WarmKey, mut process: AgentProcess) {
         retire_key(&oldest, "the company's oldest idle process").await;
     }
     tokio::spawn(async move {
-        tokio::time::sleep(IDLE_LIMIT).await;
+        tokio::time::sleep(idle).await;
         let expired = parked().lock().ok().and_then(|mut parked| {
             let current = parked.get(&key).is_some_and(|p| p.generation == generation);
             current.then(|| parked.remove(&key)).flatten()
