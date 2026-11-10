@@ -453,6 +453,10 @@
 		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 5%, transparent);
 		color: var(--ink);
 	}
+	/* A table has no width of its own to offer (it scrolls inside), so the bubble takes the column. */
+	.conversation-message.owner .message-body:has(:global([data-streamdown-table])) {
+		width: 100%;
+	}
 	.conversation-message.owner.continued .message-body {
 		border-top-right-radius: 4px;
 	}
