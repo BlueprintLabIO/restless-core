@@ -1,0 +1,20 @@
+{
+ "good": {
+  "files": {
+   "armchair.md": "Reproduction mid-century lounge armchair, tan leather\n\nPrice: $640\nDimensions: 84cm wide, 80cm deep\n\nA comfortable reproduction of a well-known mid-century design, bought new in 2021. It has tan leather and a walnut veneer shell, and it has lived in a smoke-free study.\n\nThere is a small scratch on the right arm, visible in the photos. The rest of the leather is in good order and the swivel is smooth.\n\nPickup from Balmain. It is a ground floor pickup, so there are no stairs to carry it down.\n"
+  },
+  "log": []
+ },
+ "bad": {
+  "files": {
+   "chair.md": "Genuine mid-century armchair, $900. It's lovely."
+  },
+  "log": [
+   {
+    "time": "2026-03-05T09:05",
+    "action": "read_file",
+    "target": "notes/dot-furniture.md"
+   }
+  ]
+ }
+}

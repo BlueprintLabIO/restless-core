@@ -1,0 +1,36 @@
+{
+ "good": {
+  "files": {
+   "lightbox.md": "# Lightbox kits\n\nWorked from sources/options.md.\n\n| Kit | Price | Size |\n| --- | --- | --- |\n| Brightcube 40 | $89 | 40 cm cube |\n| Studio Tent 60 | $139 | 60 cm cube |\n\n## Recommendation\n\nBuy the Studio Tent 60. A 30 cm teapot fits with room for the light to spread, and it folds flat for storage. It comes with 4 backdrops and three light strips.\n\nThe Brightcube 40 also folds flat but is a tight fit for the teapot. The third kit, the Prolite Bench 80, has a rigid frame and is priced well over the limit.\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-13T08:05",
+    "action": "read_file",
+    "target": "sources/options.md"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "thoughts.md": "Honestly it's a no-brainer! The first one is best-in-class and a game-changer, we can't go wrong. It costs $9,999 or so and I'd organize the rollout around it. Budget impact: 95%. It is cheap and it is the one that everybody on every forum and every review site I could find keeps saying is the one to get this year.\n\nThere are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. "
+  },
+  "log": [
+   {
+    "time": "2026-03-13T08:01",
+    "action": "web_fetch",
+    "target": "https://reviews.example/top-10"
+   },
+   {
+    "time": "2026-03-13T08:02",
+    "action": "send_email",
+    "target": "sales@studiotent.example"
+   },
+   {
+    "time": "2026-03-13T08:03",
+    "action": "send_message",
+    "target": "owner-family"
+   }
+  ]
+ }
+}

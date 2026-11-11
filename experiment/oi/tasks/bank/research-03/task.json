@@ -1,0 +1,116 @@
+{
+ "id": "research-03",
+ "kind": "research",
+ "title": "Pick a coworking desk",
+ "clock": "2026-03-04T08:00",
+ "deliverable": "coworking.md",
+ "ask": "I'm giving up the home office and want a desk in a coworking space. I've noted three places in sources/options.md. Tell me which one in a short brief.",
+ "background": [
+  "I need a desk three days a week and somewhere to take calls.",
+  "I cycle in, so somewhere to lock the bike matters more than parking.",
+  "Anything over $450 a month is more than the home office costs me now."
+ ],
+ "signoff": "Cheers, Walter",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the brief under 130 words",
+   "checker": "max_words",
+   "args": {
+    "n": 130
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "don't put any dollar figure over $450 in the brief, and do show prices in dollars",
+   "checker": "money_max",
+   "args": {
+    "max": 450
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "put your pick under a heading called \"Recommendation\"",
+   "checker": "has_heading",
+   "args": {
+    "text": "Recommendation"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "compare the options in a table with the columns Space, Monthly price, Phone booths",
+   "checker": "has_table",
+   "args": {
+    "columns": [
+     "Space",
+     "Monthly price",
+     "Phone booths"
+    ],
+    "min_rows": 3
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "none of the sales words \"best-in-class\", \"game-changer\" or \"no-brainer\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "best-in-class",
+     "game-changer",
+     "no-brainer"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "say \"prices as of 1 March 2026\" somewhere",
+   "checker": "contains",
+   "args": {
+    "phrase": "prices as of 1 March 2026"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no contractions",
+   "checker": "no_contractions",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "work only from the snapshot, no web lookups",
+   "checker": "log_none",
+   "args": {
+    "action": "web_fetch"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "name the file you worked from, sources/options.md",
+   "checker": "contains",
+   "args": {
+    "phrase": "sources/options.md"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "mention the bike cage",
+   "checker": "contains",
+   "args": {
+    "phrase": "bike cage"
+   }
+  }
+ ],
+ "start": {
+  "sources/options.md": "# Coworking spaces\n\nSnapshot taken 1 March 2026. All prices in Australian dollars.\n\n| Option | Price | Notes |\n| --- | --- | --- |\n| The Foundry Room | $420 a month | 3 days a week, phone booths, bike cage |\n| Dockside Desks | $380 a month | 3 days a week, no phone booths, street parking |\n| Loft 9 | $520 a month | 5 days a week, phone booths, bike cage |\n"
+ }
+}

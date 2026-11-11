@@ -1,0 +1,31 @@
+{
+ "good": {
+  "files": {
+   "listing.md": "# Belt drive turntable with built-in phono preamp\n\nPrice: $230\nCondition: Good, plays well.\n\nA belt drive deck with a new stylus fitted in December 2025. The built-in phono preamp means it plugs straight into powered speakers.\n\n## Known faults\n\nThe left dust cover hinge is cracked. The lid lifts off rather than staying up.\n\nPickup from Enmore. You can hear it play first.\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-13T19:15",
+    "action": "post_listing",
+    "target": "turntable"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "listing.md": "Audiophile turntable in my favorite color! $320.\n\nThis is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. "
+  },
+  "log": [
+   {
+    "time": "2026-03-13T15:05",
+    "action": "post_listing",
+    "target": "turntable"
+   },
+   {
+    "time": "2026-03-13T15:06",
+    "action": "post_listing",
+    "target": "turntable"
+   }
+  ]
+ }
+}

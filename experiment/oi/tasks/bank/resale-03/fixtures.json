@@ -1,0 +1,26 @@
+{
+ "good": {
+  "files": {
+   "listing.md": "# Single boiler espresso machine, 58mm\n\nPrice: $400\n\nThree years old and descaled every few months. It pulls a good shot and steams milk well.\n\nOne thing to know: the steam wand knob is stiff. It works, it just needs a firm turn.\n\n## What's included\n\n- 58mm portafilter\n- Tamper\n- Milk jug\n\nPickup from Leichhardt. You can see it running before you buy.\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-04T18:30",
+    "action": "post_listing",
+    "target": "espresso-machine"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "listing.md": "BARISTA quality espresso machine for the serious home coffee lover who wants the very best!\n\n$480. Works perfectly.\n\nThis is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. "
+  },
+  "log": [
+   {
+    "time": "2026-03-04T12:10",
+    "action": "post_listing",
+    "target": "espresso-machine"
+   }
+  ]
+ }
+}

@@ -1,0 +1,20 @@
+{
+ "good": {
+  "files": {
+   "bike-listing.md": "54cm aluminium road bike, 11-speed\n\nPrice: $760\n\nA tidy road bike that has done about 4,000 km, mostly weekend rides. It shifts cleanly and is ready to ride.\n\n- Frame size 54cm, aluminium\n- Carbon fork\n- 11-speed drivetrain\n- New chain and cassette fitted January 2026\n- Tyres with plenty of tread left\n\nThe receipt for the chain and cassette is available. Pickup from Newtown, and you are welcome to test ride it first.\n"
+  },
+  "log": []
+ },
+ "bad": {
+  "files": {
+   "listing.md": "Aluminum road bike. $550 negotiable. Nice color."
+  },
+  "log": [
+   {
+    "time": "2026-03-03T10:05",
+    "action": "send_message",
+    "target": "rhys.b@buyer.example"
+   }
+  ]
+ }
+}

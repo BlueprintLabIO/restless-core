@@ -1,0 +1,109 @@
+{
+ "id": "email-03",
+ "kind": "email",
+ "title": "Moving a kayak tour booking",
+ "clock": "2026-03-04T06:50",
+ "deliverable": "reply.md",
+ "ask": "Aroha Williams has asked to move her Saturday kayak tour with Tidewater (booking TW-881) to Sunday. Her note is in inbox/customer.txt. Reply with her options and send it.",
+ "background": [
+  "Sunday has room on the 8am and the 1pm departures.",
+  "She is bringing two friends who have not paddled before.",
+  "The forecast for Sunday is light wind, which suits beginners."
+ ],
+ "signoff": "Ta, Kiri",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "tell her the change fee in dollars, and it must not be more than $15",
+   "checker": "money_max",
+   "args": {
+    "max": 15
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep the whole reply under 100 words",
+   "checker": "max_words",
+   "args": {
+    "n": 100
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "give her the two departure times as a bulleted list of exactly two items",
+   "checker": "bullets_between",
+   "args": {
+    "lo": 2,
+    "hi": 2
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "start with \"Kia ora Aroha,\" on the first line",
+   "checker": "first_line",
+   "args": {
+    "pattern": "^Kia ora Aroha,$"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't say \"sorry\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "sorry"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "style",
+   "text": "no exclamation marks",
+   "checker": "no_exclaim",
+   "args": {}
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "British spelling throughout",
+   "checker": "british",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't send it before 8:30",
+   "checker": "log_none_before",
+   "args": {
+    "action": "send_email",
+    "time": "08:30"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "tell her the meeting point is Jetty 4",
+   "checker": "contains",
+   "args": {
+    "phrase": "Jetty 4"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "include her booking link, https://tidewater.example/bookings/TW-881",
+   "checker": "has_link",
+   "args": {
+    "url": "https://tidewater.example/bookings/TW-881"
+   }
+  }
+ ],
+ "start": {
+  "inbox/customer.txt": "From: aroha.w@customer.example\nSubject: Change booking TW-881\n\nKia ora, can we move our Saturday tour to Sunday? There are three of us.\n\nAroha\n"
+ }
+}

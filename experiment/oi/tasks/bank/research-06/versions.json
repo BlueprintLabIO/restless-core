@@ -1,0 +1,290 @@
+{
+ "v1": [
+  {
+   "constraint": "c09",
+   "block": "start",
+   "position": 1,
+   "phrasing": "important",
+   "frame": "Important: {t}."
+  },
+  {
+   "constraint": "c05",
+   "block": "start",
+   "position": 2,
+   "phrasing": "important",
+   "frame": "This one is a must: {t}."
+  },
+  {
+   "constraint": "c02",
+   "block": "start",
+   "position": 3,
+   "phrasing": "aside",
+   "frame": "Oh, and {t}."
+  },
+  {
+   "constraint": "c07",
+   "block": "middle",
+   "position": 4,
+   "phrasing": "important",
+   "frame": "Whatever else happens, {t}."
+  },
+  {
+   "constraint": "c03",
+   "block": "middle",
+   "position": 5,
+   "phrasing": "important",
+   "frame": "Whatever else happens, {t}."
+  },
+  {
+   "constraint": "c08",
+   "block": "middle",
+   "position": 6,
+   "phrasing": "aside",
+   "frame": "By the way, {t}."
+  },
+  {
+   "constraint": "c04",
+   "block": "middle",
+   "position": 7,
+   "phrasing": "aside",
+   "frame": "Oh, and {t}."
+  },
+  {
+   "constraint": "c10",
+   "block": "end",
+   "position": 8,
+   "phrasing": "aside",
+   "frame": "While you're at it, {t}."
+  },
+  {
+   "constraint": "c06",
+   "block": "end",
+   "position": 9,
+   "phrasing": "aside",
+   "frame": "By the way, {t}."
+  },
+  {
+   "constraint": "c01",
+   "block": "end",
+   "position": 10,
+   "phrasing": "important",
+   "frame": "Non-negotiable: {t}."
+  }
+ ],
+ "v2": [
+  {
+   "constraint": "c05",
+   "block": "start",
+   "position": 1,
+   "phrasing": "aside",
+   "frame": "Oh, and {t}."
+  },
+  {
+   "constraint": "c08",
+   "block": "start",
+   "position": 2,
+   "phrasing": "important",
+   "frame": "This one is a must: {t}."
+  },
+  {
+   "constraint": "c09",
+   "block": "start",
+   "position": 3,
+   "phrasing": "aside",
+   "frame": "While you're at it, {t}."
+  },
+  {
+   "constraint": "c03",
+   "block": "middle",
+   "position": 4,
+   "phrasing": "aside",
+   "frame": "Small thing: {t}."
+  },
+  {
+   "constraint": "c06",
+   "block": "middle",
+   "position": 5,
+   "phrasing": "important",
+   "frame": "Important: {t}."
+  },
+  {
+   "constraint": "c10",
+   "block": "middle",
+   "position": 6,
+   "phrasing": "important",
+   "frame": "This one is a must: {t}."
+  },
+  {
+   "constraint": "c02",
+   "block": "middle",
+   "position": 7,
+   "phrasing": "important",
+   "frame": "This one is a must: {t}."
+  },
+  {
+   "constraint": "c07",
+   "block": "middle",
+   "position": 8,
+   "phrasing": "aside",
+   "frame": "By the way, {t}."
+  },
+  {
+   "constraint": "c04",
+   "block": "end",
+   "position": 9,
+   "phrasing": "important",
+   "frame": "Important: {t}."
+  },
+  {
+   "constraint": "c01",
+   "block": "end",
+   "position": 10,
+   "phrasing": "aside",
+   "frame": "While you're at it, {t}."
+  }
+ ],
+ "v3": [
+  {
+   "constraint": "c07",
+   "block": "start",
+   "position": 1,
+   "phrasing": "important",
+   "frame": "Non-negotiable: {t}."
+  },
+  {
+   "constraint": "c03",
+   "block": "start",
+   "position": 2,
+   "phrasing": "important",
+   "frame": "Important: {t}."
+  },
+  {
+   "constraint": "c06",
+   "block": "middle",
+   "position": 3,
+   "phrasing": "aside",
+   "frame": "By the way, {t}."
+  },
+  {
+   "constraint": "c10",
+   "block": "middle",
+   "position": 4,
+   "phrasing": "aside",
+   "frame": "Oh, and {t}."
+  },
+  {
+   "constraint": "c02",
+   "block": "middle",
+   "position": 5,
+   "phrasing": "aside",
+   "frame": "By the way, {t}."
+  },
+  {
+   "constraint": "c09",
+   "block": "middle",
+   "position": 6,
+   "phrasing": "important",
+   "frame": "This one is a must: {t}."
+  },
+  {
+   "constraint": "c05",
+   "block": "middle",
+   "position": 7,
+   "phrasing": "important",
+   "frame": "Non-negotiable: {t}."
+  },
+  {
+   "constraint": "c01",
+   "block": "middle",
+   "position": 8,
+   "phrasing": "important",
+   "frame": "Whatever else happens, {t}."
+  },
+  {
+   "constraint": "c08",
+   "block": "end",
+   "position": 9,
+   "phrasing": "aside",
+   "frame": "Oh, and {t}."
+  },
+  {
+   "constraint": "c04",
+   "block": "end",
+   "position": 10,
+   "phrasing": "aside",
+   "frame": "By the way, {t}."
+  }
+ ],
+ "v4": [
+  {
+   "constraint": "c03",
+   "block": "start",
+   "position": 1,
+   "phrasing": "aside",
+   "frame": "Small thing: {t}."
+  },
+  {
+   "constraint": "c02",
+   "block": "start",
+   "position": 2,
+   "phrasing": "important",
+   "frame": "Non-negotiable: {t}."
+  },
+  {
+   "constraint": "c07",
+   "block": "start",
+   "position": 3,
+   "phrasing": "aside",
+   "frame": "By the way, {t}."
+  },
+  {
+   "constraint": "c09",
+   "block": "middle",
+   "position": 4,
+   "phrasing": "aside",
+   "frame": "Oh, and {t}."
+  },
+  {
+   "constraint": "c04",
+   "block": "middle",
+   "position": 5,
+   "phrasing": "important",
+   "frame": "Whatever else happens, {t}."
+  },
+  {
+   "constraint": "c05",
+   "block": "middle",
+   "position": 6,
+   "phrasing": "aside",
+   "frame": "While you're at it, {t}."
+  },
+  {
+   "constraint": "c08",
+   "block": "middle",
+   "position": 7,
+   "phrasing": "important",
+   "frame": "Important: {t}."
+  },
+  {
+   "constraint": "c01",
+   "block": "middle",
+   "position": 8,
+   "phrasing": "aside",
+   "frame": "Oh, and {t}."
+  },
+  {
+   "constraint": "c10",
+   "block": "end",
+   "position": 9,
+   "phrasing": "important",
+   "frame": "Important: {t}."
+  },
+  {
+   "constraint": "c06",
+   "block": "end",
+   "position": 10,
+   "phrasing": "important",
+   "frame": "This one is a must: {t}."
+  }
+ ]
+}

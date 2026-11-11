@@ -1,0 +1,44 @@
+{
+ "good": {
+  "files": {
+   "dates.py": "import datetime\n\n\ndef parse_date(text: str) -> datetime.date:\n    \"\"\"Parse a day-first date such as 03/02/2026. Raise ValueError if it is not one.\"\"\"\n    parts = text.strip().split(\"/\")\n    if len(parts) != 3:\n        raise ValueError(f\"not a date: {text!r}\")\n    day, month, year = (int(p) for p in parts)\n    return datetime.date(year, month, day)\n",
+   "NOTES.md": "# Dates\n\n## What changed\n\nThe day and month were read in the wrong order. They are now read day first, and text that is not three numbers raises ValueError.\n\nReviewer: Lachlan\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-06T11:20",
+    "action": "run_command",
+    "target": "python3 -m unittest"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "dates.py": "import requests, pandas, numpy, yaml, tenacity, slugify, decimal\nimport dateutil.parser, email_validator, copy\n\n# TODO tidy this up later\ndef do_it(x):\n    print('debugging value is', x, 'and this line is far too long to fit inside the limit that was asked for')\n    y = float(x) * 1.1\n    time.sleep(1)\n    return y\n",
+   "tests/test_dates.py": "import unittest\n\nfrom dates import *  # noqa: F403\n\n\nclass Tests(unittest.TestCase):\n    def test_day_first(self):\n        self.assertEqual(parse_date(\"03/02/2026\"), datetime.date(2026, 2, 3))\n\n    def test_bad_text(self):\n        with self.assertRaises(ValueError):\n            parse_date(\"soon\")\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n\n# skipped for now\n",
+   "fix.md": "Fixed it! We didn't analyze the behavior much, but it's working great now and the color of the output is fine!\n\nWe looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. "
+  },
+  "log": [
+   {
+    "time": "2026-03-06T11:10",
+    "action": "run_command",
+    "target": "pip install requests"
+   },
+   {
+    "time": "2026-03-06T11:10",
+    "action": "web_fetch",
+    "target": "https://pypi.example/simple"
+   },
+   {
+    "time": "2026-03-06T11:10",
+    "action": "write_file",
+    "target": "tests/test_dates.py"
+   },
+   {
+    "time": "2026-03-06T11:10",
+    "action": "send_message",
+    "target": "dev-team"
+   }
+  ]
+ }
+}

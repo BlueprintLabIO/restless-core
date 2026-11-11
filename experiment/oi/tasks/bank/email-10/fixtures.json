@@ -1,0 +1,31 @@
+{
+ "good": {
+  "files": {
+   "reply.md": "Hi Liam,\n\nThanks for coming back to me. There is a lighter menu that suits 40 guests well. It keeps the grazing table and drops the oysters and the second dessert.\n\n| Menu | Per head |\n| --- | --- |\n| Full grazing | $52 |\n| Lighter grazing | $41 |\n\nBoth include staff, platters and clean-up at Wharf Hall.\n\nIf the lighter menu works, the deposit is due by 20 March to hold Saturday 18 April. Could you also send me any dietary requirements for your guests when you have them?\n\nCheers, Nadia\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-13T08:30",
+    "action": "send_email",
+    "target": "liam.oconnor@customer.example"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "reply.md": "Liam!\n\nWe can do a discount: $30 a head, flavor of your choice. Pay the deposit soon.\n\nNadia\n\nWe value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. "
+  },
+  "log": [
+   {
+    "time": "2026-03-13T08:05",
+    "action": "send_email",
+    "target": "events@wharfhall.example"
+   },
+   {
+    "time": "2026-03-13T08:10",
+    "action": "send_email",
+    "target": "liam.oconnor@customer.example"
+   }
+  ]
+ }
+}

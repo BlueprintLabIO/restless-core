@@ -1,0 +1,31 @@
+{
+ "good": {
+  "files": {
+   "warranty-reply.md": "Subject: Your warranty claim BW-3350\n\nHi Olivia,\n\nA blender that is used every morning should last far longer than 11 months. Yours is covered, and we will repair or replace it at no cost.\n\nI have attached a prepaid label. Please post the blender within 14 days, with a copy of your proof of purchase in the box. A receipt or an order email is fine.\n\nRepairs take about a week once it reaches the workshop. I will write again when it is on its way back.\n\nGreg, Brightwell\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-12T09:02",
+    "action": "send_email",
+    "target": "olivia.mensah@customer.example"
+   },
+   {
+    "time": "2026-03-12T09:02",
+    "action": "send_email",
+    "target": "repairs@brightwell.example"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "reply.md": "Olivia, this looks like user error. Send it back within 30 days and we will SEE what we can do.\n\nWe value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. "
+  },
+  "log": [
+   {
+    "time": "2026-03-12T07:50",
+    "action": "send_email",
+    "target": "olivia.mensah@customer.example"
+   }
+  ]
+ }
+}

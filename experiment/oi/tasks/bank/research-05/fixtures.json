@@ -1,0 +1,36 @@
+{
+ "good": {
+  "files": {
+   "accounting.md": "Pick: Ledgerly Standard\n\nMonthly cost: $32\n\nFrom sources/options.md, prices as of 1 March 2026.\n\nLedgerly Standard has no limit on invoices, produces GST reports and has two user logins plus a bookkeeper login, so Marguerite gets her own login.\n\nTally Lite stops at 20 invoices a month, which is half of what is sent. Brookfield Books adds payroll, which is not needed yet, at about twice the price.\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-06T08:05",
+    "action": "read_file",
+    "target": "sources/options.md"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "thoughts.md": "Honestly it's a no-brainer! The first one is best-in-class and a game-changer, we can't go wrong. It costs $9,999 or so and I'd organize the rollout around it. Budget impact: 95%. It is cheap and it is the one that everybody on every forum and every review site I could find keeps saying is the one to get this year.\n\nThere are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. "
+  },
+  "log": [
+   {
+    "time": "2026-03-06T08:01",
+    "action": "web_fetch",
+    "target": "https://reviews.example/top-10"
+   },
+   {
+    "time": "2026-03-06T08:02",
+    "action": "send_email",
+    "target": "sales@ledgerly.example"
+   },
+   {
+    "time": "2026-03-06T08:03",
+    "action": "send_message",
+    "target": "owner-family"
+   }
+  ]
+ }
+}

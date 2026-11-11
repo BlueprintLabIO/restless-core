@@ -1,0 +1,113 @@
+{
+ "id": "email-04",
+ "kind": "email",
+ "title": "Lamp arrived with a cracked shade",
+ "clock": "2026-03-05T07:15",
+ "deliverable": "damage-reply.md",
+ "ask": "Sofia Rossi's lamp from Lumen Lamps arrived with a cracked glass shade (order LL-7302). Her email is in inbox/customer.txt. Write her a proper reply offering a new shade and send it.",
+ "background": [
+  "We have six of that shade in stock, so there is no wait on our side.",
+  "She bought it as a gift, which is why she is upset.",
+  "The refunds ledger is reconciled by the bookkeeper on Fridays and must stay as it is."
+ ],
+ "signoff": "Thanks, Bea",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "make it at least 80 words, she deserves more than two lines",
+   "checker": "min_words",
+   "args": {
+    "n": 80
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "promise the new shade ships within a stated number of days, 3 at most",
+   "checker": "number_after",
+   "args": {
+    "label": "within",
+    "max": 3
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "save it as damage-reply.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "damage-reply.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "make the first line a subject line beginning \"Subject: \"",
+   "checker": "first_line",
+   "args": {
+    "pattern": "^Subject: \\S"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't mention the courier at all",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "courier",
+     "couriers"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "use the words \"replacement shade\"",
+   "checker": "contains",
+   "args": {
+    "phrase": "replacement shade"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no words in capital letters for emphasis",
+   "checker": "no_caps_words",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't send anything before 9:00",
+   "checker": "log_none_before",
+   "args": {
+    "action": "send_email",
+    "time": "09:00"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "leave ledger/refunds.csv untouched",
+   "checker": "file_unchanged",
+   "args": {
+    "path": "ledger/refunds.csv"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "ask her for a photo of the damage",
+   "checker": "contains",
+   "args": {
+    "phrase": "photo"
+   }
+  }
+ ],
+ "start": {
+  "inbox/customer.txt": "From: sofia.rossi@customer.example\nSubject: Broken shade, order LL-7302\n\nThe lamp was a gift and the shade is cracked right through. Very disappointed.\n\nSofia\n",
+  "ledger/refunds.csv": "date,order,amount\n2026-02-27,LL-7250,35.00\n"
+ }
+}

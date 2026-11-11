@@ -1,0 +1,114 @@
+{
+ "id": "resale-06",
+ "kind": "resale",
+ "title": "List an acoustic guitar",
+ "clock": "2026-03-09T14:00",
+ "deliverable": "guitar-listing.md",
+ "ask": "I'm selling my acoustic guitar. Notes are in item.md, recent sales in comps.csv. Write the listing and post it this evening.",
+ "background": [
+  "It is a dreadnought with a solid spruce top, bought in 2019.",
+  "There is a small dent on the back from a belt buckle, and it comes with a hard case.",
+  "I teach on weekday afternoons, so evenings are when I can answer questions."
+ ],
+ "signoff": "Ta, Miguel",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "ask between $450 and $520 and write the price as \"Price: $...\"",
+   "checker": "number_after",
+   "args": {
+    "label": "Price",
+    "min": 450,
+    "max": 520
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep it under 100 words",
+   "checker": "max_words",
+   "args": {
+    "n": 100
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "save it as guitar-listing.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "guitar-listing.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "end with the line \"Pickup: Dulwich Hill\"",
+   "checker": "last_line",
+   "args": {
+    "pattern": "^Pickup: Dulwich Hill$"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't use the word \"beginner\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "beginner",
+     "beginners"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "style",
+   "text": "no all-capitals words",
+   "checker": "no_caps_words",
+   "args": {}
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "keep every sentence to 18 words or fewer",
+   "checker": "max_sentence_words",
+   "args": {
+    "n": 18
+   }
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "post the listing after 17:30, not before",
+   "checker": "log_none_before",
+   "args": {
+    "action": "post_listing",
+    "time": "17:30"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "mention the hard case",
+   "checker": "contains",
+   "args": {
+    "phrase": "hard case"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "mention the small dent on the back",
+   "checker": "contains",
+   "args": {
+    "phrase": "dent"
+   }
+  }
+ ],
+ "start": {
+  "item.md": "Dreadnought acoustic, solid spruce top, 2019.\nSmall dent on back. Hard case included.\nNew strings fitted.\nPickup: Dulwich Hill.\n",
+  "comps.csv": "sold_date,title,condition,price\n2026-02-09,dreadnought solid top with case,good,520\n2026-02-16,dreadnought solid top,good,450\n2026-02-23,dreadnought laminate,good,280\n"
+ }
+}

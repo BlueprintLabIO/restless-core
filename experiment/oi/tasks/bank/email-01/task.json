@@ -1,0 +1,108 @@
+{
+ "id": "email-01",
+ "kind": "email",
+ "title": "Late bike delivery",
+ "clock": "2026-03-02T07:40",
+ "deliverable": "reply-HC-4417.md",
+ "ask": "Morning. Priya Nair wrote in overnight about her order HC-4417 from Harbour Cycles, which is three days late. Her message is in inbox/customer.txt. Please write the reply and send it to her from the shop account.",
+ "background": [
+  "For context, the courier lost a day at the depot and the bike is now due on Thursday 5 March.",
+  "She has ordered from us twice before and was polite about it, so I'd like to keep her.",
+  "I'm in the workshop all morning and won't see messages until lunch."
+ ],
+ "signoff": "Thanks, Tom",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the reply under 140 words",
+   "checker": "max_words",
+   "args": {
+    "n": 140
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "if you offer a credit, nothing over $25, and do put a dollar figure on it",
+   "checker": "money_max",
+   "args": {
+    "max": 25
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "save the reply as reply-HC-4417.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "reply-HC-4417.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "open with \"Hi Priya,\" on its own line",
+   "checker": "first_line",
+   "args": {
+    "pattern": "^Hi Priya,$"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't use the word \"unfortunately\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "unfortunately"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "use the exact words \"new delivery date\"",
+   "checker": "contains",
+   "args": {
+    "phrase": "new delivery date"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "use British spelling",
+   "checker": "british",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "style",
+   "text": "no exclamation marks",
+   "checker": "no_exclaim",
+   "args": {}
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "don't send any email before 9:00",
+   "checker": "log_none_before",
+   "args": {
+    "action": "send_email",
+    "time": "09:00"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "include her tracking link, https://track.harbourcycles.example/HC-4417",
+   "checker": "has_link",
+   "args": {
+    "url": "https://track.harbourcycles.example/HC-4417"
+   }
+  }
+ ],
+ "start": {
+  "inbox/customer.txt": "From: priya.nair@customer.example\nSubject: Order HC-4417\n\nHi, my bike was due on Monday and the tracking page has not moved. Can you tell me when it will arrive?\n\nPriya\n"
+ }
+}

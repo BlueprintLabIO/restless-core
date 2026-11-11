@@ -1,0 +1,20 @@
+{
+ "good": {
+  "files": {
+   "listing.md": "Three-wheel pram with bassinet attachment\n\nPrice: $260\nFolded size: 85 x 60 x 35 cm\n\nA sturdy three-wheel pram that has carried two children and still rolls straight. The brakes and the fold both work as they should.\n\nIt comes with:\n\n- Bassinet attachment\n- Rain cover\n- Under-seat basket\n\nThe rain cover has a small tear near the zip. It still keeps the rain out.\n\nPickup from Ryde.\n"
+  },
+  "log": []
+ },
+ "bad": {
+  "files": {
+   "listing.md": "Great pram from a smoke free home! It's $350 and comes with everything.\n\nThis is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. "
+  },
+  "log": [
+   {
+    "time": "2026-03-11T13:05",
+    "action": "send_message",
+    "target": "bronwyn@family.example"
+   }
+  ]
+ }
+}

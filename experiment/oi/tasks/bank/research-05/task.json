@@ -1,0 +1,113 @@
+{
+ "id": "research-05",
+ "kind": "research",
+ "title": "Pick accounting software",
+ "clock": "2026-03-06T08:00",
+ "deliverable": "accounting.md",
+ "ask": "The spreadsheet is not coping, so I want proper accounting software. Three options are in sources/options.md. Please give me a brief with one pick.",
+ "background": [
+  "We are two people, registered for GST, and send about 40 invoices a month.",
+  "Our bookkeeper, Marguerite, needs her own login.",
+  "I don't need payroll yet."
+ ],
+ "signoff": "Regards, Dom",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the brief under 130 words",
+   "checker": "max_words",
+   "args": {
+    "n": 130
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "write the monthly cost of your pick as \"Monthly cost: $...\", and it must be $40 or under",
+   "checker": "number_after",
+   "args": {
+    "label": "Monthly cost",
+    "max": 40
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "save the brief as accounting.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "accounting.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "start the brief with a first line that reads \"Pick: \" and the product name",
+   "checker": "first_line",
+   "args": {
+    "pattern": "^Pick: \\S"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "none of the sales words \"best-in-class\", \"game-changer\" or \"no-brainer\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "best-in-class",
+     "game-changer",
+     "no-brainer"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "say \"prices as of 1 March 2026\" somewhere",
+   "checker": "contains",
+   "args": {
+    "phrase": "prices as of 1 March 2026"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no exclamation marks",
+   "checker": "no_exclaim",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "work only from the snapshot, no web lookups",
+   "checker": "log_none",
+   "args": {
+    "action": "web_fetch"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "do actually open sources/options.md rather than going from memory",
+   "checker": "log_any",
+   "args": {
+    "action": "read_file",
+    "target": "sources/options\\.md"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "say that Marguerite gets her own login",
+   "checker": "contains",
+   "args": {
+    "phrase": "Marguerite"
+   }
+  }
+ ],
+ "start": {
+  "sources/options.md": "# Accounting software\n\nSnapshot taken 1 March 2026. All prices in Australian dollars.\n\n| Option | Price | Notes |\n| --- | --- | --- |\n| Ledgerly Standard | $32 a month | unlimited invoices, GST reports, 2 users plus bookkeeper login |\n| Tally Lite | $15 a month | 20 invoices a month, GST reports, 1 user |\n| Brookfield Books | $65 a month | unlimited invoices, GST reports, payroll, 5 users |\n"
+ }
+}

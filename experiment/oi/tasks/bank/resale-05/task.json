@@ -1,0 +1,113 @@
+{
+ "id": "resale-05",
+ "kind": "resale",
+ "title": "List a 35mm film camera",
+ "clock": "2026-03-06T11:00",
+ "deliverable": "listing.md",
+ "ask": "Please write a listing for my dad's old 35mm film camera. What I know is in item.md and comps.csv has recent sales.",
+ "background": [
+  "It is a manual SLR from the late 1970s with a 50mm lens.",
+  "I put a roll through it in February and the photos came out fine, but the light meter reads a stop under.",
+  "A dealer called Camera Cellar offered me a trade-in price that I turned down."
+ ],
+ "signoff": "Thanks, Imogen",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "price it in dollars, no higher than $240",
+   "checker": "money_max",
+   "args": {
+    "max": 240
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep it under 130 words",
+   "checker": "max_words",
+   "args": {
+    "n": 130
+   }
+  },
+  {
+   "id": "c03",
+   "type": "number",
+   "text": "keep the title on the first line to 50 characters or fewer",
+   "checker": "title_max_chars",
+   "args": {
+    "n": 50
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "include a line starting \"Condition:\"",
+   "checker": "matches",
+   "args": {
+    "pattern": "^Condition:\\s*\\S"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't describe it as \"rare\" or \"collector\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "rare",
+     "collector",
+     "collectors",
+     "collector's"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "say it was \"tested with film\"",
+   "checker": "contains",
+   "args": {
+    "phrase": "tested with film"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no exclamation marks",
+   "checker": "no_exclaim",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't contact Camera Cellar (trade@cameracellar.example)",
+   "checker": "log_none",
+   "args": {
+    "target": "cameracellar"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "say the light meter reads one stop under",
+   "checker": "contains",
+   "args": {
+    "phrase": "one stop under"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "mention the 50mm lens",
+   "checker": "contains",
+   "args": {
+    "phrase": "50mm"
+   }
+  }
+ ],
+ "start": {
+  "item.md": "35mm manual SLR, late 1970s, 50mm f/1.8 lens.\nLight meter reads one stop under.\nTested with film February 2026.\nPostage or pickup: Glebe.\n",
+  "comps.csv": "sold_date,title,condition,price\n2026-02-06,35mm SLR with 50mm lens,working,240\n2026-02-17,35mm SLR body only,working,150\n2026-02-24,35mm SLR with 50mm lens,untested,160\n"
+ }
+}

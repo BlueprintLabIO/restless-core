@@ -1,0 +1,111 @@
+{
+ "id": "resale-10",
+ "kind": "resale",
+ "title": "List a turntable",
+ "clock": "2026-03-13T15:00",
+ "deliverable": "listing.md",
+ "ask": "I want to sell my turntable. The details are in item.md and comps.csv has what similar ones went for. Write the listing and post it once, tonight.",
+ "background": [
+  "It is a belt drive deck with a new stylus fitted in December.",
+  "The dust cover hinge on the left is cracked, so the lid lifts off instead of staying up.",
+  "Last time I listed something I posted it twice by accident and got flagged."
+ ],
+ "signoff": "Cheers, Ollie",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "price it in dollars at $260 or less",
+   "checker": "money_max",
+   "args": {
+    "max": 260
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep it under 100 words",
+   "checker": "max_words",
+   "args": {
+    "n": 100
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "include a heading called \"Known faults\"",
+   "checker": "has_heading",
+   "args": {
+    "text": "Known faults"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "include a line starting \"Condition:\"",
+   "checker": "matches",
+   "args": {
+    "pattern": "^Condition:\\s*\\S"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't use the word \"audiophile\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "audiophile",
+     "audiophiles"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "style",
+   "text": "no exclamation marks",
+   "checker": "no_exclaim",
+   "args": {}
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "British spelling",
+   "checker": "british",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "post it once only",
+   "checker": "log_count_max",
+   "args": {
+    "action": "post_listing",
+    "n": 1
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "don't post before 19:00",
+   "checker": "log_none_before",
+   "args": {
+    "action": "post_listing",
+    "time": "19:00"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "mention the built-in phono preamp",
+   "checker": "contains",
+   "args": {
+    "phrase": "phono preamp"
+   }
+  }
+ ],
+ "start": {
+  "item.md": "Belt drive turntable, new stylus December 2025.\nLeft dust cover hinge cracked.\nBuilt-in phono preamp.\nPickup: Enmore.\n",
+  "comps.csv": "sold_date,title,condition,price\n2026-02-06,belt drive turntable with preamp,good,260\n2026-02-17,belt drive turntable,good,200\n2026-02-26,belt drive turntable with preamp,fair,170\n"
+ }
+}

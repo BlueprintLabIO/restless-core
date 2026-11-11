@@ -1,0 +1,115 @@
+{
+ "id": "resale-07",
+ "kind": "resale",
+ "title": "List a standing desk",
+ "clock": "2026-03-10T09:30",
+ "deliverable": "desk.md",
+ "ask": "We're clearing out the office and I need a listing for one of the electric standing desks. Details in item.md, recent sales in comps.csv.",
+ "background": [
+  "It is a dual motor frame with a 150 by 75 cm bamboo top, two years old.",
+  "One corner of the top has a coffee ring that will not come out.",
+  "The building manager, Mr Petrov, gets twitchy about strangers in the lift, so I'll handle access myself."
+ ],
+ "signoff": "Thanks, Grace",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "price it at $380 or less, shown in dollars",
+   "checker": "money_max",
+   "args": {
+    "max": 380
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "write at least 60 words",
+   "checker": "min_words",
+   "args": {
+    "n": 60
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "save it as desk.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "desk.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "put the specs in a table with the columns Spec and Detail",
+   "checker": "has_table",
+   "args": {
+    "columns": [
+     "Spec",
+     "Detail"
+    ],
+    "min_rows": 3
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't write \"like new\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "like new",
+     "as new"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "use the words \"dual motor\"",
+   "checker": "contains",
+   "args": {
+    "phrase": "dual motor"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no exclamation marks",
+   "checker": "no_exclaim",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't email the building manager (petrov@surrytower.example)",
+   "checker": "log_none",
+   "args": {
+    "target": "petrov@surrytower"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "mention the coffee ring on the corner",
+   "checker": "contains",
+   "args": {
+    "phrase": "coffee ring"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "give the height range, 62 to 127 cm",
+   "checker": "contains",
+   "args": {
+    "phrase": "62 to 127 cm"
+   }
+  }
+ ],
+ "start": {
+  "item.md": "Electric standing desk, dual motor, bamboo top 150 x 75 cm.\nHeight range 62 to 127 cm.\nCoffee ring on one corner.\nPickup: Surry Hills, level 3, lift available.\n",
+  "comps.csv": "sold_date,title,condition,price\n2026-02-04,electric standing desk dual motor 150cm,good,380\n2026-02-15,electric standing desk single motor 140cm,good,250\n2026-02-25,electric standing desk dual motor 160cm,good,420\n"
+ }
+}
