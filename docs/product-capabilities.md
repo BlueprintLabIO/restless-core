@@ -60,8 +60,10 @@ mechanical evidence settle without a paid supervisory paraphrase. These are spec
 execution results, not a universal cost advantage over other harnesses.
 
 The underlying [EXP-17 comparison](../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-17/RESULTS.md)
-found that a serial supervisory chain added cost and latency without improving quality
-in its four paired tasks. Restless retains lead responsibility and removes routine speech
+found that, on four small tasks a single worker already passed, a serial supervisory chain
+added $0.50 to $1.10 and a few minutes per task without changing the result. It was a small
+test with nothing for supervision to catch, so it measures the cost of ritual turns, not the
+value of review. Restless retains lead responsibility and removes routine speech
 from the critical path. Specialists and independent reviewers remain useful when the work
 benefits from them.
 

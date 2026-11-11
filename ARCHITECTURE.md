@@ -354,9 +354,11 @@ Lead accountability does not require a fresh high-effort model turn for every de
 transition. The lead identity, charter, authority and relevant context remain durable. Exact routing,
 gates and receipts can carry routine successful facts; supervisory intelligence wakes when framing or
 judgement is material, evidence fails, requirements change, lineage conflicts, effects are unsafe or a
-worker needs repair. EXP-17 found the fully serial R1 call chain at quality parity but 1.73x-3.30x the
-spend and 1.77x-2.94x the latency of the same solo producer across four bounded shapes. The architecture
-therefore preserves the lead while minimising ritual model wakes.
+worker needs repair. In EXP-17's four small tasks, which a solo worker already passed, the fully serial
+supervised chain added a roughly fixed supervisor cost (about $0.50 per task) and 3 to 6 minutes without
+changing the result. That small test shows ritual wakes cost money; it does not measure what supervision
+is worth on harder work (see `experiment/archive/2026-11-coordination-programme/ARCHIVED.md`). The architecture therefore preserves the lead while minimising
+ritual model wakes.
 
 After framing the company-level intent, choosing the lead and allocating an initial envelope, the Exec
 ends its dispatch wake so it remains available for the next owner request or department-level

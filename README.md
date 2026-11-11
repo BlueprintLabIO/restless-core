@@ -63,13 +63,14 @@ and preparing its first playtest.
 Restless agents run on Codex, Claude Code or an API model. The difference is the structure
 around them.
 
-Structure has a cost, and we measure it rather than assume it. In
-[EXP-17](experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-17/RESULTS.md) the same Codex worker ran four
-kinds of work with and without a supervising lead (one valid pair per kind, so a small sample).
-Every result passed its checks and blind review either way; supervision took **2.34× the time
-and 2.53× the spend**. So Restless starts with one capable worker under each lead, keeps the
+Structure has a cost, and we measure it rather than assume it. In an early, small test
+([EXP-17](experiment/archive/2026-11-coordination-programme/ARCHIVED.md)) the same Codex worker did four short tasks alone and under an Exec and a lead.
+Every task passed either way, and the extra layers added $0.50 to $1.10 and 3 to 6 minutes per
+task. Those were tasks a single worker already did perfectly, so the test shows what structure
+costs, not when it pays. So Restless starts with one capable worker under each lead, keeps the
 lead out of the way until judgement is needed, and adds specialists only when they improve the
-result.
+result. When structure earns its cost is what our
+[Organisational Intelligence research](experiment/README.md) is now testing.
 
 ## People bring the taste. Agents carry the chores.
 
