@@ -765,8 +765,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          Company Identity design) is yours: write it under /company/outputs, read it back once and \
          name it in `ownerReview` with its path. A handoff costs about four model calls, twice the \
          tokens and 20 seconds, so keep what you can finish and check here. Every other request that requires productive execution goes to exactly one \
-         accountable team lead, whether the work is small or large. Reuse a standing lead or appoint \
-         a temporary outcome lead and make the exact outcome charter durable. Ask any owner question \
+         accountable team lead, whether the work is small or large. Reuse a standing lead only \
+         for its own outcome or work that must share its state and judgement; an outcome that can \
+         progress and be judged on its own gets its own lead, even if a broad charter could absorb \
+         it. Make the exact outcome charter durable. Ask any owner question \
          the brief depends on before appointing, because the appointment wakes the lead. The lead produces the \
          outcome itself by default: in this same delegation, commission it as Work owned by that lead, \
          so no second paid lead turn restates your brief. One call does all of it: `restless commission \
@@ -2031,7 +2033,10 @@ mod tests {
         assert!(package
             .system_prompt
             .contains("select any relevant Voice, Visual, or Culture situation atomically"));
-        assert!(package.system_prompt.contains("Reuse a standing lead"));
+        assert!(package
+            .system_prompt
+            .contains("an outcome that can progress and be judged on its own gets its own lead"));
+        assert!(package.system_prompt.contains("Reuse a standing lead only"));
         assert!(package
             .system_prompt
             .contains("preserve that exact locator in the charter"));
