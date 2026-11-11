@@ -384,6 +384,19 @@
 		turnMessage && ['owner', 'admin'].includes(membershipRole) ? onstopturn : null
 	);
 	const retryTurn = $derived(turnMessage && !turnMessage.readAt ? onretryturn : null);
+	/* A turn that ended with no reply leaves the room kept beneath your message empty: the
+	 * transcript settles to its end, once per message. */
+	let settledFor = 0;
+	$effect(() => {
+		const phase = turn?.live?.phase;
+		const noReply =
+			phase === 'unavailable' ||
+			phase === 'failed' ||
+			(phase === 'complete' && turn?.live?.completedMessageId === null);
+		if (!turn || !noReply || turn.replyLanded || settledFor === turn.triggerMessageId) return;
+		settledFor = turn.triggerMessageId;
+		scrollEl?.dispatchEvent(new Event('chat-scroll-settle'));
+	});
 	let lastTurn: unknown = null;
 	$effect(() => {
 		const current = turn?.triggerMessageId ?? null;

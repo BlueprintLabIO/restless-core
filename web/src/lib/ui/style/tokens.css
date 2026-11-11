@@ -157,6 +157,10 @@
 	/* A conversation's header rows keep one height whatever they hold, so a long
 	 * "About" title or a pin never starts the transcript lower. */
 	--chat-head-h: var(--pane-head-h);
+	/* The foot of a pane, as --pane-head-h is its head: the Exec rail's composer at rest (its
+	 * top rule, 10px around one 44px line and the 40px tool row in a bordered field) and the
+	 * decision footer beside it, so their top rules meet on one line (owner, 12 Nov). */
+	--pane-foot-h: calc(1px + 10px + 1px + 44px + 40px + 1px + 10px);
 	--chat-strip-h: 28px;
 	/* One rhythm inside a conversation: items within a list, the lines that trail
 	 * a message (footers, receipts, folds), and the blocks of a message

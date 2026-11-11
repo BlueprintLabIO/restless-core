@@ -162,7 +162,10 @@
 	);
 	/* A decision answer reaches the Work's owner, who may not be whoever wrote the brief. */
 	/* The full company projection is the owner's; a member's Inbox item names the recipient from its own fields. */
-	const cockpit = cockpitQuery(() => companyId, () => canSetAside);
+	const cockpit = cockpitQuery(
+		() => companyId,
+		() => canSetAside
+	);
 	const recipientId = $derived(workOwnerId || askerId);
 	const recipient = $derived(
 		recipientId === askerId
@@ -211,11 +214,10 @@
 				.filter((entry) => entry.kind === 'artifact' && entry.content)
 				.map((entry) => fileLink(entry.content ?? '', entry.label)),
 			...namedFiles.map((path) => fileLink(path))
-		]
-			.filter(
-				(link, index, all): link is CompanyFileLink =>
-					!!link && all.findIndex((other) => other?.href === link.href) === index
-			)
+		].filter(
+			(link, index, all): link is CompanyFileLink =>
+				!!link && all.findIndex((other) => other?.href === link.href) === index
+		)
 	);
 	const folded = $derived(
 		item.evidence.filter(
@@ -1017,6 +1019,14 @@
 								owner={!canPassToOwner}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
+						<!-- With the item, not in the footer: the footer holds only actions, so it is one
+						     height beside the chat composer whatever the item is (12 November). -->
+						{#if approveMandate}<p
+								class="mandate-note"
+								title="Exec judges whether each recipient and message fits the mandate. The system enforces the mechanical limits."
+							>
+								Exec decides whether each email fits; Restless holds it to these limits.
+							</p>{/if}
 						{#if home && !item.preparing}
 							{@const nudge = habit >= 3 ? habitLine(home, habit) : null}
 							<p class="home">
@@ -1094,15 +1104,6 @@
 					tone="danger"
 					title="Could not check whether this step is an app request. If it is, adding the app resumes it; Mark done would not."
 				/>{/if}
-			{#if approveMandate}
-				<p
-					class="note"
-					title="Exec judges whether each recipient and message fits the mandate. The system enforces the mechanical limits."
-				>
-					Exec decides whether each email fits; Restless holds it to these limits.
-				</p>
-			{/if}
-
 			{#if passing}
 				<textarea
 					bind:value={reason}
@@ -1173,7 +1174,6 @@
 		fields={requestingReviewChanges ||
 		error ||
 		appRequestsFailed ||
-		approveMandate ||
 		passing ||
 		handingTo ||
 		approvalNote ||
@@ -1534,6 +1534,11 @@
 		visibility: hidden;
 	}
 	/* Where the card's setting lives: one quiet line under its panel (S101). */
+	.mandate-note {
+		margin: 12px 0 0;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+	}
 	.home {
 		margin: 8px 0 0;
 		color: var(--text-tertiary);
@@ -1836,11 +1841,6 @@
 		margin-right: auto;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
-	}
-	.note {
-		margin: 0;
-		color: var(--text-secondary);
-		font-size: var(--t-body);
 	}
 	/* The detail arrives as it stays: no fade and rise on mount. The rise settled the header and
 	 * title by a pixel after every load, a reveal the owner did not ask for (S109 C7). */

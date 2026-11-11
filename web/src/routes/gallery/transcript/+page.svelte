@@ -54,7 +54,8 @@ First results should land within the hour.`;
 			sender: 'agent',
 			author: 'The Exec',
 			text: long,
-			details: '- Landing page draft at `/company/outputs/storefront/index.html`\n- Checked at 375px and 1400px',
+			details:
+				'- Landing page draft at `/company/outputs/storefront/index.html`\n- Checked at 375px and 1400px',
 			createdAt: at(17)
 		}
 	]);
@@ -73,7 +74,7 @@ First results should land within the hour.`;
 		reactions[id] = on ? [...rest, { emoji, count: 1, mine: true }] : rest;
 	}
 
-	async function send() {
+	async function send(answered = true) {
 		const text = draft.trim();
 		if (!text || streaming) return;
 		draft = '';
@@ -81,6 +82,12 @@ First results should land within the hour.`;
 		lines.push({ id: lines.length + 1, sender: 'owner', author: 'You', text, createdAt: now });
 		await tick();
 		scrollEl?.dispatchEvent(new Event('chat-scroll-anchor'));
+		if (!answered) {
+			/* A turn that ends with no reply: the room kept for it goes. */
+			await new Promise((resolve) => setTimeout(resolve, 900));
+			scrollEl?.dispatchEvent(new Event('chat-scroll-settle'));
+			return;
+		}
 		streaming = true;
 		const id = lines.length + 1;
 		lines.push({ id, sender: 'agent', author: 'The Exec', text: '', createdAt: now });
@@ -154,6 +161,12 @@ First results should land within the hour.`;
 		>
 			<input bind:value={draft} aria-label="Message" placeholder="Answer Exec, or ask anything…" />
 			<button type="submit" disabled={streaming || !draft.trim()}>Send</button>
+			<button
+				type="button"
+				class="no-reply"
+				disabled={streaming || !draft.trim()}
+				onclick={() => void send(false)}>No reply</button
+			>
 		</form>
 	</section>
 </main>
