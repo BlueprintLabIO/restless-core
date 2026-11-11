@@ -377,6 +377,29 @@
 	.stacked.fixed .item-main {
 		display: contents;
 	}
+	/* Rounded and inset like the rows of every other sidebar; the fill alone marks the open row. */
+	.stacked.fixed > .item-row {
+		margin: 0 8px 2px;
+		padding-left: 8px;
+		padding-right: 8px;
+		border-radius: var(--radius-pane);
+	}
+	.stacked.fixed.interactive > .item-row:hover {
+		background: var(--wash-hover);
+	}
+	.stacked.fixed.selected > .item-row {
+		background: var(--surface-raised);
+		box-shadow:
+			var(--shadow-soft),
+			var(--bevel),
+			0 0 0 1px var(--border);
+	}
+	.stacked.fixed.selected > .item-row::before {
+		content: none;
+	}
+	.stacked.fixed .item-hit {
+		border-radius: inherit;
+	}
 	.stacked.fixed .item-leading {
 		grid-area: 1 / 1;
 		margin-top: 0;
@@ -408,12 +431,13 @@
 			grid-area: auto;
 			/* Centred on the second line, which sits half a title line below the row's middle. */
 			top: calc(50% + 10px);
-			right: 8px;
+			right: 4px;
+			border-radius: var(--radius-control);
 			background: var(--surface-hover);
 			transform: translateY(-50%);
 		}
 		.stacked.fixed.selected .item-actions {
-			background: var(--surface-alt);
+			background: var(--surface-raised);
 		}
 	}
 	.stacked .item-note,
