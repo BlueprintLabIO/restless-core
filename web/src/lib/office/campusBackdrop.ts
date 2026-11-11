@@ -193,6 +193,11 @@ const C = {
 	gravel: '#ddd6bf',
 	gravelEdge: '#c9c1a5',
 	gravelDot: '#bdb497',
+	path: '#dbcfa6',
+	pathLight: '#e6dcb6',
+	pathEdge: '#c3b98e',
+	pathRim: '#a9b884',
+	pathPebble: '#b5a984',
 	soil: '#a28c6c',
 	soilDark: '#8a7558',
 	hedge: '#5d9868',
@@ -867,7 +872,12 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	// Forest to the north and north-west, thinning into the meadow.
 	const forestEdge = (x: number) => {
 		const r = x / W;
-		const base = r < 0 ? 0.36 + r * 0.1 : r < 0.62 ? 0.02 - r * 0.2 : -0.14;
+		// West of the buildings the forest comes far south; it eases back to the northern line
+		// over a short stretch instead of ending in a straight wall beside the first pavilion.
+		const west = 0.36 + Math.min(r, 0) * 0.1;
+		const north = r < 0.62 ? 0.02 - Math.max(r, 0) * 0.2 : -0.14;
+		const ease = Math.min(1, Math.max(0, (r + 0.16) / 0.16));
+		const base = west + (north - west) * ease * ease * (3 - 2 * ease);
 		return base * H + Math.sin(x * 0.045) * 10 + Math.sin(x * 0.013 + 2) * 14;
 	};
 	ctx.fillStyle = C.forestFloor;
@@ -1102,10 +1112,15 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 					px(ctx, cx, cy, 1, 1, C.grassDeep);
 			}
 		}
-		for (let t = 0; t < 1; t += 0.01) {
-			const pxX = hill.x + 40 - t * 50 + Math.sin(t * 9) * 8;
-			const pxY = hill.y + 34 - t * 44;
-			px(ctx, pxX, pxY, 2, 1, C.gravel);
+		// A trodden line up to the tree: rim first, then the lighter earth on top.
+		const climb = (t: number): [number, number] => [
+			hill.x + 40 - t * 50 + Math.sin(t * 9) * 8,
+			hill.y + 34 - t * 44
+		];
+		for (let t = 0; t < 1; t += 0.004) px(ctx, climb(t)[0] - 1, climb(t)[1], 4, 2, C.pathEdge);
+		for (let t = 0; t < 1; t += 0.004) {
+			const [cx, cy] = climb(t);
+			px(ctx, cx, cy, 2, 1, hash(Math.round(cx), Math.round(cy), 7) < 0.2 ? C.pathLight : C.path);
 		}
 		stampTree(ctx, hill.x + 6, hill.y - 20, 10, 3_311, true);
 		paintFlowers(ctx, hill.x - 30, hill.y + 6, 91, 6);
@@ -1195,47 +1210,98 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 					Math.abs(x - W * 0.44) < Math.abs(pathStart.x - W * 0.44));
 			if (better || pathStart.y === H) pathStart = { x, y };
 		}
-	const path = (t: number): [number, number] => {
+	// It ends where the meadow gives way to sand; the jetty's boards carry on from there.
+	const pathEnd = { x: beachEdge(jettyY) + 4, y: jettyY };
+	const spine = (t: number): [number, number] => {
 		const x0 = pathStart.x;
 		const y0 = pathStart.y - 4;
-		const x3 = shore(H * 1.28) - 8;
-		const y3 = H * 1.28;
+		const x3 = pathEnd.x;
+		const y3 = pathEnd.y;
 		// A cubic with an easy S: it drops away from the building, then leans to the shore.
 		const x1 = x0 + 6;
 		const y1 = y0 + (y3 - y0) * 0.6;
 		const x2 = x0 + (x3 - x0) * 0.55;
-		const y2 = y3 + 4;
+		const y2 = y3;
 		const u = 1 - t;
 		return [
 			u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
 			u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3
 		];
 	};
+	// Walked, not surveyed: the line drifts either side of the curve, and settles at both ends.
+	const path = (t: number): [number, number] => {
+		const [x, y] = spine(t);
+		const [ax, ay] = spine(Math.max(0, t - 0.01));
+		const [bx, by] = spine(Math.min(1, t + 0.01));
+		const len = Math.hypot(bx - ax, by - ay) || 1;
+		const settle = Math.sin(Math.PI * t) ** 0.7;
+		const drift = (field(t * 900, 0, 1 / 150, 41) - 0.5) * 44 * settle;
+		return [x - ((by - ay) / len) * drift, y + ((bx - ax) / len) * drift];
+	};
 	const pathPoints: Array<[number, number]> = [];
 	for (let t = 0; t <= 1; t += 0.02) pathPoints.push(path(t));
 	const nearPath = (x: number, y: number, reach: number) =>
 		pathPoints.some(([px0, py0]) => Math.hypot(px0 - x, py0 - y) < reach);
-	// Worn, not ruled: the width wanders and the edge frays into the grass.
-	const pathWidth = (t: number) => 3 + field(t * 400, 0, 1 / 60, 41) * 2.2;
-	for (let t = 0; t <= 1; t += 0.003) {
-		const [x, y] = path(t);
-		const w = pathWidth(t);
-		disc(ctx, x, y, w + 1, w * 0.8 + 1, C.gravelEdge);
+	// Every pixel takes its colour from how far inside the trodden edge it lies, so the path is
+	// one shape with a frayed rim rather than a string of stamped discs.
+	const PATH_REACH = 9;
+	const trail: Array<[number, number, number]> = [];
+	for (let t = 0; t <= 1.0001; t += 0.0008) {
+		const [x, y] = path(Math.min(1, t));
+		trail.push([x, y, 3.3 + field(t * 900, 7, 1 / 70, 42) * 1.9]);
 	}
-	for (let t = 0; t <= 1; t += 0.003) {
-		const [x, y] = path(t);
-		const w = pathWidth(t);
-		disc(ctx, x, y, w, w * 0.8, C.gravel);
-		const h = hash(Math.round(x), Math.round(y), 7);
-		if (h < 0.12) px(ctx, x + (h * 40 - 2), y - 1, 1, 1, C.gravelDot);
-		else if (h > 0.96) px(ctx, x + (h > 0.98 ? w : -w), y, 1, 2, C.grassDark);
+	const trailLeft = Math.floor(Math.min(...trail.map((p) => p[0]))) - PATH_REACH;
+	const trailTop = Math.floor(Math.min(...trail.map((p) => p[1]))) - PATH_REACH;
+	const trailCols = Math.ceil(Math.max(...trail.map((p) => p[0]))) + PATH_REACH - trailLeft + 1;
+	const trailRows = Math.ceil(Math.max(...trail.map((p) => p[1]))) + PATH_REACH - trailTop + 1;
+	const inset = new Float32Array(trailCols * trailRows).fill(99);
+	for (const [x, y, w] of trail) {
+		const cx = Math.round(x) - trailLeft;
+		const cy = Math.round(y) - trailTop;
+		for (let dy = -PATH_REACH; dy <= PATH_REACH; dy += 1)
+			for (let dx = -PATH_REACH; dx <= PATH_REACH; dx += 1) {
+				const at = (cy + dy) * trailCols + cx + dx;
+				// Seen from above at a slant, like the rest of the campus: a touch flatter than wide.
+				const d = Math.hypot(cx + dx + trailLeft - x, (cy + dy + trailTop - y) * 1.2) - w;
+				if (d < inset[at]) inset[at] = d;
+			}
+	}
+	for (let row = 0; row < trailRows; row += 1)
+		for (let col = 0; col < trailCols; col += 1) {
+			const x = col + trailLeft;
+			const y = row + trailTop;
+			const edge = inset[row * trailCols + col] + (hash(x, y, 71) - 0.5) * 1.5;
+			if (edge > 2.2) continue;
+			const grain = hash(x, y, 7);
+			if (edge > 0.9) {
+				// Trampled verge: the grass thins before it gives out.
+				if (grain < 0.3) px(ctx, x, y, 1, 1, C.grassDark);
+			} else if (edge > -0.5) px(ctx, x, y, 1, 1, grain < 0.4 ? C.pathRim : C.pathEdge);
+			else if (edge > -1.4) px(ctx, x, y, 1, 1, grain < 0.3 ? C.pathEdge : C.path);
+			else px(ctx, x, y, 1, 1, grain < 0.035 ? C.pathPebble : grain < 0.2 ? C.pathLight : C.path);
+		}
+	// Things gather at a path's side: stones kicked clear, tufts nobody walks on, a few flowers.
+	const vergeRand = mulberry(131);
+	for (let i = 24; i < trail.length - 40; i += 14 + Math.floor(vergeRand() * 26)) {
+		const [x, y, w] = trail[i];
+		const [nx, ny] = trail[i + 8];
+		const len = Math.hypot(nx - x, ny - y) || 1;
+		const side = vergeRand() < 0.5 ? -1 : 1;
+		const off = w + 4 + vergeRand() * 3;
+		const vx = Math.round(x - ((ny - y) / len) * off * side);
+		const vy = Math.round(y + ((nx - x) / len) * off * side);
+		if (!land(vx + 6, vy) || onPlate(vx, vy, 10)) continue;
+		const pick = vergeRand();
+		if (pick < 0.4) paintTallGrass(ctx, vx, vy, vx * 3 + vy);
+		else if (pick < 0.7) paintRock(ctx, vx, vy, 1.5 + vergeRand() * 1.5, vergeRand() < 0.5);
+		else paintFlowers(ctx, vx, vy, vx + vy * 5, 3);
 	}
 
 	// Ground cover, painted before the trees so crowns overlap it. Long grass and stones come
 	// in patches, shrubs skirt the groves, and wildflowers fill a few meadows; the lawn by the
 	// buildings stays clear.
 	const open = (x: number, y: number, pad: number) =>
-		land(x, y) && !onPlate(x, y, pad) && !nearPath(x, y, pad + 3);
+		land(x, y) && !onPlate(x, y, pad) && !nearPath(x, y, 14);
 	const groundRand = mulberry(97);
 	span(18, (x, y) => {
 		if (y < forestEdge(x) - 4 || !open(x, y, 24)) return;
@@ -1271,7 +1337,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	for (const ry of [0.12, 0.47, 0.83, 1.18, 1.45]) {
 		const y = Math.round(H * ry);
 		const x = shore(y) - 22 + Math.round(hash(y, 3, 77) * 8);
-		if (!onPlate(x, y, 10) && Math.abs(y - H * 1.28) > 20)
+		if (!onPlate(x, y, 10) && Math.abs(y - jettyY) > 20)
 			paintDriftwood(ctx, x, y, 8 + Math.round(hash(y, 4, 77) * 6));
 	}
 
@@ -1323,8 +1389,10 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 
 	// A wooden jetty where the gravel path meets the beach, a rowboat tied up beside it, and a
 	// roped swimming area to the south.
-	const jettyFrom = shore(jettyY) - 14;
+	// Its boards start at the meadow's edge and cross the sand, so the path never has to.
+	const jettyFrom = pathEnd.x - 3;
 	const jettyTo = shore(jettyY) + 84;
+	px(ctx, jettyFrom + 2, jettyY + 8, shore(jettyY) - jettyFrom, 1, C.sandShade);
 	const deck = (x: number, w: number) => {
 		px(ctx, x, jettyY - 6, w, 13, C.plank);
 		px(ctx, x, jettyY - 6, w, 1, C.plankLight);
@@ -1477,6 +1545,14 @@ function screen(
 	ctx.fillRect(sx, sy, Math.max(1, Math.round(w)) * z, Math.max(1, Math.round(h)) * z);
 }
 
+/** Travel back and forth over `span`, slowing into each turn instead of bouncing off it. */
+function pingPong(distance: number, span: number): { at: number; heading: 1 | -1 } {
+	const lap = (((distance / span) % 2) + 2) % 2;
+	const out = lap < 1;
+	const u = out ? lap : 2 - lap;
+	return { at: span * (0.5 - 0.5 * Math.cos(u * Math.PI)), heading: out ? 1 : -1 };
+}
+
 /** Everything beneath the office: the painted world plus living water. */
 export function drawCampusBackground(ctx: Paint, world: CampusWorld, view: CampusView): void {
 	const z = view.zoom;
@@ -1524,9 +1600,7 @@ function drawGroundLife(ctx: Paint, world: CampusWorld, view: CampusView): void 
 	// Ducks paddle slowly along the shore and turn back, leaving a small wake.
 	for (let i = 0; i < 3; i += 1) {
 		const span = world.shoreRows.bottom - world.shoreRows.top;
-		const travel = (t * 3 + i * 170) % (span * 2);
-		const along = travel < span ? travel : span * 2 - travel;
-		const heading = travel < span ? 1 : -1;
+		const { at: along, heading } = pingPong(t * 3 + i * 170, span);
 		const y = world.shoreRows.top + along;
 		const x = world.shore(y) + 30 + i * 9 + Math.sin(t * 0.7 + i) * 3;
 		const bob = Math.floor(t * 2 + i) % 2;
@@ -1584,9 +1658,8 @@ function drawWaterActivities(ctx: Paint, world: CampusWorld, view: CampusView, t
 	// Sailboat: tacks back and forth well beyond every deck.
 	{
 		const span = 260;
-		const travel = (t * 6) % (span * 2);
-		const heading = travel < span ? 1 : -1;
-		const x = W + 60 + (travel < span ? travel : span * 2 - travel);
+		const { at: along, heading } = pingPong(t * 6, span);
+		const x = W + 60 + along;
 		const y = H * 0.55 + Math.sin(t * 0.05) * 24;
 		const p = at(x, y);
 		p(-heading * 9, 2, 4, 1, C.foamDim);
@@ -1608,9 +1681,8 @@ function drawWaterActivities(ctx: Paint, world: CampusWorld, view: CampusView, t
 	// Rowboat: one rower pulls slowly along open water, oars dipping in turn.
 	{
 		const span = 170;
-		const travel = (t * 3 + 80) % (span * 2);
-		const heading = travel < span ? 1 : -1;
-		const x = W + 30 + (travel < span ? travel : span * 2 - travel);
+		const { at: along, heading } = pingPong(t * 3 + 80, span);
+		const x = W + 30 + along;
 		const y = H * 0.18;
 		const stroke = Math.floor(t * 1.4) % 2;
 		const p = at(x, y);
@@ -1633,9 +1705,8 @@ function drawWaterActivities(ctx: Paint, world: CampusWorld, view: CampusView, t
 	{
 		const top = world.kayakRows.top;
 		const span = Math.max(60, world.kayakRows.bottom - top);
-		const travel = (t * 7) % (span * 2);
-		const heading = travel < span ? 1 : -1;
-		const y = top + (travel < span ? travel : span * 2 - travel);
+		const { at: along, heading } = pingPong(t * 7, span);
+		const y = top + along;
 		const x = world.shore(y) + 110;
 		const side = Math.floor(t * 2) % 2 ? 1 : -1;
 		const p = at(x, y);
@@ -1693,7 +1764,9 @@ function drawBeachLife(ctx: Paint, world: CampusWorld, view: CampusView, t: numb
 		[north, C.shirt, '#5a4636'],
 		[south, C.shirtAlt, '#e0c27a']
 	] as const) {
-		const hit = (player === north) === (u > 0.92 || u < 0.08) ? 0 : 1;
+		// Arms go up only for whoever the ball is leaving or reaching.
+		const sending = (player === north) === toSouth;
+		const hit = (sending ? u < 0.12 : u > 0.88) ? 1 : 0;
 		const q = p(player.x, player.y);
 		q(-1, -3, 3, 3, C.skin);
 		q(-1, -3, 3, 1, hair);
@@ -1795,9 +1868,13 @@ function drawWater(ctx: Paint, world: CampusWorld, view: CampusView): void {
 	// Ripples drift slowly east, always visible, one art pixel at a time.
 	for (const ripple of world.ripples) {
 		if (ripple.y < firstRow || ripple.y > lastRow) continue;
-		const x = ripple.x + Math.floor((t * ripple.speed * 0.4 + ripple.phase * 40) % 40);
+		const run = (t * ripple.speed * 0.4 + ripple.phase * 40) % 40;
+		const x = ripple.x + Math.floor(run);
 		if (x < world.shore(ripple.y) + 26) continue;
-		screen(ctx, view, x, ripple.y, ripple.len, 1, C.rippleDim);
+		// A ripple swells from nothing and shrinks away again, so its return never pops.
+		const len = Math.min(ripple.len, Math.floor(Math.min(run, 40 - run) * 1.5));
+		if (len < 1) continue;
+		screen(ctx, view, x, ripple.y, len, 1, C.rippleDim);
 	}
 	// Sun glints: rare, soft single pixels.
 	for (const glint of world.glints) {
@@ -1823,12 +1900,16 @@ export function drawCampusOverlay(
 	const W = officeCols * TILE_SIZE;
 	const H = officeRows * TILE_SIZE;
 	for (const leaf of world.leaves) {
-		const run = (t * leaf.speed + leaf.phase * 900) % (W * 1.4);
+		const reach = W * 1.4;
+		const run = (t * leaf.speed + leaf.phase * 900) % reach;
 		const x = leaf.x + run;
 		const y = leaf.y + run * 0.18 + Math.sin(t * 1.3 + leaf.phase * 9) * leaf.drift;
 		const flip = Math.sin(t * 2.1 + leaf.phase * 7) > 0;
+		// Fade in at the start of the drift and out at the end rather than blinking.
+		ctx.globalAlpha = Math.min(1, run / 24, (reach - run) / 24);
 		screen(ctx, view, x, y, flip ? 2 : 1, 1, leaf.phase > 0.5 ? C.leafGold : C.leafGreen);
 	}
+	ctx.globalAlpha = 1;
 	// Two gulls wheel slowly over the lake; their shadows fall on the water.
 	for (let i = 0; i < 2; i += 1) {
 		const a = t * (0.16 + i * 0.05) + i * 2.4;
@@ -1882,11 +1963,16 @@ export function drawCampusOverlay(
 		const x = world.shore(H * 0.2) + 190 + p * 12;
 		const y = H * 0.2 + p * 20;
 		const rise = Math.min(1, p * 5, (1 - p) * 5);
-		if (rise > 0.25) {
-			screen(ctx, view, x - 9, y - 3, 20, 7, C.waterDark);
-			screen(ctx, view, x - 7, y - 4, 15, 2, '#6e9ea8');
-			screen(ctx, view, x - 12, y - 1, 3, 1, C.foam);
-			screen(ctx, view, x + 12, y + 1, 3, 1, C.foam);
+		// The back swells out of the water and settles again: a low rounded hump, never a slab.
+		const half = Math.round(rise * 10);
+		if (half >= 2) {
+			const tall = Math.max(1, Math.round(rise * 3));
+			screen(ctx, view, x - half - 1, y, half * 2 + 3, 2, C.waterDark);
+			screen(ctx, view, x - half, y - tall, half * 2 + 1, tall + 1, '#557f8b');
+			screen(ctx, view, x - half + 2, y - tall - 1, Math.max(1, half * 2 - 3), 1, '#557f8b');
+			screen(ctx, view, x - half + 3, y - tall - 1, Math.max(1, half - 2), 1, '#6e9ea8');
+			screen(ctx, view, x - half - 3, y + 1, 3, 1, C.foam);
+			screen(ctx, view, x + half + 2, y + 1, 3, 1, C.foam);
 		}
 		if (p > 0.3 && p < 0.6) {
 			const spray = Math.floor((p - 0.3) * 30);
