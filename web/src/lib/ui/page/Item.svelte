@@ -82,11 +82,7 @@
 				aria-current={selected ? 'true' : undefined}
 				use:coveredTitle={title}
 				{onclick}><span class="sr-only">{label ?? title}</span></a
-			>{:else if onclick}<button
-				class="item-hit"
-				type="button"
-				use:coveredTitle={title}
-				{onclick}
+			>{:else if onclick}<button class="item-hit" type="button" use:coveredTitle={title} {onclick}
 				><span class="sr-only">{label ?? title}</span></button
 			>{/if}
 		{#if leading}<span class="item-leading">{@render leading()}</span>{/if}
@@ -362,6 +358,63 @@
 		display: block;
 		white-space: nowrap;
 		overflow-wrap: normal;
+	}
+	/* A grid, so neither line pays for the other: the title runs to the time, the line under it
+	 * runs on beneath the time. Laid out as one column beside the time and the actions' slot, both
+	 * lines stopped where the wider of the two began and a third of a narrow list sat empty. On
+	 * touch the actions keep a reserved slot at the end of the second line; with a pointer they
+	 * appear over that line's end on hover, so the time stays put and nothing moves. */
+	.stacked.fixed > .item-row {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr) auto auto;
+		align-content: center;
+		align-items: center;
+		column-gap: 10px;
+		row-gap: 2px;
+		padding-top: 0;
+		padding-bottom: 0;
+	}
+	.stacked.fixed .item-main {
+		display: contents;
+	}
+	.stacked.fixed .item-leading {
+		grid-area: 1 / 1;
+		margin-top: 0;
+	}
+	.stacked.fixed .item-title {
+		grid-area: 1 / 2;
+	}
+	.stacked.fixed .item-trailing {
+		grid-area: 1 / 3 / auto / span 2;
+		justify-self: end;
+		padding-top: 0;
+	}
+	.stacked.fixed .item-main > :is(.item-meta, .item-note, .item-note-line) {
+		grid-area: 2 / 2 / auto / span 2;
+	}
+	/* The slot is one text line high whatever the control's own height, so it never grows the row. */
+	.stacked.fixed .item-actions {
+		grid-area: 2 / 4;
+		align-self: center;
+		height: 1.4em;
+		font-size: var(--t-label);
+	}
+	@media (hover: hover) and (pointer: fine) {
+		.stacked.fixed .item-main > :is(.item-meta, .item-note, .item-note-line) {
+			grid-area: 2 / 2 / auto / span 3;
+		}
+		.stacked.fixed .item-actions {
+			position: absolute;
+			grid-area: auto;
+			/* Centred on the second line, which sits half a title line below the row's middle. */
+			top: calc(50% + 10px);
+			right: 8px;
+			background: var(--surface-hover);
+			transform: translateY(-50%);
+		}
+		.stacked.fixed.selected .item-actions {
+			background: var(--surface-alt);
+		}
 	}
 	.stacked .item-note,
 	.stacked .item-note-line {
