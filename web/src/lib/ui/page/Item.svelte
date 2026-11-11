@@ -82,11 +82,7 @@
 				aria-current={selected ? 'true' : undefined}
 				use:coveredTitle={title}
 				{onclick}><span class="sr-only">{label ?? title}</span></a
-			>{:else if onclick}<button
-				class="item-hit"
-				type="button"
-				use:coveredTitle={title}
-				{onclick}
+			>{:else if onclick}<button class="item-hit" type="button" use:coveredTitle={title} {onclick}
 				><span class="sr-only">{label ?? title}</span></button
 			>{/if}
 		{#if leading}<span class="item-leading">{@render leading()}</span>{/if}
@@ -116,25 +112,25 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		min-height: 44px;
-		padding: 6px 12px 6px 16px;
+		/* Inset and rounded like a sidebar's rows. Margin and padding together keep the leading mark
+		 * 16px from the list's edge, where headings start, and the row 44px from one to the next. */
+		min-height: 40px;
+		margin: 2px 4px;
+		padding: 6px 12px;
+		border-radius: var(--radius-pane);
 		transition: background-color var(--motion-state) var(--ease-standard);
 	}
 	.interactive > .item-row:hover {
-		background: var(--surface-hover);
+		background: var(--wash-hover);
 	}
-	.selected > .item-row {
-		background: var(--surface-alt);
-	}
-	.selected > .item-row::before {
-		content: '';
-		position: absolute;
-		left: 0;
-		top: 8px;
-		bottom: 8px;
-		width: 2px;
-		border-radius: 2px;
-		background: var(--intent-conversation);
+	/* The open row is a raised rounded fill; the fill alone marks it. */
+	.selected > .item-row,
+	.selected.interactive > .item-row:hover {
+		background: var(--surface-raised);
+		box-shadow:
+			var(--shadow-soft),
+			var(--bevel),
+			0 0 0 1px var(--border);
 	}
 	.item-hit {
 		position: absolute;
@@ -142,6 +138,7 @@
 		z-index: 1;
 		padding: 0;
 		border: 0;
+		border-radius: inherit;
 		background: transparent;
 		cursor: pointer;
 	}
@@ -269,10 +266,11 @@
 		.item-actions {
 			position: absolute;
 			top: 50%;
-			right: 8px;
+			right: 4px;
 			padding-left: 8px;
 			border-radius: var(--radius-control);
-			background: var(--surface-hover);
+			/* Opaque, in the hovered row's own colour: the wash over the pane. */
+			background: linear-gradient(var(--wash-hover), var(--wash-hover)), var(--surface-pane);
 			transform: translateY(-50%);
 			opacity: 0;
 			/* Unseen is unclickable: a hidden Resume must never take a click meant for the row. */
@@ -280,7 +278,7 @@
 			transition: opacity var(--motion-state) var(--ease-standard);
 		}
 		.selected .item-actions {
-			background: var(--surface-alt);
+			background: var(--surface-raised);
 		}
 		.item:not(.stacked):has(.item-actions:not(:empty)):is(:hover, :focus-within)
 			> .item-row
@@ -325,7 +323,7 @@
 			flex: 1 1 0;
 		}
 		.item-row {
-			padding-left: 14px;
+			padding-left: 10px;
 		}
 		.item-detail {
 			padding-left: 14px;
@@ -357,11 +355,70 @@
 	 * length, its weight or whether a meta arrives. Rows never grow. */
 	.stacked.fixed > .item-row {
 		height: 64px;
+		/* In a sidebar the rows line up with its search field and notices, 8px in. */
+		margin: 0 8px 2px;
+		padding-left: 8px;
+		padding-right: 8px;
 	}
 	.stacked.fixed .item-title {
 		display: block;
 		white-space: nowrap;
 		overflow-wrap: normal;
+	}
+	/* A grid, so neither line pays for the other: the title runs to the time, the line under it
+	 * runs on beneath the time. Laid out as one column beside the time and the actions' slot, both
+	 * lines stopped where the wider of the two began and a third of a narrow list sat empty. On
+	 * touch the actions keep a reserved slot at the end of the second line; with a pointer they
+	 * appear over that line's end on hover, so the time stays put and nothing moves. */
+	.stacked.fixed > .item-row {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr) auto auto;
+		align-content: center;
+		align-items: center;
+		column-gap: 10px;
+		row-gap: 2px;
+		padding-top: 0;
+		padding-bottom: 0;
+	}
+	.stacked.fixed .item-main {
+		display: contents;
+	}
+	.stacked.fixed .item-leading {
+		grid-area: 1 / 1;
+		margin-top: 0;
+	}
+	.stacked.fixed .item-title {
+		grid-area: 1 / 2;
+	}
+	.stacked.fixed .item-trailing {
+		grid-area: 1 / 3 / auto / span 2;
+		justify-self: end;
+		padding-top: 0;
+	}
+	.stacked.fixed .item-main > :is(.item-meta, .item-note, .item-note-line) {
+		grid-area: 2 / 2 / auto / span 2;
+	}
+	/* The slot is one text line high whatever the control's own height, so it never grows the row. */
+	.stacked.fixed .item-actions {
+		grid-area: 2 / 4;
+		align-self: center;
+		height: 1.4em;
+		font-size: var(--t-label);
+	}
+	@media (hover: hover) and (pointer: fine) {
+		.stacked.fixed .item-main > :is(.item-meta, .item-note, .item-note-line) {
+			grid-area: 2 / 2 / auto / span 3;
+		}
+		.stacked.fixed .item-actions {
+			position: absolute;
+			grid-area: auto;
+			/* Centred on the second line, which sits half a title line below the row's middle. */
+			top: calc(50% + 10px);
+			transform: translateY(-50%);
+		}
+		.stacked.fixed.selected .item-actions {
+			background: var(--surface-raised);
+		}
 	}
 	.stacked .item-note,
 	.stacked .item-note-line {

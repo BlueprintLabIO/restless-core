@@ -55,7 +55,7 @@ test('an ask never brings a lead’s ids or handles onto the line', () => {
 	assert.equal(actionPhrase('attempt_id 44b3016c handoff'), '');
 	assert.equal(
 		inboxWaitingLine(item({ requestedAction: 'resolve work_node a81cc8b2 digests' })),
-		'Waiting on you: your approval · from Baloo'
+		'Your approval · from Baloo'
 	);
 });
 
@@ -116,7 +116,10 @@ test('a judgement a lead holds names the lead; one owed to the owner names them'
 	assert.equal(because('owner_in_conversation'), 'Waiting on Baloo: in a conversation');
 	assert.equal(because('owner_on_other_work'), 'Waiting on Baloo: finishing other Work');
 	assert.equal(because('no_actor_slot'), 'Waiting on a free slot: every agent is at capacity');
-	assert.equal(because('not_enough_memory'), 'Waiting on memory: not enough free to start an agent');
+	assert.equal(
+		because('not_enough_memory'),
+		'Waiting on memory: not enough free to start an agent'
+	);
 	assert.equal(because('waiting_on_work'), 'Waiting on other Work');
 });
 
@@ -211,13 +214,13 @@ test('Work in motion waits on whoever runs it, by the newest run', () => {
 	);
 });
 
-test('an Inbox row says it waits on you, or on whoever prepares it', () => {
-	assert.equal(inboxWaitingLine(item({})), 'Waiting on you: approve the brand rules · from Baloo');
+test('an Inbox row says what is asked and by whom, or who is preparing it', () => {
+	assert.equal(inboxWaitingLine(item({})), 'Approve the brand rules · from Baloo');
 	assert.equal(inboxWaitingLine(item({ preparing: true })), 'Waiting on Baloo: preparing it');
 	assert.equal(
 		inboxWaitingLine(
 			item({ requestedAction: '', category: 'human_step', responsibleActor: undefined })
 		),
-		'Waiting on you: your step · from Exec'
+		'Your step · from Exec'
 	);
 });

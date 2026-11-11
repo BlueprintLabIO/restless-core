@@ -3606,7 +3606,8 @@
 		min-width: 0;
 	}
 	.table :global(.item-row) {
-		min-height: 38px;
+		/* With the row's 2px margins, 38px from one row to the next. */
+		min-height: 34px;
 		padding-top: 3px;
 		padding-bottom: 3px;
 	}

@@ -36,12 +36,13 @@ function askedFallback(item: Pick<AttentionItem, 'category'>): string {
 	return 'your decision';
 }
 
-/** The Inbox row's line: everything there waits on the viewer unless it is still being prepared. */
+/** The Inbox row's line. Everything in the Inbox waits on the viewer, so the row says only what
+ * is asked and by whom; an item still being prepared names who holds it instead. */
 export function inboxWaitingLine(item: AttentionItem): string {
 	const asker = attentionAsker(item);
 	if (item.preparing) return `Waiting on ${asker}: preparing it`;
 	const asked = actionPhrase(item.requestedAction) || askedFallback(item);
-	return `Waiting on you: ${asked} · from ${asker}`;
+	return `${asked[0].toUpperCase()}${asked.slice(1)} · from ${asker}`;
 }
 
 type WaitingAttempt = {
@@ -133,7 +134,8 @@ export function workWaitingLine(
 	if (action) return `Waiting on a model: ${actionPhrase(action)} for ${who(doer)}`;
 
 	if (wait === 'waiting_on_work') return 'Waiting on other Work';
-	if (wait === 'owner_on_other_work') return `Waiting on ${who(work.owner_id)}: finishing other Work`;
+	if (wait === 'owner_on_other_work')
+		return `Waiting on ${who(work.owner_id)}: finishing other Work`;
 	if (wait === 'owner_in_conversation')
 		return `Waiting on ${who(work.owner_id)}: in a conversation`;
 	if (wait === 'no_actor_slot') return 'Waiting on a free slot: every agent is at capacity';

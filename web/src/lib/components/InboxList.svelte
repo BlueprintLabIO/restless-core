@@ -492,7 +492,8 @@
 		align-items: center;
 		gap: 8px;
 		min-height: var(--pane-head-h);
-		padding: var(--space-1) 8px var(--space-1) 10px;
+		/* The heading starts where the rows' marks start. */
+		padding: var(--space-1) 8px var(--space-1) 16px;
 		border-bottom: 1px solid var(--border);
 	}
 	h2 {
