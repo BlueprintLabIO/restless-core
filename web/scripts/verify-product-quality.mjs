@@ -245,12 +245,14 @@ try {
 			await route.fulfill({ response, json: body });
 		});
 		await page.goto(origin + '/' + company + '/people?person=exec');
-		await visible(page.getByText('Live activity is unavailable.', { exact: true }));
+		// No record of the turn is not news: the message's receipt says it was seen, and no status
+		// line is held open at the foot of the chat (12 November).
+		await visible(page.locator('.receipt').filter({ hasText: /Seen by / }));
 		assert.equal(await page.getByText(/couldn't reply/).count(), 0);
 		assert.equal(
-			await page.locator('.conversation-turn-dock time').count(),
+			await page.locator('.conversation-turn-dock').count(),
 			0,
-			'No invented zero-second failure'
+			'No status line for a turn with no record'
 		);
 		await accessibility(page, 'missing-live-session');
 	});

@@ -187,16 +187,16 @@
 	});
 </script>
 
-<section
-	class="conversation-turn-dock"
-	class:expanded
-	data-phase={phase}
-	data-transport={turn.transport}
-	aria-label={terminal ? `${participantName} reply activity` : `${participantName} live work`}
->
-	{#if phase === 'unavailable'}
-		<p class="turn-unavailable" role="status">Live activity is unavailable.</p>
-	{:else}
+<!-- No record of the turn is not news: the message's own receipt (Sent, Seen) says where it stands,
+     and "Live activity is unavailable" was a line held open at the foot of the chat for nothing
+     (12 November). -->
+{#if phase !== 'unavailable'}<section
+		class="conversation-turn-dock"
+		class:expanded
+		data-phase={phase}
+		data-transport={turn.transport}
+		aria-label={terminal ? `${participantName} reply activity` : `${participantName} live work`}
+	>
 		<div class="turn-head">
 			<button
 				type="button"
@@ -314,8 +314,7 @@
 				</div>
 			</div>
 		</div>
-	{/if}
-</section>
+	</section>{/if}
 
 <style>
 	/* Part of the conversation, like a typing indicator: no band, edge or tint in any phase. While
@@ -345,12 +344,6 @@
 	.conversation-turn-dock[data-phase='failed']:not(.expanded) .terminal-mark :global(svg) {
 		width: 12px;
 		height: 12px;
-	}
-	.turn-unavailable {
-		margin: 0;
-		padding: 6px 14px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
 	}
 	/* One height in every phase: the working mark and the finished mark are different sizes. */
 	.turn-head {

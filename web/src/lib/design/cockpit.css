@@ -2225,6 +2225,7 @@
 }
 
 .bridge-root .exr-composer {
+	min-height: var(--pane-foot-h);
 	padding: 10px;
 	background: transparent;
 }
