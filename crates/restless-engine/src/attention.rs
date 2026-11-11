@@ -2838,7 +2838,7 @@ fn schedule_run_item(
                 format!("Scheduled run didn't finish: {name}"),
                 said("The run stopped without finishing. No reason was recorded."),
                 format!("The run on {on} did not produce its result."),
-                "Open the schedule to run it again, or ask Exec what went wrong.".to_string(),
+                "Run it again from here, or ask Exec what went wrong.".to_string(),
                 "Run it again, or leave it for the next run.".to_string(),
             ),
             "needs_human" => (
@@ -2854,7 +2854,7 @@ fn schedule_run_item(
                 format!("Scheduled run was skipped: {name}"),
                 said("The run was missed and not caught up."),
                 format!("The run due on {on} never started."),
-                "Open the schedule to run it now, or leave it for the next run.".to_string(),
+                "Run it now from here, or leave it for the next run.".to_string(),
                 "Run it now, or leave it for the next run.".to_string(),
             ),
             _ => return None,
@@ -2905,7 +2905,8 @@ fn schedule_run_item(
                 "/{company}/company/schedules?schedule={schedule_id}"
             )),
         }],
-        can_continue: false,
+        // Nothing waits on the owner: the next run comes at its time either way.
+        can_continue: true,
         preparing: false,
         created_at: run.at,
     })
@@ -8120,6 +8121,7 @@ mod schedule_run_tests {
             assert_eq!(item.category, category);
             assert_eq!(item.title, title);
             assert_eq!(item.what_happened, "Sent.");
+            assert!(item.can_continue, "nothing waits on the owner");
             assert_eq!(item.created_at, run(state, "").at);
             assert_eq!(
                 item.actions[0].href.as_deref(),
