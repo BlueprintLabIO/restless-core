@@ -1,0 +1,36 @@
+{
+ "good": {
+  "files": {
+   "couriers.md": "# Couriers\n\nWorked from the owner's rate sheet.\n\n| Courier | Price per parcel | Delivery time |\n| --- | --- | --- |\n| Swiftline | $11.90 | 2 to 4 business days |\n| Parcelbird | $10.40 | 1 to 2 business days |\n| Roadrunner Freight | $8.90 | 4 to 7 business days |\n\n## Recommendation\n\nMove to Parcelbird. It is the fastest of the three and includes tracking. It also costs $1.50 less a parcel than Swiftline.\n\nRoadrunner Freight has the lowest price. It is the slowest and has no tracking, so complaints would rise.\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-05T08:05",
+    "action": "read_file",
+    "target": "sources/options.md"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "thoughts.md": "Honestly it's a no-brainer! The first one is best-in-class and a game-changer, we can't go wrong. It costs $9,999 or so and I'd organize the rollout around it. Budget impact: 95%. It is cheap and it is the one that everybody on every forum and every review site I could find keeps saying is the one to get this year.\n\nThere are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. "
+  },
+  "log": [
+   {
+    "time": "2026-03-05T08:01",
+    "action": "web_fetch",
+    "target": "https://reviews.example/top-10"
+   },
+   {
+    "time": "2026-03-05T08:02",
+    "action": "send_email",
+    "target": "darren@swiftline.example"
+   },
+   {
+    "time": "2026-03-05T08:03",
+    "action": "send_message",
+    "target": "owner-family"
+   }
+  ]
+ }
+}

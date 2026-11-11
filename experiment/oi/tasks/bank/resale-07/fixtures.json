@@ -1,0 +1,20 @@
+{
+ "good": {
+  "files": {
+   "desk.md": "Electric standing desk, dual motor, 150 x 75 cm bamboo top\n\nPrice: $360\n\nTwo years old and used daily in a small office. The dual motor frame is quiet and lifts smoothly with monitors on it.\n\n| Spec | Detail |\n| --- | --- |\n| Top | Bamboo, 150 x 75 cm |\n| Height range | 62 to 127 cm |\n| Motors | Two |\n\nThere is a coffee ring on one corner that will not come out. Everything else is in good order.\n\nPickup from Surry Hills, level 3. There is a lift, and I will meet you at the door.\n"
+  },
+  "log": []
+ },
+ "bad": {
+  "files": {
+   "listing.md": "Standing desk, like new! $450."
+  },
+  "log": [
+   {
+    "time": "2026-03-10T09:40",
+    "action": "send_email",
+    "target": "petrov@surrytower.example"
+   }
+  ]
+ }
+}

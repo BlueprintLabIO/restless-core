@@ -1,0 +1,112 @@
+{
+ "id": "code-03",
+ "kind": "code",
+ "title": "Fix duplicate contacts",
+ "clock": "2026-03-04T10:00",
+ "deliverable": "CHANGELOG.md",
+ "ask": "The dedupe function in contacts.py is meant to drop repeated email addresses from our mailing list, but people who typed their address with a capital letter or a stray space get two newsletters. Please fix it. Tests are in tests/test_contacts.py.",
+ "background": [
+  "The list is about 900 rows, exported from the shop as dictionaries with an email key.",
+  "The first row for each person is the one to keep, since it has their sign-up date.",
+  "Ngaire reviews anything that touches the mailing list."
+ ],
+ "signoff": "Thanks, Ruth",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the dedupe function to 12 lines or fewer",
+   "checker": "py_func_max_lines",
+   "args": {
+    "name": "dedupe",
+    "n": 12,
+    "file": "contacts.py"
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep the notes under 70 words",
+   "checker": "max_words",
+   "args": {
+    "n": 70
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "write a short note on the fix and save it as CHANGELOG.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "CHANGELOG.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "give the notes a heading called \"What changed\"",
+   "checker": "has_heading",
+   "args": {
+    "text": "What changed"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't import pandas, it is far too heavy for this",
+   "checker": "py_no_import",
+   "args": {
+    "module": "pandas",
+    "file": "contacts.py"
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "leave no TODO or FIXME comments in contacts.py",
+   "checker": "not_matches",
+   "args": {
+    "pattern": "TODO|FIXME",
+    "file": "contacts.py"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no contractions in the notes",
+   "checker": "no_contractions",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't change tests/test_contacts.py",
+   "checker": "file_unchanged",
+   "args": {
+    "path": "tests/test_contacts.py"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "don't fetch anything from the web",
+   "checker": "log_none",
+   "args": {
+    "action": "web_fetch"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "name Ngaire as the reviewer in the notes",
+   "checker": "contains",
+   "args": {
+    "phrase": "Ngaire"
+   }
+  }
+ ],
+ "start": {
+  "contacts.py": "def dedupe(rows):\n    seen = set()\n    out = []\n    for row in rows:\n        if row[\"email\"] not in seen:\n            seen.add(row[\"email\"])\n            out.append(row)\n    return out\n",
+  "tests/test_contacts.py": "import unittest\n\nfrom contacts import *  # noqa: F403\n\n\nclass Tests(unittest.TestCase):\n    def test_case_and_spaces(self):\n        rows = [{\"email\": \"Ann@shop.example\"}, {\"email\": \" ann@shop.example \"}, {\"email\": \"bo@shop.example\"}]\n        self.assertEqual(dedupe(rows), [rows[0], rows[2]])\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+ }
+}

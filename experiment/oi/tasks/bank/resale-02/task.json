@@ -1,0 +1,120 @@
+{
+ "id": "resale-02",
+ "kind": "resale",
+ "title": "List a road bike",
+ "clock": "2026-03-03T10:00",
+ "deliverable": "bike-listing.md",
+ "ask": "Can you write up my road bike for sale? Specs are in item.md and what similar bikes went for is in comps.csv.",
+ "background": [
+  "It's a 54cm aluminium frame with a carbon fork, about 4,000 km on it.",
+  "The chain and cassette were replaced in January and I have the receipt.",
+  "A fellow called Rhys messaged last month with a lowball offer and I'd rather not start that up again."
+ ],
+ "signoff": "Thanks, Anika",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "ask at least $700, and show the price in dollars",
+   "checker": "money_min",
+   "args": {
+    "min": 700
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "write at least 60 words",
+   "checker": "min_words",
+   "args": {
+    "n": 60
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "save it as bike-listing.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "bike-listing.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "list the specs as bullet points, between 4 and 6 of them",
+   "checker": "bullets_between",
+   "args": {
+    "lo": 4,
+    "hi": 6
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't say \"negotiable\" or \"ono\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "negotiable",
+     "ono",
+     "or nearest offer"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "use the words \"carbon fork\"",
+   "checker": "contains",
+   "args": {
+    "phrase": "carbon fork"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "British spelling, so aluminium not aluminum",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "aluminum",
+     "color",
+     "tire",
+     "tires"
+    ]
+   }
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't message Rhys (rhys.b@buyer.example)",
+   "checker": "log_none",
+   "args": {
+    "target": "rhys\\.b@buyer\\.example"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "mention the frame size, 54cm",
+   "checker": "contains",
+   "args": {
+    "phrase": "54cm"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "say the receipt for the new chain and cassette is available",
+   "checker": "contains",
+   "args": {
+    "phrase": "receipt"
+   }
+  }
+ ],
+ "start": {
+  "item.md": "54cm aluminium road bike, carbon fork, 11-speed.\nNew chain and cassette January 2026.\nPickup: Newtown.\n",
+  "comps.csv": "sold_date,title,condition,price\n2026-02-05,54cm alloy road bike 11sp,good,780\n2026-02-20,56cm alloy road bike,good,720\n2026-02-27,54cm alloy road bike 10sp,fair,600\n"
+ }
+}

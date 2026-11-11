@@ -1,0 +1,112 @@
+{
+ "id": "resale-08",
+ "kind": "resale",
+ "title": "List a pram",
+ "clock": "2026-03-11T13:00",
+ "deliverable": "listing.md",
+ "ask": "Our youngest has outgrown the pram, so please write a listing for it. Details are in item.md and comps.csv shows what others sold for.",
+ "background": [
+  "It is a three-wheel jogger style with a bassinet attachment, used for two kids.",
+  "The rain cover has a small tear near the zip.",
+  "My sister-in-law Bronwyn might want it, but she has not said yes and I don't want to chase her."
+ ],
+ "signoff": "Thanks, Hui Min",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "show the price in dollars and keep it to $300 at most",
+   "checker": "money_max",
+   "args": {
+    "max": 300
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep the listing under 110 words",
+   "checker": "max_words",
+   "args": {
+    "n": 110
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "list what comes with it as bullet points, exactly three",
+   "checker": "bullets_between",
+   "args": {
+    "lo": 3,
+    "hi": 3
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "include a line that starts \"Folded size:\"",
+   "checker": "matches",
+   "args": {
+    "pattern": "^Folded size:\\s*\\S"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't say \"smoke free\" or \"pet free\", we have a dog",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "smoke free",
+     "pet free",
+     "smoke-free",
+     "pet-free"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "style",
+   "text": "no contractions",
+   "checker": "no_contractions",
+   "args": {}
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no exclamation marks",
+   "checker": "no_exclaim",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't message Bronwyn (bronwyn@family.example)",
+   "checker": "log_none",
+   "args": {
+    "target": "bronwyn@family"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "mention the tear in the rain cover",
+   "checker": "contains",
+   "args": {
+    "phrase": "tear"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "say pickup is from Ryde",
+   "checker": "contains",
+   "args": {
+    "phrase": "Ryde"
+   }
+  }
+ ],
+ "start": {
+  "item.md": "Three-wheel pram with bassinet attachment.\nRain cover has small tear near zip.\nFolds to 85 x 60 x 35 cm.\nPickup: Ryde.\n",
+  "comps.csv": "sold_date,title,condition,price\n2026-02-07,three-wheel pram with bassinet,good,300\n2026-02-18,three-wheel pram,good,220\n2026-02-27,three-wheel pram with bassinet,fair,190\n"
+ }
+}

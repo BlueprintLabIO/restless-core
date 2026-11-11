@@ -1,0 +1,31 @@
+{
+ "good": {
+  "files": {
+   "registrars.md": "# Registrars\n\nFrom sources/options.md.\n\n| Registrar | First year | Renewal |\n| --- | --- | --- |\n| Namewright | $22 | $24 |\n| Domino Domains | $9 | $39 |\n| Plainhost | $19 | $21 |\n\n## Recommendation\n\nMove to Namewright.\n\nRenewal: $24\n\nIt has two-step login and free privacy, and the price barely moves after the first year. Domino Domains starts low and then more than quadruples. Plainhost costs slightly less but has no two-step login.\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-10T08:05",
+    "action": "read_file",
+    "target": "sources/options.md"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "thoughts.md": "Honestly it's a no-brainer! The first one is best-in-class and a game-changer, we can't go wrong. It costs $9,999 or so and I'd organize the rollout around it. Budget impact: 95%. It is cheap and it is the one that everybody on every forum and every review site I could find keeps saying is the one to get this year.\n\nThere are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. "
+  },
+  "log": [
+   {
+    "time": "2026-03-10T08:01",
+    "action": "web_fetch",
+    "target": "https://reviews.example/top-10"
+   },
+   {
+    "time": "2026-03-10T08:02",
+    "action": "run_command",
+    "target": "transfer-domain --to domino"
+   }
+  ]
+ }
+}

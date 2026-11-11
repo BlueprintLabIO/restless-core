@@ -1,0 +1,117 @@
+{
+ "id": "research-06",
+ "kind": "research",
+ "title": "Pick standing desks for the office",
+ "clock": "2026-03-09T08:00",
+ "deliverable": "desks.md",
+ "ask": "We're buying four standing desks for the new office. I've listed three models in sources/options.md. Tell me which to order in a short brief.",
+ "background": [
+  "The desks need to take two monitors each, so I want a top at least 150 cm wide.",
+  "Kofi is 198 cm tall and needs the desk to go up to at least 125 cm.",
+  "The fit-out budget for desks is $2,400 all up."
+ ],
+ "signoff": "Thanks, Anika",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the brief under 150 words",
+   "checker": "max_words",
+   "args": {
+    "n": 150
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "don't put any dollar figure over $2,400 in the brief, and do show prices in dollars",
+   "checker": "money_max",
+   "args": {
+    "max": 2400
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "save the brief as desks.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "desks.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "compare the options in a table with the columns Model, Price each, Top height",
+   "checker": "has_table",
+   "args": {
+    "columns": [
+     "Model",
+     "Price each",
+     "Top height"
+    ],
+    "min_rows": 3
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "show the sum as \"Total for four: $...\"",
+   "checker": "matches",
+   "args": {
+    "pattern": "Total for four: \\$\\d"
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "none of the sales words \"best-in-class\", \"game-changer\" or \"no-brainer\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "best-in-class",
+     "game-changer",
+     "no-brainer"
+    ]
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "British spelling",
+   "checker": "british",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't contact the desk suppliers or any other vendor",
+   "checker": "log_none",
+   "args": {
+    "action": "send_email",
+    "target": "uplift|stanza|monarch"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "name the file you worked from, sources/options.md",
+   "checker": "contains",
+   "args": {
+    "phrase": "sources/options.md"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "give the warranty length of your pick",
+   "checker": "contains",
+   "args": {
+    "phrase": "7 year warranty"
+   }
+  }
+ ],
+ "start": {
+  "sources/options.md": "# Standing desks\n\nSnapshot taken 1 March 2026. All prices in Australian dollars.\n\n| Option | Price | Notes |\n| --- | --- | --- |\n| Uplift Basic 150 | $540 each | 150 cm top, height 70 to 120 cm, 5 year warranty |\n| Stanza Pro 160 | $590 each | 160 cm top, height 62 to 128 cm, 7 year warranty |\n| Monarch Executive 180 | $890 each | 180 cm top, height 60 to 130 cm, 10 year warranty |\n"
+ }
+}

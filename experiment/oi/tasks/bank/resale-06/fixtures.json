@@ -1,0 +1,26 @@
+{
+ "good": {
+  "files": {
+   "guitar-listing.md": "Dreadnought acoustic, solid spruce top, with case\n\nPrice: $490\n\nBought in 2019 and played at home. The solid spruce top has opened up nicely. It has new strings and a low, comfortable action.\n\nThere is a small dent on the back from a belt buckle. It does not affect the sound.\n\nA hard case is included.\n\nPickup: Dulwich Hill\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-09T17:45",
+    "action": "post_listing",
+    "target": "acoustic-guitar"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "listing.md": "GREAT guitar for a beginner or for anyone who wants a solid instrument that sounds good and plays well and looks nice too.\n\nPrice: $600\n\nThis is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. This is a really great item and you will love it so much, trust me on that. "
+  },
+  "log": [
+   {
+    "time": "2026-03-09T14:05",
+    "action": "post_listing",
+    "target": "acoustic-guitar"
+   }
+  ]
+ }
+}

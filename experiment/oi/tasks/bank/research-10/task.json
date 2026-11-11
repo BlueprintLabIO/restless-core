@@ -1,0 +1,117 @@
+{
+ "id": "research-10",
+ "kind": "research",
+ "title": "Pick a photo lightbox kit",
+ "clock": "2026-03-13T08:00",
+ "deliverable": "lightbox.md",
+ "ask": "I want better product photos for the online shop, so I'm buying a lightbox kit. Three are in sources/options.md. Write a brief telling me which.",
+ "background": [
+  "The biggest thing I photograph is a teapot about 30 cm across.",
+  "I shoot on the kitchen table and pack everything away afterwards, so it needs to fold flat.",
+  "I'd like to stay under $150."
+ ],
+ "signoff": "Thanks, Hui Min",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the brief under 140 words",
+   "checker": "max_words",
+   "args": {
+    "n": 140
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "don't put any dollar figure over $150 in the brief, and do show prices in dollars",
+   "checker": "money_max",
+   "args": {
+    "max": 150
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "save the brief as lightbox.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "lightbox.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "compare the options in a table with the columns Kit, Price, Size",
+   "checker": "has_table",
+   "args": {
+    "columns": [
+     "Kit",
+     "Price",
+     "Size"
+    ],
+    "min_rows": 2
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "none of the sales words \"best-in-class\", \"game-changer\" or \"no-brainer\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "best-in-class",
+     "game-changer",
+     "no-brainer"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "say that your pick \"folds flat\"",
+   "checker": "contains",
+   "args": {
+    "phrase": "folds flat"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no contractions",
+   "checker": "no_contractions",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "work only from the snapshot, no web lookups",
+   "checker": "log_none",
+   "args": {
+    "action": "web_fetch"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "do actually open sources/options.md rather than going from memory",
+   "checker": "log_any",
+   "args": {
+    "action": "read_file",
+    "target": "sources/options\\.md"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "say how many backdrops come with your pick",
+   "checker": "contains",
+   "args": {
+    "phrase": "4 backdrops"
+   }
+  }
+ ],
+ "start": {
+  "sources/options.md": "# Lightbox kits\n\nSnapshot taken 1 March 2026. All prices in Australian dollars.\n\n| Option | Price | Notes |\n| --- | --- | --- |\n| Brightcube 40 | $89 | 40 cm cube, folds flat, 2 light strips |\n| Studio Tent 60 | $139 | 60 cm cube, folds flat, 3 light strips, 4 backdrops |\n| Prolite Bench 80 | $310 | 80 cm cube, rigid frame, 4 light panels |\n"
+ }
+}

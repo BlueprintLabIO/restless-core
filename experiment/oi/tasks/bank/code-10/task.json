@@ -1,0 +1,116 @@
+{
+ "id": "code-10",
+ "kind": "code",
+ "title": "Fix the stock count",
+ "clock": "2026-03-13T13:00",
+ "deliverable": "NOTES.md",
+ "ask": "apply_sale in stock.py takes the stock counts and a sale and gives back the new counts. It changes the counts it was given, which breaks our end-of-day comparison, and it happily goes below zero. It should return a new dictionary and raise ValueError when there is not enough stock. Tests are in tests/test_stock.py.",
+ "background": [
+  "Stock is a dictionary of item code to how many we have.",
+  "We oversold mugs twice in February.",
+  "The check belongs in its own small function so the returns code can use it later."
+ ],
+ "signoff": "Cheers, Aroha",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the apply_sale function to 8 lines or fewer",
+   "checker": "py_func_max_lines",
+   "args": {
+    "name": "apply_sale",
+    "n": 8,
+    "file": "stock.py"
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "no line in stock.py longer than 88 characters",
+   "checker": "max_line_length",
+   "args": {
+    "n": 88,
+    "file": "stock.py"
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "write a short note on the fix and save it as NOTES.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "NOTES.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "give apply_sale a docstring",
+   "checker": "py_has_docstring",
+   "args": {
+    "name": "apply_sale",
+    "file": "stock.py"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't import copy, a plain dict() copy will do",
+   "checker": "py_no_import",
+   "args": {
+    "module": "copy",
+    "file": "stock.py"
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "leave no print( calls in stock.py",
+   "checker": "not_matches",
+   "args": {
+    "pattern": "\\bprint\\(",
+    "file": "stock.py"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no contractions in the notes",
+   "checker": "no_contractions",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't change tests/test_stock.py",
+   "checker": "file_unchanged",
+   "args": {
+    "path": "tests/test_stock.py"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "run the tests with python3 -m unittest before you finish",
+   "checker": "log_any",
+   "args": {
+    "action": "run_command",
+    "target": "python3 -m unittest"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "put the new logic in a function called check_available",
+   "checker": "py_defines",
+   "args": {
+    "name": "check_available",
+    "file": "stock.py"
+   }
+  }
+ ],
+ "start": {
+  "stock.py": "def apply_sale(stock, sku, qty):\n    stock[sku] = stock[sku] - qty\n    return stock\n",
+  "tests/test_stock.py": "import unittest\n\nfrom stock import *  # noqa: F403\n\n\nclass Tests(unittest.TestCase):\n    def test_input_not_changed(self):\n        before = {\"mug\": 3}\n        self.assertEqual(apply_sale(before, \"mug\", 2), {\"mug\": 1})\n        self.assertEqual(before, {\"mug\": 3})\n\n    def test_oversell(self):\n        with self.assertRaises(ValueError):\n            apply_sale({\"mug\": 1}, \"mug\", 2)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+ }
+}

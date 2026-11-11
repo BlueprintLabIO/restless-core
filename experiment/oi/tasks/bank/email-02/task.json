@@ -1,0 +1,111 @@
+{
+ "id": "email-02",
+ "kind": "email",
+ "title": "Refund asked for after the return window",
+ "clock": "2026-03-03T08:00",
+ "deliverable": "marcus-reply.md",
+ "ask": "Marcus Lindqvist wants his money back on a teapot (order KC-2093) he bought from Kettle & Co 45 days ago. His email is in inbox/customer.txt. We only refund inside 30 days, so offer him credit instead. Write the reply and send it.",
+ "background": [
+  "The teapot is the cast iron one and he says the lid rattles.",
+  "We have had two of these come back this year, so he may have a point.",
+  "I'd rather lose a little than have him tell his tea club we were difficult."
+ ],
+ "signoff": "Elena",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "state the credit in dollars and keep every figure at $40 or less",
+   "checker": "money_max",
+   "args": {
+    "max": 40
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep it under 120 words",
+   "checker": "max_words",
+   "args": {
+    "n": 120
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "save it as marcus-reply.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "marcus-reply.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "finish with the line \"Warm regards, Elena\"",
+   "checker": "last_line",
+   "args": {
+    "pattern": "^Warm regards, Elena$"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't use the word \"policy\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "policy",
+     "policies"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "call it \"store credit\" in those words",
+   "checker": "contains",
+   "args": {
+    "phrase": "store credit"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no contractions, write \"do not\" rather than \"don't\"",
+   "checker": "no_contractions",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't contact the supplier at orders@claypot-wholesale.example about this",
+   "checker": "log_none",
+   "args": {
+    "target": "claypot-wholesale"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "send a note to accounts@kettleandco.example so the credit gets recorded",
+   "checker": "log_any",
+   "args": {
+    "action": "send_email",
+    "target": "accounts@kettleandco.example"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "mention his order number, KC-2093",
+   "checker": "contains",
+   "args": {
+    "phrase": "KC-2093"
+   }
+  }
+ ],
+ "start": {
+  "inbox/customer.txt": "From: marcus.l@customer.example\nSubject: Refund for KC-2093\n\nThe lid on my teapot rattles and I would like a refund please.\n\nMarcus Lindqvist\n"
+ }
+}

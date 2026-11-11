@@ -1,0 +1,111 @@
+{
+ "id": "email-08",
+ "kind": "email",
+ "title": "Shipping stationery to Japan",
+ "clock": "2026-03-11T08:00",
+ "deliverable": "yuki-reply.md",
+ "ask": "Yuki Tanaka in Osaka wants to know whether Paper Wren ships notebooks to Japan and what it costs. Her email is in inbox/customer.txt and our rates are in shipping/rates.md. Write the reply and send it.",
+ "background": [
+  "She is asking about three A5 notebooks, which weigh about 900 grams packed.",
+  "We post overseas parcels on Tuesdays and Fridays.",
+  "The rates sheet was updated last week and is the only source to use."
+ ],
+ "signoff": "Thank you, Ines",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "quote the postage in dollars, and no figure above $28",
+   "checker": "money_max",
+   "args": {
+    "max": 28
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "write at least 70 words",
+   "checker": "min_words",
+   "args": {
+    "n": 70
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "use a bulleted list of exactly three points",
+   "checker": "bullets_between",
+   "args": {
+    "lo": 3,
+    "hi": 3
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "save it as yuki-reply.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "yuki-reply.md"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't use the word \"guarantee\" or \"guaranteed\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "guarantee",
+     "guaranteed",
+     "guarantees"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "style",
+   "text": "no contractions, since she may be reading in a second language",
+   "checker": "no_contractions",
+   "args": {}
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "British spelling",
+   "checker": "british",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't look anything up on the web, shipping/rates.md is enough",
+   "checker": "log_none",
+   "args": {
+    "action": "web_fetch"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "say plainly that \"customs fees are not included\"",
+   "checker": "contains",
+   "args": {
+    "phrase": "customs fees are not included"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "give the delivery estimate as \"10 to 14 business days\"",
+   "checker": "contains",
+   "args": {
+    "phrase": "10 to 14 business days"
+   }
+  }
+ ],
+ "start": {
+  "inbox/customer.txt": "From: yuki.tanaka@customer.example\nSubject: Shipping to Japan?\n\nHello, do you ship to Osaka? I would like three A5 notebooks.\n\nYuki Tanaka\n",
+  "shipping/rates.md": "Japan, up to 1kg: $26 tracked, 10 to 14 business days\nJapan, up to 2kg: $38 tracked\n"
+ }
+}

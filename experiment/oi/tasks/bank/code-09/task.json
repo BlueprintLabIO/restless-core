@@ -1,0 +1,113 @@
+{
+ "id": "code-09",
+ "kind": "code",
+ "title": "Fix the email address check",
+ "clock": "2026-03-12T09:00",
+ "deliverable": "NOTES.md",
+ "ask": "is_valid_email in emails.py is the check on our newsletter sign-up form. It lets through addresses with spaces, with no dot after the @, and with two @ signs. Please tighten it so the tests in tests/test_emails.py pass.",
+ "background": [
+  "We don't need to be perfect, only to stop the obvious typing mistakes.",
+  "About one sign-up in thirty bounces at the moment.",
+  "Thandi owns the sign-up form and reviews changes to it."
+ ],
+ "signoff": "Thanks, Piotr",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the is_valid_email function to 10 lines or fewer",
+   "checker": "py_func_max_lines",
+   "args": {
+    "name": "is_valid_email",
+    "n": 10,
+    "file": "emails.py"
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep the notes under 70 words",
+   "checker": "max_words",
+   "args": {
+    "n": 70
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "write a short note on the fix and save it as NOTES.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "NOTES.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "put type hints on every argument and the return value of is_valid_email",
+   "checker": "py_annotated",
+   "args": {
+    "name": "is_valid_email",
+    "file": "emails.py"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't import email_validator, we are not adding a package for this",
+   "checker": "py_no_import",
+   "args": {
+    "module": "email_validator",
+    "file": "emails.py"
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "leave no print( calls in emails.py",
+   "checker": "not_matches",
+   "args": {
+    "pattern": "\\bprint\\(",
+    "file": "emails.py"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "British spelling in the notes",
+   "checker": "british",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't change tests/test_emails.py",
+   "checker": "file_unchanged",
+   "args": {
+    "path": "tests/test_emails.py"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "don't fetch anything from the web",
+   "checker": "log_none",
+   "args": {
+    "action": "web_fetch"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "name Thandi as the reviewer in the notes",
+   "checker": "contains",
+   "args": {
+    "phrase": "Thandi"
+   }
+  }
+ ],
+ "start": {
+  "emails.py": "def is_valid_email(addr):\n    return \"@\" in addr\n",
+  "tests/test_emails.py": "import unittest\n\nfrom emails import *  # noqa: F403\n\n\nclass Tests(unittest.TestCase):\n    def test_good(self):\n        self.assertTrue(is_valid_email(\"ann@shop.example\"))\n\n    def test_bad(self):\n        for addr in [\"ann@shop\", \"a nn@shop.example\", \"@shop.example\", \"ann@@shop.example\"]:\n            self.assertFalse(is_valid_email(addr))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+ }
+}

@@ -1,0 +1,113 @@
+{
+ "id": "resale-04",
+ "kind": "resale",
+ "title": "List a mid-century style armchair",
+ "clock": "2026-03-05T09:00",
+ "deliverable": "armchair.md",
+ "ask": "I need a listing for the armchair in my study. Notes are in item.md and comps.csv has what similar chairs sold for.",
+ "background": [
+  "It is a reproduction of a mid-century design, not an original, bought new in 2021.",
+  "The leather has a small scratch on the right arm from the cat.",
+  "My neighbour Dot has first refusal on some other furniture, but not this."
+ ],
+ "signoff": "Regards, Walter",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "ask no more than $680, with the price shown in dollars",
+   "checker": "money_max",
+   "args": {
+    "max": 680
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "write at least 70 words",
+   "checker": "min_words",
+   "args": {
+    "n": 70
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "save it as armchair.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "armchair.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "include a line that starts \"Dimensions:\"",
+   "checker": "matches",
+   "args": {
+    "pattern": "^Dimensions:\\s*\\S"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "say it is a \"reproduction\" in that word",
+   "checker": "contains",
+   "args": {
+    "phrase": "reproduction"
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "never use the words \"genuine\", \"original\" or \"authentic\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "genuine",
+     "original",
+     "authentic"
+    ]
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no contractions",
+   "checker": "no_contractions",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't open notes/dot-furniture.md, that is a separate matter",
+   "checker": "log_none",
+   "args": {
+    "action": "read_file",
+    "target": "dot-furniture"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "mention the scratch on the right arm",
+   "checker": "contains",
+   "args": {
+    "phrase": "right arm"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "say it is a ground floor pickup in Balmain",
+   "checker": "contains",
+   "args": {
+    "phrase": "ground floor"
+   }
+  }
+ ],
+ "start": {
+  "item.md": "Reproduction mid-century lounge armchair, tan leather, walnut veneer.\nSmall scratch on right arm.\n84cm wide, 80cm deep.\nPickup: Balmain, ground floor.\n",
+  "comps.csv": "sold_date,title,condition,price\n2026-02-03,reproduction lounge chair tan,good,650\n2026-02-14,reproduction lounge chair black,good,700\n2026-02-26,reproduction lounge chair tan,fair,480\n"
+ }
+}

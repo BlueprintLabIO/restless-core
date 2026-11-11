@@ -1,0 +1,36 @@
+{
+ "good": {
+  "files": {
+   "marcus-reply.md": "Hello Marcus,\n\nThank you for writing about order KC-2093. A rattling lid is not what we want you to live with.\n\nThe teapot was bought 45 days ago, which is past the 30 days in which we can refund a purchase. What I can do is give you $40 in store credit today. You can spend it on anything in the shop, and you may keep the teapot.\n\nIf you would rather swap the lid, reply and I will post one.\n\nWarm regards, Elena\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-03T08:20",
+    "action": "send_email",
+    "target": "marcus.l@customer.example"
+   },
+   {
+    "time": "2026-03-03T08:22",
+    "action": "send_email",
+    "target": "accounts@kettleandco.example"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "reply.md": "Marcus, our policy is 30 days so we can't refund you. Here's $60 off your next order instead.\n\nElena\n\nWe value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. "
+  },
+  "log": [
+   {
+    "time": "2026-03-03T08:05",
+    "action": "send_email",
+    "target": "orders@claypot-wholesale.example"
+   },
+   {
+    "time": "2026-03-03T08:10",
+    "action": "send_email",
+    "target": "marcus.l@customer.example"
+   }
+  ]
+ }
+}

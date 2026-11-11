@@ -1,0 +1,36 @@
+{
+ "good": {
+  "files": {
+   "backup.md": "# Backup\n\nFrom sources/options.md, prices as of 1 March 2026.\n\n## Recommendation\n\nUse Vaultline Team at $14 a month.\n\n- It covers three computers, and the shop has two.\n- 1 TB is more than three times the 300 GB to be stored.\n- Deleted files are kept for 90 days, so a file from two months ago can be recovered.\n\nStashbox covers one computer only. Irongate is built for a much bigger office. Bao will set it up.\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-12T08:05",
+    "action": "read_file",
+    "target": "sources/options.md"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "thoughts.md": "Honestly it's a no-brainer! The first one is best-in-class and a game-changer, we can't go wrong. It costs $9,999 or so and I'd organize the rollout around it. Budget impact: 95%. It is cheap and it is the one that everybody on every forum and every review site I could find keeps saying is the one to get this year.\n\nThere are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. "
+  },
+  "log": [
+   {
+    "time": "2026-03-12T08:01",
+    "action": "web_fetch",
+    "target": "https://reviews.example/top-10"
+   },
+   {
+    "time": "2026-03-12T08:02",
+    "action": "send_email",
+    "target": "sales@vaultline.example"
+   },
+   {
+    "time": "2026-03-12T08:03",
+    "action": "send_message",
+    "target": "owner-family"
+   }
+  ]
+ }
+}

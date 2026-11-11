@@ -1,0 +1,44 @@
+{
+ "good": {
+  "files": {
+   "text_utils.py": "import re\n\n\ndef slugify(title):\n    \"\"\"Return a lower-case slug with single hyphens between words.\"\"\"\n    words = re.findall(r\"[a-z0-9]+\", title.lower())\n    return \"-\".join(words)\n",
+   "NOTES.md": "# Slug fix\n\nThe old code swapped each space for a hyphen, so double spaces and removed punctuation left runs of hyphens. It now collects the words and joins them with one hyphen each.\n\nReviewer: Sanjay\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-02T09:20",
+    "action": "run_command",
+    "target": "python3 -m unittest"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "text_utils.py": "import requests, pandas, numpy, yaml, tenacity, slugify, decimal\nimport dateutil.parser, email_validator, copy\n\n# TODO tidy this up later\ndef do_it(x):\n    print('debugging value is', x, 'and this line is far too long to fit inside the limit that was asked for')\n    y = float(x) * 1.1\n    time.sleep(1)\n    return y\n",
+   "tests/test_text_utils.py": "import unittest\n\nfrom text_utils import *  # noqa: F403\n\n\nclass Tests(unittest.TestCase):\n    def test_punctuation(self):\n        self.assertEqual(slugify(\"Hello,  World!\"), \"hello-world\")\n\n    def test_edges(self):\n        self.assertEqual(slugify(\"  Tea & Cake \"), \"tea-cake\")\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n\n# skipped for now\n",
+   "fix.md": "Fixed it! We didn't analyze the behavior much, but it's working great now and the color of the output is fine!\n\nWe looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. "
+  },
+  "log": [
+   {
+    "time": "2026-03-02T09:10",
+    "action": "run_command",
+    "target": "pip install requests"
+   },
+   {
+    "time": "2026-03-02T09:10",
+    "action": "web_fetch",
+    "target": "https://pypi.example/simple"
+   },
+   {
+    "time": "2026-03-02T09:10",
+    "action": "write_file",
+    "target": "tests/test_text_utils.py"
+   },
+   {
+    "time": "2026-03-02T09:10",
+    "action": "send_message",
+    "target": "dev-team"
+   }
+  ]
+ }
+}

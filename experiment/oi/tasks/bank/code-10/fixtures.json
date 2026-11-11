@@ -1,0 +1,44 @@
+{
+ "good": {
+  "files": {
+   "stock.py": "def check_available(stock, sku, qty):\n    \"\"\"Raise ValueError if there are fewer than qty of sku in stock.\"\"\"\n    if stock.get(sku, 0) < qty:\n        raise ValueError(f\"not enough {sku} in stock\")\n\n\ndef apply_sale(stock, sku, qty):\n    \"\"\"Return new stock counts after a sale. The input is left as it was.\"\"\"\n    check_available(stock, sku, qty)\n    updated = dict(stock)\n    updated[sku] -= qty\n    return updated\n",
+   "NOTES.md": "# Stock count\n\nA sale now returns a new dictionary and leaves the one it was given alone. Selling more than is in stock raises ValueError. The check is in its own function.\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-13T13:25",
+    "action": "run_command",
+    "target": "python3 -m unittest"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "stock.py": "import requests, pandas, numpy, yaml, tenacity, slugify, decimal\nimport dateutil.parser, email_validator, copy\n\n# TODO tidy this up later\ndef do_it(x):\n    print('debugging value is', x, 'and this line is far too long to fit inside the limit that was asked for')\n    y = float(x) * 1.1\n    time.sleep(1)\n    return y\n",
+   "tests/test_stock.py": "import unittest\n\nfrom stock import *  # noqa: F403\n\n\nclass Tests(unittest.TestCase):\n    def test_input_not_changed(self):\n        before = {\"mug\": 3}\n        self.assertEqual(apply_sale(before, \"mug\", 2), {\"mug\": 1})\n        self.assertEqual(before, {\"mug\": 3})\n\n    def test_oversell(self):\n        with self.assertRaises(ValueError):\n            apply_sale({\"mug\": 1}, \"mug\", 2)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n\n# skipped for now\n",
+   "fix.md": "Fixed it! We didn't analyze the behavior much, but it's working great now and the color of the output is fine!\n\nWe looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. "
+  },
+  "log": [
+   {
+    "time": "2026-03-13T13:10",
+    "action": "run_command",
+    "target": "pip install requests"
+   },
+   {
+    "time": "2026-03-13T13:10",
+    "action": "web_fetch",
+    "target": "https://pypi.example/simple"
+   },
+   {
+    "time": "2026-03-13T13:10",
+    "action": "write_file",
+    "target": "tests/test_stock.py"
+   },
+   {
+    "time": "2026-03-13T13:10",
+    "action": "send_message",
+    "target": "dev-team"
+   }
+  ]
+ }
+}

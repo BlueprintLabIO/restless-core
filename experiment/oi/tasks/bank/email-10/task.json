@@ -1,0 +1,113 @@
+{
+ "id": "email-10",
+ "kind": "email",
+ "title": "Catering quote for 40 guests",
+ "clock": "2026-03-13T08:00",
+ "deliverable": "reply.md",
+ "ask": "Liam O'Connor asked Fig & Thyme whether we can bring down the catering quote for his 40 person engagement party. His email is in inbox/customer.txt. Offer him the lighter menu, write the reply and send it.",
+ "background": [
+  "The original quote was the full grazing menu, and the lighter one drops the oysters and the second dessert.",
+  "The party is on Saturday 18 April at Wharf Hall, which he has booked himself.",
+  "We are not busy that weekend, so I would like the job."
+ ],
+ "signoff": "Nadia",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "show prices in dollars per head and nothing under $38",
+   "checker": "money_min",
+   "args": {
+    "min": 38
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep it under 150 words",
+   "checker": "max_words",
+   "args": {
+    "n": 150
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "set the two menus side by side in a table with the columns Menu and Per head",
+   "checker": "has_table",
+   "args": {
+    "columns": [
+     "Menu",
+     "Per head"
+    ],
+    "min_rows": 2
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "end with the line \"Cheers, Nadia\"",
+   "checker": "last_line",
+   "args": {
+    "pattern": "^Cheers, Nadia$"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't call it a \"discount\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "discount",
+     "discounted",
+     "discounts"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "style",
+   "text": "British spelling",
+   "checker": "british",
+   "args": {}
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no exclamation marks",
+   "checker": "no_exclaim",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't contact the venue, events@wharfhall.example",
+   "checker": "log_none",
+   "args": {
+    "target": "wharfhall"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "tell him the deposit is due by 20 March",
+   "checker": "contains",
+   "args": {
+    "phrase": "20 March"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "ask about dietary requirements",
+   "checker": "contains",
+   "args": {
+    "phrase": "dietary requirements"
+   }
+  }
+ ],
+ "start": {
+  "inbox/customer.txt": "From: liam.oconnor@customer.example\nSubject: Quote for 18 April\n\nThe quote is a bit over what we planned. Is there any way to bring it down for 40 people?\n\nLiam\n"
+ }
+}

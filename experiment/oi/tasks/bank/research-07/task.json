@@ -1,0 +1,117 @@
+{
+ "id": "research-07",
+ "kind": "research",
+ "title": "Pick a domain registrar",
+ "clock": "2026-03-10T08:00",
+ "deliverable": "registrars.md",
+ "ask": "Our domain name is up for renewal and I'd like to move it somewhere better. Three registrars are in sources/options.md. Please write a brief with one pick.",
+ "background": [
+  "We have a single .example-style business domain and no plans for more.",
+  "Last year the renewal price was nearly triple the first year price, and I only found out from the invoice.",
+  "I also want two-step login, since the domain is the keys to everything."
+ ],
+ "signoff": "Thanks, Yusuf",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the brief under 130 words",
+   "checker": "max_words",
+   "args": {
+    "n": 130
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "give the renewal price of your pick as \"Renewal: $...\", no more than $30",
+   "checker": "number_after",
+   "args": {
+    "label": "Renewal",
+    "max": 30
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "put your pick under a heading called \"Recommendation\"",
+   "checker": "has_heading",
+   "args": {
+    "text": "Recommendation"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "compare the options in a table with the columns Registrar, First year, Renewal",
+   "checker": "has_table",
+   "args": {
+    "columns": [
+     "Registrar",
+     "First year",
+     "Renewal"
+    ],
+    "min_rows": 3
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "none of the sales words \"best-in-class\", \"game-changer\" or \"no-brainer\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "best-in-class",
+     "game-changer",
+     "no-brainer"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "use the words \"two-step login\"",
+   "checker": "contains",
+   "args": {
+    "phrase": "two-step login"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no contractions",
+   "checker": "no_contractions",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "work only from the snapshot, no web lookups",
+   "checker": "log_none",
+   "args": {
+    "action": "web_fetch"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "don't start a transfer or sign up with anyone, so no commands run",
+   "checker": "log_none",
+   "args": {
+    "action": "run_command"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "name the file you worked from, sources/options.md",
+   "checker": "contains",
+   "args": {
+    "phrase": "sources/options.md"
+   }
+  }
+ ],
+ "start": {
+  "sources/options.md": "# Domain registrars\n\nSnapshot taken 1 March 2026. All prices in Australian dollars.\n\n| Option | Price | Notes |\n| --- | --- | --- |\n| Namewright | $22 first year, $24 renewal | two-step login, free privacy |\n| Domino Domains | $9 first year, $39 renewal | two-step login, privacy $8 a year |\n| Plainhost | $19 first year, $21 renewal | no two-step login, free privacy |\n"
+ }
+}

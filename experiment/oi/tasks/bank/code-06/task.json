@@ -1,0 +1,115 @@
+{
+ "id": "code-06",
+ "kind": "code",
+ "title": "Fix the settings reader",
+ "clock": "2026-03-09T09:00",
+ "deliverable": "NOTES.md",
+ "ask": "load_config in config.py reads our little settings file of \"key = value\" lines. It falls over on blank lines and on comment lines starting with #, and it leaves spaces around the values. Please fix it; tests are in tests/test_config.py.",
+ "background": [
+  "The file is edited by hand, which is why it has comments and gaps in it.",
+  "Values stay as text, nothing needs converting to numbers.",
+  "I'd like to be able to read the function in one screen."
+ ],
+ "signoff": "Thanks, Yusuf",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the load_config function to 12 lines or fewer",
+   "checker": "py_func_max_lines",
+   "args": {
+    "name": "load_config",
+    "n": 12,
+    "file": "config.py"
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "no line in config.py longer than 79 characters",
+   "checker": "max_line_length",
+   "args": {
+    "n": 79,
+    "file": "config.py"
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "write a short note on the fix and save it as NOTES.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "NOTES.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "give load_config a docstring",
+   "checker": "py_has_docstring",
+   "args": {
+    "name": "load_config",
+    "file": "config.py"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't import yaml, this is not a YAML file",
+   "checker": "py_no_import",
+   "args": {
+    "module": "yaml",
+    "file": "config.py"
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "leave no TODO or FIXME comments in config.py",
+   "checker": "not_matches",
+   "args": {
+    "pattern": "TODO|FIXME",
+    "file": "config.py"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "British spelling in the notes",
+   "checker": "british",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't change tests/test_config.py",
+   "checker": "file_unchanged",
+   "args": {
+    "path": "tests/test_config.py"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "run the tests with python3 -m unittest before you finish",
+   "checker": "log_any",
+   "args": {
+    "action": "run_command",
+    "target": "python3 -m unittest"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "mention in the notes that comment lines are skipped",
+   "checker": "contains",
+   "args": {
+    "phrase": "comment lines"
+   }
+  }
+ ],
+ "start": {
+  "config.py": "def load_config(text):\n    config = {}\n    for line in text.split(\"\\n\"):\n        key, value = line.split(\"=\")\n        config[key] = value\n    return config\n",
+  "tests/test_config.py": "import unittest\n\nfrom config import *  # noqa: F403\n\n\nclass Tests(unittest.TestCase):\n    def test_comments_and_spaces(self):\n        text = \"# shop settings\\nname = Harbour Cycles\\n\\nopen=9\\n\"\n        self.assertEqual(load_config(text), {\"name\": \"Harbour Cycles\", \"open\": \"9\"})\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+ }
+}

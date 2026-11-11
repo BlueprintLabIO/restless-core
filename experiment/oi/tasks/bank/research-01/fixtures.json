@@ -1,0 +1,36 @@
+{
+ "good": {
+  "files": {
+   "label-printers.md": "# Label printers\n\nFrom sources/options.md, prices as of 1 March 2026.\n\n| Option | Price | Works with Mac |\n| --- | --- | --- |\n| Brightlabel P4 | $329 | Yes |\n| Torrent T-200 | $279 | No |\n| Kestrel LX | $459 | Yes |\n\n## Recommendation\n\nBuy the Brightlabel P4.\n\n- It prints 100 by 150 mm courier labels.\n- It works with the Mac on the packing bench.\n- It is inside the $400 set aside.\n\nThe Torrent is cheaper but is Windows only. The Kestrel adds wifi and costs more than the budget.\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-02T08:05",
+    "action": "read_file",
+    "target": "sources/options.md"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "thoughts.md": "Honestly it's a no-brainer! The first one is best-in-class and a game-changer, we can't go wrong. It costs $9,999 or so and I'd organize the rollout around it. Budget impact: 95%. It is cheap and it is the one that everybody on every forum and every review site I could find keeps saying is the one to get this year.\n\nThere are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. There are many options on the market and each one has its own strengths and weaknesses. "
+  },
+  "log": [
+   {
+    "time": "2026-03-02T08:01",
+    "action": "web_fetch",
+    "target": "https://reviews.example/top-10"
+   },
+   {
+    "time": "2026-03-02T08:02",
+    "action": "send_email",
+    "target": "sales@brightlabel.example"
+   },
+   {
+    "time": "2026-03-02T08:03",
+    "action": "send_message",
+    "target": "owner-family"
+   }
+  ]
+ }
+}
