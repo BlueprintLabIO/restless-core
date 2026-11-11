@@ -68,6 +68,7 @@
 	import InlineMachine from './inbox/InlineMachine.svelte';
 	import InlineReconnect from './inbox/InlineReconnect.svelte';
 	import InlineStartComputer from './inbox/InlineStartComputer.svelte';
+	import InlineScheduleRun from './inbox/InlineScheduleRun.svelte';
 	import InlineSettingProposal from './inbox/InlineSettingProposal.svelte';
 	import InlineSettingMore from './inbox/InlineSettingMore.svelte';
 	import {
@@ -331,6 +332,8 @@
 	const startSurface = $derived(
 		item.source.kind === 'overdue_dispatch_blocked' && !!action('open-company-health')
 	);
+	/* A schedule's newest run: run it again, or set it aside, from the card. */
+	const scheduleSurface = $derived(item.source.kind === 'schedule_run');
 	/* An outside action that failed or went unanswered: the answer goes to whoever ran it. */
 	const outcomeSurface = $derived(
 		item.source.kind === 'effect_outcome' || item.source.kind === 'payment_outcome'
@@ -349,7 +352,8 @@
 			skillSurface ||
 			machineSurface ||
 			reconnectSurface ||
-			startSurface
+			startSurface ||
+			scheduleSurface
 			? []
 			: item.actions.filter(
 					(candidate) =>
@@ -967,6 +971,14 @@
 								proposal={item.settingProposal}
 								{asker}
 								owner={!canPassToOwner}
+								ondone={(receipt) => void completedInline(receipt)}
+							/>{/if}
+						{#if scheduleSurface}<InlineScheduleRun
+								{companyId}
+								itemId={item.id}
+								scheduleId={item.source.reference}
+								finished={item.category === 'review'}
+								canRun={canSetAside}
 								ondone={(receipt) => void completedInline(receipt)}
 							/>{/if}
 						{#if startSurface}<InlineStartComputer

@@ -8,7 +8,8 @@ import test from 'node:test';
  * until its card can do the task itself. */
 const ANSWERED_INLINE: Record<string, string> = {
 	'continue-conversation': 'InlineReply for conversation_owner_need',
-	'open-work': 'InlineConversation answers the stalled Work’s lead; the Work link stays for Resume and Stop for good',
+	'open-work':
+		'InlineConversation answers the stalled Work’s lead; the Work link stays for Resume and Stop for good',
 	'open-company-computer': 'InlineMachine for machine_offline',
 	'open-activity': 'InlineReply to whoever ran it; the Activity link stays as the receipt',
 	'open-app': 'InlineReconnect for connection_sign_in',
@@ -21,6 +22,7 @@ const ANSWERED_INLINE: Record<string, string> = {
 	'top-up-ai-credit': 'InlineModel opens the plan in a small window',
 	'open-spend-limit': 'InlineSpendLimit',
 	'open-native-limit': 'InlineNativeLimit',
+	'open-schedule': 'InlineScheduleRun runs it again or sets it aside; Schedules keeps its history',
 	'open-provider-approval': 'The provider approves on its own page, in the owner’s own browser'
 };
 
@@ -35,10 +37,14 @@ const ENGINE = new URL('../../../../crates/restless-engine/src/attention.rs', im
 
 /* The web is also qualified on its own, without the engine beside it; the guard runs wherever
  * the whole repository is checked out. */
-test('every attention action that links away is answered inside its card', { skip: !existsSync(ENGINE) }, () => {
-	const source = readFileSync(ENGINE, 'utf8');
-	const linking = linkingActions(source);
-	assert.ok(linking.length > 3, 'the guard found the linking actions');
-	const unanswered = linking.filter((id) => !(id in ANSWERED_INLINE));
-	assert.deepEqual(unanswered, [], `answer these inside their card: ${unanswered.join(', ')}`);
-});
+test(
+	'every attention action that links away is answered inside its card',
+	{ skip: !existsSync(ENGINE) },
+	() => {
+		const source = readFileSync(ENGINE, 'utf8');
+		const linking = linkingActions(source);
+		assert.ok(linking.length > 3, 'the guard found the linking actions');
+		const unanswered = linking.filter((id) => !(id in ANSWERED_INLINE));
+		assert.deepEqual(unanswered, [], `answer these inside their card: ${unanswered.join(', ')}`);
+	}
+);

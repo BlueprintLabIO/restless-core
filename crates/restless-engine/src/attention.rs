@@ -2709,6 +2709,209 @@ fn stalled_work_item(
     }
 }
 
+/// The newest settled run of each live recurring Exec schedule, as one card per schedule. It
+/// reads the same rows as the Schedules monitor, so the two never disagree. A run still under way
+/// has no card; a run that asked for a person through a handoff is that handoff's card.
+async fn schedule_run_items(company: &str, org: &OrgIntel) -> Result<Vec<AttentionItem>> {
+    let schedules = org.list_schedules(Some("exec"), false).await?;
+    let exec = org
+        .list_actors()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .find(|actor| actor.id == "exec")
+        .map(|actor| AttentionActorRef {
+            id: actor.id,
+            display: actor.display,
+            role: actor.role,
+        });
+    let mut items = Vec::new();
+    for schedule in schedules {
+        if schedule.recurrence.is_none() || schedule.paused_at.is_some() {
+            continue;
+        }
+        let skipped = org
+            .list_schedule_occurrences(schedule.id, 1)
+            .await?
+            .into_iter()
+            .next()
+            .filter(|row| row.disposition == "skipped" && row.recovered_at.is_none());
+        let run = if let Some(row) = skipped {
+            Some(ScheduleRun {
+                state: "skipped".into(),
+                reason: row.detail.unwrap_or_default(),
+                at: row.scheduled_for,
+                work_id: None,
+            })
+        } else {
+            let link = org
+                .list_schedule_opportunity_occurrences(schedule.id, 1)
+                .await?
+                .into_iter()
+                .next();
+            match link.and_then(|link| link.opportunity_id) {
+                Some(id) => org.get_opportunity(id).await?.and_then(|opportunity| {
+                    let refs = opportunity
+                        .evidence_refs
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    let of_kind = |kind: &str| {
+                        refs.iter().find_map(|evidence| {
+                            (evidence.get("kind").and_then(serde_json::Value::as_str) == Some(kind))
+                                .then(|| {
+                                    evidence
+                                        .get("id")
+                                        .and_then(serde_json::Value::as_str)
+                                        .and_then(|id| uuid::Uuid::parse_str(id).ok())
+                                })
+                        })
+                    };
+                    // The handoff a run raised is already the owner's card for it.
+                    if opportunity.state == "needs_human" && of_kind("handoff").is_some() {
+                        return None;
+                    }
+                    Some(ScheduleRun {
+                        at: opportunity.settled_at?,
+                        work_id: of_kind("work").flatten(),
+                        reason: opportunity.outcome_reason.unwrap_or_default(),
+                        state: opportunity.state,
+                    })
+                }),
+                None => None,
+            }
+        };
+        if let Some(item) = run.and_then(|run| {
+            schedule_run_item(company, exec.clone(), schedule.id, &schedule.reason, run)
+        }) {
+            items.push(item);
+        }
+    }
+    Ok(items)
+}
+
+struct ScheduleRun {
+    /// `completed`, `blocked`, `needs_human` or `skipped`.
+    state: String,
+    reason: String,
+    at: DateTime<Utc>,
+    work_id: Option<uuid::Uuid>,
+}
+
+fn schedule_run_item(
+    company: &str,
+    exec: Option<AttentionActorRef>,
+    schedule_id: uuid::Uuid,
+    schedule_reason: &str,
+    run: ScheduleRun,
+) -> Option<AttentionItem> {
+    // The schedule's own words name it; a long one is cut for the title only.
+    let name = schedule_reason.lines().next().unwrap_or_default().trim();
+    let name = if name.chars().count() > 80 {
+        format!("{}…", name.chars().take(79).collect::<String>().trim_end())
+    } else if name.is_empty() {
+        "a schedule".to_string()
+    } else {
+        name.to_string()
+    };
+    let on = run.at.format("%-d %b");
+    let recorded = run.reason.trim();
+    let said = |otherwise: &str| {
+        if recorded.is_empty() {
+            otherwise.to_string()
+        } else {
+            recorded.to_string()
+        }
+    };
+    let (category, title, what_happened, why_it_matters, recommendation, requested_action) =
+        match run.state.as_str() {
+            "completed" => (
+                "review",
+                format!("Ran on schedule: {name}"),
+                said("The run finished. No note was recorded."),
+                format!("This is the result of the run on {on}."),
+                "Nothing is needed unless the result looks wrong.".to_string(),
+                "Look it over, then set it aside.".to_string(),
+            ),
+            "blocked" => (
+                "blocker",
+                format!("Scheduled run didn't finish: {name}"),
+                said("The run stopped without finishing. No reason was recorded."),
+                format!("The run on {on} did not produce its result."),
+                "Run it again from here, or ask Exec what went wrong.".to_string(),
+                "Run it again, or leave it for the next run.".to_string(),
+            ),
+            "needs_human" => (
+                "decision",
+                format!("Scheduled run needs you: {name}"),
+                said("The run stopped because it needs a person. No reason was recorded."),
+                format!("The run on {on} cannot finish without you."),
+                "Tell Exec what it needs, then run the schedule again.".to_string(),
+                "Give Exec what the run asked for.".to_string(),
+            ),
+            "skipped" => (
+                "blocker",
+                format!("Scheduled run was skipped: {name}"),
+                said("The run was missed and not caught up."),
+                format!("The run due on {on} never started."),
+                "Run it now from here, or leave it for the next run.".to_string(),
+                "Run it now, or leave it for the next run.".to_string(),
+            ),
+            _ => return None,
+        };
+    Some(AttentionItem {
+        id: format!("orgintel:schedule-run:{schedule_id}"),
+        work_id: run.work_id,
+        source: AttentionSource {
+            plane: "orgintel",
+            kind: "schedule_run".into(),
+            reference: schedule_id.to_string(),
+            party: None,
+            call_key: None,
+        },
+        category: category.into(),
+        title,
+        what_happened,
+        why_it_matters,
+        recommendation,
+        requested_action,
+        if_no_action: "It stays here until you set it aside. The next run replaces it.".into(),
+        uncertainty: None,
+        deadline: None,
+        brief_status: "source-observed",
+        brief_author: None,
+        briefed_at: Some(run.at),
+        evidence: Vec::new(),
+        review_sources: Vec::new(),
+        responsible_actor: exec,
+        runtime_attach: None,
+        review_target: None,
+        review_version: None,
+        native_document: None,
+        direction_request: None,
+        charter_proposal: None,
+        account_use: None,
+        account_request: None,
+        request_fields: None,
+        setting_proposal: None,
+        owner_replies: Vec::new(),
+        actions: vec![AttentionAction {
+            id: "open-schedule".into(),
+            label: "Open the schedule".into(),
+            role: "inspect",
+            consequence: "Opens the schedule with its recent runs.".into(),
+            next_state: "Nothing changes until you decide.".into(),
+            href: Some(format!(
+                "/{company}/company/schedules?schedule={schedule_id}"
+            )),
+        }],
+        // Nothing waits on the owner: the next run comes at its time either way.
+        can_continue: true,
+        preparing: false,
+        created_at: run.at,
+    })
+}
+
 /// Open direction requests routed to `viewer` (the owner sees every one), and approved ones that
 /// failed to be carried out, as Inbox items: the
 /// request in the person's words, and Approve, Always allow and Decline in its detail (S80).
@@ -4386,8 +4589,15 @@ async fn project_queue(
             Err(error) => tracing::warn!(%error, "teammate messages unavailable"),
         }
 
-        // Scheduled opportunity failures are shown in Schedules. Only an explicit
-        // owner handoff enters this queue; inspection alone is not owner action.
+        // The newest run of each live schedule reaches the owner here as well as in Schedules
+        // (11 November owner decision): a run that finished, failed, asked for a person or was
+        // skipped is one card per schedule, replaced by the next run.
+        if assignee.is_none() {
+            match schedule_run_items(&config.name, org).await {
+                Ok(runs) => items.extend(runs),
+                Err(error) => tracing::warn!(%error, "schedule runs unavailable"),
+            }
+        }
 
         // A configured model is not proof that the Exec can start. Project the
         // latest closed substrate failure directly from its durable terminal
@@ -7865,5 +8075,80 @@ mod question_beside_decision_tests {
         assert!(limits.contains("- **How many:** up to 8 emails a day, 8 in total"));
         assert!(limits.contains("- **Sent from:** Acme <hello@example.com>"));
         assert!(limits.contains("- **Until:** 7 Nov 2026"), "{limits}");
+    }
+}
+
+#[cfg(test)]
+mod schedule_run_tests {
+    use super::*;
+
+    fn run(state: &str, reason: &str) -> ScheduleRun {
+        ScheduleRun {
+            state: state.into(),
+            reason: reason.into(),
+            at: DateTime::parse_from_rfc3339("2026-11-11T02:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            work_id: None,
+        }
+    }
+
+    #[test]
+    fn each_settled_run_is_one_card_per_schedule() {
+        let id = uuid::Uuid::nil();
+        for (state, category, title) in [
+            ("completed", "review", "Ran on schedule: Morning brief"),
+            (
+                "blocked",
+                "blocker",
+                "Scheduled run didn't finish: Morning brief",
+            ),
+            (
+                "needs_human",
+                "decision",
+                "Scheduled run needs you: Morning brief",
+            ),
+            (
+                "skipped",
+                "blocker",
+                "Scheduled run was skipped: Morning brief",
+            ),
+        ] {
+            let item =
+                schedule_run_item("acme", None, id, "Morning brief\nmore", run(state, "Sent."))
+                    .expect(state);
+            assert_eq!(item.id, format!("orgintel:schedule-run:{id}"));
+            assert_eq!(item.category, category);
+            assert_eq!(item.title, title);
+            assert_eq!(item.what_happened, "Sent.");
+            assert!(item.can_continue, "nothing waits on the owner");
+            assert_eq!(item.created_at, run(state, "").at);
+            assert_eq!(
+                item.actions[0].href.as_deref(),
+                Some(format!("/acme/company/schedules?schedule={id}").as_str())
+            );
+        }
+    }
+
+    #[test]
+    fn a_run_still_under_way_has_no_card() {
+        for state in ["open", "waiting_retry", "cancelled"] {
+            assert!(
+                schedule_run_item("acme", None, uuid::Uuid::nil(), "Brief", run(state, ""))
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn a_long_schedule_name_is_cut_in_the_title_only() {
+        let long = "x".repeat(200);
+        let item = schedule_run_item("acme", None, uuid::Uuid::nil(), &long, run("completed", ""))
+            .unwrap();
+        assert!(item.title.chars().count() < 100);
+        assert_eq!(
+            item.what_happened,
+            "The run finished. No note was recorded."
+        );
     }
 }
