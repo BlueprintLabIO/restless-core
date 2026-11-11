@@ -1870,7 +1870,18 @@ async fn gather_snapshot(
     let effect_ledger = crate::reconcile::effect_ledger(authority, &config.name, &effect_records)
         .await?
         .summary();
-    let org_signals = health::organisational(spent_usd, &work, &effect_records)
+    let (actors, teams) = tokio::join!(org.list_actors(), org.list_teams());
+    let mut org_signals = health::organisational(spent_usd, &work, &effect_records);
+    if let (Ok(actors), Ok(teams)) = (&actors, &teams) {
+        org_signals.extend(health::team_shape(
+            chrono::Utc::now(),
+            actors,
+            teams,
+            &goals,
+            &work,
+        ));
+    }
+    let org_signals = org_signals
         .into_iter()
         .map(|signal| format!("[{}] {}", signal.kind, signal.detail))
         .collect();
@@ -2072,7 +2083,7 @@ async fn gather_snapshot(
                 .collect()
         })
         .unwrap_or_default();
-    let roster = match (org.list_actors().await, org.list_teams().await) {
+    let roster = match (actors, teams) {
         (Ok(actors), Ok(teams)) => crate::context::roster_lines(&actors, &teams),
         _ => {
             vec!["(unavailable this wake; read `restless people` and `restless teams list`)".into()]

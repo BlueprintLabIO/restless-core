@@ -327,7 +327,10 @@ A sensible initial topology is:
 The Exec is the continuously available company dispatcher, not a departmental producer. Every owner
 request that requires execution is routed to exactly one accountable team lead. The lead may be a
 standing department lead or a temporary outcome lead; if none exists, the Exec appoints one before
-productive work begins. The lead produces the outcome directly by default, through Work it owns, and
+productive work begins. The Exec chooses the lead by where accountability closes: an outcome that
+can progress and be judged on its own gets its own lead even when an existing team's broad charter
+could absorb it, and a standing lead is reused only for its own outcome or for work that must share
+its state and judgement. The lead produces the outcome directly by default, through Work it owns, and
 adds Staff only when a stable, independently useful seam repays briefing, integration and review.
 The lead remains responsible for framing, guidance, repair, native review and completion judgement.
 (Owner decision, 2026-10-19; it replaced the non-producing-supervisor invariant after EXP-17.)
@@ -339,7 +342,7 @@ It must preserve other contributors' work and report a concrete blocker if the e
 This narrow exception does not cover new research, repository changes or external effects.
 
 The lead first forms a causal understanding of the outcome, then chooses the smallest effective
-production roster: one end-to-end Staff worker by default. When another actor can own a stable,
+production roster: the lead itself by default. When another actor can own a stable,
 independently useful seam, the lead
 communicates purpose, current understanding, important unknowns and observable proof in ordinary
 language, continues complementary work, and treats the returned artifact as a claim until inspecting
