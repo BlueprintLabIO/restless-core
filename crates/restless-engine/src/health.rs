@@ -727,6 +727,139 @@ pub fn organisational(
     signals
 }
 
+/// A team member with no open Work whose last Work changed this long ago is idle capacity.
+const IDLE_MEMBER_DAYS: i64 = 3;
+/// How many idle members before a roster looks oversized rather than between two tasks.
+const IDLE_MEMBERS_SIGNAL: usize = 2;
+/// Closed Work this recent still shows which goals a team is serving.
+const RECENT_WORK_DAYS: i64 = 7;
+
+/// 4. Team shape. Observed (Reno, November): one lead held two independent goals and nine Staff,
+///    five of them idle, because reuse-first routing kept sending unrelated outcomes to the same
+///    lead and nothing ever showed the breadth. `COORDINATION_THEORY.md`: one accountable lead per
+///    outcome that can progress and be judged on its own; change the organisation as saturation
+///    changes. This is an observation for Exec's judgement, never a team-size rule.
+pub fn team_shape(
+    now: chrono::DateTime<chrono::Utc>,
+    actors: &[restless_orgintel::ActorRow],
+    teams: &[restless_orgintel::TeamRow],
+    goals: &[restless_orgintel::GoalRow],
+    work: &[restless_orgintel::WorkRow],
+) -> Vec<OrgSignal> {
+    use restless_orgintel::WorkStatus;
+    let open = |item: &&restless_orgintel::WorkRow| {
+        matches!(
+            item.status,
+            WorkStatus::Proposed | WorkStatus::Active | WorkStatus::Blocked
+        )
+    };
+    let mut signals = Vec::new();
+    for team in teams.iter().filter(|team| team.disbanded_at.is_none()) {
+        let members: Vec<_> = actors
+            .iter()
+            .filter(|actor| {
+                actor.retired_at.is_none()
+                    && actor.actor_class == "agent"
+                    && actor.team_id == Some(team.id)
+                    && actor.id != team.lead_actor_id
+            })
+            .collect();
+        let idle: Vec<&str> = members
+            .iter()
+            .filter(|actor| {
+                let mine = work.iter().filter(|item| item.owner_id == actor.id);
+                let has_open = mine.clone().any(|item| open(&item));
+                let last = mine.map(|item| item.updated_at).max();
+                !has_open && last.is_none_or(|at| (now - at).num_days() >= IDLE_MEMBER_DAYS)
+            })
+            .map(|actor| actor.id.as_str())
+            .collect();
+        // The goals this team actually serves: its own, plus any goal its open or recent Work
+        // advances. Reno's growth goal still named a disbanded team while every Reno Studio
+        // member worked on it, so goal ownership alone hid the breadth.
+        let staffed =
+            |owner: &str| owner == team.lead_actor_id || members.iter().any(|m| m.id == owner);
+        let served: std::collections::BTreeSet<uuid::Uuid> = work
+            .iter()
+            .filter(|item| staffed(&item.owner_id))
+            .filter(|item| open(item) || (now - item.updated_at).num_days() < RECENT_WORK_DAYS)
+            .filter_map(|item| item.goal_id)
+            .collect();
+        let team_goals: Vec<String> = goals
+            .iter()
+            .filter(|goal| goal.closed_at.is_none())
+            .filter(|goal| goal.team_id == Some(team.id) || served.contains(&goal.id))
+            .map(|goal| format!("\"{}\"", goal.title.chars().take(60).collect::<String>()))
+            .collect();
+        let oversized = idle.len() >= IDLE_MEMBERS_SIGNAL;
+        let several_goals = team_goals.len() >= 2;
+        if !oversized && !several_goals {
+            continue;
+        }
+        let mut facts = vec![format!("{} Staff", members.len())];
+        if oversized {
+            facts.push(format!(
+                "{} with no open Work for {IDLE_MEMBER_DAYS}+ days ({})",
+                idle.len(),
+                idle.join(", ")
+            ));
+        }
+        if several_goals {
+            facts.push(format!(
+                "{} open goals ({})",
+                team_goals.len(),
+                team_goals.join("; ")
+            ));
+        }
+        let mut asks = Vec::new();
+        if several_goals {
+            asks.push(
+                "give each goal that can progress and be judged on its own its own lead \
+                 (`restless commission` a new lead, then `restless goals update --team`)",
+            );
+        }
+        if oversized {
+            asks.push(
+                "reassign or retire Staff no current outcome needs \
+                 (`restless teams assign`, `restless people retire`)",
+            );
+        }
+        signals.push(OrgSignal {
+            kind: "team-shape",
+            detail: format!(
+                "team \"{}\" (lead {}): {}. Unless they genuinely share state and one judgement, {}.",
+                team.name,
+                team.lead_actor_id,
+                facts.join("; "),
+                asks.join(", and ")
+            ),
+        });
+    }
+    // A goal that names a team which no longer exists has no accountable lead, even if some
+    // other team quietly carries its Work.
+    for goal in goals.iter().filter(|goal| goal.closed_at.is_none()) {
+        let Some(team_id) = goal.team_id else {
+            continue;
+        };
+        if teams
+            .iter()
+            .any(|team| team.id == team_id && team.disbanded_at.is_none())
+        {
+            continue;
+        }
+        signals.push(OrgSignal {
+            kind: "goal-without-team",
+            detail: format!(
+                "goal \"{}\" belongs to a team that no longer exists, so no lead is accountable \
+                 for it; give it one (`restless goals update --goal {} --team <team>`)",
+                goal.title.chars().take(60).collect::<String>(),
+                goal.id
+            ),
+        });
+    }
+    signals
+}
+
 async fn free_bytes_host(path: &std::path::Path) -> Result<Option<u64>> {
     let out = tokio::process::Command::new("df")
         .args(["-Pk", &path.to_string_lossy()])
@@ -1141,6 +1274,193 @@ mod tests {
 #[cfg(test)]
 mod org_tests {
     use super::*;
+
+    mod team_shape_fixture {
+        use chrono::{DateTime, Duration, Utc};
+        use restless_orgintel::{ActorRow, GoalRow, TeamRow, WorkRow, WorkStatus};
+        use uuid::Uuid;
+
+        pub fn actor(id: &str, team: Uuid) -> ActorRow {
+            ActorRow {
+                id: id.into(),
+                kind: "staff".into(),
+                actor_class: "agent".into(),
+                role: "designer".into(),
+                display: id.into(),
+                model: None,
+                team_id: Some(team),
+                retired_at: None,
+                retired_by: None,
+                retirement_reason: String::new(),
+                created_at: Utc::now(),
+            }
+        }
+        pub fn team(id: Uuid, lead: &str) -> TeamRow {
+            TeamRow {
+                id,
+                name: "Studio".into(),
+                brief: String::new(),
+                lead_actor_id: lead.into(),
+                responsible_actor_id: None,
+                created_by: "exec".into(),
+                created_at: Utc::now(),
+                disbanded_at: None,
+            }
+        }
+        pub fn goal(title: &str, team: Uuid) -> GoalRow {
+            GoalRow {
+                id: Uuid::new_v4(),
+                title: title.into(),
+                body: String::new(),
+                created_by: "owner".into(),
+                created_at: Utc::now(),
+                closed_at: None,
+                done_when: String::new(),
+                due_on: None,
+                team_id: Some(team),
+            }
+        }
+        pub fn work(owner: &str, status: WorkStatus, updated_at: DateTime<Utc>) -> WorkRow {
+            WorkRow {
+                id: Uuid::new_v4(),
+                goal_id: None,
+                owner_id: owner.into(),
+                title: "t".into(),
+                outcome: "o".into(),
+                status,
+                resolution: String::new(),
+                priority: 0,
+                expected_artifact: String::new(),
+                owner_review_required: false,
+                producing_topology: Default::default(),
+                commissioned_by: "lead".into(),
+                repo: None,
+                base_ref: None,
+                integration_branch: None,
+                worktree: None,
+                revision: 1,
+                attempt_limit: None,
+                created_at: updated_at,
+                updated_at,
+            }
+        }
+        pub fn days_ago(days: i64) -> DateTime<Utc> {
+            Utc::now() - Duration::days(days)
+        }
+    }
+
+    /// The Reno shape: one lead, two independent goals, several busy and several long-idle
+    /// workers. Exec must be told both facts, and told which workers are idle.
+    #[test]
+    fn a_lead_holding_independent_goals_and_idle_staff_is_reported() {
+        use restless_orgintel::WorkStatus::{Active, Completed};
+        use team_shape_fixture::*;
+        let id = uuid::Uuid::new_v4();
+        let actors = [
+            "studio-lead",
+            "studio-busy",
+            "trades-designer",
+            "clinics-designer",
+            "craft-designer",
+        ]
+        .map(|a| actor(a, id));
+        let work = vec![
+            work("studio-busy", Active, days_ago(0)),
+            work("trades-designer", Completed, days_ago(6)),
+            work("clinics-designer", Completed, days_ago(4)),
+        ];
+        let goals = vec![
+            goal("Grow the renovation service", id),
+            goal("Find which segments reply", id),
+        ];
+        let signals = team_shape(
+            chrono::Utc::now(),
+            &actors,
+            &[team(id, "studio-lead")],
+            &goals,
+            &work,
+        );
+        assert_eq!(signals.len(), 1, "{signals:?}");
+        let detail = &signals[0].detail;
+        assert_eq!(signals[0].kind, "team-shape");
+        assert!(detail.contains("4 Staff"), "{detail}");
+        assert!(detail.contains("3 with no open Work"), "{detail}");
+        for idle in ["trades-designer", "clinics-designer", "craft-designer"] {
+            assert!(detail.contains(idle), "{idle} missing: {detail}");
+        }
+        assert!(!detail.contains("studio-busy"), "{detail}");
+        assert!(detail.contains("2 open goals"), "{detail}");
+        assert!(detail.contains("its own lead"), "{detail}");
+    }
+
+    /// Reno as observed on 11 November: every worker busy, one goal owned by the team, the other
+    /// still naming a disbanded team while this team does all its Work. Both facts must surface.
+    #[test]
+    fn a_busy_team_serving_another_teams_orphaned_goal_is_reported() {
+        use restless_orgintel::WorkStatus::{Active, Completed};
+        use team_shape_fixture::*;
+        let id = uuid::Uuid::new_v4();
+        let gone = uuid::Uuid::new_v4();
+        let actors =
+            ["reno-supervisor", "studio-designer", "trades-designer"].map(|a| actor(a, id));
+        let segments = goal("Find which segments reply best", id);
+        let growth = goal("Grow a website-renovation service", gone);
+        let on = |owner: &str, status, goal: &restless_orgintel::GoalRow| {
+            let mut item = work(owner, status, days_ago(0));
+            item.goal_id = Some(goal.id);
+            item
+        };
+        let work = vec![
+            on("studio-designer", Active, &growth),
+            on("trades-designer", Completed, &growth),
+            on("reno-supervisor", Active, &segments),
+        ];
+        let signals = team_shape(
+            chrono::Utc::now(),
+            &actors,
+            &[team(id, "reno-supervisor")],
+            &[segments, growth],
+            &work,
+        );
+        let kinds: Vec<_> = signals.iter().map(|s| s.kind).collect();
+        assert_eq!(kinds, ["team-shape", "goal-without-team"], "{signals:?}");
+        assert!(
+            signals[0].detail.contains("2 open goals"),
+            "{}",
+            signals[0].detail
+        );
+        assert!(
+            !signals[0].detail.contains("no open Work"),
+            "{}",
+            signals[0].detail
+        );
+        assert!(signals[1]
+            .detail
+            .contains("Grow a website-renovation service"));
+    }
+
+    /// The intended default shape, and a worker between two tasks, must stay silent: a signal
+    /// that fires on healthy teams gets ignored.
+    #[test]
+    fn a_lead_with_one_goal_and_recently_active_staff_is_silent() {
+        use restless_orgintel::WorkStatus::{Active, Completed};
+        use team_shape_fixture::*;
+        let id = uuid::Uuid::new_v4();
+        let actors = ["studio-lead", "studio-maker", "studio-checker"].map(|a| actor(a, id));
+        let work = vec![
+            work("studio-maker", Active, days_ago(0)),
+            work("studio-checker", Completed, days_ago(1)),
+        ];
+        let goals = vec![goal("Ship the site", id)];
+        let signals = team_shape(
+            chrono::Utc::now(),
+            &actors,
+            &[team(id, "studio-lead")],
+            &goals,
+            &work,
+        );
+        assert!(signals.is_empty(), "{signals:?}");
+    }
 
     /// A health check that cries wolf on normal work gets ignored, which is
     /// worse than not having one. Every company sprint 01 ran would have been
