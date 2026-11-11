@@ -19,6 +19,7 @@ const OWNER_MESSAGE = '[data-message-sender="owner"]';
 /** Follow a growing transcript until the reader scrolls away from its end. A transcript always
  * opens at its latest message (S85-03); it does not return to where the reader left it.
  * Dispatch `chat-scroll-end` on the node to return to the end and follow again.
+ * Dispatch `chat-scroll-settle` when the reply an anchor waits for is not coming.
  * Dispatch `chat-scroll-anchor` after the reader sends: their newest message rises to the top of
  * the transcript and the reply grows into the room beneath it, as in Claude and ChatGPT. Once the
  * reply fills that room the message stays where it is and the reply carries on below, to be read
@@ -57,7 +58,10 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		let trailing = 0;
 		for (const child of node.children) {
 			const rect = child.getBoundingClientRect();
-			if (child.matches('.conversation-turn-dock, .room-turn-docks') && getComputedStyle(child).order !== '0')
+			if (
+				child.matches('.conversation-turn-dock, .room-turn-docks') &&
+				getComputedStyle(child).order !== '0'
+			)
 				trailing += rect.height;
 			else end = Math.max(end, rect.bottom);
 		}
@@ -130,6 +134,31 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		setFollowing(true);
 		schedule();
 	}
+	/* The reply the room was kept for is not coming (the turn ended with no message, failed, or has
+	 * no record): the transcript glides to its end with the room still below the fold, and the room
+	 * goes once nothing in view can move. Left, it held an empty screen under the last message with
+	 * the turn's status line at its foot (12 November). */
+	let release = 0;
+	function settleRoom() {
+		if (!enabled || (!anchoring && room === 0)) return;
+		anchoring = false;
+		setFollowing(false);
+		const target = Math.max(0, node.scrollHeight - room - node.clientHeight);
+		const done = () => {
+			window.clearTimeout(release);
+			node.removeEventListener('scrollend', done);
+			setRoom(0);
+			lastTop = node.scrollTop;
+			setFollowing(true);
+		};
+		if (Math.abs(node.scrollTop - target) <= 1) return done();
+		const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		if (reduce) return done();
+		node.addEventListener('scrollend', done);
+		/* Browsers without scrollend, or a scroll the reader takes over: finish anyway. */
+		release = window.setTimeout(done, 700);
+		node.scrollTo({ top: target, behavior: 'smooth' });
+	}
 	function toEnd() {
 		anchoring = false;
 		setFollowing(true);
@@ -156,6 +185,7 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 	node.addEventListener('chat-scroll-pause', pause);
 	node.addEventListener('chat-scroll-end', toEnd);
 	node.addEventListener('chat-scroll-anchor', anchor);
+	node.addEventListener('chat-scroll-settle', settleRoom);
 	observeChildren();
 	schedule();
 	return {
@@ -178,6 +208,7 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 		},
 		destroy() {
 			cancelAnimationFrame(frame);
+			window.clearTimeout(release);
 			changes.disconnect();
 			sizes.disconnect();
 			node.removeEventListener('scroll', onScroll);
@@ -185,6 +216,7 @@ export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
 			node.removeEventListener('chat-scroll-pause', pause);
 			node.removeEventListener('chat-scroll-end', toEnd);
 			node.removeEventListener('chat-scroll-anchor', anchor);
+			node.removeEventListener('chat-scroll-settle', settleRoom);
 		}
 	};
 }

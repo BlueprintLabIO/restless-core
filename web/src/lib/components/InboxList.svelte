@@ -531,7 +531,8 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		margin: 6px 8px;
+		/* Edge to edge with the rows under it. */
+		margin: var(--pane-gap) var(--pane-gap) 6px;
 		padding: 10px 12px;
 		border: 1px solid color-mix(in srgb, var(--state-danger) 25%, var(--border));
 		border-radius: var(--radius-lg);

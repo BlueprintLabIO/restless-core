@@ -24,9 +24,11 @@
 		align-content: end;
 		gap: var(--space-3);
 		min-width: 0;
-		min-height: 64px;
+		/* As tall as the Exec composer beside it, so the two top rules are one line, with the
+		 * buttons on the line of its send button (measured, owner 12 Nov). */
+		min-height: var(--pane-foot-h);
 		max-height: 100%;
-		padding: 12px 24px max(16px, env(safe-area-inset-bottom));
+		padding: 12px 24px max(15px, env(safe-area-inset-bottom));
 		border-top: 1px solid var(--border);
 		background: var(--surface-pane);
 	}
@@ -50,7 +52,9 @@
 		min-width: 0;
 	}
 	@media (max-width: 760px) {
+		/* No rail beside it on a phone: the footer is just its buttons. */
 		.attention-footer {
+			min-height: 64px;
 			padding-inline: 14px;
 		}
 	}

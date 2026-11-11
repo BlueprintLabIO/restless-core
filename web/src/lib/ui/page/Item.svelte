@@ -355,10 +355,12 @@
 	 * length, its weight or whether a meta arrives. Rows never grow. */
 	.stacked.fixed > .item-row {
 		height: 64px;
-		/* In a sidebar the rows line up with its search field and notices, 8px in. */
-		margin: 0 8px 2px;
-		padding-left: 8px;
-		padding-right: 8px;
+		/* The open row sits the pane gap in from the list's sides, as the list's first row sits under
+		 * its top rule and as panes sit apart: at 8px it stood further from the edge than anything
+		 * else in the cockpit (owner, 12 Nov). The leading mark stays 16px in, where headings start. */
+		margin: 0 var(--pane-gap) 2px;
+		padding-left: 12px;
+		padding-right: 12px;
 	}
 	.stacked.fixed .item-title {
 		display: block;
