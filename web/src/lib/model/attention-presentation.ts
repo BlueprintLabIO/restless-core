@@ -45,6 +45,7 @@ export function attentionKindLabel(item: AttentionItem): string {
 	if (item.source.kind === 'skill_candidate') return 'Know-how';
 	if (item.source.kind === 'email_send_request') return 'Email';
 	if (item.source.kind === 'exec_item') return 'From your chat';
+	if (item.source.kind === 'schedule_run') return 'Schedule';
 	if (item.source.kind === 'effect_outcome' || item.source.kind === 'payment_outcome')
 		return 'Outside action';
 	if (item.category === 'approval') return 'Approval';

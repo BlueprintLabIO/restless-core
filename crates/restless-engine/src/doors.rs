@@ -327,6 +327,7 @@ pub const ATTENTION_KINDS: &[(&str, Raiser)] = &[
     ("incoming_email", Raiser::System),
     ("machine_offline", Raiser::System),
     ("work_stalled", Raiser::System),
+    ("schedule_run", Raiser::System),
 ];
 
 #[cfg(test)]
