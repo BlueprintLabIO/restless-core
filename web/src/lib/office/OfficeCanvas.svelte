@@ -62,6 +62,7 @@
 	import { campusWorldAsync, groundLayersAsync, keptGroundLayers } from './offThread';
 	import { yieldToMain } from './yieldToMain';
 	import {
+		belongsAtDesk,
 		MAX_AMBIENT_VISITORS,
 		MAX_ANIMATED_ACTIVITY_SCENES,
 		shouldCelebrateWorkCompletion
@@ -117,7 +118,13 @@
 		return members.flatMap((member) => {
 			const character = office?.characters.get(member.numericId);
 			if (!character) return [];
-			return [{ actorId: member.actorId, x: originX + character.x * scale, y: originY + character.y * scale }];
+			return [
+				{
+					actorId: member.actorId,
+					x: originX + character.x * scale,
+					y: originY + character.y * scale
+				}
+			];
 		});
 	}
 
@@ -177,7 +184,11 @@
 		/* A camera driven by scrolling has to keep pace with the page, so a real move paints on
 		 * the next frame instead of waiting for the 24 fps ambient cadence. Sub-pixel easing that
 		 * cannot change a single painted pixel does not count as a move. */
-		if (zoomPx !== lastCameraZoom || Math.abs(next.x - cameraPan.x) >= 0.5 || Math.abs(next.y - cameraPan.y) >= 0.5) {
+		if (
+			zoomPx !== lastCameraZoom ||
+			Math.abs(next.x - cameraPan.x) >= 0.5 ||
+			Math.abs(next.y - cameraPan.y) >= 0.5
+		) {
 			paintRequested = true;
 		}
 		lastCameraZoom = zoomPx;
@@ -392,7 +403,10 @@
 						if (!documentVisible || !onScreen) return;
 						// Half a 60Hz frame of slack, so a frame due a moment from now is not put off by one.
 						if (now + 8 < nextPaintAt) return;
-						nextPaintAt = now - nextPaintAt > PAINT_INTERVAL_MS ? now + PAINT_INTERVAL_MS : nextPaintAt + PAINT_INTERVAL_MS;
+						nextPaintAt =
+							now - nextPaintAt > PAINT_INTERVAL_MS
+								? now + PAINT_INTERVAL_MS
+								: nextPaintAt + PAINT_INTERVAL_MS;
 						lastPaintAt = now;
 						render(context, now);
 					}
@@ -509,6 +523,7 @@
 		if (!office || !plan) return;
 		office.update(delta);
 		holdStaged();
+		holdAtDesks();
 		simulationClock += delta;
 		behaviourTimer += delta;
 		settleAvailableMembers();
@@ -679,21 +694,33 @@
 	/* Keep staged members beside their partner: walk over, stop on a free neighbouring tile, face them. */
 	function holdStaged() {
 		if (!office || !staged.size) return;
-		const occupied = new Set([...office.characters.values()].map((character) => `${character.tileCol},${character.tileRow}`));
+		const occupied = new Set(
+			[...office.characters.values()].map(
+				(character) => `${character.tileCol},${character.tileRow}`
+			)
+		);
 		for (const [actorId, nearId] of staged) {
 			const member = members.find((candidate) => candidate.actorId === actorId);
 			const partner = members.find((candidate) => candidate.actorId === nearId);
 			const character = member ? office.characters.get(member.numericId) : null;
 			const target = partner ? office.characters.get(partner.numericId) : null;
 			if (!member || !character || !target) continue;
-			const distance = Math.abs(character.tileCol - target.tileCol) + Math.abs(character.tileRow - target.tileRow);
+			const distance =
+				Math.abs(character.tileCol - target.tileCol) + Math.abs(character.tileRow - target.tileRow);
 			if (distance <= 1) {
 				character.path = [];
 				character.state = CharacterState.IDLE;
 				character.wanderTimer = 1e6;
 				const dx = target.tileCol - character.tileCol;
 				const dy = target.tileRow - character.tileRow;
-				character.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? Direction.RIGHT : Direction.LEFT) : dy > 0 ? Direction.DOWN : Direction.UP;
+				character.dir =
+					Math.abs(dx) > Math.abs(dy)
+						? dx > 0
+							? Direction.RIGHT
+							: Direction.LEFT
+						: dy > 0
+							? Direction.DOWN
+							: Direction.UP;
 				continue;
 			}
 			if (character.path.length) continue;
@@ -708,7 +735,9 @@
 				[-1, -1]
 			].map(([dc, dr]) => ({ col: target.tileCol + dc, row: target.tileRow + dr }));
 			const spot = around.find(
-				(tile) => !occupied.has(`${tile.col},${tile.row}`) && isWalkable(tile.col, tile.row, office!.tileMap, office!.blockedTiles)
+				(tile) =>
+					!occupied.has(`${tile.col},${tile.row}`) &&
+					isWalkable(tile.col, tile.row, office!.tileMap, office!.blockedTiles)
 			);
 			if (spot) office.walkToTile(member.numericId, spot.col, spot.row);
 		}
@@ -768,16 +797,38 @@
 		const seat = character?.seatId ? state.seats.get(character.seatId) : null;
 		if (!character || !seat) return;
 		if (reducedMotion) {
-			snapCharacter(
-				character,
-				seat.seatCol,
-				seat.seatRow,
-				seat.facingDir,
-				member.semanticActivity ? CharacterState.TYPE : CharacterState.IDLE
-			);
+			snapCharacter(character, seat.seatCol, seat.seatRow, seat.facingDir, CharacterState.TYPE);
 			return;
 		}
 		state.sendToSeat(member.numericId);
+	}
+
+	/* The engine stands an inactive colleague up the moment they reach their
+	 * seat, and never walks one there unless observed typing. Everyone with
+	 * Work under way is walked to their desk and kept seated; only an observed
+	 * session types, the rest hold the still seated pose. */
+	function holdAtDesks() {
+		if (!office) return;
+		for (const member of members) {
+			if (!belongsAtDesk(member.presence) || staged.has(member.actorId)) continue;
+			const character = office.characters.get(member.numericId);
+			const seat = character?.seatId ? office.seats.get(character.seatId) : null;
+			if (!character || !seat || character.path.length || character.matrixEffect) continue;
+			const seated = character.tileCol === seat.seatCol && character.tileRow === seat.seatRow;
+			if (!seated) {
+				if (character.state !== CharacterState.IDLE) continue;
+				office.sendToSeat(member.numericId);
+				/* No way through right now: stay standing and try again. */
+				if (!character.path.length) character.state = CharacterState.IDLE;
+				continue;
+			}
+			if (member.semanticActivity) continue;
+			character.state = CharacterState.TYPE;
+			character.dir = seat.facingDir;
+			character.seatTimer = 1e6;
+			character.frame = 0;
+			character.frameTimer = 0;
+		}
 	}
 
 	function snapCharacter(
@@ -898,10 +949,7 @@
 						Math.abs(member.numericId) % Math.max(1, nextPlan.waitingSpots.length)
 					];
 				if (waitingSpot) sendToWaitingSpot(state, member, waitingSpot);
-			} else if (
-				(member.semanticActivity || member.presence === 'in-motion') &&
-				previous !== member.presence
-			) {
+			} else if (belongsAtDesk(member.presence) && previous !== member.presence) {
 				sendToWorkstation(state, member);
 			} else if (member.presence === 'available' && !ambientReservations.has(member.actorId)) {
 				sendToRestingSpot(state, member, nextMembers, nextPlan);

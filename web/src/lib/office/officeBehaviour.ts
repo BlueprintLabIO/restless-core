@@ -27,3 +27,18 @@ export function shouldCelebrateWorkCompletion({
 	const age = now - completedAt;
 	return age >= 0 && age < COMPLETION_CELEBRATION_RECENCY_MS;
 }
+
+/**
+ * Where a colleague belongs. Anyone with Work under way sits at their own
+ * desk: observed working, Work in motion, or a session reported whose
+ * observation is stale or cannot be matched to Work. Only an observed session
+ * animates typing; the others sit still, so the seat makes no activity claim.
+ */
+export function belongsAtDesk(presence: string): boolean {
+	return (
+		presence === 'observed' ||
+		presence === 'in-motion' ||
+		presence === 'stale' ||
+		presence === 'unknown'
+	);
+}
