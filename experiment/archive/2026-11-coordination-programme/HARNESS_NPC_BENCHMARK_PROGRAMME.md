@@ -32,7 +32,7 @@ governance and exception owner. Exact disjoint `RP-Q2` throughput is the remaini
 
 ## Stage A — exact unattended execution
 
-**Authoritative sprint:** [Sprint 26](../docs/sprints/sprint-26.md)
+**Authoritative sprint:** [Sprint 26](../../../docs/sprints/sprint-26.md)
 
 Sprint 26 owns the architectural fixes that models should not have to reason around:
 

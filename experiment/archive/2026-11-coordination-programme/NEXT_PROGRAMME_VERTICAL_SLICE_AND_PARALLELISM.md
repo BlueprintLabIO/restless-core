@@ -26,8 +26,8 @@ The next programme converts those results into product behaviour and a harder do
 
 | Order | Specification | Question answered |
 | --- | --- | --- |
-| 1 | [Sprint 30: accountable supervision without routine coordination tax](../docs/sprints/sprint-30.md) | Can Restless retain Exec and lead accountability while the nominal producing path pays for only the worker? |
-| 2 | [Dogfood 4 v0.6: Swift Arrival convincing vertical slice](../docs/dogfood/swift-arrival/dogfood-4-convincing-vertical-slice.md) | Can Restless repeatedly improve a complete rendered game loop until machine and human players accept it? |
+| 1 | [Sprint 30: accountable supervision without routine coordination tax](../../../docs/sprints/sprint-30.md) | Can Restless retain Exec and lead accountability while the nominal producing path pays for only the worker? |
+| 2 | [Dogfood 4 v0.6: Swift Arrival convincing vertical slice](../../../docs/dogfood/swift-arrival/dogfood-4-convincing-vertical-slice.md) | Can Restless repeatedly improve a complete rendered game loop until machine and human players accept it? |
 | 3 | [EXP-18: parallel-capacity crossover](exp-sprints/exp-sprint-18-parallel-capacity-crossover.md) | Does a supervised parallel team beat one durable worker on a genuinely disjoint economic queue? |
 
 Sprint 30 unblocks counted EXP-18. Dogfood 4 v0.6 may prepare its frozen baseline and deterministic suite while

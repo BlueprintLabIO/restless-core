@@ -3,7 +3,7 @@
 **Status:** Working explanatory theory
 **Date:** 26 August 2026
 **Authority:** Subordinate to `ARCHITECTURE.md`; empirical claims are indexed in
-`experiment/coordination/EVIDENCE.md`.
+`experiment/archive/2026-11-coordination-programme/coordination/EVIDENCE.md`.
 
 ## Central proposition
 

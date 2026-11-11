@@ -81,8 +81,8 @@ recorded the same reproducible post-route-40 blocker.
 
 This is a stronger result than the v0.4 walking skeleton and a negative product judgement at the next
 frontier. It also shows why scripted completion cannot be called independent playability. See
-[`EXP-11 RESULTS`](../../../experiment/coordination/experiments/EXP-11/RESULTS.md) and its
-[`founder review`](../../../experiment/coordination/experiments/EXP-11/FOUNDER_REVIEW.md).
+[`EXP-11 RESULTS`](../../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-11/RESULTS.md) and its
+[`founder review`](../../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-11/FOUNDER_REVIEW.md).
 
 ## Decision still owed
 

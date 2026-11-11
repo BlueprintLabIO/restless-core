@@ -77,4 +77,4 @@ it. “Accepted” never means universal.
 The completed v01–v23 programme remains the historical evidence base at
 [`experiment/coordination-lab`](../coordination-lab). Its reports are not rewritten. This folder
 corrects or promotes their interpretation through linked claims. The evaluation rules in
-[`docs/specs/evaluation-dogfood.md`](../../docs/specs/evaluation-dogfood.md) remain authoritative.
+[`docs/specs/evaluation-dogfood.md`](../../../../docs/specs/evaluation-dogfood.md) remain authoritative.

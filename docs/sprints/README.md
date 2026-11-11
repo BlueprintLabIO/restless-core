@@ -148,7 +148,7 @@ hard green requirement.
   which “better than direct harness use” positioning Restless has actually earned.
 
 Sprint 26 is the completed first stage of the
-[Harness → NPC → benchmark programme](../../experiment/HARNESS_NPC_BENCHMARK_PROGRAMME.md). EXP-16 and
+[Harness → NPC → benchmark programme](../../experiment/archive/2026-11-coordination-programme/HARNESS_NPC_BENCHMARK_PROGRAMME.md). EXP-16 and
 EXP-17 also concluded; the final benchmark selects solo production at outcome parity for the four
 observed bounded work shapes while preserving lead accountability as a product-governance invariant.
 

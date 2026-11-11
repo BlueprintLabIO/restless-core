@@ -10,8 +10,8 @@
 review paths. Its founder-deferred real-provider callback remains an observed open gate, not a claimed
 dependency already proved.
 
-**Evidence:** [EXP-05 final results](../../experiment/coordination/experiments/EXP-05/t05-final-results.md) ·
-[concurrent-company result](../../experiment/coordination/experiments/EXP-05/t04-company-concurrency.md) ·
+**Evidence:** [EXP-05 final results](../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-05/t05-final-results.md) ·
+[concurrent-company result](../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-05/t04-company-concurrency.md) ·
 [coordination theory](../COORDINATION_THEORY.md)
 
 **Spec refs:** `ARCHITECTURE.md` §2–§9 and §16; `orgintel` §6–§10;

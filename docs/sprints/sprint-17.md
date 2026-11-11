@@ -10,9 +10,9 @@ Sprint 12's connected desktop/mobile review and Sprint 16's remaining provider h
 open gates; this sprint does not silently close either one.
 
 **Evidence:**
-[`EXP-04 final results`](../../experiment/coordination/experiments/EXP-04/t02-final-results.md) ·
-[`EXP-04 harness conformance`](../../experiment/coordination/experiments/EXP-04/t01-wave0-conformance.md) ·
-[`coordination canon`](../../experiment/coordination/CANON.md)
+[`EXP-04 final results`](../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-04/t02-final-results.md) ·
+[`EXP-04 harness conformance`](../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-04/t01-wave0-conformance.md) ·
+[`coordination canon`](../../experiment/archive/2026-11-coordination-programme/coordination/CANON.md)
 
 **Spec refs:** `ARCHITECTURE.md` §4–§7, §9 and §16; `orgintel` §6–§8 and §10;
 `company-runtime` §4–§5, §9 and §11; `authority-plane` §7–§9 and §12;

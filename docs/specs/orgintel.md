@@ -848,7 +848,7 @@ One observed G-WORLD screen supports this default but does not prove universal t
 natural one-Staff leadership won blind artifact quality while remaining slower than solo. The first
 run also narrated a Staff contribution that never happened; zero Work and Attempts exposed it. The
 minimal factual `commission` boundary fixed the manipulation without adding a workflow. See
-[`experiment/coordination/experiments/EXP-01/natural-lead-result.md`](../../experiment/coordination/experiments/EXP-01/natural-lead-result.md).
+[`experiment/coordination/experiments/EXP-01/natural-lead-result.md`](../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-01/natural-lead-result.md).
 
 ### 6.3.2 A team requires useful difference or independent throughput
 

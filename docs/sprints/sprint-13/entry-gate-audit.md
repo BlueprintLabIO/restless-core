@@ -12,7 +12,7 @@ Did the repository contain one EXP-02 coordination affordance that had earned th
 
 ## Candidate evidence
 
-[EXP-02's production recommendation](../../../experiment/coordination/experiments/EXP-02/recommendation.md) answers no: it recommends no new durable coordination mechanism. Its [exit audit](../../../experiment/coordination/experiments/EXP-02/exit-audit.md) records these final dispositions:
+[EXP-02's production recommendation](../../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-02/recommendation.md) answers no: it recommends no new durable coordination mechanism. Its [exit audit](../../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-02/exit-audit.md) records these final dispositions:
 
 | Candidate | Evidence disposition | Product-pilot consequence |
 | --- | --- | --- |

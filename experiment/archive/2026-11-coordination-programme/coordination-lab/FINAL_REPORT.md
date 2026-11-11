@@ -107,7 +107,7 @@ Comparable outcome scores were:
 The regression is the important result. Harness maturity alone did not yield a commercial outcome.
 The score did not rise merely because infrastructure tests passed or partial code existed.
 
-Full dimension evidence is in [`SCORES.md`](./SCORES.md), with each run under [`runs/`](./runs/).
+Full dimension evidence is in [`SCORES.md`](SCORES.md), with each run under [`runs/`](runs/).
 
 ## Free-model evidence
 

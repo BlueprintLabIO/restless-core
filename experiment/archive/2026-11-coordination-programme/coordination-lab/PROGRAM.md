@@ -3,7 +3,7 @@
 Status: completed scratch experiment, not production architecture
 Started: 2026-08-22
 Completed: 2026-08-22
-Result: twenty evidence-producing mini-sprints, followed by the purge and recommendation in [`FINAL_REPORT.md`](./FINAL_REPORT.md)
+Result: twenty evidence-producing mini-sprints, followed by the purge and recommendation in [`FINAL_REPORT.md`](FINAL_REPORT.md)
 
 ## Question
 

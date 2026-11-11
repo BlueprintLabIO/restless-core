@@ -16,8 +16,8 @@ This index maps current claims to inspectable evidence. It does not copy raw tra
 
 | Evidence | What it supports or challenges |
 |---|---|
-| [`Exec delegation ADR`](../../docs/adr/0005-exec-dispatches-through-accountable-leads.md) + [`Exec prompt contract`](../../crates/restlessd/src/context.rs) | Accepted Exec → accountable-lead boundary is now present in architecture and the live prompt contract. |
-| [`parallel-department behavioural test`](../../crates/restless-orgintel/tests/actors_and_teams.rs) | Against live test Postgres, two non-producing leads each supervise a Staff-owned Work/Attempt concurrently; Exec and both leads own no production Attempt. |
+| [`Exec delegation ADR`](../../../../docs/adr/0005-exec-dispatches-through-accountable-leads.md) + [`Exec prompt contract`](../../../../crates/restlessd/src/context.rs) | Accepted Exec → accountable-lead boundary is now present in architecture and the live prompt contract. |
+| [`parallel-department behavioural test`](../../../../crates/restless-orgintel/tests/actors_and_teams.rs) | Against live test Postgres, two non-producing leads each supervise a Staff-owned Work/Attempt concurrently; Exec and both leads own no production Attempt. |
 | `v24-baseline-architecture-r4` (34/34) | B0/B1/B2 actor rosters, writable candidate ownership, no shared-memory confound, GPT/ACP launcher separation, observable manipulation labels and release actor-host capability negotiation. Raw scratch result remains under the ignored v2 workdir until the v24 report checkpoint is committed. |
 | `v24-requested-worker-proof` | On 23 August 2026 both `stealth/ox-alpha` and `z-ai/glm-5.2:free` were live-free, tool-capable, gateway-reachable and able to write an exact artifact. Admission elapsed 22.218s and 120.961s respectively. |
 | [`C-SL-01 run index`](experiments/C-SL-01/runs.md) | First small/high-coupling cell. Counted B1 was structurally valid and callback-complete but failed the hidden evaluator 10/11; matched B0 passed 11/11 in about 44% less time and 40% fewer tokens. Earlier invalid/preflight runs remain attributed separately. |

@@ -92,9 +92,9 @@ Artifacts:
 - Daemon inbound scenarios prove Authority-commit crash recovery and company-local provider
   degradation with the failed company's cursor left owed.
 - OrgIntel scenarios prove unknown Attempt recovery, causal interruption and successor attribution.
-- [`s17-explicit-callback-external-event-results.json`](../../../../experiment/coordination-lab/v2/workdir/s17-explicit-callback-external-event-results.json)
+- [`s17-explicit-callback-external-event-results.json`](../../../../experiment/archive/2026-11-coordination-programme/coordination-lab/v2/workdir/s17-explicit-callback-external-event-results.json)
   passed 4/4 checks: explicit callback delivery, no file polling and only the material arm creates a wake.
-- [`wave0-deterministic-gates.json`](../../../../experiment/coordination/experiments/EXP-04/results/wave0-deterministic-gates.json)
+- [`wave0-deterministic-gates.json`](../../../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-04/results/wave0-deterministic-gates.json)
   preserves local closure, zero assembler/duplicates, unknown usage fields, blind semantic review and
   batch-terminal lead wake behavior.
 
@@ -151,10 +151,10 @@ Passed with exact controlled source, bounded candidate, accountable lead and pen
 the preserved Work and handoff identifiers are in `owner-review-projection.md`.
 
 ```text
-python3 experiment/coordination-lab/v2/runner.py external-event-architecture-test \
+python3 experiment/archive/2026-11-coordination-programme/coordination-lab/v2/runner.py external-event-architecture-test \
   s17-explicit-callback \
-  --event-file experiment/coordination/experiments/EXP-03/T4/external-event.json
-python3 experiment/coordination/experiments/EXP-04/exp04.py deterministic-gates \
+  --event-file experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-03/T4/external-event.json
+python3 experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-04/exp04.py deterministic-gates \
   s17-wave0-regression
 target/debug/restless doctor -c s17_signal_test
 ```

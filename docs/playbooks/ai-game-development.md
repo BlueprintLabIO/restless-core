@@ -134,5 +134,5 @@ separate scenarios with their own evidence.
 
 The source guidance is [Swift Arrival’s AI-first development plan](../dogfood/swift-arrival/swift-arrival-ai-development-plan.md).
 The observed run is [Dogfood 4](../dogfood/swift-arrival/dogfood-4.md); the strict autonomous frontier
-result is [EXP-11](../../experiment/coordination/experiments/EXP-11/RESULTS.md). The repaired loop and
-its incomplete final acceptance are [EXP-14](../../experiment/coordination/experiments/EXP-14/RESULTS.md).
+result is [EXP-11](../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-11/RESULTS.md). The repaired loop and
+its incomplete final acceptance are [EXP-14](../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-14/RESULTS.md).

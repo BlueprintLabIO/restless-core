@@ -6,7 +6,7 @@ worktrees, and the host OMP model credential broker. It does not write productio
 
 Generated state lives under ignored `workdir/`.
 
-The completed v0/v1 experiment and its evidence are recorded in [`RESULTS.md`](./RESULTS.md). Do not
+The completed v0/v1 experiment and its evidence are recorded in [`RESULTS.md`](RESULTS.md). Do not
 reuse this harness as production infrastructure: v1 proved that opening a bind-mounted SQLite WAL
 from both the macOS host and the Linux container is unsafe, and concurrent processes also corrupted
 the direct JSONL trace. The report describes the single-writer replacement to test next.

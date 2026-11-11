@@ -15,7 +15,7 @@ repair is recorded in
 > agent overwrite on 30 August 2026. It is not recoverable. This file was rebuilt the same day from the
 > eight surviving ticket files in [`sprint-26/`](sprint-26/), the sprint's one-line summary in
 > [`README.md`](README.md), and the EXP-15/EXP-16 entries in
-> [`experiment/coordination/REGISTRY.md`](../../experiment/coordination/REGISTRY.md). The tickets are
+> [`experiment/coordination/REGISTRY.md`](../../experiment/archive/2026-11-coordination-programme/coordination/REGISTRY.md). The tickets are
 > original and untouched; **this spec's prose is a reconstruction and may not match the founders'
 > original wording, framing or emphasis.** Treat the tickets as authoritative where they differ, and
 > revise this file freely — nothing here should be preserved out of deference to a lost draft.

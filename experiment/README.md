@@ -1,46 +1,43 @@
-# Restless experiments
+# Restless research: Organisational Intelligence
 
-This is the single repository home for controlled experiments, their harnesses, small durable evidence
-and founder-approved experiment sprints. It replaces the former top-level `scratch/` directory.
+This folder holds Restless's research into **Organisational Intelligence (OI)**: what makes a group of
+AI agents, working for a person, produce better outcomes than its members could alone, and what makes
+it worse.
 
-## Layout
+Start with the [charter](oi/CHARTER.md).
 
-| Path | Purpose |
-|---|---|
-| [`exp-sprints/`](exp-sprints/) | Founder-reviewable experiment scope and acceptance contracts |
-| [`coordination/`](coordination/) | Current coordination canon, programme, registry, evidence and frozen experiment contracts |
-| [`coordination-lab/`](coordination-lab/) | Runnable harness, historical reports and ignored generated run state |
-| [`acp-spike/`](acp-spike/) | Historical ACP/runtime feasibility probes |
-| [`dream-office-demos/`](dream-office-demos/) | Quarantined visual experiments and comparison evidence |
-| Other root artifacts | Historical product, authority and outreach studies retained as evidence |
+## Files
 
-The experiment-sprint [index](exp-sprints/README.md) is the current contract ledger. Historical results
-remain immutable in their numbered execution directories; a later sprint may supersede a routing
-decision without rewriting the evidence that produced it.
+| File | What it is |
+| --- | --- |
+| [`oi/CHARTER.md`](oi/CHARTER.md) | The idea, the questions, the rules, and how OI shapes the product and its voice |
+| [`oi/METHOD.md`](oi/METHOD.md) | How every experiment is run so its results hold up |
+| [`oi/IDEAS.md`](oi/IDEAS.md) | The programme, the backlog and the evidence behind the choices |
+| [`oi/01-do-reviewers-check.md`](oi/01-do-reviewers-check.md) | Do AI reviewers actually check? |
+| [`oi/02-telephone-game.md`](oi/02-telephone-game.md) | How much of the owner's request survives each layer? |
+| [`oi/03-good-news-travels-up.md`](oi/03-good-news-travels-up.md) | Does bad news reach the owner? |
+| [`oi/04-forecasts-the-world-scores.md`](oi/04-forecasts-the-world-scores.md) | Do teams predict real auctions better? |
+| [`oi/05-org-chart-search.md`](oi/05-org-chart-search.md) | Searching for the best AI org chart |
+| [`archive/`](archive/) | Earlier experiments, kept as records, not current guidance |
 
-## Operating agreement
+## Shared task bank
 
-1. No live experiment starts before its experiment-sprint spec is founder-approved.
-2. A matched experiment freezes its task bytes, starting ref, model/tool envelope, evaluator and arm
-   order before the first counted arm.
-3. Generated databases, model homes, workspaces, build targets and traces remain ignored operating
-   state. Small immutable reports and decision-changing evidence are committed.
-4. Experimental game candidates stay in isolated harness worktrees. They do not silently become
-   Restless or Cosmon product changes.
-5. Simulated capability never runs against a live company. External effects require their normal
-   authority and are not implied by approval of an experiment sprint.
-6. Provider/runtime, harness, model and organisational failures are attributed separately.
-7. A losing or blocked branch stops at its decision gate. Completing a programme does not mean
-   accumulating every possible mechanism in production.
+Experiments 1, 2, 3 and 5 draw on one task bank, built once and reused: realistic requests in four
+kinds of work (code, research, resale appraisal, customer email), anonymised, each with frozen
+starting files and a grader. It lives in `oi/tasks/` when built. Experiment 2 builds it first.
 
-The persistent Company Linux Runtime may still contain an ordinary `/company/scratch` directory for
-disposable company-local exploration. That runtime convention is distinct from this repository area.
+## Rules
 
-## Completed programme
+1. No counted run starts before its plan is committed and the owner has approved it.
+2. Experiments run in sandbox companies on restless-dev. Nothing contacts a real person, spends real
+   money or changes a live company without separate approval.
+3. Generated run state (databases, model homes, workspaces, traces) stays out of git. Results, small
+   data files and analysis scripts are committed.
+4. Results are never rewritten. A later result can replace a conclusion, and says so.
 
-The [Harness → NPC → benchmark programme](HARNESS_NPC_BENCHMARK_PROGRAMME.md) completed its gated
-sequence. Sprint 26 passed the exact execution substrate. EXP-16 concluded negative at the boundary
-between deterministic mechanics and player-visible embodied evaluation. EXP-17 then found outcome
-parity but materially higher cost and latency for one supervised identical Codex worker across four
-sparse work shapes. The next experiment should isolate exact disjoint `RP-Q2` capacity rather than
-rerun bounded supervisory overhead.
+## Archive
+
+[`archive/2026-11-coordination-programme/`](archive/2026-11-coordination-programme/) holds the July to
+October 2026 coordination programme (EXP-01 to EXP-17, the coordination lab and design studies).
+[Read the archive note first](archive/2026-11-coordination-programme/ARCHIVED.md): it explains why it
+was archived and the limits of the often-quoted EXP-17 result.

@@ -13,12 +13,12 @@ run-specific after-actions; they do not become Dogfood 5 merely because the game
 ## Proposed Version 0.6 amendment — embodied NPC development loop
 
 After the v0.5 campaign freezes an exact candidate and Sprint 26 proves the execution substrate,
-[EXP-16](../../../experiment/exp-sprints/exp-sprint-16-embodied-npc-playtesting.md) proposes one shared
+[EXP-16](../../../experiment/archive/2026-11-coordination-programme/exp-sprints/exp-sprint-16-embodied-npc-playtesting.md) proposes one shared
 embodied-agent architecture for cheap delivery/recovery playtesting and real driver, robber and vampire
 behaviour. The evaluator must use ordinary player actions and physics; production roles may use
 host-authoritative perception but cannot directly mutate mission, cargo, delivery or combat outcomes.
 Its executable architecture, scenario and evidence contracts live beside the
-[EXP-16 controller record](../../../experiment/coordination/experiments/EXP-16/README.md).
+[EXP-16 controller record](../../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-16/README.md).
 
 This is a draft experimental amendment, not execution authority or a promoted game version. Dogfood 4
 remains the charter and receives the keep/revise/purge decision after source-blind current-candidate
@@ -38,7 +38,7 @@ presentation. A core refactor remains available when native evidence shows the t
 cannot express reliable intention, cooperation or the central physical toy.
 
 The controlled 30–60-loop campaign, objective gates, model envelope and terminal evidence are frozen
-in [EXP-15](../../../experiment/exp-sprints/exp-sprint-15-swift-arrival-vertical-slice-campaign.md).
+in [EXP-15](../../../experiment/archive/2026-11-coordination-programme/exp-sprints/exp-sprint-15-swift-arrival-vertical-slice-campaign.md).
 The founder is asked to judge fun only after independent players and current-candidate native evidence
 establish the objective slice. Until then, the honest label is `vertical-slice candidate`, not accepted
 game.
@@ -105,7 +105,7 @@ explicit scheduled product review is included to test time-driven continuity. Th
 opportunity, not evidence that more features are valuable, and may correctly close with no work.
 
 The controlled sequence, recovery injection, metrics and stop conditions are frozen in
-[`EXP-10`](../../../experiment/coordination/experiments/EXP-10/README.md). This amendment does not turn
+[`EXP-10`](../../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-10/README.md). This amendment does not turn
 the technically passing baseline into founder taste acceptance. The founder remains the final evaluator
 of whether the resulting native game deserves continued investment.
 
@@ -121,8 +121,8 @@ zero-delta interval.
 
 The source `swift_arrival_test` company was not silently advanced: failure injection and accepted
 experimental changes remain isolated until founder judgement. Review the exact before/after target in
-[`FOUNDER_REVIEW.md`](../../../experiment/coordination/experiments/EXP-10/FOUNDER_REVIEW.md) and the
-full architectural result in [`RESULTS.md`](../../../experiment/coordination/experiments/EXP-10/RESULTS.md).
+[`FOUNDER_REVIEW.md`](../../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-10/FOUNDER_REVIEW.md) and the
+full architectural result in [`RESULTS.md`](../../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-10/RESULTS.md).
 
 ## Why this run exists
 
@@ -315,5 +315,5 @@ acceptance review was withheld.
 
 The experimental disposition is `product-judgement-failure`; the prepared product decision is
 `revise`. Full evidence and costs are in
-[`EXP-11`](../../../experiment/coordination/experiments/EXP-11/RESULTS.md). Any successor must remain a
+[`EXP-11`](../../../experiment/archive/2026-11-coordination-programme/coordination/experiments/EXP-11/RESULTS.md). Any successor must remain a
 single bounded route-end exit/unload repair with one aggregate budget and strict fresh replication.
