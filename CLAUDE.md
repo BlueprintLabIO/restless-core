@@ -95,8 +95,9 @@ unused parallel capacity or context saturation can repay briefing, communication
 review. This is model judgement, not a team-size rule. Fast inference makes extra intra-lead
 boundaries especially expensive, but does not make teams obsolete. (Owner decision, 2026-10-19:
 leads produce directly and scale up members only when the need arises; this replaced the earlier
-non-producing-supervisor invariant, whose serial Exec/lead/worker chain EXP-17 measured at
-1.73x-3.30x the cost of solo work for matched quality.)
+non-producing-supervisor invariant. EXP-17 showed its serial Exec/lead/worker chain adding a roughly
+fixed $0.50 to $1.10 per task, with no quality change, on four small tasks a solo worker already
+aced. It does not show whether supervision pays on harder work; see `experiment/coordination/experiments/EXP-17/RESULTS.md`.)
 
 That prior applies mainly to several minds coauthoring one result. Repeated independent units—sales
 accounts, support cases, recruiting screens or similar queues—may justify a large elastic Staff pool
@@ -115,9 +116,12 @@ reaches Exec directly for a useful owner update or an explicit quiet decision. T
 lead acceptance or downstream completion. Direct Staff mail is for a genuinely new fact or
 contradiction that needs judgement before completion.
 
-EXP-17 makes the implementation constraint explicit: across four exact GPT-5.6 Sol pairs, a serial
-Exec/lead/worker/lead call chain matched solo outcome quality but cost 1.73x-3.30x and took
-1.77x-2.94x. Preserve the accountable lead and let it produce. Exec commissions a production
+EXP-17 points at the implementation constraint: on four small GPT-5.6 Sol tasks a solo worker
+already passed, a serial Exec/lead/worker/lead call chain added a roughly fixed cost (about $0.50 per
+task in supervisor turns) and 3 to 6 minutes, with nothing to catch. It was one run per side, so
+treat it as the cost of ritual turns, not as evidence about what supervision is worth. Preserve the
+accountable lead
+and let it produce. Exec commissions a production
 outcome as Work owned by the lead; do not manufacture fresh high-effort model turns merely to
 restate an exact brief or acknowledge an already passing bounded artifact. Every model call
 resends its session, so a wake starts lean: a hot session is resumed only while it is small, and
