@@ -1,0 +1,31 @@
+{
+ "id": "code-19",
+ "family": "code",
+ "commit": "0ddbc09e839aa9e2f2de0b9a3363dafa526f5ae3",
+ "commit_date": "2026-11-02",
+ "parent": "05a95b5ae55f4d63a301b38b44762e37a88b14cb",
+ "parent_tree": "043e1e99dcd7e6b41a5192a4110b661e77270920",
+ "source_paths": [
+  "web/src/lib/components/InboxList.svelte",
+  "web/src/lib/components/WorkDetail.svelte",
+  "web/src/lib/ui/page/Item.svelte",
+  "web/src/lib/ui/views/WorkBoard.svelte",
+  "web/src/lib/work/waiting.ts",
+  "web/src/routes/[companyId]/work/+page.svelte"
+ ],
+ "test_paths": [
+  "web/src/lib/work/waiting.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 272,
+ "test_lines_added": 204,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/work/waiting.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "dde280081535839b7840578a11fa6d75a3577d9bc8ba170808e99963bebf2dbf",
+ "hidden_tests_sha256": "293457ef825b122a6874e971e4c8b2e5671aaec89383d71aace9c0d0c556ed86",
+ "reference_change_sha256": "3121142158419bd070a50a599c0e7219347d10841017459b5ec6b8a76d5c1aab"
+}

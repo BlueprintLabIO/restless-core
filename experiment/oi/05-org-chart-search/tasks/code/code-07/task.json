@@ -1,0 +1,31 @@
+{
+ "id": "code-07",
+ "family": "code",
+ "commit": "263e23a98828f46d6eafcf03754be3bef867ef5c",
+ "commit_date": "2026-10-14",
+ "parent": "3ea35f6966e2bc9850699f956c557e161bfcc7db",
+ "parent_tree": "296d96bb150587153a1f9f0ccc4b379a558011d4",
+ "source_paths": [
+  "crates/restless-engine/src/company.rs",
+  "crates/restless-orgintel/src/actors.rs",
+  "crates/restless-owner/src/owner.rs"
+ ],
+ "test_paths": [
+  "crates/restless-orgintel/tests/actors_and_teams.rs"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 185,
+ "test_lines_added": 25,
+ "grade_command": [
+  "cargo",
+  "test",
+  "-p",
+  "restless-orgintel",
+  "--test",
+  "actors_and_teams"
+ ],
+ "grade_runner": "cargo",
+ "brief_sha256": "f853e9de291b4220c34397ac6f5559b1ed522b81bc78bb8fbaa4ef8749364975",
+ "hidden_tests_sha256": "e6b01e9880efe63187abde117eeaf20d4879d33c33d64696e8dfe54964ffd7f1",
+ "reference_change_sha256": "c91d3a4ddd5a05506b5aae94062eb973e8da639935465dce91c6a56036cbba2f"
+}

@@ -1,0 +1,29 @@
+{
+ "id": "code-16",
+ "family": "code",
+ "commit": "602f226ddd4cf7f2812c875aabc057e02ca2296f",
+ "commit_date": "2026-10-27",
+ "parent": "092473c389482af4d8b69e1dd1313769cdb4dd5c",
+ "parent_tree": "34c2d88d089889f5c8bbeff2ab61de14c1b7f11d",
+ "source_paths": [
+  "crates/restless-orgintel/src/access.rs"
+ ],
+ "test_paths": [
+  "crates/restless-orgintel/tests/access.rs"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 44,
+ "test_lines_added": 109,
+ "grade_command": [
+  "cargo",
+  "test",
+  "-p",
+  "restless-orgintel",
+  "--test",
+  "access"
+ ],
+ "grade_runner": "cargo",
+ "brief_sha256": "3fa86eb6accbcf45c8e7074b6337c5f6ab086f3a9ab7862d48fc730a120ed081",
+ "hidden_tests_sha256": "c02f5a3ce990720471368d378fcf3b17d54d95579b8acded422fbd0dd4f1741e",
+ "reference_change_sha256": "a83affdc2ee7c4d517c93ba6d8670e6f7bfae4e51dae1555b8b03153d1cf2a41"
+}

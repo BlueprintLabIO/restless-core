@@ -1,0 +1,1385 @@
+{
+ "version": 1,
+ "tasks": [
+  {
+   "id": "code-01",
+   "family": "code",
+   "group": "commit:d657677a62091b97c95e75e419bf396676c753b0",
+   "stratum": "cargo",
+   "content": {
+    "brief": "6577e246435276ef7e12309bcc16e70cf74b857714cf50d9418ad309c67727c4",
+    "hidden_tests": "51266db5e9398cd7725e7a5dff97a1b7d77e7b91e374cdd95cea4b9e237d214e",
+    "reference_change": "10222f1e22b5794123064d8353864cecaca0bdf1c11de169ff51d0524a0a400b"
+   }
+  },
+  {
+   "id": "code-02",
+   "family": "code",
+   "group": "commit:d8b4c0ed4282e4b1a2374fe7e56404a0535c1729",
+   "stratum": "node",
+   "content": {
+    "brief": "844359759394b79edd6ceb3158576b6a00328acff72be9d4683121214ce1724d",
+    "hidden_tests": "80c28dce9ef2889979a5359e50399d97ef98176d5c82696f353191a1daf8a2bd",
+    "reference_change": "f0107271930b6208519266824ddc560298b441c72f41b902aed491f3243805cc"
+   }
+  },
+  {
+   "id": "code-03",
+   "family": "code",
+   "group": "commit:463adb6a941c149e499f6d36c22e14f498fd56b8",
+   "stratum": "node",
+   "content": {
+    "brief": "ebe7cfd2b3933d418a839a62d40cd88ac7c1487f57acbe9de6beb1c766de9653",
+    "hidden_tests": "b462c75385036de5f0f0241aa1fc2fe2a023c87d894fe1c77647900e8dfa4470",
+    "reference_change": "ab10c5f174430c4c0a3ccf74880a49c02845a14295342124723e2751ca8802e8"
+   }
+  },
+  {
+   "id": "code-04",
+   "family": "code",
+   "group": "commit:ee0bc7950c6c711dbfe7f01a7dcc6f3bd15c1ee2",
+   "stratum": "cargo",
+   "content": {
+    "brief": "2cea14cf7f71fcde8f33e70112bd139b60618b91166e5b67cdd66e30fa20d919",
+    "hidden_tests": "ebcc60c75cf633342bf4c912c7214090fb054b595b1291e4db0a3468d124a610",
+    "reference_change": "e86054de6563b17538c6a13113c02f4d93ba4752e3337271eb5f18be7fa00f11"
+   }
+  },
+  {
+   "id": "code-05",
+   "family": "code",
+   "group": "commit:f1e85ef21c4db84c71c9d6ee05220e252a878d9d",
+   "stratum": "cargo",
+   "content": {
+    "brief": "cde2d9e130194c329d5473bc96ef57efa235f87956558c40a15f5581c3b97af6",
+    "hidden_tests": "8587e7543ed482bbcce6b1bb3127cbb0b49a190a5cbed1549ab8e17f6de7d278",
+    "reference_change": "678d93a8e86c5b0cc75647a3203925ad0ab33f08069a3fe011357fc2b1be2555"
+   }
+  },
+  {
+   "id": "code-06",
+   "family": "code",
+   "group": "commit:2003476edaf7219059af6735e26317cb0a262fe7",
+   "stratum": "node",
+   "content": {
+    "brief": "150da64fe2f18f409a65c6a60fc5883383e3d1d8ccc4e1ac5aa146d3c593d283",
+    "hidden_tests": "98faee4ab8809227d85f6416bde8a750c0f45f62c88bbf8455fbc1b20368391f",
+    "reference_change": "95f2170d85fb7b1482999fa87119981fc3d29982105c51b6caaf3e1cb26ea62b"
+   }
+  },
+  {
+   "id": "code-07",
+   "family": "code",
+   "group": "commit:263e23a98828f46d6eafcf03754be3bef867ef5c",
+   "stratum": "cargo",
+   "content": {
+    "brief": "f853e9de291b4220c34397ac6f5559b1ed522b81bc78bb8fbaa4ef8749364975",
+    "hidden_tests": "e6b01e9880efe63187abde117eeaf20d4879d33c33d64696e8dfe54964ffd7f1",
+    "reference_change": "c91d3a4ddd5a05506b5aae94062eb973e8da639935465dce91c6a56036cbba2f"
+   }
+  },
+  {
+   "id": "code-08",
+   "family": "code",
+   "group": "commit:45726330034868f28dc97e8f48395aa6218278f5",
+   "stratum": "node",
+   "content": {
+    "brief": "bcfbf1db743316299f3aafce61eb9b51e48258f6a07d3df2c23df13b1b31db09",
+    "hidden_tests": "365044f194c9085ed2a534c04f7c63e74385cc654095b38c7547d8f1835cf0ec",
+    "reference_change": "8e743982255d2db318b234e92644337fb59849d6b6f2dbc3b9435384a98b3a6c"
+   }
+  },
+  {
+   "id": "code-09",
+   "family": "code",
+   "group": "commit:a6734500c114ad710162f56a7b490dd5ba2565f0",
+   "stratum": "node",
+   "content": {
+    "brief": "e7f866d9a8f263cedde5c0f52d71bb561e2df7134333c6ea272b950e6ca02941",
+    "hidden_tests": "c9272a9df926be4b5451aa79fd644acd308475d23211168adcc2d6206dcd7f14",
+    "reference_change": "b6fb3382110c0c4e1a08fcd2f756e1dc9da2f8fd8bfb84ddccde16d4e72911fa"
+   }
+  },
+  {
+   "id": "code-10",
+   "family": "code",
+   "group": "commit:339d0a3e76a36a6757784c65965a0b1564b4634a",
+   "stratum": "node",
+   "content": {
+    "brief": "37fbaf861d424ddb6742d8a9044ff012f62f1b0b2e57e3d7ebc281898bbfd021",
+    "hidden_tests": "7e3ffdd36288e37e8cbb16c40080cc3991267700f236ee9412750cce7682d2e3",
+    "reference_change": "bb46930c988b954daca3a2d03af66517af9a3fca34914bd7257ba63ebee340d7"
+   }
+  },
+  {
+   "id": "code-11",
+   "family": "code",
+   "group": "commit:15d772ebcbd56c1ccbadb6ca2cd9be01e4e80598",
+   "stratum": "node",
+   "content": {
+    "brief": "c9272f18599632353dd03448558b15ed168874ef8ed8091e59f98fcb5449e2c7",
+    "hidden_tests": "3e6767a1d55151fbee0e525d3f6306a23316adf061d42ca100de376ac84430cf",
+    "reference_change": "9b83615230a7a2c87ccf59bd451a1aedba9d2a100ebc0c82a3d40956e9ca7fbd"
+   }
+  },
+  {
+   "id": "code-12",
+   "family": "code",
+   "group": "commit:de9aadff6e66093f1793c3f865f3023d5b88b040",
+   "stratum": "node",
+   "content": {
+    "brief": "2349fd6e7068d558101afc45868708a6cf5fec80a8b656814b1bc8f45398570d",
+    "hidden_tests": "86a8c5cd1eed0db96fa538a7233bb5b2ac7a83a480766523439b376c768b64e6",
+    "reference_change": "8df421cf3ad89953fd7c6a75fbb55fcf78020019660deda6e6e92caa9b0ab319"
+   }
+  },
+  {
+   "id": "code-13",
+   "family": "code",
+   "group": "commit:e2f56656ae46f200ddbeccedf58353b98bf72e26",
+   "stratum": "node",
+   "content": {
+    "brief": "451fd675cfd87d738a10e9a7fd9a1ad22522620efa37d54bdd760f85fcf52d0e",
+    "hidden_tests": "29e58f898b8e4d7a24d398c7748b50f4d4a5c3b14718a6acc3bf5954b382433e",
+    "reference_change": "be18846611967c6b5525b84902ac05a6bd2a5b3738390441b24e98ff9998354e"
+   }
+  },
+  {
+   "id": "code-14",
+   "family": "code",
+   "group": "commit:5adc57299e9f90f359a91724d0417953c67e504d",
+   "stratum": "node",
+   "content": {
+    "brief": "3e4056c98a46784cac0b3c4e4c79d9741315bf81464cb3b153c519dc9a2a8dbe",
+    "hidden_tests": "63aa8d04af059a0fb4496ff5765d88bb86a33919636a8003ed4bdfb54d39a42a",
+    "reference_change": "992852fd750b73cbe433f162ce8c5d11d89e182507f5129157db6fb074eccb07"
+   }
+  },
+  {
+   "id": "code-15",
+   "family": "code",
+   "group": "commit:903d2fb648210b9b7adff561d314e68751b48f7d",
+   "stratum": "cargo",
+   "content": {
+    "brief": "42b0668be998cbf5e96edbf6d59184124b4c6fa81b23510b4e694720f641bc92",
+    "hidden_tests": "5b6579cc62f6ecd02c0d45e01a5770a33a16de20a6f58a3b8f4ab5ce559cbf5b",
+    "reference_change": "bbe472a6454296221d3d8eef3ed0db4d0326d662030bd23df820754d638ad698"
+   }
+  },
+  {
+   "id": "code-16",
+   "family": "code",
+   "group": "commit:602f226ddd4cf7f2812c875aabc057e02ca2296f",
+   "stratum": "cargo",
+   "content": {
+    "brief": "3fa86eb6accbcf45c8e7074b6337c5f6ab086f3a9ab7862d48fc730a120ed081",
+    "hidden_tests": "c02f5a3ce990720471368d378fcf3b17d54d95579b8acded422fbd0dd4f1741e",
+    "reference_change": "a83affdc2ee7c4d517c93ba6d8670e6f7bfae4e51dae1555b8b03153d1cf2a41"
+   }
+  },
+  {
+   "id": "code-17",
+   "family": "code",
+   "group": "commit:53f374954bf84badbbf1af22ebdb7afee14ae355",
+   "stratum": "node",
+   "content": {
+    "brief": "be07045f207de6c4a4760c82e23a49cfe4aa2d52566a2f449875c820bdcbcb4d",
+    "hidden_tests": "db3704104d5dd4e42f900cf6069debe0c3915948c50d89200ad00e9b296dcb5a",
+    "reference_change": "f4e5223906e3ba752d7763a939f3583be0a2b3a7f9b4d0b1044c507e401a9779"
+   }
+  },
+  {
+   "id": "code-18",
+   "family": "code",
+   "group": "commit:067acd50ceb86bbbc5ab72a6f3d26a81592b904b",
+   "stratum": "node",
+   "content": {
+    "brief": "033b610f85f0b16ee3f651eeae8c6e3b537db8fb77ae783e8d601df90a5c3eca",
+    "hidden_tests": "225107d5332c945173a1fd855b745593d770957612252f77eb9481ff6c6f42b9",
+    "reference_change": "c8bce96d88c4a998a08fb32ac0c691df06b4b8194b7fef962ae87774914a657e"
+   }
+  },
+  {
+   "id": "code-19",
+   "family": "code",
+   "group": "commit:0ddbc09e839aa9e2f2de0b9a3363dafa526f5ae3",
+   "stratum": "node",
+   "content": {
+    "brief": "dde280081535839b7840578a11fa6d75a3577d9bc8ba170808e99963bebf2dbf",
+    "hidden_tests": "293457ef825b122a6874e971e4c8b2e5671aaec89383d71aace9c0d0c556ed86",
+    "reference_change": "3121142158419bd070a50a599c0e7219347d10841017459b5ec6b8a76d5c1aab"
+   }
+  },
+  {
+   "id": "code-20",
+   "family": "code",
+   "group": "commit:8a0d3b2f9aca9e742a1a4408e3be9cf8b1780f8a",
+   "stratum": "node",
+   "content": {
+    "brief": "7d9899c7dd0b1c941ec06c79e36aa0479e92d3a06a165542006bf90ffbd46bf0",
+    "hidden_tests": "8b388ebeef9f11fa2cc59b61d4d2aaf707cb6868cf40ba58d881f77eb401ef0a",
+    "reference_change": "39043cc4a9c50d07f2ef3c57c83ba2594f872f0012c6496386e2ecd3180de1e0"
+   }
+  },
+  {
+   "id": "code-21",
+   "family": "code",
+   "group": "commit:a3147cbb460f123eac060c0fa72888a746e7c598",
+   "stratum": "cargo",
+   "content": {
+    "brief": "a9c31d99745dcda3212864896d8ef61541d9705a693c083f7576786dc89c4e05",
+    "hidden_tests": "f3fc6beda14a53d3d8154216de0fa3c4f23d6a23f7e70c72373a8a86097cf461",
+    "reference_change": "a032659df3c447d1c711c35a10991743a912fa70fb5afcf041a1e526b713f20f"
+   }
+  },
+  {
+   "id": "code-22",
+   "family": "code",
+   "group": "commit:ad0cae1ab7be6354e8de431102e2d49cf3143ebf",
+   "stratum": "node",
+   "content": {
+    "brief": "29cc61940f06a69915cbf0ebf887fd6f329c23890fea7111b27e57eabbdc9bb2",
+    "hidden_tests": "9b2ac32e5563a091a64c02df8b9130a1da8a93e36862cbf6ce4065c804505927",
+    "reference_change": "d1f74b0cd115cd515a9d57e386438ad2016184fd5cd1c1a6669e36a7ae47dc1a"
+   }
+  },
+  {
+   "id": "code-23",
+   "family": "code",
+   "group": "commit:b8f208e2a421b06e635b7ff11284be450477348b",
+   "stratum": "node",
+   "content": {
+    "brief": "215aeea08b203e62f6a63d7a698cc05ab3e6681c1516afe20c0ddbd7735a32c0",
+    "hidden_tests": "16653020f6fe685eaf9c7cc5c9671a0c43bf1775f5f1ed3db2a2ef9c558053de",
+    "reference_change": "1d7344fc89e9cdfa79bff740e5b9c8d12c789e0b81a2efd894a63cfda54f4e09"
+   }
+  },
+  {
+   "id": "code-24",
+   "family": "code",
+   "group": "commit:f514996fe860cf3ffd5b0c959add0b402c19f227",
+   "stratum": "node",
+   "content": {
+    "brief": "b08ab10932b74405777871ad04218850a6d195ad24bde043967e7e1672ec1535",
+    "hidden_tests": "b46f52897ffef1eee9b23cf461df711a8b8b28f06471e12bcc2ea587ca753047",
+    "reference_change": "326797e28b76dcb9403760b3fabe730052482ba1c60c3f5f9a371a736ff013ed"
+   }
+  },
+  {
+   "id": "code-25",
+   "family": "code",
+   "group": "commit:22769e1258064fcabab803f1ec87eff48cf03c58",
+   "stratum": "cargo",
+   "content": {
+    "brief": "071c309ffc8344e0f6cf8047b9e22a3d54cc09228686449496c3e7af97534d19",
+    "hidden_tests": "ab7e66f5cb1d7a1b56866bdc611bb3d1817745a7149f4382a68380ed55531077",
+    "reference_change": "7026dd2cbe45d74c3fde2119a9fa3df2a372158340d16c42d06cc71264336ed0"
+   }
+  },
+  {
+   "id": "code-26",
+   "family": "code",
+   "group": "commit:46edae493df63624c92df6ba709cf88a4b2fc399",
+   "stratum": "cargo",
+   "content": {
+    "brief": "dd192c634f02f83835b1138fe11aa626c153254aeed90e2480ae9bf6b8d8eaef",
+    "hidden_tests": "5642efb6dacefa3bb707fb180fa1fff6a0d4cc7e6d904ba75d99ea10a2e32824",
+    "reference_change": "9e84dc9d9dbe3739a389c98d0ee5c372de313ba64b1d6a82e82171377f5d9b4b"
+   }
+  },
+  {
+   "id": "code-27",
+   "family": "code",
+   "group": "commit:f98927ef8f9e59872d9d8b366322c6be0eee6951",
+   "stratum": "node",
+   "content": {
+    "brief": "484c01fbd8c319713c6aab10c88e8e07d4983a4860b17a7d5cee5dff004394fb",
+    "hidden_tests": "fb6a0d48b9adc48222f3be196ed311403ea21e46d9bc7fb1bd05ad46bc0bb786",
+    "reference_change": "24a9bc79be07b10d9ce83aa3ed05418f7b46715ad3648c9dcff78988b5c936a2"
+   }
+  },
+  {
+   "id": "code-28",
+   "family": "code",
+   "group": "commit:718578c352343bdc680faaa14a952f79eedca411",
+   "stratum": "node",
+   "content": {
+    "brief": "3d00ef6f9b16fc3ddc037982bec4a98789e165f7b94e4f7098a24c3337c9f959",
+    "hidden_tests": "2c51269161325ddb7c326675156bf93d6d66244d3bf2bcdf713ae6a758cec702",
+    "reference_change": "75cdb1b88b70b55248077e1a1d09b898e27708fbb9cae8d1a13cd089c178f20c"
+   }
+  },
+  {
+   "id": "code-29",
+   "family": "code",
+   "group": "commit:bc8f9e05f8b84ad674f4999ae7eee4b8c552d85b",
+   "stratum": "node",
+   "content": {
+    "brief": "65858a974ab30d8b94d340c1c7cbc98c0639753ff5409f9d283a687abb0ddca7",
+    "hidden_tests": "e2db3504d86bffee8cbdd7c31b57e70f5c97d7b4115e09db005767b2d55dea40",
+    "reference_change": "e941349c550ee2cc414c64644897c34c33e0119b6ddfbcf0e17819b7440108fe"
+   }
+  },
+  {
+   "id": "code-30",
+   "family": "code",
+   "group": "commit:b81e161313ce911b471c3abee67beb529ecbe3c3",
+   "stratum": "cargo",
+   "content": {
+    "brief": "7e94bb31b81ca033f6f303fc923cc38bae646acba63745b3de868cde0ce2f7c7",
+    "hidden_tests": "c1c03ed4e4f90affea50f8087fbe14174f501dbeb5c4bab9116408da1a59e67e",
+    "reference_change": "0347adf7e89ed61679c28c4c5807f4cccfce51ae5717e26db8eebe910b2650fd"
+   }
+  },
+  {
+   "id": "research-01",
+   "family": "research",
+   "group": "world:w-01",
+   "stratum": "",
+   "content": {
+    "question": "fb4e6f4e13c8a16bc655896171f56c87e24071354528f1677ce8dc48eb491889",
+    "key": "cb23fe91ac2abd7f2c3a1eb5804caa815bc0c469701b97ce256ad845fe3ee8ea",
+    "doc:01-register.md": "d2ac9b9a3a0e7de730ef11a1c3b47b4e67d5c126db556106d0ebb32e98bc8b4b",
+    "doc:02-annual-return.md": "693ea2bb495d97911fa0098617c6930a61cec40321881daa7213d5cf0a99ea28",
+    "doc:03-units-note.md": "8523e4da2b295291c9d094f1f58f0524a92846683f08b4a491365721e6755447",
+    "doc:04-correction-notice.md": "c046446a821cb81cf90daf2b9f2b90ff4e3bbe5b6ae2bbcc71399442583ab24b",
+    "doc:05-draft-return.md": "f82737a828f5e371be688e6fb5821f25c213fd5d170038bfcc9cdba16a3a5f54",
+    "doc:06-withdrawals.md": "c9a9af6e669dc418f6958f2267d9a5929a22106090452c6e74720f4b9c7f469c",
+    "doc:07-former-names.md": "1e3f2f3ecd3fe454fc85f10a1df383e1a1efff30dd49f91d7198ca358c89c5b6",
+    "doc:08-log.md": "48ae86a52e7077b20f165ac04da6bcc7db0733a450035d86d6f437c2ef36aedd",
+    "doc:09-void-entries.md": "8f465d7daade3170bda95dddc487f133fefdd827cfab76d6fedda29cdfaf786b"
+   }
+  },
+  {
+   "id": "research-02",
+   "family": "research",
+   "group": "world:w-01",
+   "stratum": "",
+   "content": {
+    "question": "0b6631554e1b23695b259b0caa1a2deb560559e89cc471a5fd97ffe4e6711025",
+    "key": "c8152d91b73df16cfd3419cb8cb35630db21ac0e5951a155f7d6f62b943abbfb",
+    "doc:01-register.md": "d2ac9b9a3a0e7de730ef11a1c3b47b4e67d5c126db556106d0ebb32e98bc8b4b",
+    "doc:02-annual-return.md": "693ea2bb495d97911fa0098617c6930a61cec40321881daa7213d5cf0a99ea28",
+    "doc:03-units-note.md": "8523e4da2b295291c9d094f1f58f0524a92846683f08b4a491365721e6755447",
+    "doc:04-correction-notice.md": "c046446a821cb81cf90daf2b9f2b90ff4e3bbe5b6ae2bbcc71399442583ab24b",
+    "doc:05-draft-return.md": "f82737a828f5e371be688e6fb5821f25c213fd5d170038bfcc9cdba16a3a5f54",
+    "doc:06-withdrawals.md": "c9a9af6e669dc418f6958f2267d9a5929a22106090452c6e74720f4b9c7f469c",
+    "doc:07-former-names.md": "1e3f2f3ecd3fe454fc85f10a1df383e1a1efff30dd49f91d7198ca358c89c5b6",
+    "doc:08-log.md": "48ae86a52e7077b20f165ac04da6bcc7db0733a450035d86d6f437c2ef36aedd",
+    "doc:09-void-entries.md": "8f465d7daade3170bda95dddc487f133fefdd827cfab76d6fedda29cdfaf786b"
+   }
+  },
+  {
+   "id": "research-03",
+   "family": "research",
+   "group": "world:w-02",
+   "stratum": "",
+   "content": {
+    "question": "7991b0b7ce7c2d691b546e0a759d8116592735c399ac2f943bc0f67c996f3b5e",
+    "key": "69dbf0bfff14f387e266fa9842228b7420d21031e39479060af3976f5b8bbfb5",
+    "doc:01-register.md": "63dba8c51421c9ddeadb00337409521ef7e700bc471d7b2dbb0bf9c9c1825c34",
+    "doc:02-annual-return.md": "3c0eec1dcdfc70de63f91e6859d870041e2345f30be67767d4bdda3011af2d15",
+    "doc:03-units-note.md": "decf480664247d7db487f554eb6a491b52780de6174d41a1689d971bd577e5c6",
+    "doc:04-correction-notice.md": "b5b66f5b374217299ee19191f033a4c148ac2e3ba7d3964e679047083be33e65",
+    "doc:05-draft-return.md": "d2000ef3fb220bdd36545f5e202d8569d9036b41b61c19f5fb9a6371b7833450",
+    "doc:06-withdrawals.md": "25422afd56bac0b85642fa4c75b96f663208357031bf4a119eafda37b28435bf",
+    "doc:07-former-names.md": "4312f34efcc8a3375aad383d02340dabf7fc9924dadd8c555b6fb97b2129c569",
+    "doc:08-log.md": "07a3cfc402d7c73cce3adf58908113786451cd86bd28336c087efccbd4ca05b5",
+    "doc:09-void-entries.md": "fb82bd8536fb40b6615a2991784ea8664e42e0e136130683071ff1c2e30382eb"
+   }
+  },
+  {
+   "id": "research-04",
+   "family": "research",
+   "group": "world:w-02",
+   "stratum": "",
+   "content": {
+    "question": "da50f42e378cac75ae4aa6653460d641dffaca312fa63fe579a046a67e15c6c3",
+    "key": "bd213be4980c7d16a9a118fafeab30fa152e3bf05e1156d6085b088c2f4df786",
+    "doc:01-register.md": "63dba8c51421c9ddeadb00337409521ef7e700bc471d7b2dbb0bf9c9c1825c34",
+    "doc:02-annual-return.md": "3c0eec1dcdfc70de63f91e6859d870041e2345f30be67767d4bdda3011af2d15",
+    "doc:03-units-note.md": "decf480664247d7db487f554eb6a491b52780de6174d41a1689d971bd577e5c6",
+    "doc:04-correction-notice.md": "b5b66f5b374217299ee19191f033a4c148ac2e3ba7d3964e679047083be33e65",
+    "doc:05-draft-return.md": "d2000ef3fb220bdd36545f5e202d8569d9036b41b61c19f5fb9a6371b7833450",
+    "doc:06-withdrawals.md": "25422afd56bac0b85642fa4c75b96f663208357031bf4a119eafda37b28435bf",
+    "doc:07-former-names.md": "4312f34efcc8a3375aad383d02340dabf7fc9924dadd8c555b6fb97b2129c569",
+    "doc:08-log.md": "07a3cfc402d7c73cce3adf58908113786451cd86bd28336c087efccbd4ca05b5",
+    "doc:09-void-entries.md": "fb82bd8536fb40b6615a2991784ea8664e42e0e136130683071ff1c2e30382eb"
+   }
+  },
+  {
+   "id": "research-05",
+   "family": "research",
+   "group": "world:w-03",
+   "stratum": "",
+   "content": {
+    "question": "25530f5814cf69f37b16082bc1471b2f86f9cb32a516330d2d7183c9c7b41ebc",
+    "key": "cea988830398e275bb9ee0e2c8f22afa8471cc56c6d639c50795bad3a258b8d9",
+    "doc:01-register.md": "924cb905b2417445db03d54f1678d7c37163b5458d8c956895a063798e183af0",
+    "doc:02-annual-return.md": "3bd4737776abc7ee70bc6ac3305861f2efb2c8179f0661771499695f2963ff12",
+    "doc:03-units-note.md": "d44af7d5877ded7038b9db3175dc19e7afeac6f00373c8f75512d36e3346e40d",
+    "doc:04-correction-notice.md": "d3fbdf4efa8bec1c480fce554158f2f90984a14db9ea8144daa15559e60afecd",
+    "doc:05-draft-return.md": "ecb196ecc4873814b36ae7e53f194debb58bec7025d870f2ab3d8c12731ade26",
+    "doc:06-withdrawals.md": "2a20e34f840dd025961a56d98d03f07fc67020c007e1333aa85a7e35cd7ec74e",
+    "doc:07-former-names.md": "3a934811d08e8849ccf3c24d765820da4a084e2f3cb7b2580a9c0819317895bd",
+    "doc:08-log.md": "c2c806ba91d305400d4ed903521865342a120245946af6f60a49e2f08432f579",
+    "doc:09-void-entries.md": "d8c080083a308346b7e449d5eb931f0c828864e50df2874705e8a9091c27d319"
+   }
+  },
+  {
+   "id": "research-06",
+   "family": "research",
+   "group": "world:w-03",
+   "stratum": "",
+   "content": {
+    "question": "dd1d4bd22f71c226faf8538a152615652515cec9d8b15c566baf581a77268cd3",
+    "key": "4b3f42b9d4758906bcb3793242b9373b5d5add568e9108ea1b50c17cfe5869c2",
+    "doc:01-register.md": "924cb905b2417445db03d54f1678d7c37163b5458d8c956895a063798e183af0",
+    "doc:02-annual-return.md": "3bd4737776abc7ee70bc6ac3305861f2efb2c8179f0661771499695f2963ff12",
+    "doc:03-units-note.md": "d44af7d5877ded7038b9db3175dc19e7afeac6f00373c8f75512d36e3346e40d",
+    "doc:04-correction-notice.md": "d3fbdf4efa8bec1c480fce554158f2f90984a14db9ea8144daa15559e60afecd",
+    "doc:05-draft-return.md": "ecb196ecc4873814b36ae7e53f194debb58bec7025d870f2ab3d8c12731ade26",
+    "doc:06-withdrawals.md": "2a20e34f840dd025961a56d98d03f07fc67020c007e1333aa85a7e35cd7ec74e",
+    "doc:07-former-names.md": "3a934811d08e8849ccf3c24d765820da4a084e2f3cb7b2580a9c0819317895bd",
+    "doc:08-log.md": "c2c806ba91d305400d4ed903521865342a120245946af6f60a49e2f08432f579",
+    "doc:09-void-entries.md": "d8c080083a308346b7e449d5eb931f0c828864e50df2874705e8a9091c27d319"
+   }
+  },
+  {
+   "id": "research-07",
+   "family": "research",
+   "group": "world:w-04",
+   "stratum": "",
+   "content": {
+    "question": "4782b9452d88d8cf3dc73515e444e6f4105c54af90f7cdec70178a531c056800",
+    "key": "d9ff47c7935038c5a23e48e4823935411a6f08c93086d76be38e71c5e698fff8",
+    "doc:01-register.md": "6c5faf877cd06673eea4b661af1ec90eacacd9741b0ee4222961c7283fac3b81",
+    "doc:02-annual-return.md": "0b54369743ccec9c65a3eeef3b8267eb09fe2d4447d1db3a8dba9587da218b5e",
+    "doc:03-units-note.md": "ee7a8f4bf28c6348e0a003980dee514ba71dd0393a8118306d23ea03322a27bc",
+    "doc:04-correction-notice.md": "38ff671852fae9898eb7cb20ca66655a2101cfafe4b9f927d19e7b0b55afbaa3",
+    "doc:05-draft-return.md": "fc798801fc1ea0a3b60802eb9dacb7765301022b5d0b6f353794e9966b7ba9da",
+    "doc:06-withdrawals.md": "d45503830fe9c430086bd753275c632a99c8642717db5df2fd843da009468416",
+    "doc:07-former-names.md": "0277d733f53612175866061a3700520d6b581fefc1b9c9fd1078aba076a45c75",
+    "doc:08-log.md": "92b83528867129819f1e94ab831fcb3dfb28f4fe691ca044c1cfae5dd6515b61",
+    "doc:09-void-entries.md": "1e5e87e2048d394fb5dbc0ad82a042c804505f478ebf2ebcbd51a28cdd23d87d"
+   }
+  },
+  {
+   "id": "research-08",
+   "family": "research",
+   "group": "world:w-04",
+   "stratum": "",
+   "content": {
+    "question": "710bd32dcd7616c5e248bccd2f5ec071f145198ef2fbcb0c067f2055c399eb28",
+    "key": "6868894dff0ddc28f2632f14315be4e7ef25fc7062a5c3daeb43d25891deb379",
+    "doc:01-register.md": "6c5faf877cd06673eea4b661af1ec90eacacd9741b0ee4222961c7283fac3b81",
+    "doc:02-annual-return.md": "0b54369743ccec9c65a3eeef3b8267eb09fe2d4447d1db3a8dba9587da218b5e",
+    "doc:03-units-note.md": "ee7a8f4bf28c6348e0a003980dee514ba71dd0393a8118306d23ea03322a27bc",
+    "doc:04-correction-notice.md": "38ff671852fae9898eb7cb20ca66655a2101cfafe4b9f927d19e7b0b55afbaa3",
+    "doc:05-draft-return.md": "fc798801fc1ea0a3b60802eb9dacb7765301022b5d0b6f353794e9966b7ba9da",
+    "doc:06-withdrawals.md": "d45503830fe9c430086bd753275c632a99c8642717db5df2fd843da009468416",
+    "doc:07-former-names.md": "0277d733f53612175866061a3700520d6b581fefc1b9c9fd1078aba076a45c75",
+    "doc:08-log.md": "92b83528867129819f1e94ab831fcb3dfb28f4fe691ca044c1cfae5dd6515b61",
+    "doc:09-void-entries.md": "1e5e87e2048d394fb5dbc0ad82a042c804505f478ebf2ebcbd51a28cdd23d87d"
+   }
+  },
+  {
+   "id": "research-09",
+   "family": "research",
+   "group": "world:w-05",
+   "stratum": "",
+   "content": {
+    "question": "b88fca9d39e123532ea0ea475179c21cb1b22493504594d0134712f6b998ac88",
+    "key": "43deb4ca1fc5162373919bf96b9f38501d2e7fcb1785380c449b5dfaf25470ef",
+    "doc:01-register.md": "2ec0763d809c8411834f0cbc784a47a7d05c21c641e8a403172340b87f1a8140",
+    "doc:02-annual-return.md": "44fd4c16e19522b722a8d0a770051b70c165b9a521edd98555df447b1a33eac7",
+    "doc:03-units-note.md": "7d75be86ab893e80d308ecd3af0bc5cbc2ab15922a0f28fc70b7dd0454a0fac3",
+    "doc:04-correction-notice.md": "8cbb61d719a892779fe0ce619fadccee3c6ca1f923d6a30653a66ff57cb0ce95",
+    "doc:05-draft-return.md": "cf36235dc268824359bd9718762ff93d5cf21f0e55b684c002b09d32c99256a6",
+    "doc:06-withdrawals.md": "9a2730343e2a36c4054e903a01cc5abfd16e0ade7cbd18f25a6ae80de85f7b65",
+    "doc:07-former-names.md": "9300a5fbca92fd312752da6a8abb727ac4537875dd4fd67ca069a6bf849bf9f2",
+    "doc:08-log.md": "86e034ee60460bf94ebe1f1b8689257bc1909d243fc464997e4a86bb83eb941c",
+    "doc:09-void-entries.md": "1a64ab696690d08deab1e22c5d8fc42147db61c13d67516e32b6ebf90107d28e"
+   }
+  },
+  {
+   "id": "research-10",
+   "family": "research",
+   "group": "world:w-05",
+   "stratum": "",
+   "content": {
+    "question": "f757a700011d25c9522f8132d4a73f1cbe2e5fea944de1ebeb3c917542a9f971",
+    "key": "25d832a95d5ede2b5146a69c1a68030024c2ad886fb92daa0c61983992b165d1",
+    "doc:01-register.md": "2ec0763d809c8411834f0cbc784a47a7d05c21c641e8a403172340b87f1a8140",
+    "doc:02-annual-return.md": "44fd4c16e19522b722a8d0a770051b70c165b9a521edd98555df447b1a33eac7",
+    "doc:03-units-note.md": "7d75be86ab893e80d308ecd3af0bc5cbc2ab15922a0f28fc70b7dd0454a0fac3",
+    "doc:04-correction-notice.md": "8cbb61d719a892779fe0ce619fadccee3c6ca1f923d6a30653a66ff57cb0ce95",
+    "doc:05-draft-return.md": "cf36235dc268824359bd9718762ff93d5cf21f0e55b684c002b09d32c99256a6",
+    "doc:06-withdrawals.md": "9a2730343e2a36c4054e903a01cc5abfd16e0ade7cbd18f25a6ae80de85f7b65",
+    "doc:07-former-names.md": "9300a5fbca92fd312752da6a8abb727ac4537875dd4fd67ca069a6bf849bf9f2",
+    "doc:08-log.md": "86e034ee60460bf94ebe1f1b8689257bc1909d243fc464997e4a86bb83eb941c",
+    "doc:09-void-entries.md": "1a64ab696690d08deab1e22c5d8fc42147db61c13d67516e32b6ebf90107d28e"
+   }
+  },
+  {
+   "id": "research-11",
+   "family": "research",
+   "group": "world:w-06",
+   "stratum": "",
+   "content": {
+    "question": "8d491e2085734becabbf29b1a1427986f08853f708ba806c5c8ea9b9f373197e",
+    "key": "78194962a234b4353a8a0162913f45df62e16bcdf6b51bb6128a775d783261a9",
+    "doc:01-register.md": "5a93267283aa4da74b456639fd72b20f8027bf21ab474e55cdafe14b5519c8ec",
+    "doc:02-annual-return.md": "6b30986b5281e6674f9ac66fd77dc506639649de4a2ba10d50ceaebc713197a9",
+    "doc:03-units-note.md": "f14c4803304487e3132a0c37fcfc12918fcfa0715597be206c1ee47edd714f9d",
+    "doc:04-correction-notice.md": "48e1f20955fb4acad3af89bb2c4c44c6eab159b08bcf6b800ca771995aa040bd",
+    "doc:05-draft-return.md": "499ba4b0ed5a71c4e00233418341aa9266732c4342dccad4666e506d72c3872f",
+    "doc:06-withdrawals.md": "dff08a17377ef0781a3a381b0f9c90650f01efcfc473b4ef5180af41edcf64f5",
+    "doc:07-former-names.md": "d202a7a33c8826c00e32ee4b897cfa23686d0838d1e5b9b1858618480ac90e90",
+    "doc:08-log.md": "b7b2c8e7dfc0d4121e72af9064fb549665f7799e5ce7d034305aca165c25eca1",
+    "doc:09-void-entries.md": "582f950dc1748f06fb3b884685ff2b3488162f56a350fdd6c13a6ecd51492fb0"
+   }
+  },
+  {
+   "id": "research-12",
+   "family": "research",
+   "group": "world:w-06",
+   "stratum": "",
+   "content": {
+    "question": "8b56675df4d0f6bcacd6be6c4f9e6e169b2d00de6816289aafea2f91b3cb1b77",
+    "key": "d96f409d65e68623d187ed0651fa4464bc4e2367709796b8faebbe0c930064ec",
+    "doc:01-register.md": "5a93267283aa4da74b456639fd72b20f8027bf21ab474e55cdafe14b5519c8ec",
+    "doc:02-annual-return.md": "6b30986b5281e6674f9ac66fd77dc506639649de4a2ba10d50ceaebc713197a9",
+    "doc:03-units-note.md": "f14c4803304487e3132a0c37fcfc12918fcfa0715597be206c1ee47edd714f9d",
+    "doc:04-correction-notice.md": "48e1f20955fb4acad3af89bb2c4c44c6eab159b08bcf6b800ca771995aa040bd",
+    "doc:05-draft-return.md": "499ba4b0ed5a71c4e00233418341aa9266732c4342dccad4666e506d72c3872f",
+    "doc:06-withdrawals.md": "dff08a17377ef0781a3a381b0f9c90650f01efcfc473b4ef5180af41edcf64f5",
+    "doc:07-former-names.md": "d202a7a33c8826c00e32ee4b897cfa23686d0838d1e5b9b1858618480ac90e90",
+    "doc:08-log.md": "b7b2c8e7dfc0d4121e72af9064fb549665f7799e5ce7d034305aca165c25eca1",
+    "doc:09-void-entries.md": "582f950dc1748f06fb3b884685ff2b3488162f56a350fdd6c13a6ecd51492fb0"
+   }
+  },
+  {
+   "id": "research-13",
+   "family": "research",
+   "group": "world:w-07",
+   "stratum": "",
+   "content": {
+    "question": "608e39b827706133d4ef93e4b93981c972631e2c4e6fb81fefabdb3316120959",
+    "key": "4fa8fb4eda43acbbba0d178dee988abd3eaf63eee4a4f1e8d24e35273add7faa",
+    "doc:01-register.md": "a86516d58d8fbd8190e1f42236c53f4f13a4be8d783de25fd00d597949f8cae5",
+    "doc:02-annual-return.md": "45f8263da8efbe5959982bd7a88dcb3ea20ceca0523483a7498d1c9219bf0640",
+    "doc:03-units-note.md": "981527424059922e02522f569ea72ce35340fb3c93396fda531640ab83a67b4f",
+    "doc:04-correction-notice.md": "0a7b0d471c80efe6d30a54d0935f977c333bdc0b3f667a836ed6bdc866c91823",
+    "doc:05-draft-return.md": "0eafd789122a7baea11976f1a6419f34a393a40ca40a763d928bd4e36596eb9b",
+    "doc:06-withdrawals.md": "6cb7a7be2cdf1d3dc69cf111afc1efcab4217c8f1369262aeb4ceadbe1dc50ea",
+    "doc:07-former-names.md": "c4e727c4f113b40b2e8fc9f35859b834b0e0eac832706d745b399f8c0d8df3ca",
+    "doc:08-log.md": "419fcb3276bb1284ee4840181fd48eb10cf2dc69b2aba4ca2b00035813a4808b",
+    "doc:09-void-entries.md": "09bc6be115eb889f436978f74f8465901352a7c18a9c368c9cf6504359c99140"
+   }
+  },
+  {
+   "id": "research-14",
+   "family": "research",
+   "group": "world:w-07",
+   "stratum": "",
+   "content": {
+    "question": "7a39c38f06c02ec65ad73a0b1a6e89dcfa882d026a9acdaf9c755934225a72ad",
+    "key": "15d2f120afea9e7c4fdeab5fb027a3d6a422c94036e15ea87a4f4566911f0a2e",
+    "doc:01-register.md": "a86516d58d8fbd8190e1f42236c53f4f13a4be8d783de25fd00d597949f8cae5",
+    "doc:02-annual-return.md": "45f8263da8efbe5959982bd7a88dcb3ea20ceca0523483a7498d1c9219bf0640",
+    "doc:03-units-note.md": "981527424059922e02522f569ea72ce35340fb3c93396fda531640ab83a67b4f",
+    "doc:04-correction-notice.md": "0a7b0d471c80efe6d30a54d0935f977c333bdc0b3f667a836ed6bdc866c91823",
+    "doc:05-draft-return.md": "0eafd789122a7baea11976f1a6419f34a393a40ca40a763d928bd4e36596eb9b",
+    "doc:06-withdrawals.md": "6cb7a7be2cdf1d3dc69cf111afc1efcab4217c8f1369262aeb4ceadbe1dc50ea",
+    "doc:07-former-names.md": "c4e727c4f113b40b2e8fc9f35859b834b0e0eac832706d745b399f8c0d8df3ca",
+    "doc:08-log.md": "419fcb3276bb1284ee4840181fd48eb10cf2dc69b2aba4ca2b00035813a4808b",
+    "doc:09-void-entries.md": "09bc6be115eb889f436978f74f8465901352a7c18a9c368c9cf6504359c99140"
+   }
+  },
+  {
+   "id": "research-15",
+   "family": "research",
+   "group": "world:w-08",
+   "stratum": "",
+   "content": {
+    "question": "76209cacd7ade2b4603b57dfae965eb7f97750ab6375e9f2ee1ba126792e74e4",
+    "key": "90b2ba9693fa204c41a70d63081fda2ea96ff30450997dacc3ef80ad52ce631c",
+    "doc:01-register.md": "a397e424865adfba1c705b26bc59882a3bb3c661293276af47ac4955de87f946",
+    "doc:02-annual-return.md": "60720136a89cbd25e82f83d3b8d443ea44b4b39736c95b9554c4549a5c08e30a",
+    "doc:03-units-note.md": "cd277c00ac885d4d4be39d824b86b3813bfbf94f8c5dd72a3fd3ae3ff0d79050",
+    "doc:04-correction-notice.md": "af84465239d25f828bc47960ab0abc4c2275e0959acdd0bbd95953c18458875b",
+    "doc:05-draft-return.md": "880003501e95a33e6852ed8a3b97ffb4da46829707ec7da099e07408d5077b6e",
+    "doc:06-withdrawals.md": "f46c26ccc915edf1fe218ebf58bdd8d929f9827f8c4667ca358a59e6d4c69f6f",
+    "doc:07-former-names.md": "e100ea6a226b9bddc7a6962bf1df92c2233fe9aa74556ad76d6d8119ff12544e",
+    "doc:08-log.md": "18e61936e39755d8754899518fabf71921a18d345494bd90a302261137e155bb",
+    "doc:09-void-entries.md": "440a0d9248bc68b4818ea8096ce544597522a6bf796c203aa6b3020e95216616"
+   }
+  },
+  {
+   "id": "research-16",
+   "family": "research",
+   "group": "world:w-08",
+   "stratum": "",
+   "content": {
+    "question": "dc4b2217b03e932a14c053cb38cb9508fe1350de73993229efb928b563e787d6",
+    "key": "0dd0b4e8b99bdd28efb26e16e0f990dd5c39d9c9ed6d60abae2a8962c7960699",
+    "doc:01-register.md": "a397e424865adfba1c705b26bc59882a3bb3c661293276af47ac4955de87f946",
+    "doc:02-annual-return.md": "60720136a89cbd25e82f83d3b8d443ea44b4b39736c95b9554c4549a5c08e30a",
+    "doc:03-units-note.md": "cd277c00ac885d4d4be39d824b86b3813bfbf94f8c5dd72a3fd3ae3ff0d79050",
+    "doc:04-correction-notice.md": "af84465239d25f828bc47960ab0abc4c2275e0959acdd0bbd95953c18458875b",
+    "doc:05-draft-return.md": "880003501e95a33e6852ed8a3b97ffb4da46829707ec7da099e07408d5077b6e",
+    "doc:06-withdrawals.md": "f46c26ccc915edf1fe218ebf58bdd8d929f9827f8c4667ca358a59e6d4c69f6f",
+    "doc:07-former-names.md": "e100ea6a226b9bddc7a6962bf1df92c2233fe9aa74556ad76d6d8119ff12544e",
+    "doc:08-log.md": "18e61936e39755d8754899518fabf71921a18d345494bd90a302261137e155bb",
+    "doc:09-void-entries.md": "440a0d9248bc68b4818ea8096ce544597522a6bf796c203aa6b3020e95216616"
+   }
+  },
+  {
+   "id": "research-17",
+   "family": "research",
+   "group": "world:w-09",
+   "stratum": "",
+   "content": {
+    "question": "c42536450323aeb4a90cb9ef7b4aeaf475e21a96328c2793db297233f4a8cb90",
+    "key": "b93819237d01f7086c43ee515ddf2780910becdd0c8865130ee78ca542146e3a",
+    "doc:01-register.md": "0210998acd6f0da1aa2f9ab363f7bf3aeec7865be145fe5f1fc6676e099ae777",
+    "doc:02-annual-return.md": "ed60ae5fd264dc14ab147bd49a87afadeaeaf56e28d083de7e34a818210ecd83",
+    "doc:03-units-note.md": "a17af7967597de33020b5797a20c178eec772666d32e5b9d746ab71fd688c899",
+    "doc:04-correction-notice.md": "c456603861e100c9729bb7f9670ebf65afd9f2084fa1f25f5bea5de3db1b50f7",
+    "doc:05-draft-return.md": "6efc0b025495c654f57005ff6da1546657f7304f00cde6880ba4b5eea7209f30",
+    "doc:06-withdrawals.md": "d3de2a2063630a21619fd60883e359d6afed3bc6dbcaa6dd905fc929df6c01b6",
+    "doc:07-former-names.md": "ec33985c4476de975312b6163aa211fb9c9379854996ca9de827719feb3d9da8",
+    "doc:08-log.md": "c0ff27f412c80e85bb3ca0c29b286c34e6d1b78a9fa374b88b243b0177929b67",
+    "doc:09-void-entries.md": "143ca71d22cb45341e90d5ec4d3a0beca73a40b7918f4e0057ef8b4873c19e1f"
+   }
+  },
+  {
+   "id": "research-18",
+   "family": "research",
+   "group": "world:w-09",
+   "stratum": "",
+   "content": {
+    "question": "c56aa73151bbcdb398062955a596821c0b8a043958c43c68ca68e832d3daf9d3",
+    "key": "d51f7a182111eea75a62d457e2e755d191f769e814cd643c9aded9475cf23612",
+    "doc:01-register.md": "0210998acd6f0da1aa2f9ab363f7bf3aeec7865be145fe5f1fc6676e099ae777",
+    "doc:02-annual-return.md": "ed60ae5fd264dc14ab147bd49a87afadeaeaf56e28d083de7e34a818210ecd83",
+    "doc:03-units-note.md": "a17af7967597de33020b5797a20c178eec772666d32e5b9d746ab71fd688c899",
+    "doc:04-correction-notice.md": "c456603861e100c9729bb7f9670ebf65afd9f2084fa1f25f5bea5de3db1b50f7",
+    "doc:05-draft-return.md": "6efc0b025495c654f57005ff6da1546657f7304f00cde6880ba4b5eea7209f30",
+    "doc:06-withdrawals.md": "d3de2a2063630a21619fd60883e359d6afed3bc6dbcaa6dd905fc929df6c01b6",
+    "doc:07-former-names.md": "ec33985c4476de975312b6163aa211fb9c9379854996ca9de827719feb3d9da8",
+    "doc:08-log.md": "c0ff27f412c80e85bb3ca0c29b286c34e6d1b78a9fa374b88b243b0177929b67",
+    "doc:09-void-entries.md": "143ca71d22cb45341e90d5ec4d3a0beca73a40b7918f4e0057ef8b4873c19e1f"
+   }
+  },
+  {
+   "id": "research-19",
+   "family": "research",
+   "group": "world:w-10",
+   "stratum": "",
+   "content": {
+    "question": "26a979b8f7958802c8f5b6b7a2d5999824064495ef10d8d424bff06444a6128b",
+    "key": "c1a1b746070cf62caa2655beb847f39df96a93936ab34a840538bb746d4102ce",
+    "doc:01-register.md": "fc36f0e3651fcea0dd8f21f9e7276a0f3475af207957abe471817683dbb73b95",
+    "doc:02-annual-return.md": "496685c55cc928e3b6e7cb5ef9eea7acf34009c45fd97301936c3a85a419f98d",
+    "doc:03-units-note.md": "22faf4d35b2ac87890b389875ba64c3de4aa060428481fc00f382508789aa259",
+    "doc:04-correction-notice.md": "eca0033ae4db2cda1d368449ee53de595b42329dcd8fb12c1910244036628365",
+    "doc:05-draft-return.md": "6213f5bbd0a0a2d119d05b8737853fd308e04975676e8d4d9311d95d91f2def5",
+    "doc:06-withdrawals.md": "ce24cc6ab444b987d4de10d60d66b6397ef2322bbf1cb76a424fbf41d315b639",
+    "doc:07-former-names.md": "f675ead4ae771db749a481406ec03575bf69dc6110a32768b087e47aeb2e7ec3",
+    "doc:08-log.md": "6354f09e7ca5451bf13662bc7f664f8ed92407e6f3f6a9a1c9f1f621a5851710",
+    "doc:09-void-entries.md": "ee1ad3b6d60f4827616de5091c49d355d8bbe883a3aaba5915bce78546e4e9c6"
+   }
+  },
+  {
+   "id": "research-20",
+   "family": "research",
+   "group": "world:w-10",
+   "stratum": "",
+   "content": {
+    "question": "7df98b4edee478592d7a1daab30902d0a1db022edcf33f3d7590fe367950429c",
+    "key": "5d97814245499904bf363b79d32fcbe548ec8fffe8f02b245a0060e37aa5c719",
+    "doc:01-register.md": "fc36f0e3651fcea0dd8f21f9e7276a0f3475af207957abe471817683dbb73b95",
+    "doc:02-annual-return.md": "496685c55cc928e3b6e7cb5ef9eea7acf34009c45fd97301936c3a85a419f98d",
+    "doc:03-units-note.md": "22faf4d35b2ac87890b389875ba64c3de4aa060428481fc00f382508789aa259",
+    "doc:04-correction-notice.md": "eca0033ae4db2cda1d368449ee53de595b42329dcd8fb12c1910244036628365",
+    "doc:05-draft-return.md": "6213f5bbd0a0a2d119d05b8737853fd308e04975676e8d4d9311d95d91f2def5",
+    "doc:06-withdrawals.md": "ce24cc6ab444b987d4de10d60d66b6397ef2322bbf1cb76a424fbf41d315b639",
+    "doc:07-former-names.md": "f675ead4ae771db749a481406ec03575bf69dc6110a32768b087e47aeb2e7ec3",
+    "doc:08-log.md": "6354f09e7ca5451bf13662bc7f664f8ed92407e6f3f6a9a1c9f1f621a5851710",
+    "doc:09-void-entries.md": "ee1ad3b6d60f4827616de5091c49d355d8bbe883a3aaba5915bce78546e4e9c6"
+   }
+  },
+  {
+   "id": "research-21",
+   "family": "research",
+   "group": "world:w-11",
+   "stratum": "",
+   "content": {
+    "question": "1372de8b846770a2c68815bde8d0502cf77cd7d1444991bc4f3e01c959f5e4d7",
+    "key": "55efcf2bb2d11159b4a788a0fe3ae38e75bacec342505f47eaf1fcb705286c27",
+    "doc:01-register.md": "3b6a742076e66d1a0ac53f49f910c6988c30fda8b2cecd5a1b0722fdc666066a",
+    "doc:02-annual-return.md": "f8e844e832cbe8786214b3430756c9ea2d484f763d9ba6f9916518e2d57d5bd9",
+    "doc:03-units-note.md": "ba5ce1584229744ec98cfecabf36776325cc50ef10240dd06a3fff68dd6ab0ff",
+    "doc:04-correction-notice.md": "6925b7217ccde5c887f0974293062dceef95365438b158c9d8f5fc79c8b49a3f",
+    "doc:05-draft-return.md": "23b666029106fc37fa312277167de63e5c79d9790b5abb838db2bdc5aa267270",
+    "doc:06-withdrawals.md": "2dd63746fa402a4e96ce8fc9277347bfa2d4bc4faa4cf6a28153d72d37a9b0a6",
+    "doc:07-former-names.md": "c46d2eea81e1decd011fa04a0b024294c39e6aeb908c9ff104d6cf61c1ac942d",
+    "doc:08-log.md": "800775076362c25f0a156b99325d46a937ce6574ea6135fff485e222c54c6be0",
+    "doc:09-void-entries.md": "a3e51797dd6457b643bcaa01ea770f1a22616e9b81e6150131c680c189259531"
+   }
+  },
+  {
+   "id": "research-22",
+   "family": "research",
+   "group": "world:w-11",
+   "stratum": "",
+   "content": {
+    "question": "dda9eadc361848e1a2b0384d906a16fc05f314f99dc3c0bfb17aa8ed0cd5da40",
+    "key": "1cef9044aa3221f94864ebbb8e4040395feae5c565e5f612833c12038bdffbf3",
+    "doc:01-register.md": "3b6a742076e66d1a0ac53f49f910c6988c30fda8b2cecd5a1b0722fdc666066a",
+    "doc:02-annual-return.md": "f8e844e832cbe8786214b3430756c9ea2d484f763d9ba6f9916518e2d57d5bd9",
+    "doc:03-units-note.md": "ba5ce1584229744ec98cfecabf36776325cc50ef10240dd06a3fff68dd6ab0ff",
+    "doc:04-correction-notice.md": "6925b7217ccde5c887f0974293062dceef95365438b158c9d8f5fc79c8b49a3f",
+    "doc:05-draft-return.md": "23b666029106fc37fa312277167de63e5c79d9790b5abb838db2bdc5aa267270",
+    "doc:06-withdrawals.md": "2dd63746fa402a4e96ce8fc9277347bfa2d4bc4faa4cf6a28153d72d37a9b0a6",
+    "doc:07-former-names.md": "c46d2eea81e1decd011fa04a0b024294c39e6aeb908c9ff104d6cf61c1ac942d",
+    "doc:08-log.md": "800775076362c25f0a156b99325d46a937ce6574ea6135fff485e222c54c6be0",
+    "doc:09-void-entries.md": "a3e51797dd6457b643bcaa01ea770f1a22616e9b81e6150131c680c189259531"
+   }
+  },
+  {
+   "id": "research-23",
+   "family": "research",
+   "group": "world:w-12",
+   "stratum": "",
+   "content": {
+    "question": "87ff4ee3fd6cbae6bed3f9427b13891ca0b5b64c2cc228ef1c4db4d35cf81c77",
+    "key": "687017f1c3e9220ef5cbed27901de9160a0a4a9a33adb9547720a13ef845a178",
+    "doc:01-register.md": "74495c065b742ec6db189675da3af3ae0ffbd21d439677ebc557703907807092",
+    "doc:02-annual-return.md": "c43c0c8e456e0d4ca8a05d0cfd5881745a5472f7a11b6649dcf496312c716ef3",
+    "doc:03-units-note.md": "56f02a05027d6585a76c660ed5c04152423bcd78e1d2ce49426f3d1bbad13aae",
+    "doc:04-correction-notice.md": "c5b7c331eed8edad3c635b0671bc3c48dfea365f62b4a85b9f8049cf6e3f30fb",
+    "doc:05-draft-return.md": "47c8e8b29ef18e12995af59dd6cc461d5ffefaff8b23431984e96fdc34df8e18",
+    "doc:06-withdrawals.md": "15a0875f72b384d2721cbcc0a674b5962de56a7588dbcfeff6306e57e98eaa08",
+    "doc:07-former-names.md": "50c2cf39d8f5df73f30d99c27bdfbad54cacf0e270f12e52cd95273cc56ec229",
+    "doc:08-log.md": "e909cd5edab60b76d526880c9f585f178f285739c467eaeef3285bc9ba180c88",
+    "doc:09-void-entries.md": "2a04d28aa1df03200d35b1cd6a71051186acd2355c16a97ee11de279ea7d384e"
+   }
+  },
+  {
+   "id": "research-24",
+   "family": "research",
+   "group": "world:w-12",
+   "stratum": "",
+   "content": {
+    "question": "00a9945fb924a52fc5fa0ff9844476f665642564eac28a55747e741bf7bbe787",
+    "key": "7ba584feec82b9eb8b4f24e5c561de9aeedef9ba75ef9989714e68e9540398f6",
+    "doc:01-register.md": "74495c065b742ec6db189675da3af3ae0ffbd21d439677ebc557703907807092",
+    "doc:02-annual-return.md": "c43c0c8e456e0d4ca8a05d0cfd5881745a5472f7a11b6649dcf496312c716ef3",
+    "doc:03-units-note.md": "56f02a05027d6585a76c660ed5c04152423bcd78e1d2ce49426f3d1bbad13aae",
+    "doc:04-correction-notice.md": "c5b7c331eed8edad3c635b0671bc3c48dfea365f62b4a85b9f8049cf6e3f30fb",
+    "doc:05-draft-return.md": "47c8e8b29ef18e12995af59dd6cc461d5ffefaff8b23431984e96fdc34df8e18",
+    "doc:06-withdrawals.md": "15a0875f72b384d2721cbcc0a674b5962de56a7588dbcfeff6306e57e98eaa08",
+    "doc:07-former-names.md": "50c2cf39d8f5df73f30d99c27bdfbad54cacf0e270f12e52cd95273cc56ec229",
+    "doc:08-log.md": "e909cd5edab60b76d526880c9f585f178f285739c467eaeef3285bc9ba180c88",
+    "doc:09-void-entries.md": "2a04d28aa1df03200d35b1cd6a71051186acd2355c16a97ee11de279ea7d384e"
+   }
+  },
+  {
+   "id": "research-25",
+   "family": "research",
+   "group": "world:w-13",
+   "stratum": "",
+   "content": {
+    "question": "64b680224d96c368255f50c3854b9e0dde9c12f77bb3246630f04b68525dc124",
+    "key": "b3cc871f4bbfb7a31327347b10fcc7f8727e9089b3bf1432f02ab17b126fdebb",
+    "doc:01-register.md": "c874ab182c427b21f130936ec0bdd0844e87178a8fa747d9249648e04f7111da",
+    "doc:02-annual-return.md": "10d672e34bae930f810bf791c2a7838cce26a241954bbd0b6d72a538908d2bc9",
+    "doc:03-units-note.md": "b88dfea27faafc2e365baad89bbe88ed4b97b42cf6518fea972e826f982e1d1d",
+    "doc:04-correction-notice.md": "62049c15217bdb479ed044ac8d5dc61c584f5fb90043ecac07ce7a21f3cb8257",
+    "doc:05-draft-return.md": "8b1c5f9e81705c863915a6f4138437fdfa41caa784cb99bf820d75fd1efdd2ec",
+    "doc:06-withdrawals.md": "eeefa823e3985b821386520bcb0dff3154e8a41a1a77dda3359c689416e13212",
+    "doc:07-former-names.md": "9d8c378b2da96b4267b066de9fce4e8a077b331d1ad9a02729096c2179c8665f",
+    "doc:08-log.md": "a358ef0364739a62d82fd1c403b3bd79c539fb13d9504acff11da56000ac5378",
+    "doc:09-void-entries.md": "1c532765b1a08d5858506fbb8e20020e26e417f3617ba5572ad5b9e06de4ad0b"
+   }
+  },
+  {
+   "id": "research-26",
+   "family": "research",
+   "group": "world:w-13",
+   "stratum": "",
+   "content": {
+    "question": "90a0de906a1ced50adeaab23776eb702cc46d6ab83ebc36dd26b96af3c17274b",
+    "key": "c05c80513cab519bcd26daee90e14753db0096a7f0e1d5ae044e6378fe59137f",
+    "doc:01-register.md": "c874ab182c427b21f130936ec0bdd0844e87178a8fa747d9249648e04f7111da",
+    "doc:02-annual-return.md": "10d672e34bae930f810bf791c2a7838cce26a241954bbd0b6d72a538908d2bc9",
+    "doc:03-units-note.md": "b88dfea27faafc2e365baad89bbe88ed4b97b42cf6518fea972e826f982e1d1d",
+    "doc:04-correction-notice.md": "62049c15217bdb479ed044ac8d5dc61c584f5fb90043ecac07ce7a21f3cb8257",
+    "doc:05-draft-return.md": "8b1c5f9e81705c863915a6f4138437fdfa41caa784cb99bf820d75fd1efdd2ec",
+    "doc:06-withdrawals.md": "eeefa823e3985b821386520bcb0dff3154e8a41a1a77dda3359c689416e13212",
+    "doc:07-former-names.md": "9d8c378b2da96b4267b066de9fce4e8a077b331d1ad9a02729096c2179c8665f",
+    "doc:08-log.md": "a358ef0364739a62d82fd1c403b3bd79c539fb13d9504acff11da56000ac5378",
+    "doc:09-void-entries.md": "1c532765b1a08d5858506fbb8e20020e26e417f3617ba5572ad5b9e06de4ad0b"
+   }
+  },
+  {
+   "id": "research-27",
+   "family": "research",
+   "group": "world:w-14",
+   "stratum": "",
+   "content": {
+    "question": "f76d70f9bf0127dbf72073861d69723755af64bd2544c717c416563ada5e9ca3",
+    "key": "85e3d0a3cd0b02aab592a6055809d33b370e793d8abc9abc3685baa765c29431",
+    "doc:01-register.md": "f928b5d9be8a89275fe124db1bad942b74d5fdd0e9e2d50e7a5a9214df200ac6",
+    "doc:02-annual-return.md": "1f180cf74d2df805e3a130332e617e189aa6246c44e81b688420cefa2d276389",
+    "doc:03-units-note.md": "e80fc2c2d05da4b5f12b873aeb941709cd24a05f80e5a43623263942d60665ca",
+    "doc:04-correction-notice.md": "a77165dc366164a382f6e9b616de46a51db5ad5376e75c5a0c772220fd4297c1",
+    "doc:05-draft-return.md": "13df6e6cc790254656dfca85fbc25d3d2da0fd311ac3cc7a40e45b58e6e96260",
+    "doc:06-withdrawals.md": "63cc116a78ba626c9713281797bd3612cefcd799d6f56f6ccbeb622deea42768",
+    "doc:07-former-names.md": "89256f45b71b3e7d0cbb89a56ed1e6552218737a636fa6bfcee0b5b8f0f73738",
+    "doc:08-log.md": "718b3f2fdf3c78547a4febbd25621dedab144a2d63d2176cb8a50eed0fb63a59",
+    "doc:09-void-entries.md": "300a840dc8a901a38d8ee26f86ba370be60e1740df4da8f86f25fcf4c415ce5a"
+   }
+  },
+  {
+   "id": "research-28",
+   "family": "research",
+   "group": "world:w-14",
+   "stratum": "",
+   "content": {
+    "question": "5296a7a02861d14d6d50d7b9801da203a414c62a7de6c7b2d5de8cdec9fefe48",
+    "key": "38d94817cc922f5e03b3218847d3f979b5ce0de1ce539f13fa5c0b0327abddd3",
+    "doc:01-register.md": "f928b5d9be8a89275fe124db1bad942b74d5fdd0e9e2d50e7a5a9214df200ac6",
+    "doc:02-annual-return.md": "1f180cf74d2df805e3a130332e617e189aa6246c44e81b688420cefa2d276389",
+    "doc:03-units-note.md": "e80fc2c2d05da4b5f12b873aeb941709cd24a05f80e5a43623263942d60665ca",
+    "doc:04-correction-notice.md": "a77165dc366164a382f6e9b616de46a51db5ad5376e75c5a0c772220fd4297c1",
+    "doc:05-draft-return.md": "13df6e6cc790254656dfca85fbc25d3d2da0fd311ac3cc7a40e45b58e6e96260",
+    "doc:06-withdrawals.md": "63cc116a78ba626c9713281797bd3612cefcd799d6f56f6ccbeb622deea42768",
+    "doc:07-former-names.md": "89256f45b71b3e7d0cbb89a56ed1e6552218737a636fa6bfcee0b5b8f0f73738",
+    "doc:08-log.md": "718b3f2fdf3c78547a4febbd25621dedab144a2d63d2176cb8a50eed0fb63a59",
+    "doc:09-void-entries.md": "300a840dc8a901a38d8ee26f86ba370be60e1740df4da8f86f25fcf4c415ce5a"
+   }
+  },
+  {
+   "id": "research-29",
+   "family": "research",
+   "group": "world:w-15",
+   "stratum": "",
+   "content": {
+    "question": "1e91c1e49b6f13f9fff597881ef05ad5aabb0c9d94661d9212dbddaa54e126b1",
+    "key": "45151c5e70d403e4b0bb030d5ece444fc86ef223b92613145018fa1b52f7d7b4",
+    "doc:01-register.md": "c6c3b6cb30ebf7426bcdd9efa782140c472d26fcf3f3cd0ce7783aeaee29582e",
+    "doc:02-annual-return.md": "1b622b86e4af3370affdd70fa931c9650a05ca8a2e8ba606da2652062eb5ac1f",
+    "doc:03-units-note.md": "6a904f14da89827aaace07d808ffc41e65a239c8f05abb7df54344f2144800ac",
+    "doc:04-correction-notice.md": "c19a9809334ec6031bdf20a4dc56555ea75d28085b32e65688036e4c596a0406",
+    "doc:05-draft-return.md": "69905b00fa884a8ee3c3e5f5641b7a4fa8aae25e4a82b75d28c478a2580db9b6",
+    "doc:06-withdrawals.md": "988a27ff8597f77a82c1ab78c4a6d643b77a2c25529bfb2683e5fda0c19ad283",
+    "doc:07-former-names.md": "f5f1378296b6427d9e1c26748d50ea7e299d70bcc98a29c061f2ff4c4d18dc6b",
+    "doc:08-log.md": "83f3ba46230c4c9added903ec4905b3b7d5980a67f0b54f8ee34f9926904bcbf",
+    "doc:09-void-entries.md": "c56af8c2955b663d22258a01952f51dd1fef0aeb53575b2c8c966f2f8a4f9bb7"
+   }
+  },
+  {
+   "id": "research-30",
+   "family": "research",
+   "group": "world:w-15",
+   "stratum": "",
+   "content": {
+    "question": "4f23118f89706d546d3532c4704433e45e0216e0ff940001412d63787ff1dce9",
+    "key": "20e61edfcd73f85d3252e4b9cce8a1d2dd5b54dc592b75b7d91d7dcf71fdcd1e",
+    "doc:01-register.md": "c6c3b6cb30ebf7426bcdd9efa782140c472d26fcf3f3cd0ce7783aeaee29582e",
+    "doc:02-annual-return.md": "1b622b86e4af3370affdd70fa931c9650a05ca8a2e8ba606da2652062eb5ac1f",
+    "doc:03-units-note.md": "6a904f14da89827aaace07d808ffc41e65a239c8f05abb7df54344f2144800ac",
+    "doc:04-correction-notice.md": "c19a9809334ec6031bdf20a4dc56555ea75d28085b32e65688036e4c596a0406",
+    "doc:05-draft-return.md": "69905b00fa884a8ee3c3e5f5641b7a4fa8aae25e4a82b75d28c478a2580db9b6",
+    "doc:06-withdrawals.md": "988a27ff8597f77a82c1ab78c4a6d643b77a2c25529bfb2683e5fda0c19ad283",
+    "doc:07-former-names.md": "f5f1378296b6427d9e1c26748d50ea7e299d70bcc98a29c061f2ff4c4d18dc6b",
+    "doc:08-log.md": "83f3ba46230c4c9added903ec4905b3b7d5980a67f0b54f8ee34f9926904bcbf",
+    "doc:09-void-entries.md": "c56af8c2955b663d22258a01952f51dd1fef0aeb53575b2c8c966f2f8a4f9bb7"
+   }
+  },
+  {
+   "id": "ops-01",
+   "family": "operations",
+   "group": "bank:resale-01",
+   "stratum": "resale",
+   "content": {
+    "file:fixtures.json": "9248f27015ff01b23836befa118caa14a289b2d185e9239c100bad944e956bb9",
+    "file:task.json": "47bbef9f2b2994048f7d27b3fe10939838d23496185b836e5342d076e54f705b",
+    "file:v1.md": "5e91d165e2d0c12daa6bc71f3bdbd3eb183963406bcf151576f48669e92055ef",
+    "file:v2.md": "6b592f943c8c03595959077987def1d831c66d5f7654890cf6f2da175305ccd4",
+    "file:v3.md": "7d776960f7d52e9363bbf7267e5900386cea3b7e4dd0b9ab05a0c4747e3937c6",
+    "file:v4.md": "3e783607c454f67fc82f0d1e92183b45f4096dddc3058e15088182f90ca57662",
+    "file:versions.json": "87773966782afb9446cc9d1a5d8e403ccf3829dd237340a03a102ad822a843ea"
+   }
+  },
+  {
+   "id": "ops-02",
+   "family": "operations",
+   "group": "bank:resale-02",
+   "stratum": "resale",
+   "content": {
+    "file:fixtures.json": "356aa8e0b730bafc5a471aaab85c4f472694a892c665c933f7b53bcfec39c322",
+    "file:task.json": "934ecb4902ccb035c5cf5cc65997a7d226a404859f4835d0c0b0369a8672fe49",
+    "file:v1.md": "edcd193e4b5475eda3a26f53be3392a588b5a8d4f9225ff4170c883a169d1e35",
+    "file:v2.md": "b5e15ebcbe3438ded9a42ffe2e472ddef32108095e6b7a6a13b19ca3cc0ef4ec",
+    "file:v3.md": "ab7b368bbe2e4c541944ce2b9c048e3c01411851b9bf926187d449f5880b6ea6",
+    "file:v4.md": "9ae01f3281a0519c453f408fd5845540a29d8d30efee07c24a9408fa0174b51b",
+    "file:versions.json": "7840d35e40a7067ff395dd01b151c06f430a4ed06087390225c4f1c070f3b249"
+   }
+  },
+  {
+   "id": "ops-03",
+   "family": "operations",
+   "group": "bank:resale-03",
+   "stratum": "resale",
+   "content": {
+    "file:fixtures.json": "eac37b640ec05b45632e6c4d678d4bb29d7527e83a06aba1f79bf8a342d23f64",
+    "file:task.json": "b45cfe94a2d2321b6826b38f303f2d3a996f9d9c0a134b116ac9a937c85872c4",
+    "file:v1.md": "6f8eeb2df4464aada39e560a45b284122b0d97eb895afc8c5fd22e1e4cd7cae4",
+    "file:v2.md": "3df0ddd8db3dc99ff55d2f3d2c26d5ef09724242cc0cbf463a0167aa235a2160",
+    "file:v3.md": "429da5b52833df03f000a5ffed9cccc46c726c0f3308929085584cfe5fb95cd7",
+    "file:v4.md": "2729edb714f35239ef3fab479b84619e4264079357a3f3cadbc69e72e5d7de6c",
+    "file:versions.json": "3b7582289176942aba20605d152512ef0f05c0da74cc0d48157e697c611c385f"
+   }
+  },
+  {
+   "id": "ops-04",
+   "family": "operations",
+   "group": "bank:resale-04",
+   "stratum": "resale",
+   "content": {
+    "file:fixtures.json": "7c4330cadfbecc21b1e9f51a65a7be6b81b404e714d9f864d90f11760d0293fb",
+    "file:task.json": "53b22ae4bb0d3c4516140b00c51fbfa63e599b8d1fe60fb623ec9097dd69e968",
+    "file:v1.md": "92805e095feb63e65214348fa66a16186049564bfcfa5ce2e068de46fb8ef382",
+    "file:v2.md": "f7e9c23608f5c25a19f9b7304f62f11011254e2c3b52226b7dadc1d8e4d26559",
+    "file:v3.md": "d0e450d0e335c4a84f6502774412700fdd7899cf74943d7df40a0a52bfe9272d",
+    "file:v4.md": "52f77fb310aa4ae1205324eb50c67fee6fde1d32351a978078602922f8355a71",
+    "file:versions.json": "837ae4421d18d7a293a36c5083143df053160ed5a9b4fe4dce8fc7a0af9b5cf6"
+   }
+  },
+  {
+   "id": "ops-05",
+   "family": "operations",
+   "group": "bank:resale-05",
+   "stratum": "resale",
+   "content": {
+    "file:fixtures.json": "f778e7fdcdd5b8d9291c74a854d3986b927edbe326face2ea3692f37b48689af",
+    "file:task.json": "8c492aeca3c88fd49ded1288610f6d262ccebe7ccf59a82c45d469849d213974",
+    "file:v1.md": "e592ec2607f6c8dc27ec95909d307c0571d1e5654c31ae744ac5b3bc7a9efcf9",
+    "file:v2.md": "385fd501ced58c71925936a87eaa9f272a83378422fcff31db4b07fcc0183c34",
+    "file:v3.md": "f014eed67ce7291d8da41a618876f7c69822abfc924fa3b86e3b60af7b870315",
+    "file:v4.md": "2e142ef4e930298468a92da10c63d4adc80ee711731185c4be6db3dc2d300c85",
+    "file:versions.json": "84eae2f5fed4d39d729e84dedd94a20423e77864c18a9668a127703b92be6d0f"
+   }
+  },
+  {
+   "id": "ops-06",
+   "family": "operations",
+   "group": "bank:resale-06",
+   "stratum": "resale",
+   "content": {
+    "file:fixtures.json": "b1c60ff4ea7bec78334f948a173f6737b9d9cd1a82982e11c0812e5df15a4298",
+    "file:task.json": "724521c07b3f2a100b4e1197861ace5a8f584199caf66fa3d78abb4f8a2f85a3",
+    "file:v1.md": "ee513a06b1af0a4861ce5a36076f961a56c07d9e92618727143833835e6ac718",
+    "file:v2.md": "63b58706ad68b2ebcdfeea3a300d35493a921b1be38f566a4aae8d6d29abcef6",
+    "file:v3.md": "bd169309f85bd2b087369caf09012b3f16c4dad0f5e8a088410fd3bee0d9e99e",
+    "file:v4.md": "eb3893d1618abbe975af3248759a7a6a453850f35866f99ecb493a0921fd4f48",
+    "file:versions.json": "23dd7c9a39efc9b7a45acefaf18d668f15557735dc6f23ea1fda2236fe110328"
+   }
+  },
+  {
+   "id": "ops-07",
+   "family": "operations",
+   "group": "bank:resale-07",
+   "stratum": "resale",
+   "content": {
+    "file:fixtures.json": "98ff12479a3b46aeda946edcb086838aa98cc0f935a8de4c7ffadc13b87e8575",
+    "file:task.json": "1a7ef21256ca3631fa1e0fd0cefdb265b4c2166f7a19929fe4f3e32127679d24",
+    "file:v1.md": "e4b12f3556bbe8d4ae84b8c6d0b1d69ddddbbce828ca9d5d0503f508ab0e6d85",
+    "file:v2.md": "5c0efb9493b4e2b667cf30ce7a85cb2d06fd3f34d96b5f38185443d3ba42000b",
+    "file:v3.md": "c07a25f7f045ca72041df265ad512984272ddeed026d91acdc7a389e3d3b3265",
+    "file:v4.md": "dfc220d814847a27bb9282c0931c1737f1d2a6d14815669edee22f93040b9ad5",
+    "file:versions.json": "e54acaf5aae46cd9576b57a100d763cbb09c9ce3d54b2fb1474bb390a0b79258"
+   }
+  },
+  {
+   "id": "ops-08",
+   "family": "operations",
+   "group": "bank:resale-08",
+   "stratum": "resale",
+   "content": {
+    "file:fixtures.json": "6f58619a031e6fc07cf73e8b926027de3f2254a4f037960570980aad988b2221",
+    "file:task.json": "45ed6e89ce76e390275e58a2dabc8be2904e4dec2dedec3b57feb821ab0b4cd6",
+    "file:v1.md": "b21f9cedb62428778692e3a9db360937c3c10c010729f517f37155682b711bc4",
+    "file:v2.md": "bd99d9f55bf7ec6a3d25f9c92bea336725a851583cb4a289eeae9cdb6fce909a",
+    "file:v3.md": "bfad2eeccbfa16329df2aa188107f8b6cca65e374797e9784d6184999ad7ce66",
+    "file:v4.md": "60868bb9d7d9159fb04958a6cbede01dcb770da24789eea1385c59f26f20c7d2",
+    "file:versions.json": "09c73f5bfdda38e482b94a3c8a5eeac94548295b614b365ca942ff99259d5e20"
+   }
+  },
+  {
+   "id": "ops-09",
+   "family": "operations",
+   "group": "bank:resale-09",
+   "stratum": "resale",
+   "content": {
+    "file:fixtures.json": "428f3b5aa2bd307f5ef2cfaf90e76ff20aa59b933e005230d1005bd8357a227e",
+    "file:task.json": "64b811b644f65d4fe4be1ce49f2c6b4b26ba98078eca121d1d28c1c50921bc4d",
+    "file:v1.md": "5dea9e6a26c7e028de099641c260c7db99c75aa14770fcef6b7dda1cfe97f70c",
+    "file:v2.md": "2278967fa69b81ceb05350e4be633378f9c71e16a453149449f7a88570e26124",
+    "file:v3.md": "f39cf701313fb28fee879f85aba315cf5d30606ca05398cbdc151785cce7d9f4",
+    "file:v4.md": "2aa2bf4a83566439fcc9e234aead7f8df3940d4a70634d979bba3745be0b3b43",
+    "file:versions.json": "283e99c6cfc21acb5e3b814754b5619f0b1d4ee8aa8ebf7a16fb7379fdd774cc"
+   }
+  },
+  {
+   "id": "ops-10",
+   "family": "operations",
+   "group": "bank:resale-10",
+   "stratum": "resale",
+   "content": {
+    "file:fixtures.json": "c35f265ab5dc48949653055f82bd4425c7a0c162d08b625dc4e24768fc6f2143",
+    "file:task.json": "d69ef1aa9b938de3cf6367e2ef7047493704c68d118e5bde8c8882bdcda827e8",
+    "file:v1.md": "a982010520e3d8c63cda4144f149a37a099ac216739519ad0065ec62ad0c356e",
+    "file:v2.md": "1a396e97283d83431586cf4c9f57e6f647e877d6f1fa889cb9937349aa0488c8",
+    "file:v3.md": "b01117b019cc900ff9c7bb4408f273f3a540082c53ff8871df21b6b1d24f00ee",
+    "file:v4.md": "daa75a9111bf2d52b8ca636ef4a99ca1b89b14d9e9ccb97cb13cded8727d41b2",
+    "file:versions.json": "f4de05e1c059cdb2d4f71f94c00cf58ba33a0f094b6df5404cb9ef0b82b714f6"
+   }
+  },
+  {
+   "id": "ops-11",
+   "family": "operations",
+   "group": "bank:email-01",
+   "stratum": "email",
+   "content": {
+    "file:fixtures.json": "b4a7d967b30c651fb011030625eadcb876db9b2231b9c885d7007533904e19a4",
+    "file:task.json": "f429e66c1dee7f1575f5c3c5caa784159149ea5aff461a401c864791d4fc49f6",
+    "file:v1.md": "2a26e96cd11c3b361dd85bda4145764fe895129697f15e007b1c48a462d70fb2",
+    "file:v2.md": "e958ba0e039b01f796e77d1a00ff960ef1338c2bd5729b822cda7c362e3a7c79",
+    "file:v3.md": "f3cd42756c3d371fcc53891493c3006259c0060ddc56aea6c885fd67495141c1",
+    "file:v4.md": "51cde7a874e66dc263a214206c60535720060bbffbeadf35924e729f822be108",
+    "file:versions.json": "2432ee8350c37ec6b5c0895d3be4c6ee6dbaaa7f8efce9c446d92483a2bb138f"
+   }
+  },
+  {
+   "id": "ops-12",
+   "family": "operations",
+   "group": "bank:email-02",
+   "stratum": "email",
+   "content": {
+    "file:fixtures.json": "c75ce31b712f86c8906e866a7394dd38fb2e31846a5bb76b550cf26bf80ec520",
+    "file:task.json": "5ee17a4daaa7a2567e9209c76469adcf7bf12eb292b393f71286a3cdf9b99d75",
+    "file:v1.md": "fb1b9af3e644f29c81b23e3b331a0f4656e6cb59c8edb660ba74235bdb7e0b8e",
+    "file:v2.md": "8e210cd7cc8ad1a16485b65a859a11e95d64eab8162147e6862b8630c408b893",
+    "file:v3.md": "ecec0ebe5604d6da4e8291c62ec64ee2cfa8278a0ad76b4e5bcd41deebe29dab",
+    "file:v4.md": "8f45790a384b38c93e0ab06388cb22bc80349403832b4bacbb1b512e871a39b3",
+    "file:versions.json": "0ae984239f71ac85ef2a9dbdc62a594de937758917f0e430c3e4f3a99cdfb53e"
+   }
+  },
+  {
+   "id": "ops-13",
+   "family": "operations",
+   "group": "bank:email-03",
+   "stratum": "email",
+   "content": {
+    "file:fixtures.json": "fc0bf88d4ae483da8482bdfd4faa9ac2692bfa92cdcec59b56c69a74f3a46079",
+    "file:task.json": "8bce58fd74ee9502b4907e4aae858931ca3970a431481ed898a4875a2e6f76a4",
+    "file:v1.md": "e0a600e9743391b2fdf9345f0ccb882246e09081baa2fab8f86880f5e1727bde",
+    "file:v2.md": "89ee459d94f3460e29a253f8f03383f068f6b7ae6c3c42ec0fd7b1bcb994138b",
+    "file:v3.md": "3fe22fb161d60c8df28e80ec43c730f085aaac228d8e25ec5dc60fbf2c30088f",
+    "file:v4.md": "dc85c33d642aa4f5440b61d6f9348950aa1f604559fbe092997ec3976c710cf7",
+    "file:versions.json": "3c98f3c1abddc6128371a8813cbe8ca7c4c30662e332e7bb1edd87113fea2f2b"
+   }
+  },
+  {
+   "id": "ops-14",
+   "family": "operations",
+   "group": "bank:email-04",
+   "stratum": "email",
+   "content": {
+    "file:fixtures.json": "bb7ea402f56a2b0ee2f179ef65ed37083a56415ea8824a702225e25b6159b57c",
+    "file:task.json": "584bea228397c0c6bfaff2fe7be7357b7193072bde41e6c0866d688b7849af10",
+    "file:v1.md": "e6dddcc47ae483ce3d2ab1ae60bfda7b260e1c99ffb87bab4eb5f3958c9a29ea",
+    "file:v2.md": "301f6a0d3a44cf1871bcae5f1bbe988ae71534c375be497f6382e14e5c5dfa4a",
+    "file:v3.md": "c1ca9302d12d105a34547dae9612db7e47ab99f90727b239bd14a310766424fd",
+    "file:v4.md": "1aa1f6fa6a6512c07b6554789245a14f55d2a840b54ec0453f40e7e18e6a37bf",
+    "file:versions.json": "2cfa05122da204983ba944df814fcc58bd4212b5a307f87f7d0bcdc5924266e1"
+   }
+  },
+  {
+   "id": "ops-15",
+   "family": "operations",
+   "group": "bank:email-05",
+   "stratum": "email",
+   "content": {
+    "file:fixtures.json": "b7f2f14f29b9f96c68925183f49a50ad3b55d55867225c063724b83f24ecb889",
+    "file:task.json": "af02caa9b4b44010b22b93433b8022150df90fdd652d89e7403b91db04ed39f5",
+    "file:v1.md": "c68d57082458a6caaa3eaa00cd644794a6a22ac1d166cfb794685aa042617c59",
+    "file:v2.md": "aaacd522cc6608b21cbb53d1761d13004f137ec26967e4ceb35bd303cac74ee1",
+    "file:v3.md": "21c856b3678c7cf4a9425a12c61f23bbf515da32cac2755a2659d4b9e14d796e",
+    "file:v4.md": "08bd2bd114ff964827b19e6d8a4139772799549c619bddc378f6e4d102541fc1",
+    "file:versions.json": "af53db8cf4a18baec9d51dfc1136b3c4e4ecfc468e4ad2654e3540ea5cb543bd"
+   }
+  },
+  {
+   "id": "ops-16",
+   "family": "operations",
+   "group": "bank:email-06",
+   "stratum": "email",
+   "content": {
+    "file:fixtures.json": "87010f62447dc77aa5ba16f1e9a33de52011b1e2088b5bfa1cdc5099cf57bb0a",
+    "file:task.json": "54abc3d5db319bde9298d6e3ccdd5f4ae813a337c1a30f686c217e25429ed21a",
+    "file:v1.md": "8764afc4eb0bbb0e32bceed8121edcd16fe12f650ee710d6effdb7f83e61ea77",
+    "file:v2.md": "0cce5ffe375fdf8788e2bff96396ed76414957a51b743e9e7a0eeccc683c6c18",
+    "file:v3.md": "499b49f059e3cccca612ad67f08759e6e60282a9257803b5b9dc2432536ce1cf",
+    "file:v4.md": "4cac8fa3ee2de0358b5a63bbca50b9eb147b2abd1c0fbed3284887ea5703b7a7",
+    "file:versions.json": "6bcb59acb4bb8bb168728d09fc153cd1cc8263e05e43efba0572b1de751f83bb"
+   }
+  },
+  {
+   "id": "ops-17",
+   "family": "operations",
+   "group": "bank:email-07",
+   "stratum": "email",
+   "content": {
+    "file:fixtures.json": "2bb92f80f87b2d2809e538b4354eb216e06ff5fc80b2ce3e649ac7f353df5237",
+    "file:task.json": "073ebd0ad0e066f8a756dcf94ba009c8f9dd441635a26690c2aa55704d58651b",
+    "file:v1.md": "dc6838dd61f81108746464f5129f64a7c46905889408db98d95e9e30cf2007e1",
+    "file:v2.md": "62b4992dfd7e37c34e8c137a4d824c50d3d71145fb0c20e4106168188470b724",
+    "file:v3.md": "45d3a59116715f3d465357f8d8760f04c5d558f734fd4b61d05e83dc981171ba",
+    "file:v4.md": "1c1cc508178b3c7227196c4ea883a9eca531cdeaee4835c1fec208b261400009",
+    "file:versions.json": "ab9bf996036907a60e98663414b0245bbbb22ebb93eae5bb10950374fbade41a"
+   }
+  },
+  {
+   "id": "ops-18",
+   "family": "operations",
+   "group": "bank:email-08",
+   "stratum": "email",
+   "content": {
+    "file:fixtures.json": "2bf610cb819e7c40bf52ea67d54fee98af077e0a7edd7a20d1670edd7571b038",
+    "file:task.json": "f71541209dee104b7ccf5072f0b0e4d7b91ba2ce9c8fd373d30f51ebbaf5335a",
+    "file:v1.md": "9840a894d57a5dc11b12b8389e24fbb7535005f9eb3f59de3eab642dbd252b8e",
+    "file:v2.md": "125572bdfae352494a4b53f2c0d72f06c39f78a80dd43010b44a3da2169d6bf3",
+    "file:v3.md": "529873164351e287bb5b5aa8bdf0e7bf0f49668cb70ba124726d2f438da2afbd",
+    "file:v4.md": "6b23b96e39a892d58df85ec95cfe1e2a97c85567cce89c0409db01f6e2c416cf",
+    "file:versions.json": "e89b4b4e7dc96f02d1045b2da399efdcdc3079d5acb0492e8e97f3e5fecaaa2d"
+   }
+  },
+  {
+   "id": "ops-19",
+   "family": "operations",
+   "group": "bank:email-09",
+   "stratum": "email",
+   "content": {
+    "file:fixtures.json": "959682cb0a34f77319b6a7c373f079a5ad0c862847bd091ed3cc76e5886d80aa",
+    "file:task.json": "8c44dc992cffc734582983553d4451adaa3f94be03c20acb79ef3557c842201a",
+    "file:v1.md": "dd05bcac471454f6a5f3b93c0344019a69ec90309e557723a5ea06005e51373c",
+    "file:v2.md": "42a48288f98076fe035c238fc0d48bbb644ad3474f501fcf04b3bf723655e394",
+    "file:v3.md": "5becc301097ad2df5c3ec50442e4422c7ad957e96844df471b152b406f5976bc",
+    "file:v4.md": "0a4f1eb80a7afc19e2a80f1a62169c17d7f36e3bff1fe834cc86b417ceea4013",
+    "file:versions.json": "7cfe168d9cec0d06d0c925a94b3611d5d083508166ba9329f4b1080d57add56f"
+   }
+  },
+  {
+   "id": "ops-20",
+   "family": "operations",
+   "group": "bank:email-10",
+   "stratum": "email",
+   "content": {
+    "file:fixtures.json": "2da040785357846f8fe72f1c0872e021b7b3653695829ca5de5c46f33dbe4fcb",
+    "file:task.json": "d5f9372869ac5a94e4adaf5c8e968f4498546d0eb576a28ea07316b3eb4ca29c",
+    "file:v1.md": "4b562db137d2841d374e64674771f2a9ef3045d5a77f06b234344c83187fed20",
+    "file:v2.md": "b4939e2ac51dc38f9f7b6b3524f442f56e8404fc6e8dbf7f58748e85736bf5e6",
+    "file:v3.md": "32bee76820d9f1a61e351514cb7b49893de2983645d6f3eeaa8b480ec6907c92",
+    "file:v4.md": "c5658e1922752b1b072ca1849d6ae61c458472444fa8412e2a36b00eca82c4db",
+    "file:versions.json": "a60cd2e873cb458ba2ce0811d1512b414a634ee90cd07d3f0edc7d39ca703809"
+   }
+  },
+  {
+   "id": "forecast-01",
+   "family": "forecast",
+   "group": "slot:forecast-01",
+   "stratum": "cameras",
+   "content": {
+    "slot": "969c0da0f1132a60dc681946ed332029bb5b72221afe2061d0926bf7c8e9c117"
+   }
+  },
+  {
+   "id": "forecast-02",
+   "family": "forecast",
+   "group": "slot:forecast-02",
+   "stratum": "cameras",
+   "content": {
+    "slot": "82102b4c58e83a1c4825373947590fa7f72983c9149608d10c6d19809d477313"
+   }
+  },
+  {
+   "id": "forecast-03",
+   "family": "forecast",
+   "group": "slot:forecast-03",
+   "stratum": "cameras",
+   "content": {
+    "slot": "47ba9203ee820abe542e5dcfdcfe0a2e76e4c678883af3d4471dcc12384760c4"
+   }
+  },
+  {
+   "id": "forecast-04",
+   "family": "forecast",
+   "group": "slot:forecast-04",
+   "stratum": "cameras",
+   "content": {
+    "slot": "d75254411d69b383b9a3366baf77afe8382410ccf304bbe53b1ac19cf87d3fac"
+   }
+  },
+  {
+   "id": "forecast-05",
+   "family": "forecast",
+   "group": "slot:forecast-05",
+   "stratum": "cameras",
+   "content": {
+    "slot": "3230cb27c07ce0d079fdf0d2626020e56968cabda4339fc1faa65b16435cd5ab"
+   }
+  },
+  {
+   "id": "forecast-06",
+   "family": "forecast",
+   "group": "slot:forecast-06",
+   "stratum": "electronics",
+   "content": {
+    "slot": "0a9b505d9d19854f587441779cf07bd667bab2605ebe26578f7f6f0622b6a793"
+   }
+  },
+  {
+   "id": "forecast-07",
+   "family": "forecast",
+   "group": "slot:forecast-07",
+   "stratum": "electronics",
+   "content": {
+    "slot": "01da0623fee2d179591cecfd6ad980d0f25a8adec02e277808171743a7e0d879"
+   }
+  },
+  {
+   "id": "forecast-08",
+   "family": "forecast",
+   "group": "slot:forecast-08",
+   "stratum": "electronics",
+   "content": {
+    "slot": "1379a5b79bdc63bcd3d2f7be0dad5eb87efd08cdeb8570a090c1417142f3d60b"
+   }
+  },
+  {
+   "id": "forecast-09",
+   "family": "forecast",
+   "group": "slot:forecast-09",
+   "stratum": "electronics",
+   "content": {
+    "slot": "cafae5a76b04584945d130110a59a76525cca336366267cc652f1c35ef6bd23a"
+   }
+  },
+  {
+   "id": "forecast-10",
+   "family": "forecast",
+   "group": "slot:forecast-10",
+   "stratum": "electronics",
+   "content": {
+    "slot": "8133d49a989dddec18bae20e091f63a23287ffc26cc11e0552f4fba227166fae"
+   }
+  },
+  {
+   "id": "forecast-11",
+   "family": "forecast",
+   "group": "slot:forecast-11",
+   "stratum": "tools",
+   "content": {
+    "slot": "05806f92b6cd2d02d0a56db6dd8c8ce3dd5651c5f52fa703a2b677f8f1e3f07f"
+   }
+  },
+  {
+   "id": "forecast-12",
+   "family": "forecast",
+   "group": "slot:forecast-12",
+   "stratum": "tools",
+   "content": {
+    "slot": "a15894d199aaecf0e6996048339e60e0693d443abd637e28889eaab489e963f1"
+   }
+  },
+  {
+   "id": "forecast-13",
+   "family": "forecast",
+   "group": "slot:forecast-13",
+   "stratum": "tools",
+   "content": {
+    "slot": "1439604696ac6fd889a87dc23e794782d444598625d6ca60ad2587d970d49753"
+   }
+  },
+  {
+   "id": "forecast-14",
+   "family": "forecast",
+   "group": "slot:forecast-14",
+   "stratum": "tools",
+   "content": {
+    "slot": "b7737f7ac3d285ce7fd1638cf49f300fb25d3fdadc628a8fe13440d1422bf428"
+   }
+  },
+  {
+   "id": "forecast-15",
+   "family": "forecast",
+   "group": "slot:forecast-15",
+   "stratum": "tools",
+   "content": {
+    "slot": "529728cab7b921752ec891b3b39aeff8d30907296dba10b8f84cd79887d5db37"
+   }
+  },
+  {
+   "id": "forecast-16",
+   "family": "forecast",
+   "group": "slot:forecast-16",
+   "stratum": "lego",
+   "content": {
+    "slot": "f5502f615b7807c673e5e033692f130e5aa06891c1c27d284b72a09e9efbde3f"
+   }
+  },
+  {
+   "id": "forecast-17",
+   "family": "forecast",
+   "group": "slot:forecast-17",
+   "stratum": "lego",
+   "content": {
+    "slot": "3bd4044f489b4b759eb63d976deed3ad4b33c439a07c841f41f2fb79511337c7"
+   }
+  },
+  {
+   "id": "forecast-18",
+   "family": "forecast",
+   "group": "slot:forecast-18",
+   "stratum": "lego",
+   "content": {
+    "slot": "2c61aae7d65729931cea0821809d9f1c81892b2d6ff064404ea3042534306c12"
+   }
+  },
+  {
+   "id": "forecast-19",
+   "family": "forecast",
+   "group": "slot:forecast-19",
+   "stratum": "lego",
+   "content": {
+    "slot": "3f2ba3de5c0ced1ab2e2a0b2b731fcae723e2cb5b17a5a59b8d11bfb8828f86f"
+   }
+  },
+  {
+   "id": "forecast-20",
+   "family": "forecast",
+   "group": "slot:forecast-20",
+   "stratum": "lego",
+   "content": {
+    "slot": "475d3fdc354ef18896fd1cef6b78cc516700201849f2c641d19b199943479fe1"
+   }
+  }
+ ]
+}

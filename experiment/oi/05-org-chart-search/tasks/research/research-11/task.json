@@ -1,0 +1,24 @@
+{
+ "id": "research-11",
+ "family": "research",
+ "world": "w-06",
+ "kind": "threshold",
+ "params": {
+  "region": "Morjorford Coast",
+  "threshold": 230500
+ },
+ "documents": {
+  "01-register.md": "5a93267283aa4da74b456639fd72b20f8027bf21ab474e55cdafe14b5519c8ec",
+  "02-annual-return.md": "6b30986b5281e6674f9ac66fd77dc506639649de4a2ba10d50ceaebc713197a9",
+  "03-units-note.md": "f14c4803304487e3132a0c37fcfc12918fcfa0715597be206c1ee47edd714f9d",
+  "04-correction-notice.md": "48e1f20955fb4acad3af89bb2c4c44c6eab159b08bcf6b800ca771995aa040bd",
+  "05-draft-return.md": "499ba4b0ed5a71c4e00233418341aa9266732c4342dccad4666e506d72c3872f",
+  "06-withdrawals.md": "dff08a17377ef0781a3a381b0f9c90650f01efcfc473b4ef5180af41edcf64f5",
+  "07-former-names.md": "d202a7a33c8826c00e32ee4b897cfa23686d0838d1e5b9b1858618480ac90e90",
+  "08-log.md": "b7b2c8e7dfc0d4121e72af9064fb549665f7799e5ce7d034305aca165c25eca1",
+  "09-void-entries.md": "582f950dc1748f06fb3b884685ff2b3488162f56a350fdd6c13a6ecd51492fb0"
+ },
+ "question_sha256": "8d491e2085734becabbf29b1a1427986f08853f708ba806c5c8ea9b9f373197e",
+ "key_sha256": "78194962a234b4353a8a0162913f45df62e16bcdf6b51bb6128a775d783261a9",
+ "scoring": "The answer is the set of names given. Pass means the set equals the key exactly. Share of key names found and share of given names that are right are also recorded."
+}

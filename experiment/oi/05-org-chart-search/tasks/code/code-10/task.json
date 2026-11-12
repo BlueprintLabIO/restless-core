@@ -1,0 +1,27 @@
+{
+ "id": "code-10",
+ "family": "code",
+ "commit": "339d0a3e76a36a6757784c65965a0b1564b4634a",
+ "commit_date": "2026-10-18",
+ "parent": "7a543ce6cf15a613b4fda8f65e41a7f2260992ec",
+ "parent_tree": "eebd12d78e794917b3c150ce7b1ca2515203aa8d",
+ "source_paths": [
+  "web/src/lib/model/first-paint-hold.ts",
+  "web/src/lib/model/first-paint.svelte.ts"
+ ],
+ "test_paths": [
+  "web/src/lib/model/first-paint-hold.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 57,
+ "test_lines_added": 26,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/first-paint-hold.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "37fbaf861d424ddb6742d8a9044ff012f62f1b0b2e57e3d7ebc281898bbfd021",
+ "hidden_tests_sha256": "7e3ffdd36288e37e8cbb16c40080cc3991267700f236ee9412750cce7682d2e3",
+ "reference_change_sha256": "bb46930c988b954daca3a2d03af66517af9a3fca34914bd7257ba63ebee340d7"
+}

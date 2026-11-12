@@ -1,0 +1,29 @@
+{
+ "id": "code-15",
+ "family": "code",
+ "commit": "903d2fb648210b9b7adff561d314e68751b48f7d",
+ "commit_date": "2026-10-25",
+ "parent": "dd5e0d049a1db79b88d1f539c4e1fed233f98dc5",
+ "parent_tree": "2b6f132b207f447699739a881f134f688db15333",
+ "source_paths": [
+  "crates/restless/src/remote.rs"
+ ],
+ "test_paths": [
+  "crates/restless/tests/remote_decisions.rs"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 62,
+ "test_lines_added": 105,
+ "grade_command": [
+  "cargo",
+  "test",
+  "-p",
+  "restless",
+  "--test",
+  "remote_decisions"
+ ],
+ "grade_runner": "cargo",
+ "brief_sha256": "42b0668be998cbf5e96edbf6d59184124b4c6fa81b23510b4e694720f641bc92",
+ "hidden_tests_sha256": "5b6579cc62f6ecd02c0d45e01a5770a33a16de20a6f58a3b8f4ab5ce559cbf5b",
+ "reference_change_sha256": "bbe472a6454296221d3d8eef3ed0db4d0326d662030bd23df820754d638ad698"
+}

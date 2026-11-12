@@ -1,0 +1,24 @@
+{
+ "id": "research-27",
+ "family": "research",
+ "world": "w-14",
+ "kind": "threshold",
+ "params": {
+  "region": "Bragriwick Shire",
+  "threshold": 850
+ },
+ "documents": {
+  "01-register.md": "f928b5d9be8a89275fe124db1bad942b74d5fdd0e9e2d50e7a5a9214df200ac6",
+  "02-annual-return.md": "1f180cf74d2df805e3a130332e617e189aa6246c44e81b688420cefa2d276389",
+  "03-units-note.md": "e80fc2c2d05da4b5f12b873aeb941709cd24a05f80e5a43623263942d60665ca",
+  "04-correction-notice.md": "a77165dc366164a382f6e9b616de46a51db5ad5376e75c5a0c772220fd4297c1",
+  "05-draft-return.md": "13df6e6cc790254656dfca85fbc25d3d2da0fd311ac3cc7a40e45b58e6e96260",
+  "06-withdrawals.md": "63cc116a78ba626c9713281797bd3612cefcd799d6f56f6ccbeb622deea42768",
+  "07-former-names.md": "89256f45b71b3e7d0cbb89a56ed1e6552218737a636fa6bfcee0b5b8f0f73738",
+  "08-log.md": "718b3f2fdf3c78547a4febbd25621dedab144a2d63d2176cb8a50eed0fb63a59",
+  "09-void-entries.md": "300a840dc8a901a38d8ee26f86ba370be60e1740df4da8f86f25fcf4c415ce5a"
+ },
+ "question_sha256": "f76d70f9bf0127dbf72073861d69723755af64bd2544c717c416563ada5e9ca3",
+ "key_sha256": "85e3d0a3cd0b02aab592a6055809d33b370e793d8abc9abc3685baa765c29431",
+ "scoring": "The answer is the set of names given. Pass means the set equals the key exactly. Share of key names found and share of given names that are right are also recorded."
+}

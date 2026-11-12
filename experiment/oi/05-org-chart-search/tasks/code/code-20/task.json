@@ -1,0 +1,31 @@
+{
+ "id": "code-20",
+ "family": "code",
+ "commit": "8a0d3b2f9aca9e742a1a4408e3be9cf8b1780f8a",
+ "commit_date": "2026-11-02",
+ "parent": "a3147cbb460f123eac060c0fa72888a746e7c598",
+ "parent_tree": "2ce3a9ca18d75e210f4bb9728295fa9f56a5e94c",
+ "source_paths": [
+  "web/src/lib/components/AgentIntelligence.svelte",
+  "web/src/lib/components/IntelligenceChip.svelte",
+  "web/src/lib/components/editors/ModelAssignmentEditor.svelte",
+  "web/src/lib/model/intelligence-events.ts",
+  "web/src/lib/model/intelligence-route.ts",
+  "web/src/lib/model/intelligence.svelte.ts"
+ ],
+ "test_paths": [
+  "web/src/lib/model/intelligence-route.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 359,
+ "test_lines_added": 90,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/intelligence-route.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "7d9899c7dd0b1c941ec06c79e36aa0479e92d3a06a165542006bf90ffbd46bf0",
+ "hidden_tests_sha256": "8b388ebeef9f11fa2cc59b61d4d2aaf707cb6868cf40ba58d881f77eb401ef0a",
+ "reference_change_sha256": "39043cc4a9c50d07f2ef3c57c83ba2594f872f0012c6496386e2ecd3180de1e0"
+}

@@ -1,0 +1,212 @@
+[
+ {
+  "id": "research-01",
+  "world": "w-01",
+  "kind": "threshold",
+  "thing": "reservoirs",
+  "key_size": 5
+ },
+ {
+  "id": "research-02",
+  "world": "w-01",
+  "kind": "count",
+  "thing": "reservoirs",
+  "key_size": 3
+ },
+ {
+  "id": "research-03",
+  "world": "w-02",
+  "kind": "threshold",
+  "thing": "orchards",
+  "key_size": 4
+ },
+ {
+  "id": "research-04",
+  "world": "w-02",
+  "kind": "count",
+  "thing": "orchards",
+  "key_size": 6
+ },
+ {
+  "id": "research-05",
+  "world": "w-03",
+  "kind": "threshold",
+  "thing": "ferry routes",
+  "key_size": 4
+ },
+ {
+  "id": "research-06",
+  "world": "w-03",
+  "kind": "count",
+  "thing": "ferry routes",
+  "key_size": 4
+ },
+ {
+  "id": "research-07",
+  "world": "w-04",
+  "kind": "threshold",
+  "thing": "quarries",
+  "key_size": 3
+ },
+ {
+  "id": "research-08",
+  "world": "w-04",
+  "kind": "count",
+  "thing": "quarries",
+  "key_size": 3
+ },
+ {
+  "id": "research-09",
+  "world": "w-05",
+  "kind": "threshold",
+  "thing": "clinics",
+  "key_size": 4
+ },
+ {
+  "id": "research-10",
+  "world": "w-05",
+  "kind": "count",
+  "thing": "clinics",
+  "key_size": 6
+ },
+ {
+  "id": "research-11",
+  "world": "w-06",
+  "kind": "threshold",
+  "thing": "wind farms",
+  "key_size": 4
+ },
+ {
+  "id": "research-12",
+  "world": "w-06",
+  "kind": "count",
+  "thing": "wind farms",
+  "key_size": 3
+ },
+ {
+  "id": "research-13",
+  "world": "w-07",
+  "kind": "threshold",
+  "thing": "library branches",
+  "key_size": 6
+ },
+ {
+  "id": "research-14",
+  "world": "w-07",
+  "kind": "count",
+  "thing": "library branches",
+  "key_size": 4
+ },
+ {
+  "id": "research-15",
+  "world": "w-08",
+  "kind": "threshold",
+  "thing": "vineyards",
+  "key_size": 5
+ },
+ {
+  "id": "research-16",
+  "world": "w-08",
+  "kind": "count",
+  "thing": "vineyards",
+  "key_size": 4
+ },
+ {
+  "id": "research-17",
+  "world": "w-09",
+  "kind": "threshold",
+  "thing": "depots",
+  "key_size": 4
+ },
+ {
+  "id": "research-18",
+  "world": "w-09",
+  "kind": "count",
+  "thing": "depots",
+  "key_size": 4
+ },
+ {
+  "id": "research-19",
+  "world": "w-10",
+  "kind": "threshold",
+  "thing": "observatories",
+  "key_size": 5
+ },
+ {
+  "id": "research-20",
+  "world": "w-10",
+  "kind": "count",
+  "thing": "observatories",
+  "key_size": 2
+ },
+ {
+  "id": "research-21",
+  "world": "w-11",
+  "kind": "threshold",
+  "thing": "fisheries",
+  "key_size": 6
+ },
+ {
+  "id": "research-22",
+  "world": "w-11",
+  "kind": "count",
+  "thing": "fisheries",
+  "key_size": 3
+ },
+ {
+  "id": "research-23",
+  "world": "w-12",
+  "kind": "threshold",
+  "thing": "tram lines",
+  "key_size": 5
+ },
+ {
+  "id": "research-24",
+  "world": "w-12",
+  "kind": "count",
+  "thing": "tram lines",
+  "key_size": 3
+ },
+ {
+  "id": "research-25",
+  "world": "w-13",
+  "kind": "threshold",
+  "thing": "bakeries",
+  "key_size": 6
+ },
+ {
+  "id": "research-26",
+  "world": "w-13",
+  "kind": "count",
+  "thing": "bakeries",
+  "key_size": 3
+ },
+ {
+  "id": "research-27",
+  "world": "w-14",
+  "kind": "threshold",
+  "thing": "mine shafts",
+  "key_size": 3
+ },
+ {
+  "id": "research-28",
+  "world": "w-14",
+  "kind": "count",
+  "thing": "mine shafts",
+  "key_size": 2
+ },
+ {
+  "id": "research-29",
+  "world": "w-15",
+  "kind": "threshold",
+  "thing": "schools",
+  "key_size": 5
+ },
+ {
+  "id": "research-30",
+  "world": "w-15",
+  "kind": "count",
+  "thing": "schools",
+  "key_size": 3
+ }
+]

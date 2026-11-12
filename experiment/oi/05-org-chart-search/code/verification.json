@@ -1,0 +1,315 @@
+{
+ "node": "v24.22.1",
+ "tasks": [
+  {
+   "id": "code-01",
+   "runner": "cargo",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "fails_before_passes_after": null
+  },
+  {
+   "id": "code-02",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-03",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-04",
+   "runner": "cargo",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "fails_before_passes_after": null
+  },
+  {
+   "id": "code-05",
+   "runner": "cargo",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "fails_before_passes_after": null
+  },
+  {
+   "id": "code-06",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-07",
+   "runner": "cargo",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "fails_before_passes_after": null
+  },
+  {
+   "id": "code-08",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-09",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-10",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-11",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-12",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-13",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-14",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-15",
+   "runner": "cargo",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "fails_before_passes_after": null
+  },
+  {
+   "id": "code-16",
+   "runner": "cargo",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "fails_before_passes_after": null
+  },
+  {
+   "id": "code-17",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-18",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-19",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-20",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-21",
+   "runner": "cargo",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "fails_before_passes_after": null
+  },
+  {
+   "id": "code-22",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-23",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-24",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-25",
+   "runner": "cargo",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "fails_before_passes_after": null
+  },
+  {
+   "id": "code-26",
+   "runner": "cargo",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "fails_before_passes_after": null
+  },
+  {
+   "id": "code-27",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-28",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-29",
+   "runner": "node",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "exit_at_parent_with_tests": 1,
+   "exit_at_change": 0,
+   "fails_before_passes_after": true
+  },
+  {
+   "id": "code-30",
+   "runner": "cargo",
+   "patch_hash_matches": true,
+   "parent_is_parent": true,
+   "parent_tree_matches": true,
+   "patch_applies_to_parent": true,
+   "fails_before_passes_after": null
+  }
+ ]
+}

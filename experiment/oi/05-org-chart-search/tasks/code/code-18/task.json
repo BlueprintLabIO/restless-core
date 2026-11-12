@@ -1,0 +1,27 @@
+{
+ "id": "code-18",
+ "family": "code",
+ "commit": "067acd50ceb86bbbc5ab72a6f3d26a81592b904b",
+ "commit_date": "2026-11-02",
+ "parent": "0d480f1e2336f89dca566898d96c81e0221e4912",
+ "parent_tree": "c20e31937ecc38f1f7256ce7ebf43b570b0a2823",
+ "source_paths": [
+  "web/src/lib/model/library-files.ts",
+  "web/src/routes/[companyId]/library/+page.svelte"
+ ],
+ "test_paths": [
+  "web/src/lib/model/library-files.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 74,
+ "test_lines_added": 16,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/library-files.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "033b610f85f0b16ee3f651eeae8c6e3b537db8fb77ae783e8d601df90a5c3eca",
+ "hidden_tests_sha256": "225107d5332c945173a1fd855b745593d770957612252f77eb9481ff6c6f42b9",
+ "reference_change_sha256": "c8bce96d88c4a998a08fb32ac0c691df06b4b8194b7fef962ae87774914a657e"
+}

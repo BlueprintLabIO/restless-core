@@ -1,0 +1,24 @@
+{
+ "id": "research-29",
+ "family": "research",
+ "world": "w-15",
+ "kind": "threshold",
+ "params": {
+  "region": "Thaaros District",
+  "threshold": 1725
+ },
+ "documents": {
+  "01-register.md": "c6c3b6cb30ebf7426bcdd9efa782140c472d26fcf3f3cd0ce7783aeaee29582e",
+  "02-annual-return.md": "1b622b86e4af3370affdd70fa931c9650a05ca8a2e8ba606da2652062eb5ac1f",
+  "03-units-note.md": "6a904f14da89827aaace07d808ffc41e65a239c8f05abb7df54344f2144800ac",
+  "04-correction-notice.md": "c19a9809334ec6031bdf20a4dc56555ea75d28085b32e65688036e4c596a0406",
+  "05-draft-return.md": "69905b00fa884a8ee3c3e5f5641b7a4fa8aae25e4a82b75d28c478a2580db9b6",
+  "06-withdrawals.md": "988a27ff8597f77a82c1ab78c4a6d643b77a2c25529bfb2683e5fda0c19ad283",
+  "07-former-names.md": "f5f1378296b6427d9e1c26748d50ea7e299d70bcc98a29c061f2ff4c4d18dc6b",
+  "08-log.md": "83f3ba46230c4c9added903ec4905b3b7d5980a67f0b54f8ee34f9926904bcbf",
+  "09-void-entries.md": "c56af8c2955b663d22258a01952f51dd1fef0aeb53575b2c8c966f2f8a4f9bb7"
+ },
+ "question_sha256": "1e91c1e49b6f13f9fff597881ef05ad5aabb0c9d94661d9212dbddaa54e126b1",
+ "key_sha256": "45151c5e70d403e4b0bb030d5ece444fc86ef223b92613145018fa1b52f7d7b4",
+ "scoring": "The answer is the set of names given. Pass means the set equals the key exactly. Share of key names found and share of given names that are right are also recorded."
+}

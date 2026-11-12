@@ -1,0 +1,182 @@
+[
+ {
+  "id": "code-01",
+  "commit": "d657677a62091b97c95e75e419bf396676c753b0",
+  "runner": "cargo",
+  "title": "restless decide: Staff ask a structured decision model for bounded triage"
+ },
+ {
+  "id": "code-02",
+  "commit": "d8b4c0ed4282e4b1a2374fe7e56404a0535c1729",
+  "runner": "node",
+  "title": "Exec's question card stays open until it is actually answered"
+ },
+ {
+  "id": "code-03",
+  "commit": "463adb6a941c149e499f6d36c22e14f498fd56b8",
+  "runner": "node",
+  "title": "Work's 'Needs you' matches the Inbox; coordination outages say so"
+ },
+ {
+  "id": "code-04",
+  "commit": "ee0bc7950c6c711dbfe7f01a7dcc6f3bd15c1ee2",
+  "runner": "cargo",
+  "title": "Rollback refuses a release that cannot open company data a newer one upgraded"
+ },
+ {
+  "id": "code-05",
+  "commit": "f1e85ef21c4db84c71c9d6ee05220e252a878d9d",
+  "runner": "cargo",
+  "title": "Documents: the company owner can retitle a document Exec or Staff wrote"
+ },
+ {
+  "id": "code-06",
+  "commit": "2003476edaf7219059af6735e26317cb0a262fe7",
+  "runner": "node",
+  "title": "Members: leave the company, role changes with Undo, resend and invite several"
+ },
+ {
+  "id": "code-07",
+  "commit": "263e23a98828f46d6eafcf03754be3bef867ef5c",
+  "runner": "cargo",
+  "title": "S88-01: the owner can archive and re-hire an agent"
+ },
+ {
+  "id": "code-08",
+  "commit": "45726330034868f28dc97e8f48395aa6218278f5",
+  "runner": "node",
+  "title": "S85-06: a failed reply reads as a sentence in view, with its fix as a link"
+ },
+ {
+  "id": "code-09",
+  "commit": "a6734500c114ad710162f56a7b490dd5ba2565f0",
+  "runner": "node",
+  "title": "UXG-054..061, UXG-063..065, UXG-068: Work list search, status words, board and row actions"
+ },
+ {
+  "id": "code-10",
+  "commit": "339d0a3e76a36a6757784c65965a0b1564b4634a",
+  "runner": "node",
+  "title": "A persisted Inbox summary no longer reveals the cockpit a step early"
+ },
+ {
+  "id": "code-11",
+  "commit": "15d772ebcbd56c1ccbadb6ca2cd9be01e4e80598",
+  "runner": "node",
+  "title": "The model menu shows the five newest releases; \"(latest)\" aliases no longer pass as new"
+ },
+ {
+  "id": "code-12",
+  "commit": "de9aadff6e66093f1793c3f865f3023d5b88b040",
+  "runner": "node",
+  "title": "S101: an agent's question is answered in its card, with its own choices, and Discuss opens the thread there"
+ },
+ {
+  "id": "code-13",
+  "commit": "e2f56656ae46f200ddbeccedf58353b98bf72e26",
+  "runner": "node",
+  "title": "Accounts: a working sign-in no company uses offers the grant, not another sign-in (M1)"
+ },
+ {
+  "id": "code-14",
+  "commit": "5adc57299e9f90f359a91724d0417953c67e504d",
+  "runner": "node",
+  "title": "Work: a Work item's run label follows its newest run"
+ },
+ {
+  "id": "code-15",
+  "commit": "903d2fb648210b9b7adff561d314e68751b48f7d",
+  "runner": "cargo",
+  "title": "CLI decisions report unavailable data instead of claiming nothing needs you"
+ },
+ {
+  "id": "code-16",
+  "commit": "602f226ddd4cf7f2812c875aabc057e02ca2296f",
+  "runner": "cargo",
+  "title": "A person keeps their Actor when their issuer moves address"
+ },
+ {
+  "id": "code-17",
+  "commit": "53f374954bf84badbbf1af22ebdb7afee14ae355",
+  "runner": "node",
+  "title": "Use actual agent provider for status (#547)"
+ },
+ {
+  "id": "code-18",
+  "commit": "067acd50ceb86bbbc5ab72a6f3d26a81592b904b",
+  "runner": "node",
+  "title": "S109-G5: agents' working notes leave the default Library views"
+ },
+ {
+  "id": "code-19",
+  "commit": "0ddbc09e839aa9e2f2de0b9a3363dafa526f5ae3",
+  "runner": "node",
+  "title": "Work and Inbox say why each item waits and on whom"
+ },
+ {
+  "id": "code-20",
+  "commit": "8a0d3b2f9aca9e742a1a4408e3be9cf8b1780f8a",
+  "runner": "node",
+  "title": "Open the model editor on the live choice and show switches at once"
+ },
+ {
+  "id": "code-21",
+  "commit": "a3147cbb460f123eac060c0fa72888a746e7c598",
+  "runner": "cargo",
+  "title": "Let agents on the company default follow a new default"
+ },
+ {
+  "id": "code-22",
+  "commit": "ad0cae1ab7be6354e8de431102e2d49cf3143ebf",
+  "runner": "node",
+  "title": "Inbox Skip and Approve leave at once; Skip Undo restores in place"
+ },
+ {
+  "id": "code-23",
+  "commit": "b8f208e2a421b06e635b7ff11284be450477348b",
+  "runner": "node",
+  "title": "Cold company load paints its own layout from the first byte"
+ },
+ {
+  "id": "code-24",
+  "commit": "f514996fe860cf3ffd5b0c959add0b402c19f227",
+  "runner": "node",
+  "title": "F7: queued sends wait above the composer, distinct from sent messages"
+ },
+ {
+  "id": "code-25",
+  "commit": "22769e1258064fcabab803f1ec87eff48cf03c58",
+  "runner": "cargo",
+  "title": "Resumable Work resumes itself"
+ },
+ {
+  "id": "code-26",
+  "commit": "46edae493df63624c92df6ba709cf88a4b2fc399",
+  "runner": "cargo",
+  "title": "Abandoned Work no longer strands the Work that requires it"
+ },
+ {
+  "id": "code-27",
+  "commit": "f98927ef8f9e59872d9d8b366322c6be0eee6951",
+  "runner": "node",
+  "title": "Owner cards: titles never carry a URL, no computer panel without a prepared computer"
+ },
+ {
+  "id": "code-28",
+  "commit": "718578c352343bdc680faaa14a952f79eedca411",
+  "runner": "node",
+  "title": "Send Company pages named by their label to the page"
+ },
+ {
+  "id": "code-29",
+  "commit": "bc8f9e05f8b84ad674f4999ae7eee4b8c552d85b",
+  "runner": "node",
+  "title": "Let only the slow company read stop holding the reveal"
+ },
+ {
+  "id": "code-30",
+  "commit": "b81e161313ce911b471c3abee67beb529ecbe3c3",
+  "runner": "cargo",
+  "title": "Deliver team results without waiting on an empty queue"
+ }
+]

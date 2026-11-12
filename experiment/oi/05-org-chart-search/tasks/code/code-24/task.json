@@ -1,0 +1,29 @@
+{
+ "id": "code-24",
+ "family": "code",
+ "commit": "f514996fe860cf3ffd5b0c959add0b402c19f227",
+ "commit_date": "2026-11-02",
+ "parent": "05a95b5ae55f4d63a301b38b44762e37a88b14cb",
+ "parent_tree": "043e1e99dcd7e6b41a5192a4110b661e77270920",
+ "source_paths": [
+  "web/src/lib/components/ExecutiveRail.svelte",
+  "web/src/lib/model/queries.svelte.ts",
+  "web/src/lib/model/queued-sends.ts",
+  "web/src/lib/model/view.ts"
+ ],
+ "test_paths": [
+  "web/src/lib/model/queued-sends.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 338,
+ "test_lines_added": 98,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/queued-sends.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "b08ab10932b74405777871ad04218850a6d195ad24bde043967e7e1672ec1535",
+ "hidden_tests_sha256": "b46f52897ffef1eee9b23cf461df711a8b8b28f06471e12bcc2ea587ca753047",
+ "reference_change_sha256": "326797e28b76dcb9403760b3fabe730052482ba1c60c3f5f9a371a736ff013ed"
+}

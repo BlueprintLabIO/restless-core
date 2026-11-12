@@ -1,0 +1,34 @@
+{
+ "id": "code-17",
+ "family": "code",
+ "commit": "53f374954bf84badbbf1af22ebdb7afee14ae355",
+ "commit_date": "2026-10-31",
+ "parent": "a0914506a009bee2ef6985ab57ec14ebe15851b8",
+ "parent_tree": "10bd3a175b6b27d672be97a377ddd8ae10f85579",
+ "source_paths": [
+  "scripts/verify-agent-route-live.py",
+  "web/scripts/fixtures/s109-agent-model.svelte",
+  "web/scripts/verify-agent-model.mjs",
+  "web/scripts/verify-agent-route-live.mjs",
+  "web/src/lib/components/IntelligenceChip.svelte",
+  "web/src/lib/model/intelligence-route.ts",
+  "web/src/routes/[companyId]/+layout.svelte"
+ ],
+ "test_paths": [
+  "web/src/lib/model/intelligence-route.test.ts"
+ ],
+ "other_paths": [
+  "docs/stories/README.md"
+ ],
+ "source_lines_changed": 318,
+ "test_lines_added": 36,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/intelligence-route.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "be07045f207de6c4a4760c82e23a49cfe4aa2d52566a2f449875c820bdcbcb4d",
+ "hidden_tests_sha256": "db3704104d5dd4e42f900cf6069debe0c3915948c50d89200ad00e9b296dcb5a",
+ "reference_change_sha256": "f4e5223906e3ba752d7763a939f3583be0a2b3a7f9b4d0b1044c507e401a9779"
+}

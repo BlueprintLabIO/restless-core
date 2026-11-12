@@ -1,0 +1,31 @@
+{
+ "id": "code-27",
+ "family": "code",
+ "commit": "f98927ef8f9e59872d9d8b366322c6be0eee6951",
+ "commit_date": "2026-11-04",
+ "parent": "11ec0e0c85348bb800f2dd74a70b2a2d27282c67",
+ "parent_tree": "bfc953ca814d95deff50dd1067d996b044cba054",
+ "source_paths": [
+  "crates/restless-engine/src/attention.rs",
+  "crates/restless-engine/src/owner_copy.rs",
+  "web/src/lib/components/InboxDetail.svelte",
+  "web/src/lib/components/inbox/InlineDesktop.svelte",
+  "web/src/lib/model/attention-presentation.ts",
+  "web/src/lib/model/owner-copy.ts"
+ ],
+ "test_paths": [
+  "web/src/lib/model/owner-copy.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 130,
+ "test_lines_added": 29,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/owner-copy.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "484c01fbd8c319713c6aab10c88e8e07d4983a4860b17a7d5cee5dff004394fb",
+ "hidden_tests_sha256": "fb6a0d48b9adc48222f3be196ed311403ea21e46d9bc7fb1bd05ad46bc0bb786",
+ "reference_change_sha256": "24a9bc79be07b10d9ce83aa3ed05418f7b46715ad3648c9dcff78988b5c936a2"
+}

@@ -1,0 +1,30 @@
+{
+ "id": "code-23",
+ "family": "code",
+ "commit": "b8f208e2a421b06e635b7ff11284be450477348b",
+ "commit_date": "2026-11-02",
+ "parent": "2b14972e1ed8695508eb5632d287ea1305604eed",
+ "parent_tree": "a13289c9629409a453bdf65fd53279d0857325db",
+ "source_paths": [
+  "web/src/app.html",
+  "web/src/lib/model/shell-snapshot.ts",
+  "web/src/routes/[companyId]/+layout.svelte"
+ ],
+ "test_paths": [
+  "web/src/lib/model/boot-preload.test.ts",
+  "web/src/lib/model/shell-snapshot.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 293,
+ "test_lines_added": 310,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/boot-preload.test.ts",
+  "web/src/lib/model/shell-snapshot.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "215aeea08b203e62f6a63d7a698cc05ab3e6681c1516afe20c0ddbd7735a32c0",
+ "hidden_tests_sha256": "16653020f6fe685eaf9c7cc5c9671a0c43bf1775f5f1ed3db2a2ef9c558053de",
+ "reference_change_sha256": "1d7344fc89e9cdfa79bff740e5b9c8d12c789e0b81a2efd894a63cfda54f4e09"
+}

@@ -1,0 +1,30 @@
+{
+ "id": "code-30",
+ "family": "code",
+ "commit": "b81e161313ce911b471c3abee67beb529ecbe3c3",
+ "commit_date": "2026-11-08",
+ "parent": "0ed9de09f0951cb3ccdafbe8fb0d4d2466d6c0a8",
+ "parent_tree": "8747ed799ad38f679db315e6ea2880142a1eefcd",
+ "source_paths": [
+  "crates/restless-engine/src/schedule.rs",
+  "crates/restless-orgintel/src/attempts.rs"
+ ],
+ "test_paths": [
+  "crates/restless-orgintel/tests/mail_settle.rs"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 61,
+ "test_lines_added": 62,
+ "grade_command": [
+  "cargo",
+  "test",
+  "-p",
+  "restless-orgintel",
+  "--test",
+  "mail_settle"
+ ],
+ "grade_runner": "cargo",
+ "brief_sha256": "7e94bb31b81ca033f6f303fc923cc38bae646acba63745b3de868cde0ce2f7c7",
+ "hidden_tests_sha256": "c1c03ed4e4f90affea50f8087fbe14174f501dbeb5c4bab9116408da1a59e67e",
+ "reference_change_sha256": "0347adf7e89ed61679c28c4c5807f4cccfce51ae5717e26db8eebe910b2650fd"
+}

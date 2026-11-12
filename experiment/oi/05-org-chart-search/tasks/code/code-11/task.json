@@ -1,0 +1,27 @@
+{
+ "id": "code-11",
+ "family": "code",
+ "commit": "15d772ebcbd56c1ccbadb6ca2cd9be01e4e80598",
+ "commit_date": "2026-10-19",
+ "parent": "a61783934cd6aa0ddc96070c44aa8785c4a0541e",
+ "parent_tree": "8f30e193902b21cc6cd5dc42f9627004d7166d1f",
+ "source_paths": [
+  "web/src/lib/components/IntelligenceChip.svelte",
+  "web/src/lib/model/model-groups.ts"
+ ],
+ "test_paths": [
+  "web/src/lib/model/model-groups.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 69,
+ "test_lines_added": 46,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/model-groups.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "c9272f18599632353dd03448558b15ed168874ef8ed8091e59f98fcb5449e2c7",
+ "hidden_tests_sha256": "3e6767a1d55151fbee0e525d3f6306a23316adf061d42ca100de376ac84430cf",
+ "reference_change_sha256": "9b83615230a7a2c87ccf59bd451a1aedba9d2a100ebc0c82a3d40956e9ca7fbd"
+}
