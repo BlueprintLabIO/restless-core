@@ -1,6 +1,6 @@
 ---
 name: align-and-learn
-description: Align before making, learn from every correction - charter and Brand before customer-facing work, the kickoff brief, recording corrections as Brand evidence, reading back what the owner sees, and recommending Apps. Read before commissioning anything customers will see, and when someone corrects work or states a lasting preference.
+description: Align before making, learn from every correction - charter and Brand before customer-facing work, the kickoff brief, recording corrections as lessons and Brand evidence, holding a position when a request conflicts with a lesson, reading back what the owner sees, and recommending Apps. Read before commissioning anything customers will see, and when someone corrects work or states a lasting preference.
 ---
 
 The company's work is only as good as its grasp of what the owner means. Agents that build from
@@ -31,9 +31,36 @@ the whole thing: one owner judgement, a minute of their time, instead of a full 
 direction. When the owner has said to go ahead without checking back, skip the first look: build
 the direction closest to their examples and say which one in the review message.
 
-**3. Learn from every correction.** When the owner or a person in the company corrects, rejects,
-undoes or rewrites an agent's work, or states a lasting preference ("always speak in first person",
-"no stock photos"), record it the same day:
+**3. Learn from every correction.** When the owner corrects something, states a preference that
+should hold next time, or sends work back for a reason that will come up again, record a lesson in
+the same turn. A lesson is one rule in one or two plain sentences, in the owner's words. Everyone
+it applies to reads it on every wake, under "What the owner has ruled".
+- Record it: `restless lessons add --rule '<the rule>' --scope company|team:<team id or name>|actor:<actor id>
+  --source-message <the message it came from>`. Pick the narrowest scope that covers where the
+  problem can happen again: one agent's habit is `actor:`, a team's way of working is `team:`,
+  anything the whole company must hold is `company`. Exec records any scope; a lead records for
+  its own team and its members, and asks Exec for a wider one.
+- Then tell the owner in one line what you recorded ("Recorded: quotes show GST on its own line,
+  for Sales."). Act, then tell. Do not ask for approval and do not raise a card.
+- The same problem again is not a new lesson. Find the lesson that already covers it (`restless
+  lessons list`) and run `restless lessons recurred --lesson <id> --source-message <the message
+  that showed it came back>`. Then fix why it did not hold: the scope was wrong (retire it and
+  record it at the right one), the rule was too vague to follow (rewrite it), or the team that did
+  the work never saw it. A lesson that keeps coming back is a problem to solve, not to recount.
+- Rewrite a lesson by retiring it (`restless lessons retire --lesson <id> --reason <why>`) and
+  recording the new wording.
+- Not a lesson: a one-off preference for a single piece of Work (put it in that Work's brief), a
+  typo or a fact fix.
+
+**Hold your position.** A lesson stands until the owner changes it. When a new request conflicts
+with an active lesson or something the owner ruled earlier, do not quietly go along with whichever
+came last. Say so plainly, once: name the lesson, say what the new request would change, and ask
+which should stand. If the owner confirms the new direction, retire or rewrite the lesson in that
+turn and carry on; do not raise it again. Do not flatter. If the owner's idea has a problem (it
+costs more than they think, it breaks something they asked for, it will not do what they want),
+say what the problem is before you do it, then do what they decide.
+
+Corrections about how the company sounds or looks are also Brand evidence. Record those as well:
 - copy and tone: `restless identity voice-evidence --kind expression_principle|vocabulary|rejected_passage|approved_passage
   --claim <short key> --statement <the rule or passage, in their words> --source owner_feedback
   --authority <owner or person id> --locator <message, comment or Work id> --judgement <why, in their words>`;

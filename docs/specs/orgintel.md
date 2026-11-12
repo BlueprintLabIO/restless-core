@@ -645,6 +645,14 @@ Memory exists to improve future decisions, not archive everything.
 
 Promote information upward only when it is likely to remain useful. Link important memory to evidence or artifacts where possible.
 
+**Default pattern: company lessons.** A correction the owner makes becomes a standing rule: one
+or two plain sentences, for the whole company, one team or one agent, linked to the message it
+came from (`company_lessons`, `restless lessons`). Exec records it in the same turn and tells the
+owner; a lead may record one for its own team. Every agent a lesson applies to reads it on each
+wake, newest first and bounded. When the same problem shows up again the lesson counts it instead
+of being recorded twice, so a rule that does not hold is visible. A lesson grants no authority
+and gates nothing; the owner sees them in Company › Charter and can retire one.
+
 ---
 
 # 6. Coordination, teamwork, and processes

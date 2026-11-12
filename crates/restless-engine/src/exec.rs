@@ -2102,10 +2102,14 @@ async fn gather_snapshot(
             vec!["(unavailable this wake; read `restless people` and `restless teams list`)".into()]
         }
     };
+    // What the owner has ruled. A wake that cannot read them still runs; `restless lessons list`
+    // reads them again.
+    let lessons = org.list_lessons(false).await.unwrap_or_default();
     Ok(ContextSnapshot {
         people_changes,
         library_uploads,
         roster,
+        lessons,
         company: config.name.clone(),
         company_display: config
             .display_name
