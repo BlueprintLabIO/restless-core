@@ -20,10 +20,11 @@ use chrono::{DateTime, Utc};
 use restless_orgintel::{GoalMinds, OrgIntel, OrgReviewRow, OwnerSignalRow, TeamScore};
 use serde::Serialize;
 
-/// With no earlier review, and for the scorecard `restless org scorecard` prints, look this far
-/// back. Long enough to hold a company's recent shape, short enough that a team reorganised a
-/// month ago is not judged on its old numbers.
-const FIRST_WINDOW_DAYS: i64 = 14;
+/// Team numbers always cover this long. Long enough to hold a company's recent shape, short enough
+/// that a team reorganised a month ago is not judged on its old numbers. Owner signals are
+/// counted from the last review instead (or this far back when there has been none), so a review
+/// answers new signal with a full window of results, never the few Attempts since yesterday.
+const SCORE_WINDOW_DAYS: i64 = 14;
 /// Signals that say something went wrong for the owner: sent back, corrected, had to nudge.
 const REVIEW_AFTER_NEGATIVE: usize = 3;
 /// Decisions of any kind. A run of clean accepts is also evidence worth one look, far less often.
@@ -115,7 +116,9 @@ pub fn classify(rows: &[OwnerSignalRow]) -> OwnerSignals {
             "lesson" => signals.lessons += 1,
             "message" if is_nudge(&row.detail) => {
                 signals.nudges += 1;
-                signals.examples.push(format!("\"{}\"", example(&row.detail)));
+                signals
+                    .examples
+                    .push(format!("\"{}\"", example(&row.detail)));
             }
             _ => {}
         }
@@ -128,7 +131,10 @@ pub fn classify(rows: &[OwnerSignalRow]) -> OwnerSignals {
 /// The numbers a review reads, and the stored form the next review compares against.
 #[derive(Debug, Clone, Serialize)]
 pub struct Scorecard {
+    /// Team and goal numbers cover Attempts from here.
     pub since: DateTime<Utc>,
+    /// Owner signals are counted from here: the last review, or the same window.
+    pub signals_since: DateTime<Utc>,
     pub teams: Vec<TeamScore>,
     pub goals: Vec<GoalMinds>,
     pub signals: OwnerSignals,
@@ -164,19 +170,20 @@ pub fn due(signals: &OwnerSignals, teams: &[TeamScore]) -> bool {
 
 pub async fn scorecard(org: &OrgIntel, now: DateTime<Utc>) -> anyhow::Result<Scorecard> {
     let last = org.latest_org_review().await?;
-    let since = last
+    let since = now - chrono::Duration::days(SCORE_WINDOW_DAYS);
+    let signals_after = last
         .as_ref()
-        .map(|review| review.signals_through)
-        .unwrap_or(now - chrono::Duration::days(FIRST_WINDOW_DAYS));
+        .map_or(since, |review| review.signals_through.max(since));
     let (teams, goals, rows) = tokio::try_join!(
         org.team_scores(since),
         org.goal_minds(since),
-        org.owner_signals_after(since),
+        org.owner_signals_after(signals_after),
     )?;
     let signals = classify(&rows);
     let due = due(&signals, &teams);
     Ok(Scorecard {
         since,
+        signals_since: signals_after,
         due,
         teams,
         goals,
@@ -208,14 +215,18 @@ fn team_label(team: &TeamScore) -> String {
 
 /// One team, in a line a reviewer can act on: the rate first, then what stands out.
 pub fn team_line(team: &TeamScore, before: Option<&TeamScore>) -> String {
-    let mut line = format!(
-        "{}: {} of {} attempts landed ({}%)",
-        team_label(team),
-        team.landed,
-        team.attempts,
-        percent(team.landed, team.attempts)
-    );
-    if let Some(before) = before.filter(|before| before.attempts > 0) {
+    let mut line = if team.attempts > 0 {
+        format!(
+            "{}: {} of {} attempts landed ({}%)",
+            team_label(team),
+            team.landed,
+            team.attempts,
+            percent(team.landed, team.attempts)
+        )
+    } else {
+        format!("{}: no production attempts", team_label(team))
+    };
+    if let Some(before) = before.filter(|before| before.attempts > 0 && team.attempts > 0) {
         line.push_str(&format!(
             ", was {}% at the last review",
             percent(before.landed, before.attempts)
@@ -231,8 +242,13 @@ pub fn team_line(team: &TeamScore, before: Option<&TeamScore>) -> String {
         line.push_str(&format!("; owner sent back {}", team.owner_sent_back));
     }
     line.push_str(&format!(
-        "; {} minds on {} Work",
-        team.minds, team.work_items
+        "; {} on {} Work",
+        if team.minds == 1 {
+            "1 mind".to_string()
+        } else {
+            format!("{} minds", team.minds)
+        },
+        team.work_items
     ));
     if team.critic_attempts > 0 {
         line.push_str(&format!(
@@ -248,9 +264,8 @@ pub fn team_line(team: &TeamScore, before: Option<&TeamScore>) -> String {
 
 fn signal_sentence(signals: &OwnerSignals) -> String {
     let mut parts = Vec::new();
-    let plural = |n: usize, one: &str, many: &str| {
-        format!("{n} {}", if n == 1 { one } else { many })
-    };
+    let plural =
+        |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
     if signals.sent_back > 0 {
         parts.push(plural(
             signals.sent_back,
@@ -275,7 +290,7 @@ fn signal_sentence(signals: &OwnerSignals) -> String {
         ));
     }
     if parts.is_empty() {
-        "nothing yet".to_string()
+        "none".to_string()
     } else {
         parts.join(", ")
     }
@@ -284,13 +299,17 @@ fn signal_sentence(signals: &OwnerSignals) -> String {
 /// The scorecard as text: what `restless org scorecard` prints and what a due review shows.
 pub fn render_numbers(card: &Scorecard) -> String {
     let mut out = format!(
-        "Since {}: the owner gave {}.\n",
-        card.since.format("%-d %b"),
+        "Owner signal since {}: {}.\n",
+        card.signals_since.format("%-d %b"),
         signal_sentence(&card.signals)
     );
     for example in &card.signals.examples {
         out.push_str(&format!("  - {example}\n"));
     }
+    out.push_str(&format!(
+        "Team results since {}:\n",
+        card.since.format("%-d %b")
+    ));
     if card.teams.is_empty() {
         out.push_str("No Attempt has finished in that time.\n");
     }
@@ -398,7 +417,8 @@ mod tests {
     fn card(signals: OwnerSignals, teams: Vec<TeamScore>) -> Scorecard {
         let due = due(&signals, &teams);
         Scorecard {
-            since: Utc::now() - chrono::Duration::days(3),
+            since: Utc::now() - chrono::Duration::days(14),
+            signals_since: Utc::now() - chrono::Duration::days(3),
             teams,
             goals: Vec::new(),
             signals,
@@ -512,7 +532,10 @@ mod tests {
         assert!(block.contains("owner sent back 2"), "{block}");
         assert!(block.contains("they changed nothing"), "{block}");
         assert!(block.contains("wrong audience"), "{block}");
-        assert!(block.contains("restless org review --conclusion"), "{block}");
+        assert!(
+            block.contains("restless org review --conclusion"),
+            "{block}"
+        );
         assert!(block.contains("2 outcomes sent back"), "{block}");
     }
 
@@ -567,7 +590,10 @@ mod tests {
             },
         ];
         let text = render_numbers(&card);
-        assert!(text.contains("\"Launch Reno\": 9 minds, 3 of them critics"), "{text}");
+        assert!(
+            text.contains("\"Launch Reno\": 9 minds, 3 of them critics"),
+            "{text}"
+        );
         assert!(!text.contains("\"Small\""), "{text}");
     }
 }

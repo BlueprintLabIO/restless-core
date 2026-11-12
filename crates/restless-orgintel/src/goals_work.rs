@@ -1556,7 +1556,9 @@ impl OrgIntel {
             .await?;
             if let Some(critic) = open_critic {
                 tx.rollback().await?;
-                return Err(OrgIntelError::InvalidWork(second_critic_refusal(critic, to)));
+                return Err(OrgIntelError::InvalidWork(second_critic_refusal(
+                    critic, to,
+                )));
             }
         }
         if kind == WorkEdgeKind::Requires {
