@@ -11,6 +11,7 @@ test('a Company page named by its label or key lands on its path', () => {
 	assert.equal(companyPageAlias('intelligence')?.path, '/provider');
 	assert.equal(companyPageAlias('limits')?.path, '/resources');
 	assert.equal(companyPageAlias('weekly-review')?.path, '/week');
+	assert.equal(companyPageAlias('Team results')?.path, '/team-results');
 	assert.equal(companyPageAlias('nonsense'), undefined);
 	/* The overview is the area itself, never an alias of a page beneath it. */
 	assert.equal(companyPageAlias('overview'), undefined);

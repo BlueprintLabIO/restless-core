@@ -43,6 +43,7 @@ const ADMIN_READ_SECTIONS = [
 	'/accounting',
 	'/resources',
 	'/week',
+	'/team-results',
 	'/party'
 ];
 
