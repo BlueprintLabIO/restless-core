@@ -1,0 +1,108 @@
+{
+ "id": "email-05",
+ "kind": "email",
+ "title": "Coffee subscription cancellation",
+ "clock": "2026-03-06T08:10",
+ "deliverable": "cancel-reply.md",
+ "ask": "Daniel Okafor wants to stop his Peel Street Coffee subscription. His email is in inbox/customer.txt. Confirm it for him, make one offer to stay, and send the reply.",
+ "background": [
+  "His last box is already roasted and goes out on 14 March.",
+  "He has been with us for two years on the 500g filter plan.",
+  "If he says no to the offer, that is fine, we just stop."
+ ],
+ "signoff": "Cheers, Sam",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep it to 90 words or fewer",
+   "checker": "max_words",
+   "args": {
+    "n": 90
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "offer him a percentage off if he stays, but no more than 20%",
+   "checker": "percent_max",
+   "args": {
+    "max": 20
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "save the reply as cancel-reply.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "cancel-reply.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "begin with \"Hi Daniel,\" on its own line",
+   "checker": "first_line",
+   "args": {
+    "pattern": "^Hi Daniel,$"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't write \"sad to see you go\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "sad to see you go"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "use the words \"final delivery\"",
+   "checker": "contains",
+   "args": {
+    "phrase": "final delivery"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no contractions",
+   "checker": "no_contractions",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "style",
+   "text": "no exclamation marks",
+   "checker": "no_exclaim",
+   "args": {}
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "send him one email only, no follow-up",
+   "checker": "log_count_max",
+   "args": {
+    "action": "send_email",
+    "n": 1
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "give the date of his last box, 14 March",
+   "checker": "contains",
+   "args": {
+    "phrase": "14 March"
+   }
+  }
+ ],
+ "start": {
+  "inbox/customer.txt": "From: daniel.okafor@customer.example\nSubject: Cancel subscription\n\nPlease cancel my subscription, I am moving overseas.\n\nDaniel\n"
+ }
+}

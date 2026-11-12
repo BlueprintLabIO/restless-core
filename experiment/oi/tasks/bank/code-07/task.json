@@ -1,0 +1,112 @@
+{
+ "id": "code-07",
+ "kind": "code",
+ "title": "Fix the rate limiter",
+ "clock": "2026-03-10T14:00",
+ "deliverable": "NOTES.md",
+ "ask": "allow in limiter.py decides whether we may send another text message to a customer. A message sent exactly one window ago should no longer count, but it does, so some reminders are being held back. Please fix it; tests are in tests/test_limiter.py.",
+ "background": [
+  "Times are plain seconds and the window is 60 seconds in practice.",
+  "The texting provider bills per message, so I don't want it erring the other way either.",
+  "Hamish signs off changes to anything that sends messages."
+ ],
+ "signoff": "Cheers, Lena",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the allow function to 6 lines or fewer",
+   "checker": "py_func_max_lines",
+   "args": {
+    "name": "allow",
+    "n": 6,
+    "file": "limiter.py"
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep the notes under 60 words",
+   "checker": "max_words",
+   "args": {
+    "n": 60
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "write a short note on the fix and save it as NOTES.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "NOTES.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "put type hints on every argument and the return value of allow",
+   "checker": "py_annotated",
+   "args": {
+    "name": "allow",
+    "file": "limiter.py"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "leave no print( calls in limiter.py",
+   "checker": "not_matches",
+   "args": {
+    "pattern": "\\bprint\\(",
+    "file": "limiter.py"
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "use the words \"root cause\" in the notes",
+   "checker": "contains",
+   "args": {
+    "phrase": "root cause"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no contractions in the notes",
+   "checker": "no_contractions",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't change tests/test_limiter.py",
+   "checker": "file_unchanged",
+   "args": {
+    "path": "tests/test_limiter.py"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "don't fetch anything from the web",
+   "checker": "log_none",
+   "args": {
+    "action": "web_fetch"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "name Hamish as the reviewer in the notes",
+   "checker": "contains",
+   "args": {
+    "phrase": "Hamish"
+   }
+  }
+ ],
+ "start": {
+  "limiter.py": "def allow(timestamps, now, limit, window):\n    recent = [t for t in timestamps if now - t <= window]\n    print(\"recent\", recent)\n    return len(recent) < limit\n",
+  "tests/test_limiter.py": "import unittest\n\nfrom limiter import *  # noqa: F403\n\n\nclass Tests(unittest.TestCase):\n    def test_old_call_falls_out(self):\n        self.assertTrue(allow([0], 60, 1, 60))\n\n    def test_full_window(self):\n        self.assertFalse(allow([10, 20], 30, 2, 60))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+ }
+}

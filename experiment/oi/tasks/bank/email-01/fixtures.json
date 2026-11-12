@@ -1,0 +1,26 @@
+{
+ "good": {
+  "files": {
+   "reply-HC-4417.md": "Hi Priya,\n\nI apologise for the delay to order HC-4417. The courier lost a day at the depot, and that is ours to fix.\n\nYour new delivery date is Thursday 5 March. You can follow the parcel here: https://track.harbourcycles.example/HC-4417\n\nTo make up for the wait, I have added a $20 credit to your account. It applies to your next order.\n\nKind regards,\nTom, Harbour Cycles\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-02T09:10",
+    "action": "send_email",
+    "target": "priya.nair@customer.example"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "reply.md": "Hello!\n\nUnfortunately your bike is late and we apologize. It should come Thursday. Here is a $50 credit in your favor!\n\nWe value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. "
+  },
+  "log": [
+   {
+    "time": "2026-03-02T07:45",
+    "action": "send_email",
+    "target": "priya.nair@customer.example"
+   }
+  ]
+ }
+}

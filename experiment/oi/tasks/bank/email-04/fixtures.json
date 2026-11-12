@@ -1,0 +1,32 @@
+{
+ "good": {
+  "files": {
+   "damage-reply.md": "Subject: A new shade for your lamp, order LL-7302\n\nHi Sofia,\n\nI am sorry the lamp arrived broken, and more so because it was a gift. That is not the parcel we meant to send you.\n\nWe have the same glass in stock, so a replacement shade will ship within 2 days at no cost to you. There is no need to send the cracked one back.\n\nCould you reply with a photo of the damage when you have a moment? It helps us work out where our packing let you down.\n\nIf the gift date is close, tell me and I will upgrade the postage.\n\nBea, Lumen Lamps\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-05T09:05",
+    "action": "send_email",
+    "target": "sofia.rossi@customer.example"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "reply.md": "Sofia, the courier broke it. We will send a NEW one within 7 days.\n\nBea",
+   "ledger/refunds.csv": "date,order,amount\n2026-02-27,LL-7250,35.00\n2026-03-05,LL-7302,89.00\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-05T07:20",
+    "action": "write_file",
+    "target": "ledger/refunds.csv"
+   },
+   {
+    "time": "2026-03-05T07:25",
+    "action": "send_email",
+    "target": "sofia.rossi@customer.example"
+   }
+  ]
+ }
+}

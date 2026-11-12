@@ -1,0 +1,31 @@
+{
+ "good": {
+  "files": {
+   "yuki-reply.md": "Hello Yuki,\n\nYes, we ship to Osaka. For three A5 notebooks, which weigh about 900 grams packed:\n\n- Postage is $26, tracked.\n- Delivery takes 10 to 14 business days.\n- We post overseas parcels on Tuesdays and Fridays.\n\nPlease note that customs fees are not included. If Japan charges any on arrival, they are paid by the person receiving the parcel.\n\nIf you would like to go ahead, reply to this email and I will send a payment link.\n\nInes, Paper Wren\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-11T08:20",
+    "action": "send_email",
+    "target": "yuki.tanaka@customer.example"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "reply.md": "Yuki, it's $38 and we guarantee your favorite notebooks in a week."
+  },
+  "log": [
+   {
+    "time": "2026-03-11T08:05",
+    "action": "web_fetch",
+    "target": "https://post.example/rates"
+   },
+   {
+    "time": "2026-03-11T08:10",
+    "action": "send_email",
+    "target": "yuki.tanaka@customer.example"
+   }
+  ]
+ }
+}

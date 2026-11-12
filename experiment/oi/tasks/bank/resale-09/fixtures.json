@@ -1,0 +1,20 @@
+{
+ "good": {
+  "files": {
+   "sewing-machine.md": "Mechanical sewing machine, all metal, with accessories\n\nPrice: $170\n\nA solid 1990s mechanical machine with metal parts inside. It was serviced in 2024 and sews a straight, even stitch through denim and cotton alike.\n\nThe foot pedal cord has been re-taped where it meets the plug. It works, and a new cord is an easy swap if you prefer.\n\nIncluded are six bobbins, three presser feet and the manual.\n\nPickup from Hornsby. My mother would love it to go to someone who sews.\n"
+  },
+  "log": []
+ },
+ "bad": {
+  "files": {
+   "listing.md": "VINTAGE sewing machine in lovely condition, a true classic for any sewing room at home\n\nPrice: $250"
+  },
+  "log": [
+   {
+    "time": "2026-03-12T10:05",
+    "action": "post_listing",
+    "target": "sewing-machine"
+   }
+  ]
+ }
+}

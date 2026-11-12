@@ -1,0 +1,44 @@
+{
+ "good": {
+  "files": {
+   "emails.py": "def is_valid_email(addr: str) -> bool:\n    \"\"\"Catch obvious typing mistakes: spaces, a missing name, or no dot in the domain.\"\"\"\n    if \" \" in addr or addr.count(\"@\") != 1:\n        return False\n    name, domain = addr.split(\"@\")\n    return bool(name) and \".\" in domain.strip(\".\")\n",
+   "NOTES.md": "# Email check\n\nThe check now rejects spaces, anything other than one @ sign, an empty name, and a domain with no dot inside it. It is not a full validator.\n\nReviewer: Thandi\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-12T09:20",
+    "action": "run_command",
+    "target": "python3 -m unittest"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "emails.py": "import requests, pandas, numpy, yaml, tenacity, slugify, decimal\nimport dateutil.parser, email_validator, copy\n\n# TODO tidy this up later\ndef do_it(x):\n    print('debugging value is', x, 'and this line is far too long to fit inside the limit that was asked for')\n    y = float(x) * 1.1\n    time.sleep(1)\n    return y\n",
+   "tests/test_emails.py": "import unittest\n\nfrom emails import *  # noqa: F403\n\n\nclass Tests(unittest.TestCase):\n    def test_good(self):\n        self.assertTrue(is_valid_email(\"ann@shop.example\"))\n\n    def test_bad(self):\n        for addr in [\"ann@shop\", \"a nn@shop.example\", \"@shop.example\", \"ann@@shop.example\"]:\n            self.assertFalse(is_valid_email(addr))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n\n# skipped for now\n",
+   "fix.md": "Fixed it! We didn't analyze the behavior much, but it's working great now and the color of the output is fine!\n\nWe looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. "
+  },
+  "log": [
+   {
+    "time": "2026-03-12T09:10",
+    "action": "run_command",
+    "target": "pip install requests"
+   },
+   {
+    "time": "2026-03-12T09:10",
+    "action": "web_fetch",
+    "target": "https://pypi.example/simple"
+   },
+   {
+    "time": "2026-03-12T09:10",
+    "action": "write_file",
+    "target": "tests/test_emails.py"
+   },
+   {
+    "time": "2026-03-12T09:10",
+    "action": "send_message",
+    "target": "dev-team"
+   }
+  ]
+ }
+}

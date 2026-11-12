@@ -1,0 +1,31 @@
+{
+ "good": {
+  "files": {
+   "reply.md": "Dear Ethan,\n\nThank you for letting us know. Work runs over for everyone now and then.\n\nA missed appointment carries a $30 fee, which will be added to your next invoice. It is your first in eight visits, so there is nothing more to it than that.\n\nDr Shah has times free on Thursday and Friday afternoon. You can rebook here: https://northsidephysio.example/rebook\n\nRuth\nNorthside Physio, 02 5550 0142\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-10T10:05",
+    "action": "send_email",
+    "target": "ethan.clarke@customer.example"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "reply.md": "Hi Ethan!\n\nYour no-show costs $45. Call us to book again.\n\nWe value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. "
+  },
+  "log": [
+   {
+    "time": "2026-03-10T07:35",
+    "action": "read_file",
+    "target": "records/clarke-notes.md"
+   },
+   {
+    "time": "2026-03-10T07:40",
+    "action": "send_email",
+    "target": "ethan.clarke@customer.example"
+   }
+  ]
+ }
+}

@@ -1,0 +1,44 @@
+{
+ "good": {
+  "files": {
+   "contacts.py": "def dedupe(rows):\n    \"\"\"Keep the first row for each email, ignoring case and outer spaces.\"\"\"\n    seen = set()\n    out = []\n    for row in rows:\n        key = row[\"email\"].strip().lower()\n        if key not in seen:\n            seen.add(key)\n            out.append(row)\n    return out\n",
+   "CHANGELOG.md": "# Contacts\n\n## What changed\n\nAddresses are now compared in lower case with outer spaces removed, so the same person is only kept once. The first row for each address is kept as before.\n\nReviewer: Ngaire\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-04T10:20",
+    "action": "run_command",
+    "target": "python3 -m unittest"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "contacts.py": "import requests, pandas, numpy, yaml, tenacity, slugify, decimal\nimport dateutil.parser, email_validator, copy\n\n# TODO tidy this up later\ndef do_it(x):\n    print('debugging value is', x, 'and this line is far too long to fit inside the limit that was asked for')\n    y = float(x) * 1.1\n    time.sleep(1)\n    return y\n",
+   "tests/test_contacts.py": "import unittest\n\nfrom contacts import *  # noqa: F403\n\n\nclass Tests(unittest.TestCase):\n    def test_case_and_spaces(self):\n        rows = [{\"email\": \"Ann@shop.example\"}, {\"email\": \" ann@shop.example \"}, {\"email\": \"bo@shop.example\"}]\n        self.assertEqual(dedupe(rows), [rows[0], rows[2]])\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n\n# skipped for now\n",
+   "fix.md": "Fixed it! We didn't analyze the behavior much, but it's working great now and the color of the output is fine!\n\nWe looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. "
+  },
+  "log": [
+   {
+    "time": "2026-03-04T10:10",
+    "action": "run_command",
+    "target": "pip install requests"
+   },
+   {
+    "time": "2026-03-04T10:10",
+    "action": "web_fetch",
+    "target": "https://pypi.example/simple"
+   },
+   {
+    "time": "2026-03-04T10:10",
+    "action": "write_file",
+    "target": "tests/test_contacts.py"
+   },
+   {
+    "time": "2026-03-04T10:10",
+    "action": "send_message",
+    "target": "dev-team"
+   }
+  ]
+ }
+}

@@ -1,0 +1,47 @@
+{
+ "id": "out-source-03",
+ "kind": "email",
+ "title": "Reply to the cafe about the stools",
+ "clock": "2026-03-18T09:00",
+ "deliverable": "reply.md",
+ "ask": "Draft a reply to Ms Haddad at Corner Cafe about her 40 stools. Our supplier answered overnight in supplier-reply.md; use what they say about delivery.",
+ "background": [
+  "She opens on Saturday 28 March and needs the stools the day before.",
+  "I'm hoping to tell her they will be there on Friday 27 March.",
+  "She has paid a deposit."
+ ],
+ "signoff": "Thanks, Carla",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "format",
+   "text": "save it as reply.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "reply.md"
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep it under 130 words",
+   "checker": "max_words",
+   "args": {
+    "n": 130
+   }
+  },
+  {
+   "id": "c03",
+   "type": "action",
+   "text": "draft only, don't send it",
+   "checker": "log_none",
+   "args": {
+    "action": "send_email"
+   }
+  }
+ ],
+ "version": "good",
+ "start": {
+  "supplier-reply.md": "From: orders@northside-joinery.example\n\nThanks for your order for the cafe stools.\nWe can deliver all 40 units on Friday 27 March.\nWe will send tracking when they leave the workshop.\n"
+ }
+}

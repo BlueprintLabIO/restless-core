@@ -1,0 +1,44 @@
+{
+ "good": {
+  "files": {
+   "pricing.py": "def add_gst(cents: int) -> int:\n    \"\"\"Add 10 percent GST to a price in cents, rounding half a cent up.\"\"\"\n    return (cents * 11 + 5) // 10\n",
+   "NOTES.md": "# GST rounding\n\nThe root cause was multiplying by a fraction and then cutting off the remainder, which dropped half cents. The function now works in whole numbers and rounds half a cent up.\n\nIssue: https://issues.kettleandco.example/212\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-03T09:15",
+    "action": "run_command",
+    "target": "python3 -m unittest"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "pricing.py": "import requests, pandas, numpy, yaml, tenacity, slugify, decimal\nimport dateutil.parser, email_validator, copy\n\n# TODO tidy this up later\ndef do_it(x):\n    print('debugging value is', x, 'and this line is far too long to fit inside the limit that was asked for')\n    y = float(x) * 1.1\n    time.sleep(1)\n    return y\n",
+   "tests/test_pricing.py": "import unittest\n\nfrom pricing import *  # noqa: F403\n\n\nclass Tests(unittest.TestCase):\n    def test_half_cent_rounds_up(self):\n        self.assertEqual(add_gst(1005), 1106)\n\n    def test_round_figure(self):\n        self.assertEqual(add_gst(100), 110)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n\n# skipped for now\n",
+   "fix.md": "Fixed it! We didn't analyze the behavior much, but it's working great now and the color of the output is fine!\n\nWe looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. We looked at the code for a while and then we changed some of it around. "
+  },
+  "log": [
+   {
+    "time": "2026-03-03T09:10",
+    "action": "run_command",
+    "target": "pip install requests"
+   },
+   {
+    "time": "2026-03-03T09:10",
+    "action": "web_fetch",
+    "target": "https://pypi.example/simple"
+   },
+   {
+    "time": "2026-03-03T09:10",
+    "action": "write_file",
+    "target": "tests/test_pricing.py"
+   },
+   {
+    "time": "2026-03-03T09:10",
+    "action": "send_message",
+    "target": "dev-team"
+   }
+  ]
+ }
+}

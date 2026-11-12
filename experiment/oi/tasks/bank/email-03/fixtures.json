@@ -1,0 +1,26 @@
+{
+ "good": {
+  "files": {
+   "reply.md": "Kia ora Aroha,\n\nYes, we can move booking TW-881 to Sunday. There are two departures with room for three:\n\n- 8am\n- 1pm\n\nThe change fee is $10 for the group. The forecast is light wind, which is ideal for first-time paddlers. The meeting point is Jetty 4, the same as Saturday.\n\nPick a time here and it is done: https://tidewater.example/bookings/TW-881\n\nKiri, Tidewater Kayak Tours\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-04T08:35",
+    "action": "send_email",
+    "target": "aroha.w@customer.example"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "reply.md": "Hi Aroha!\n\nSorry, moving costs $25. We have organized these times:\n\n- 8am\n- 1pm\n- 4pm\n\nMeet at the boat ramp.\n\nWe value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. "
+  },
+  "log": [
+   {
+    "time": "2026-03-04T06:55",
+    "action": "send_email",
+    "target": "aroha.w@customer.example"
+   }
+  ]
+ }
+}

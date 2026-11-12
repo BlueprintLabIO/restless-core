@@ -1,0 +1,31 @@
+{
+ "good": {
+  "files": {
+   "wholesale-reply.md": "Hello Hannah,\n\nYes, we sell wholesale to cafes. Here are the two bars you asked about.\n\n| Product | Unit price | Minimum order |\n| --- | --- | --- |\n| Lemon myrtle bar | $4.80 | 24 |\n| Plain oat bar | $4.50 | 24 |\n\nForty bars a month fits well with a mixed carton. Most cafes reorder about every six weeks.\n\nJun Park will ring you this week to set up the account. The full terms are at https://saltbush.example/wholesale\n\nMia, Saltbush Soap\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-09T08:25",
+    "action": "send_email",
+    "target": "hannah@beckerscafe.example"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "reply.md": "Hannah, our soap is cheap for cafes at $3.90 a bar and we can customize the label, and since you asked about forty a month I should say that the more you take the better the price gets over the whole year for you.\n\nWe value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. "
+  },
+  "log": [
+   {
+    "time": "2026-03-09T08:05",
+    "action": "send_email",
+    "target": "trade@greenfold.example"
+   },
+   {
+    "time": "2026-03-09T08:10",
+    "action": "send_email",
+    "target": "hannah@beckerscafe.example"
+   }
+  ]
+ }
+}

@@ -1,0 +1,114 @@
+{
+ "id": "email-09",
+ "kind": "email",
+ "title": "Blender warranty claim",
+ "clock": "2026-03-12T07:45",
+ "deliverable": "warranty-reply.md",
+ "ask": "Olivia Mensah's Brightwell blender stopped working 11 months after she bought it (claim BW-3350). Her email is in inbox/customer.txt. It is covered, so write the reply that starts the claim and send it.",
+ "background": [
+  "It is the 1200 watt model and the motor has gone, which we have seen before.",
+  "Repairs take about a week once the blender reaches the workshop.",
+  "She mentioned she uses it daily for her kids' breakfasts."
+ ],
+ "signoff": "Thanks, Greg",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep it under 120 words",
+   "checker": "max_words",
+   "args": {
+    "n": 120
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "tell her to post it within a stated number of days, 14 at most",
+   "checker": "number_after",
+   "args": {
+    "label": "within",
+    "max": 14
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "make the first line exactly \"Subject: Your warranty claim BW-3350\"",
+   "checker": "first_line",
+   "args": {
+    "pattern": "^Subject: Your warranty claim BW-3350$"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "save it as warranty-reply.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "warranty-reply.md"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't suggest \"user error\" or misuse",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "user error",
+     "misuse",
+     "misused"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "use the words \"prepaid label\"",
+   "checker": "contains",
+   "args": {
+    "phrase": "prepaid label"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no shouting in capital letters",
+   "checker": "no_caps_words",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't send any email before 9:00",
+   "checker": "log_none_before",
+   "args": {
+    "action": "send_email",
+    "time": "09:00"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "send a copy to repairs@brightwell.example",
+   "checker": "log_any",
+   "args": {
+    "action": "send_email",
+    "target": "repairs@brightwell.example"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "ask her for proof of purchase",
+   "checker": "contains",
+   "args": {
+    "phrase": "proof of purchase"
+   }
+  }
+ ],
+ "start": {
+  "inbox/customer.txt": "From: olivia.mensah@customer.example\nSubject: Blender dead after 11 months\n\nMy blender will not turn on any more. It is under a year old. What do I do?\n\nOlivia\n"
+ }
+}

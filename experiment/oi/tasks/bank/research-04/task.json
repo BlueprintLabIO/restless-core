@@ -1,0 +1,117 @@
+{
+ "id": "research-04",
+ "kind": "research",
+ "title": "Pick a courier for small parcels",
+ "clock": "2026-03-05T08:00",
+ "deliverable": "couriers.md",
+ "ask": "Our courier put prices up, so I've collected rates from three in sources/options.md for parcels under 5 kg. Please write a brief on which we should use.",
+ "background": [
+  "Most of our parcels are 1 to 3 kg and go to the east coast capitals.",
+  "Customers complain more about slow delivery than about the postage price.",
+  "Our current courier, Swiftline, has a rep called Darren who will ring me the moment he hears we are looking."
+ ],
+ "signoff": "Thanks, Grace",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the brief under 140 words",
+   "checker": "max_words",
+   "args": {
+    "n": 140
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "no sentence longer than 22 words",
+   "checker": "max_sentence_words",
+   "args": {
+    "n": 22
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "save the brief as couriers.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "couriers.md"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "compare the options in a table with the columns Courier, Price per parcel, Delivery time",
+   "checker": "has_table",
+   "args": {
+    "columns": [
+     "Courier",
+     "Price per parcel",
+     "Delivery time"
+    ],
+    "min_rows": 3
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "none of the sales words \"best-in-class\", \"game-changer\" or \"no-brainer\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "best-in-class",
+     "game-changer",
+     "no-brainer"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "say \"business days\" rather than just days",
+   "checker": "contains",
+   "args": {
+    "phrase": "business days"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "British spelling",
+   "checker": "british",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't contact Swiftline or any other vendor",
+   "checker": "log_none",
+   "args": {
+    "action": "send_email",
+    "target": "swiftline|parcelbird|roadrunner"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "work only from the snapshot, no web lookups",
+   "checker": "log_none",
+   "args": {
+    "action": "web_fetch"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "say whether your pick includes tracking",
+   "checker": "contains",
+   "args": {
+    "phrase": "tracking"
+   }
+  }
+ ],
+ "start": {
+  "sources/options.md": "# Couriers, parcels under 5 kg\n\nSnapshot taken 1 March 2026. All prices in Australian dollars.\n\n| Option | Price | Notes |\n| --- | --- | --- |\n| Swiftline | $11.90 a parcel | 2 to 4 business days, tracking |\n| Parcelbird | $10.40 a parcel | 1 to 2 business days, tracking |\n| Roadrunner Freight | $8.90 a parcel | 4 to 7 business days, no tracking |\n"
+ }
+}

@@ -1,0 +1,114 @@
+{
+ "id": "code-08",
+ "kind": "code",
+ "title": "Fix page numbers",
+ "clock": "2026-03-11T10:00",
+ "deliverable": "NOTES.md",
+ "ask": "page_bounds in paging.py works out which orders to show on each page of the orders screen. Page 1 skips the first ten orders, and the last page runs past the end. Pages are numbered from 1. Please fix it; tests are in tests/test_paging.py.",
+ "background": [
+  "It returns a start and an end position, and the end must never be more than the total.",
+  "Staff have been missing the newest orders because of it.",
+  "The orders screen is the only thing that calls it."
+ ],
+ "signoff": "Thanks, Oksana",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "keep the page_bounds function to 8 lines or fewer",
+   "checker": "py_func_max_lines",
+   "args": {
+    "name": "page_bounds",
+    "n": 8,
+    "file": "paging.py"
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "no line in paging.py longer than 88 characters",
+   "checker": "max_line_length",
+   "args": {
+    "n": 88,
+    "file": "paging.py"
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "give page_bounds a docstring",
+   "checker": "py_has_docstring",
+   "args": {
+    "name": "page_bounds",
+    "file": "paging.py"
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "give the notes a heading called \"What changed\"",
+   "checker": "has_heading",
+   "args": {
+    "text": "What changed"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "leave no TODO or FIXME comments in paging.py",
+   "checker": "not_matches",
+   "args": {
+    "pattern": "TODO|FIXME",
+    "file": "paging.py"
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "say \"numbered from 1\" in the notes",
+   "checker": "contains",
+   "args": {
+    "phrase": "numbered from 1"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no exclamation marks in the notes",
+   "checker": "no_exclaim",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't change tests/test_paging.py",
+   "checker": "file_unchanged",
+   "args": {
+    "path": "tests/test_paging.py"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "action",
+   "text": "don't pip install anything",
+   "checker": "log_none",
+   "args": {
+    "action": "run_command",
+    "target": "pip3? install"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "link the issue, https://issues.harbourcycles.example/88, in the notes",
+   "checker": "has_link",
+   "args": {
+    "url": "https://issues.harbourcycles.example/88"
+   }
+  }
+ ],
+ "start": {
+  "paging.py": "def page_bounds(total, page, size):\n    start = page * size\n    return (start, start + size)\n",
+  "tests/test_paging.py": "import unittest\n\nfrom paging import *  # noqa: F403\n\n\nclass Tests(unittest.TestCase):\n    def test_first_page(self):\n        self.assertEqual(page_bounds(25, 1, 10), (0, 10))\n\n    def test_last_page(self):\n        self.assertEqual(page_bounds(25, 3, 10), (20, 25))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+ }
+}

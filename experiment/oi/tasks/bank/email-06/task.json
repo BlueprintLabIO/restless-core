@@ -1,0 +1,117 @@
+{
+ "id": "email-06",
+ "kind": "email",
+ "title": "Wholesale price enquiry from a cafe",
+ "clock": "2026-03-09T08:00",
+ "deliverable": "wholesale-reply.md",
+ "ask": "Hannah Becker runs a cafe and has asked Saltbush Soap for wholesale prices on our hand soap bars. Her email is in inbox/customer.txt and our prices are in pricing/wholesale.md. Write the reply and send it.",
+ "background": [
+  "She wants the lemon myrtle and the plain oat bars for the cafe bathrooms.",
+  "Cafes usually reorder every six weeks, so she could be a steady account.",
+  "Our distributor handles supermarkets only and is not part of this."
+ ],
+ "signoff": "Thanks, Mia",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "quote prices in dollars and nothing below $4.50 a bar",
+   "checker": "money_min",
+   "args": {
+    "min": 4.5
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep it under 130 words",
+   "checker": "max_words",
+   "args": {
+    "n": 130
+   }
+  },
+  {
+   "id": "c03",
+   "type": "format",
+   "text": "put the prices in a table with the columns Product, Unit price and Minimum order",
+   "checker": "has_table",
+   "args": {
+    "columns": [
+     "Product",
+     "Unit price",
+     "Minimum order"
+    ],
+    "min_rows": 2
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "save it as wholesale-reply.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "wholesale-reply.md"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "never call our soap \"cheap\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "cheap",
+     "cheaper",
+     "cheapest"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "style",
+   "text": "British spelling",
+   "checker": "british",
+   "args": {}
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "keep every sentence to 22 words or fewer",
+   "checker": "max_sentence_words",
+   "args": {
+    "n": 22
+   }
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "don't email our distributor, trade@greenfold.example",
+   "checker": "log_none",
+   "args": {
+    "target": "greenfold"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "tell her Jun Park will ring her to set up the account",
+   "checker": "contains",
+   "args": {
+    "phrase": "Jun Park"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "link to https://saltbush.example/wholesale",
+   "checker": "has_link",
+   "args": {
+    "url": "https://saltbush.example/wholesale"
+   }
+  }
+ ],
+ "start": {
+  "inbox/customer.txt": "From: hannah@beckerscafe.example\nSubject: Wholesale soap\n\nHello, do you sell your bars wholesale? I would need about 40 a month.\n\nHannah Becker\n",
+  "pricing/wholesale.md": "Lemon myrtle bar: $4.80 each, minimum 24\nPlain oat bar: $4.50 each, minimum 24\n"
+ }
+}

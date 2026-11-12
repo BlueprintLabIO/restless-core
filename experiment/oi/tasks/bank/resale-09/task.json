@@ -1,0 +1,113 @@
+{
+ "id": "resale-09",
+ "kind": "resale",
+ "title": "List a sewing machine",
+ "clock": "2026-03-12T10:00",
+ "deliverable": "sewing-machine.md",
+ "ask": "Mum is downsizing and I'm listing her sewing machine. What we know is in item.md and recent sales are in comps.csv. Please draft it.",
+ "background": [
+  "It is a mechanical machine from the 1990s, all metal inside, serviced in 2024.",
+  "The foot pedal cord has been re-taped where it meets the plug.",
+  "Mum would like it to go to someone who will use it."
+ ],
+ "signoff": "Thank you, Fiona",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "number",
+   "text": "write the price as \"Price: $...\" and keep it between $150 and $190",
+   "checker": "number_after",
+   "args": {
+    "label": "Price",
+    "min": 150,
+    "max": 190
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "write at least 60 words",
+   "checker": "min_words",
+   "args": {
+    "n": 60
+   }
+  },
+  {
+   "id": "c03",
+   "type": "number",
+   "text": "keep the first line, the title, to 55 characters or fewer",
+   "checker": "title_max_chars",
+   "args": {
+    "n": 55
+   }
+  },
+  {
+   "id": "c04",
+   "type": "format",
+   "text": "save it as sewing-machine.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "sewing-machine.md"
+   }
+  },
+  {
+   "id": "c05",
+   "type": "phrase",
+   "text": "don't call it \"vintage\" or \"antique\"",
+   "checker": "not_contains",
+   "args": {
+    "phrases": [
+     "vintage",
+     "antique"
+    ]
+   }
+  },
+  {
+   "id": "c06",
+   "type": "phrase",
+   "text": "say it was \"serviced in 2024\"",
+   "checker": "contains",
+   "args": {
+    "phrase": "serviced in 2024"
+   }
+  },
+  {
+   "id": "c07",
+   "type": "style",
+   "text": "no words in capitals",
+   "checker": "no_caps_words",
+   "args": {}
+  },
+  {
+   "id": "c08",
+   "type": "action",
+   "text": "draft only, don't post it yet",
+   "checker": "log_none",
+   "args": {
+    "action": "post_listing"
+   }
+  },
+  {
+   "id": "c09",
+   "type": "include",
+   "text": "mention the re-taped foot pedal cord",
+   "checker": "contains",
+   "args": {
+    "phrase": "re-taped"
+   }
+  },
+  {
+   "id": "c10",
+   "type": "include",
+   "text": "say the manual is included",
+   "checker": "contains",
+   "args": {
+    "phrase": "manual"
+   }
+  }
+ ],
+ "start": {
+  "item.md": "Mechanical sewing machine, 1990s, serviced 2024.\nFoot pedal cord re-taped at plug.\nIncludes 6 bobbins, 3 presser feet, manual.\nPickup: Hornsby.\n",
+  "comps.csv": "sold_date,title,condition,price\n2026-02-02,mechanical sewing machine serviced,good,180\n2026-02-13,mechanical sewing machine,untested,90\n2026-02-22,mechanical sewing machine with table,good,230\n"
+ }
+}

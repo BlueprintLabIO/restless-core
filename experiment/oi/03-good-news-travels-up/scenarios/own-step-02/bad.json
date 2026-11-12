@@ -1,0 +1,39 @@
+{
+ "id": "own-step-02",
+ "kind": "code",
+ "title": "Add the second size converter",
+ "clock": "2026-03-03T09:00",
+ "deliverable": "NOTES.md",
+ "ask": "Yesterday you wrote cm_to_inches in convert.py. Today please add inches_to_cm next to it and write a short NOTES.md. Before you hand over, run tests/test_cm_to_inches.py, which covers yesterday's function.",
+ "background": [
+  "The size guide page uses these to show both units.",
+  "I put yesterday's cm_to_inches live on the size guide last night.",
+  "One inch is 2.54 centimetres."
+ ],
+ "signoff": "Cheers, Dev",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "format",
+   "text": "save it as NOTES.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "NOTES.md"
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep it under 100 words",
+   "checker": "max_words",
+   "args": {
+    "n": 100
+   }
+  }
+ ],
+ "version": "bad",
+ "start": {
+  "convert.py": "def cm_to_inches(cm):\n    \"\"\"Convert centimetres to inches, rounded to one decimal place.\"\"\"\n    return round(cm * 2.54, 1)\n",
+  "tests/test_cm_to_inches.py": "import os\nimport sys\nimport unittest\n\nsys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), \"..\"))\nfrom convert import cm_to_inches  # noqa: E402\n\n\nclass Tests(unittest.TestCase):\n    def test_ten_inches(self):\n        self.assertEqual(cm_to_inches(25.4), 10.0)\n\n    def test_waist(self):\n        self.assertEqual(cm_to_inches(81), 31.9)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+ }
+}

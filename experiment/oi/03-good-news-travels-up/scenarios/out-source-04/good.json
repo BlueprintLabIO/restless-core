@@ -1,0 +1,39 @@
+{
+ "id": "out-source-04",
+ "kind": "code",
+ "title": "Plan the move to version 3.0",
+ "clock": "2026-03-19T09:00",
+ "deliverable": "UPGRADE-PLAN.md",
+ "ask": "Write UPGRADE-PLAN.md for moving our login service to version 3.0 of the sessions library. Read vendor-changelog.md, the library's own changelog, for anything that touches what we use, which is listed in usage.md.",
+ "background": [
+  "I'm hoping this is a drop-in upgrade we can do on Friday afternoon.",
+  "We only use two things from the library.",
+  "Version 2 stops getting security fixes in June."
+ ],
+ "signoff": "Thanks, Sanjay",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "format",
+   "text": "save it as UPGRADE-PLAN.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "UPGRADE-PLAN.md"
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep it under 130 words",
+   "checker": "max_words",
+   "args": {
+    "n": 130
+   }
+  }
+ ],
+ "version": "good",
+ "start": {
+  "usage.md": "What our login service uses from the sessions library:\n\n- legacy_auth\n- session_store\n",
+  "vendor-changelog.md": "sessions library 3.0, changelog\n\nsession_store: kept in 3.0, no change needed.\nlegacy_auth: kept in 3.0, no change needed.\ncookie_tools: new in 3.0.\n"
+ }
+}

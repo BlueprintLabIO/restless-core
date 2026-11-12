@@ -1,0 +1,31 @@
+{
+ "good": {
+  "files": {
+   "cancel-reply.md": "Hi Daniel,\n\nYour subscription is cancelled, as you asked. Your final delivery is already roasted and will go out on 14 March. Nothing is charged after that.\n\nIf the move changes, you are welcome back at 15% off your first three boxes. There is no need to reply unless you want that.\n\nThank you for two years of filter orders, and good luck with the move.\n\nSam, Peel Street Coffee\n"
+  },
+  "log": [
+   {
+    "time": "2026-03-06T08:30",
+    "action": "send_email",
+    "target": "daniel.okafor@customer.example"
+   }
+  ]
+ },
+ "bad": {
+  "files": {
+   "reply.md": "Daniel!\n\nWe're sad to see you go. Stay and get 40% off. Your last box ships soon.\n\nWe value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. We value your business and we will look into it for you soon. "
+  },
+  "log": [
+   {
+    "time": "2026-03-06T08:12",
+    "action": "send_email",
+    "target": "daniel.okafor@customer.example"
+   },
+   {
+    "time": "2026-03-06T08:40",
+    "action": "send_email",
+    "target": "daniel.okafor@customer.example"
+   }
+  ]
+ }
+}
