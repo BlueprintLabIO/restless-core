@@ -1857,6 +1857,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/company", get(company_view))
         .route("/companies/{company}/company/spend", get(company_spend))
         .route(
+            "/companies/{company}/company/org-review",
+            get(company_org_review),
+        )
+        .route(
             "/companies/{company}/company/spend/report",
             get(company_spend_report),
         )
@@ -8210,6 +8214,59 @@ async fn company_spend(
             logged(error, "This company could not be found."),
         ),
     }
+}
+
+/// How each team's work is landing and what the company changed about its own shape: the numbers
+/// Exec reviews, and its recent reviews in its own words.
+async fn company_org_review(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
+        return api_error(StatusCode::NOT_FOUND, "company", "company does not exist");
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "org_review",
+                logged(error, "Team results could not be read. Try again."),
+            )
+        }
+    };
+    let card = match restless_engine::org_review::scorecard(&org, chrono::Utc::now()).await {
+        Ok(card) => card,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "org_review",
+                logged(error, "Team results could not be read. Try again."),
+            )
+        }
+    };
+    let reviews = match org.list_org_reviews(10).await {
+        Ok(reviews) => reviews,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "org_review",
+                logged(error, "Team results could not be read. Try again."),
+            )
+        }
+    };
+    let reviews: Vec<_> = reviews
+        .into_iter()
+        .map(|review| {
+            serde_json::json!({
+                "id": review.id,
+                "reviewed_at": review.reviewed_at,
+                "conclusion": review.conclusion,
+                "signal_count": review.signal_count,
+            })
+        })
+        .collect();
+    Json(serde_json::json!({ "scorecard": card, "reviews": reviews })).into_response()
 }
 
 async fn company_spend_report(

@@ -88,6 +88,7 @@ const routes = [
 	['company-members', `/${company}/company/members`],
 	['company-resources', `/${company}/company/resources`],
 	['company-schedules', `/${company}/company/schedules`],
+	['company-team-results', `/${company}/company/team-results`],
 	['company-skills', `/${company}/company/skills`],
 	['company-harnesses', `/${company}/company/harnesses`],
 	['company-vault', `/${company}/company/vault`],

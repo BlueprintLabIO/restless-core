@@ -757,6 +757,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         | "teams"
         | "spend"
         | "telemetry"
+        | "org-scorecard"
         | "goals"
         | "work"
         | "work-graph"
@@ -855,6 +856,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "lesson-list" => &["actor", "include_retired"],
         "lesson-recurred" => &["id", "source_message_id", "actor"],
         "lesson-retire" => &["id", "reason", "actor"],
+        "org-review" => &["actor", "reason"],
         "judgement" => &["as_actor"],
         "work-handoff-escalate" => &["id", "as_actor", "reason"],
         "receipts" => &["capability", "limit"],
@@ -1731,6 +1733,8 @@ mod tests {
             "receipts",
             "spend",
             "telemetry",
+            "org-scorecard",
+            "org-review",
             "spend-correct",
             "goals",
             "goal-add",

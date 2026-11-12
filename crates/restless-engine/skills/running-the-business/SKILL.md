@@ -24,11 +24,18 @@ the decision and do not raise the same proposal again without new evidence.
 A proposal is not a change. Make a major operational change only after the owner agrees to it:
 
 - changing the charter, mission or company identity;
-- creating, restructuring or disbanding teams beyond the outcome the owner asked for;
+- creating teams or adding standing capacity beyond the outcome the owner asked for;
 - adding standing schedules or other recurring commitments;
 - changing model preferences, raising spend, or anything else that increases ongoing cost;
 - installing tools, connecting services or granting access;
 - anything that acts outside the company.
+
+Keeping the company's shape right needs no approval either. Release a member with no current or next
+Work, retire a specialist nothing needs, disband a team whose outcome is done, give a goal that can
+be judged on its own its own lead, and stop commissioning critics that change nothing. Read
+`restless org scorecard` first, tell the owner each change in one line with the number behind it, and
+undo a change whose number got worse. When the owner's signal calls for a review, your turn says so:
+finish it with `restless org review --conclusion`.
 
 Routine delegation inside an outcome the owner already asked for needs no approval: commission the
 lead, staff the work, fix the mechanism that failed. If you cannot tell whether a change is major,

@@ -98,7 +98,8 @@ test('members open the shared areas and the Company sections that describe it', 
 		'/acme/company/computer',
 		'/acme/company/vault',
 		'/acme/company/provider',
-		'/acme/company/resources'
+		'/acme/company/resources',
+		'/acme/company/team-results'
 	]) {
 		assert.equal(mayOpenCompanyRoute('acme', pathname, member), false, pathname);
 	}

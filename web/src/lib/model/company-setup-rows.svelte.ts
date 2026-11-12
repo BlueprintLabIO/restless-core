@@ -32,6 +32,7 @@ import CalendarRange from '@lucide/svelte/icons/calendar-range';
 import LinkIcon from '@lucide/svelte/icons/link';
 import Receipt from '@lucide/svelte/icons/receipt';
 import ChartColumn from '@lucide/svelte/icons/chart-column';
+import ListChecks from '@lucide/svelte/icons/list-checks';
 
 /** 'refused': this plane does not keep the area (a hosted plane's vault lives with the account). */
 type Count = number | 'unavailable' | 'refused' | null;
@@ -318,14 +319,18 @@ export function createCompanySetup(companyIdOf: () => string) {
 							? History
 							: target.key === 'week'
 								? CalendarRange
-								: target.key === 'health'
-									? HeartPulse
-									: null;
+								: target.key === 'team-results'
+									? ListChecks
+									: target.key === 'health'
+										? HeartPulse
+										: null;
 			if (
 				!setupRow &&
 				!(
 					record &&
-					(owner || (admin && ['activity', 'week', 'tokens', 'accounting'].includes(target.key)))
+					(owner ||
+						(admin &&
+							['activity', 'week', 'team-results', 'tokens', 'accounting'].includes(target.key)))
 				)
 			)
 				continue;
@@ -362,7 +367,9 @@ export function createCompanySetup(companyIdOf: () => string) {
 											? 'Checks on the company computer, model and tools'
 											: target.key === 'week'
 												? 'What the company finished, decided, sent and spent in the last seven days'
-												: 'Decisions, receipts and external actions',
+												: target.key === 'team-results'
+													? "How much of each team's work landed, and what the company changed about itself"
+													: 'Decisions, receipts and external actions',
 							...(target.key === 'health' && health
 								? health === 'healthy'
 									? { reading: 'Healthy', readingTone: 'work' as const }

@@ -2439,6 +2439,46 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
+        "org-scorecard" => match daemon.orgintel.get(company).await {
+            Ok(org) => match crate::org_review::scorecard(&org, chrono::Utc::now()).await {
+                Ok(card) => Response::ok(serde_json::json!({
+                    "summary": crate::org_review::render_numbers(&card),
+                    "review_due": card.due,
+                    "scorecard": card,
+                })),
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "org-review" => match (
+            request.orgintel.actor.as_deref(),
+            request.common.reason.as_deref(),
+        ) {
+            (Some(reviewer), Some(conclusion)) => match daemon.orgintel.get(company).await {
+                Ok(org) => match crate::org_review::scorecard(&org, chrono::Utc::now()).await {
+                    Ok(card) => match org
+                        .record_org_review(
+                            reviewer,
+                            card.signals_through,
+                            i32::try_from(card.signals.total()).unwrap_or(i32::MAX),
+                            crate::org_review::stored(&card),
+                            conclusion,
+                        )
+                        .await
+                    {
+                        Ok(review) => Response::ok(serde_json::json!({
+                            "review_id": review.id,
+                            "reviewed_at": review.reviewed_at,
+                            "next": "The next review comes when the owner has given enough new signal, and will show what this one changed.",
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            _ => Response::err("org review needs --conclusion and an acting actor"),
+        },
         "telemetry" => match daemon.orgintel.get(company).await {
             Ok(org) => match telemetry::collect(company, &org, &daemon.spend).await {
                 Ok(report) => Response::ok(serde_json::to_value(report).unwrap_or_default()),
@@ -4851,6 +4891,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "lesson-list"
         | "lesson-recurred"
         | "lesson-retire"
+        | "org-review"
         | "goal-add"
         | "goal-update"
         | "goal-close"
