@@ -1,6 +1,6 @@
 <script lang="ts">
 	import ExecNote from '$lib/components/inbox/ExecNote.svelte';
-	import { toastWhile } from '$lib/ui/feedback/toast.svelte';
+	import { toastClearance, toastWhile } from '$lib/ui/feedback/toast.svelte';
 	import { askExec } from '$lib/model/ask-exec';
 	import { failureSentence } from '$lib/model/failure';
 	import { readDraft, writeDraft } from '$lib/model/composer-options.svelte';
@@ -276,6 +276,15 @@
 	}
 	let missingItemRedirect = $state('');
 	let resolvedHere = '';
+	/* The notice sits above the item pane's footer, however tall that is (its buttons wrap in a
+	 * narrow pane): the same clearance the toasts keep, measured from this screen's own bottom. */
+	let attentionScreen = $state<HTMLElement>();
+	const noticeBottom = $derived.by(() => {
+		const clear = toastClearance();
+		if (!clear || !attentionScreen) return 16;
+		const below = window.innerHeight - attentionScreen.getBoundingClientRect().bottom;
+		return Math.max(16, Math.round(clear - below) + 8);
+	});
 	let sent = $state<{
 		text: string;
 		href?: string;
@@ -792,6 +801,7 @@
 	</div>
 {:else}
 	<div
+		bind:this={attentionScreen}
 		class="cockpit-screen attention-screen"
 		class:queue-clear={queueClear}
 		class:settled
@@ -809,7 +819,11 @@
 			enabled: !queueClear
 		}}
 	>
-		{#if sent}<div class="attention-resolution-notice" role="status">
+		{#if sent}<div
+				class="attention-resolution-notice"
+				role="status"
+				style:bottom="{noticeBottom}px"
+			>
 				{sent.text}{#if sent.result}<a href={sent.result.href}>{sent.result.label}</a
 					>{/if}{#if sent.home}<a
 						href={sent.home.href}
@@ -819,7 +833,11 @@
 					onclick={() => (sent = null)}>×</button
 				>
 			</div>{/if}
-		{#if missingNotice}<div class="attention-resolution-notice" role="status">
+		{#if missingNotice}<div
+				class="attention-resolution-notice"
+				role="status"
+				style:bottom="{noticeBottom}px"
+			>
 				<span
 					>{#if missingNotice.title}<strong class="notice-title">{missingNotice.title}</strong
 						>{/if}{missingNotice.text}</span
@@ -1111,10 +1129,13 @@
 		color: var(--ink);
 		font-size: var(--t-body);
 	}
+	/* The notice belongs to the item pane: it starts where that pane starts and sits above its
+	 * footer, so it never covers a row of the list or a decision button (owner, 13 Nov). */
 	.attention-resolution-notice {
+		--notice-left: calc(var(--attention-index-w, var(--sidebar-w)) + var(--pane-gap) + 16px);
 		position: absolute;
 		bottom: 16px;
-		left: 16px;
+		left: var(--notice-left);
 		z-index: 4;
 		display: flex;
 		gap: 16px;
@@ -1125,9 +1146,24 @@
 		box-shadow: var(--shadow-soft);
 		font-size: var(--t-body);
 		/* Never wider than the pane, so a long title wraps instead of running off a phone. */
-		max-width: min(560px, calc(100% - 32px));
+		max-width: min(560px, calc(100% - var(--notice-left) - 16px));
 		flex-wrap: wrap;
 		align-items: baseline;
+	}
+	/* With the list folded away, or on a phone where one pane fills the screen, the pane starts at
+	 * the screen's edge. */
+	.attention-screen.queue-clear > .attention-resolution-notice {
+		--notice-left: 16px;
+	}
+	@media (max-width: 760px) {
+		.attention-resolution-notice {
+			--notice-left: 16px;
+		}
+		/* On a phone the list is the pane: it keeps room under its last row, so every row can be
+		 * scrolled clear of the notice. */
+		.attention-screen:has(> .attention-resolution-notice) :global(.inbox-list) {
+			padding-bottom: 128px;
+		}
 	}
 	.attention-resolution-notice > span {
 		flex: 1 1 240px;
@@ -1162,7 +1198,6 @@
 			max-height: none;
 			height: 100%;
 			flex: 1;
-			border: 0;
 			display: flex;
 			flex-direction: column;
 		}

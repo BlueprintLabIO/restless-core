@@ -20,7 +20,6 @@ export type GroundSource = Pick<OfficePlan, 'layout' | 'zones' | 'landmark' | 'g
 /** The floor's static ground (under carpets) and light (over them), as bitmaps. */
 export interface GroundLayers {
 	below: ImageBitmap;
-	above: ImageBitmap;
 }
 
 let paintWorker: Worker | null | undefined;
@@ -72,12 +71,17 @@ function run<T>(job: { kind: string; source: unknown }): Promise<T | null> {
 }
 
 /** campusWorldFor, painted off the main thread where the browser can. */
-export async function campusWorldAsync(plan: { layout: CampusSource }): Promise<CampusWorld | null> {
+export async function campusWorldAsync(plan: {
+	layout: CampusSource;
+}): Promise<CampusWorld | null> {
 	const key = campusKey(plan.layout);
 	const kept = keptCampusWorld(key);
 	if (kept !== undefined) return kept;
 	const { cols, rows, tiles } = plan.layout;
-	const painted = await run<PaintedCampus>({ kind: 'campus', source: { cols, rows, tiles: [...tiles] } });
+	const painted = await run<PaintedCampus>({
+		kind: 'campus',
+		source: { cols, rows, tiles: [...tiles] }
+	});
 	const raced = keptCampusWorld(key);
 	if (raced !== undefined) return raced;
 	if (!painted) return campusWorldFor(plan);

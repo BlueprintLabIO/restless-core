@@ -1,13 +1,18 @@
 /* A tooltip only when the text is cut off (S85-16). A title that repeats what is already in full
  * view is noise; one that completes an ellipsized line is the only way to read it. Checked when the
- * pointer or focus arrives, so a resized column is judged as it is now. */
+ * pointer or focus arrives, so a resized column is judged as it is now.
+ *
+ * On `pointerover`, not `pointerenter`: the cockpit's one styled tooltip (actions/tooltips) reads
+ * titles as `pointerover` bubbles to the root, and `pointerenter` fires only after that. A title
+ * set on enter was never seen by it, so the browser's own tooltip showed instead: late, unstyled
+ * and hanging off the pointer over the next pane (owner, 13 Nov). */
 export function truncatedTitle(node: HTMLElement, text: string | null | undefined) {
 	let full = text ?? '';
 	const check = () => {
 		if (full && node.scrollWidth > node.clientWidth + 1) node.title = full;
 		else node.removeAttribute('title');
 	};
-	node.addEventListener('pointerenter', check);
+	node.addEventListener('pointerover', check);
 	node.addEventListener('focusin', check);
 	return {
 		update(next: string | null | undefined) {
@@ -15,7 +20,7 @@ export function truncatedTitle(node: HTMLElement, text: string | null | undefine
 			node.removeAttribute('title');
 		},
 		destroy() {
-			node.removeEventListener('pointerenter', check);
+			node.removeEventListener('pointerover', check);
 			node.removeEventListener('focusin', check);
 		}
 	};
@@ -28,18 +33,20 @@ export function truncatedTitle(node: HTMLElement, text: string | null | undefine
 export function coveredTitle(node: HTMLElement, text: string | null | undefined) {
 	let full = text ?? '';
 	const check = () => {
-		const title = node.parentElement?.querySelector<HTMLElement>(':scope > .item-main > .item-title');
+		const title = node.parentElement?.querySelector<HTMLElement>(
+			':scope > .item-main > .item-title'
+		);
 		if (full && title && title.scrollWidth > title.clientWidth + 1) node.title = full;
 		else node.removeAttribute('title');
 	};
-	node.addEventListener('pointerenter', check);
+	node.addEventListener('pointerover', check);
 	return {
 		update(next: string | null | undefined) {
 			full = next ?? '';
 			node.removeAttribute('title');
 		},
 		destroy() {
-			node.removeEventListener('pointerenter', check);
+			node.removeEventListener('pointerover', check);
 		}
 	};
 }
