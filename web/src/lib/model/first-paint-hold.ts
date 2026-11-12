@@ -15,7 +15,10 @@ export const CRITICAL = new Set([
 	'direction-digest',
 	/* Work's goals and its phone view picker come from the Work graph; arriving after the reveal,
 	 * the picker pushed the list down (zero-jank gate, owner/slow/phone/warm/work). */
-	'work-graph'
+	'work-graph',
+	/* Team results is its read: opened directly it appears with its rows, not as a skeleton that
+	 * becomes them. Only that page reads it. */
+	'org-review'
 ]);
 
 /* Reads the shell starts on every page that only one surface shows: they hold the reveal there
@@ -32,7 +35,8 @@ const ONLY_ON: Record<string, string> = {
  * appears and the read fills the page in. Elsewhere it keeps holding: the Inbox detail lays out
  * from it, and released early its folds moved (zero-jank gate, slow Inbox). */
 export const HOLDS_AT_MOST: Record<string, { surface: string; ms: number }> = {
-	company: { surface: 'company', ms: 2000 }
+	company: { surface: 'company', ms: 2000 },
+	'org-review': { surface: 'company', ms: 2000 }
 };
 
 type CachedRead = {

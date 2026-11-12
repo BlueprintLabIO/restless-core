@@ -74,6 +74,7 @@ pub mod model_connections;
 pub mod model_gateway;
 pub mod native_harness;
 mod openbao;
+pub mod org_review;
 pub mod outside_actions;
 pub mod owner_brief;
 pub mod owner_cell_readiness;

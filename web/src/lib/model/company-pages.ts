@@ -24,7 +24,8 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		group: 'About',
 		label: 'Charter',
 		path: '/charter',
-		keywords: 'mission name rename logo purpose quality legal profile direction'
+		keywords:
+			'mission name rename logo purpose quality legal profile direction lessons rules corrections'
 	},
 	{
 		key: 'identity',
@@ -118,6 +119,13 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		label: 'Weekly review',
 		path: '/week',
 		keywords: 'week review summary finished decided spent report'
+	},
+	{
+		key: 'team-results',
+		group: 'Records',
+		label: 'Team results',
+		path: '/team-results',
+		keywords: 'teams landed failed blocked sent back scorecard organisation organised reviews leads'
 	},
 	{ key: 'health', group: 'Records', label: 'Health', path: '/doctor', keywords: 'doctor diagnose' }
 ];

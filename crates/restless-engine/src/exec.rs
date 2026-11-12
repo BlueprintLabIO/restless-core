@@ -1885,6 +1885,19 @@ async fn gather_snapshot(
         .into_iter()
         .map(|signal| format!("[{}] {}", signal.kind, signal.detail))
         .collect();
+    // The review of the company's own shape. It is shown only on the owner's own turns and only
+    // once they have given enough new signal; a failed read costs the review, never the wake.
+    let org_review = if pending_mention.is_none() && human_is_membership_owner {
+        match crate::org_review::scorecard(org, chrono::Utc::now()).await {
+            Ok(card) => crate::org_review::exec_block(&card),
+            Err(error) => {
+                tracing::warn!(company = %config.name, %error, "org review scorecard unavailable");
+                None
+            }
+        }
+    } else {
+        None
+    };
     // Progress estimates: the newest per Work, each open Goal's roll-up over all its Work (done
     // included), and the checkpoints Exec owes an estimate for on Work it created.
     let (work_progress, progress_owed) = tokio::try_join!(
@@ -2089,10 +2102,14 @@ async fn gather_snapshot(
             vec!["(unavailable this wake; read `restless people` and `restless teams list`)".into()]
         }
     };
+    // What the owner has ruled. A wake that cannot read them still runs; `restless lessons list`
+    // reads them again.
+    let lessons = org.list_lessons(false).await.unwrap_or_default();
     Ok(ContextSnapshot {
         people_changes,
         library_uploads,
         roster,
+        lessons,
         company: config.name.clone(),
         company_display: config
             .display_name
@@ -2128,6 +2145,7 @@ async fn gather_snapshot(
         budget_ceiling_usd: config.spend_ceiling_usd.as_usd(),
         effect_ledger,
         org_signals,
+        org_review,
         staffing_routes: staffing_routes(org, config).await,
     })
 }

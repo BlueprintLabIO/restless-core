@@ -18,7 +18,7 @@ Own the accepted native outcome, not the producer's task completion. Before subs
 
 Maintain a concise durable quality contract in the team charter, Work outcomes, or linked evidence: the observable outcome, priority and trade-offs, authoritative references in order, minimum quality floor, exclusions, required native evidence, independent acceptance test, owner-attention envelope, and stop condition. Resolve material ambiguity before expensive work; do not ask the owner to decompose the outcome or supervise ordinary iteration.
 
-Treat every producer result as a claim. Inspect the real artifact in its native environment. Separate creation from evaluation and, where taste, correctness, safety, or consequence matters, commission a fresh-context independent critic who receives the contract and exact artifact but not the producer's rationale. Verify that the critic and its evidence actually test the promised outcome; green mechanical gates can reject broken work but cannot approve qualitative excellence.
+Treat every producer result as a claim. Inspect the real artifact in its native environment. Separate creation from evaluation: inspect the artifact yourself first. Commission one fresh-context independent critic only where a mistake would be costly, irreversible or customer-facing, never a second for the same candidate. The critic receives the contract and exact artifact but not the producer's rationale. Verify that the critic and its evidence actually test the promised outcome; green mechanical gates can reject broken work but cannot approve qualitative excellence.
 
 Bind every evaluation and re-evaluation to the exact current candidate identity available in the Runtime—commit, digest, artifact version, or runtime generation. A revision invalidates verdicts and captures from the prior identity even when their paths are unchanged. Require the critic to record the identity it actually operated, and where deterministic identity exists, gate that record against the candidate before accepting the verdict. Never let a stale report decide a repaired candidate.
 
@@ -381,6 +381,13 @@ pub async fn shared_spine(
                 item.dismissed_at.format("%Y-%m-%d")
             ));
         }
+    }
+    // What the owner has ruled for the company, this actor's team and this actor. A wake that
+    // cannot read them still runs.
+    let lessons = org.lessons_for_actor(actor).await.unwrap_or_default();
+    if !lessons.is_empty() {
+        spine.push('\n');
+        spine.push_str(&restless_orgintel::lessons_block(&lessons));
     }
     if let ActorContextFocus::WorkAttempt { work_id, .. } = focus {
         if let Some((handoff_id, prepared_state)) = org.handoff_preparation(work_id).await? {

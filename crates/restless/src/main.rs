@@ -528,6 +528,14 @@ enum Command {
         #[command(subcommand)]
         command: TeamCommand,
     },
+    /// What the owner has ruled: corrections kept as standing rules for the company, a team or
+    /// one agent. Everyone a lesson applies to reads it on each wake.
+    Lessons {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: LessonCommand,
+    },
     /// Durable time facts. Exact and weekday schedules create opportunities to inspect; they run no command.
     Schedule {
         #[command(subcommand)]
@@ -563,6 +571,11 @@ enum Command {
     Telemetry {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
+    },
+    /// How the company's own shape is working: each team's results, and when Exec reviews it.
+    Org {
+        #[command(subcommand)]
+        command: OrgCommand,
     },
     /// Preview or apply an audited correction to exact duplicate spend records.
     /// Preview is the default; mutation requires both owner authority and --apply.
@@ -1555,6 +1568,45 @@ enum PeopleCommand {
 }
 
 #[derive(Subcommand)]
+enum LessonCommand {
+    /// Record a rule from a correction. The owner or Exec for anyone; a team lead for its own team.
+    Add {
+        /// The rule, in one or two plain sentences.
+        #[arg(long)]
+        rule: String,
+        /// Who it is for: `company`, `team:<team id or name>` or `actor:<actor id>`.
+        #[arg(long)]
+        scope: String,
+        /// The message the rule came from.
+        #[arg(long)]
+        source_message: i64,
+    },
+    /// The lessons you work under. The owner and Exec see every lesson.
+    List {
+        /// Include retired lessons (owner and Exec).
+        #[arg(long)]
+        include_retired: bool,
+    },
+    /// The same problem came back: count it on the lesson instead of adding a second one.
+    Recurred {
+        /// Lesson id, or the short id a wake shows.
+        #[arg(long)]
+        lesson: String,
+        /// The message that showed the problem came back.
+        #[arg(long)]
+        source_message: i64,
+    },
+    /// Stop applying a lesson that no longer stands. It keeps its record.
+    Retire {
+        /// Lesson id, or the short id a wake shows.
+        #[arg(long)]
+        lesson: String,
+        #[arg(long)]
+        reason: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum TeamCommand {
     /// Live teams with their leads and members.
     List {
@@ -1642,6 +1694,25 @@ enum TeamCommand {
         team: String,
         #[arg(long)]
         reason: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum OrgCommand {
+    /// Each team's results since the last review: how many attempts landed, failed or were
+    /// blocked, what the owner sent back, what critics caught, and how many minds it took.
+    Scorecard {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Record a finished review of the company's shape. The next one comes when the owner has
+    /// given enough new signal, and shows what this one changed.
+    Review {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// What the numbers showed and what you changed, or why nothing needed changing.
+        #[arg(long)]
+        conclusion: String,
     },
 }
 
@@ -4118,7 +4189,46 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "actor": acting_actor(),
             }),
         },
+        Command::Lessons { company, command } => match command {
+            LessonCommand::Add {
+                rule,
+                scope,
+                source_message,
+            } => serde_json::json!({
+                "cmd": "lesson-add", "company": company, "body": rule, "scope": scope,
+                "source_message_id": source_message,
+                "actor": acting_actor(),
+            }),
+            LessonCommand::List { include_retired } => serde_json::json!({
+                "cmd": "lesson-list", "company": company, "include_retired": include_retired,
+                "actor": acting_actor(),
+            }),
+            LessonCommand::Recurred {
+                lesson,
+                source_message,
+            } => serde_json::json!({
+                "cmd": "lesson-recurred", "company": company, "id": lesson,
+                "source_message_id": source_message,
+                "actor": acting_actor(),
+            }),
+            LessonCommand::Retire { lesson, reason } => serde_json::json!({
+                "cmd": "lesson-retire", "company": company, "id": lesson, "reason": reason,
+                "actor": acting_actor(),
+            }),
+        },
         Command::Spend { company: c } => serde_json::json!({ "cmd": "spend", "company": c }),
+        Command::Org { command } => match command {
+            OrgCommand::Scorecard { company } => {
+                serde_json::json!({ "cmd": "org-scorecard", "company": company })
+            }
+            OrgCommand::Review {
+                company,
+                conclusion,
+            } => serde_json::json!({
+                "cmd": "org-review", "company": company, "reason": conclusion,
+                "actor": acting_actor(),
+            }),
+        },
         Command::Telemetry { company: c } => {
             serde_json::json!({ "cmd": "telemetry", "company": c })
         }

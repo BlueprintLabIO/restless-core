@@ -757,6 +757,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         | "teams"
         | "spend"
         | "telemetry"
+        | "org-scorecard"
         | "goals"
         | "work"
         | "work-graph"
@@ -851,6 +852,11 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "team-lead" => &["name", "to", "actor", "reason"],
         "team-owner" => &["name", "to", "actor", "reason", "source_message_id"],
         "team-disband" => &["name", "actor", "reason"],
+        "lesson-add" => &["body", "scope", "source_message_id", "actor"],
+        "lesson-list" => &["actor", "include_retired"],
+        "lesson-recurred" => &["id", "source_message_id", "actor"],
+        "lesson-retire" => &["id", "reason", "actor"],
+        "org-review" => &["actor", "reason"],
         "judgement" => &["as_actor"],
         "work-handoff-escalate" => &["id", "as_actor", "reason"],
         "work-handoff-reraise" => &["id", "as_actor", "reason"],
@@ -1719,12 +1725,18 @@ mod tests {
             "team-lead",
             "team-owner",
             "team-disband",
+            "lesson-add",
+            "lesson-list",
+            "lesson-recurred",
+            "lesson-retire",
             "judgement",
             "work-handoff-escalate",
             "work-handoff-reraise",
             "receipts",
             "spend",
             "telemetry",
+            "org-scorecard",
+            "org-review",
             "spend-correct",
             "goals",
             "goal-add",

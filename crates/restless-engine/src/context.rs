@@ -127,6 +127,9 @@ pub struct ContextSnapshot {
     /// Advisory: the Exec is the actor with enough context to tell "stuck"
     /// from "hard", so these are shown, never enforced.
     pub org_signals: Vec<String>,
+    /// The review of the company's own shape, present only when the owner has given enough new
+    /// signal since the last one (`org_review`). An ordinary wake carries nothing.
+    pub org_review: Option<String>,
     /// The models this company can staff with right now: exact route, who
     /// uses it, how it is billed and its list price. Rendered by the Exec
     /// wake from company config, billing and the model catalog.
@@ -141,6 +144,9 @@ pub struct ContextSnapshot {
     /// Active teams and agents, one line each (`roster_lines`), so Exec does not re-read
     /// `restless people` and `restless teams list` on every wake (S101 measured up to 28 reads).
     pub roster: Vec<String>,
+    /// Every active company lesson, newest first: what the owner has ruled. Exec records them, so
+    /// it reads all of them, each labelled with who it is for. Bounded when rendered.
+    pub lessons: Vec<restless_orgintel::LessonRow>,
 }
 
 const RECENT_CONVERSATION_HEADING: &str = "# Recent conversation in this focus";
@@ -693,6 +699,11 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         block
     };
 
+    let signals = match &snapshot.org_review {
+        Some(review) => format!("{signals}{review}"),
+        None => signals,
+    };
+
     let plan_exists = !snapshot.current_plan.trim().is_empty();
     // Stable text first, what changes between wakes last. A provider's prompt cache reuses only an
     // unchanged prefix, and an Exec turn carries ~100k tokens: receipts, budget, plan, journal,
@@ -912,6 +923,18 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          (30 s to 2 min), then it takes effect. Say in one line what you did. If the command refuses, say why \
          plainly and point them to the card. Never redo a change the owner undid unless they ask \
          again.\n\n\
+         # What the owner has ruled [owner policy]\n\
+         When the owner corrects work, states a preference that should hold next time, or sends \
+         work back for a reason that will come up again, record it in the same turn: `restless \
+         lessons add --rule '<one or two plain sentences>' --scope company|team:<id>|actor:<id> \
+         --source-message <their message id>`, then tell them in one line what you recorded. Act, \
+         then tell; no approval card. If it matches a lesson already listed, run `restless lessons \
+         recurred --lesson <id> --source-message <id>` instead of adding a duplicate, and fix why \
+         it did not hold (wrong scope, too vague, the team never saw it). Hold your position: when \
+         a request conflicts with a lesson or an earlier ruling, say so plainly once, name the \
+         lesson and ask which should stand; never flip silently. If the new direction stands, \
+         retire the lesson (`restless lessons retire --lesson <id> --reason <why>`) or rewrite it. \
+         Do not flatter: if the owner's idea has a problem, say what it is before you do it.\n\n\
          # Direct-human authority boundary [invariant]\n\
          {human_boundary}\n\
          When this boundary identifies a company member, the owner-only protocols below do not \
@@ -1056,6 +1079,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Budget\n\
          {budget}\n\n\
          # Staffing routes\n{staffing_routes}\n\n\
+         {lessons}\
          # Plan\n{plan}\n\n\
          {journal}\
          {lead_exchanges}\
@@ -1072,6 +1096,11 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
                 .collect::<String>()
         },
         staffing_routes = snapshot.staffing_routes.trim(),
+        // Absent when the owner has ruled nothing, so a new company pays nothing for it.
+        lessons = match restless_orgintel::lessons_block(&snapshot.lessons) {
+            block if block.is_empty() => block,
+            block => format!("{block}\n"),
+        },
         ledger = snapshot.effect_ledger.trim(),
         signals = signals,
         budget = match snapshot.budget_remaining_usd {
@@ -1233,10 +1262,14 @@ mod tests {
         // Empty wake sections and the repeated human-boundary sentence left the turn: 51,765.
         // Then asking the owner for a change (payee, setting, outside step) became the
         // `asking-the-owner` skill and platform faults got shorter: 50,271.
+        // 12 November, an observed failure: the owner corrected the same things again and again
+        // and Exec agreed with whatever came last. Recording a correction as a lesson, counting
+        // one that came back and holding a position against a conflicting request took ~1,000
+        // bytes; the how-to stays in the `align-and-learn` skill.
         // 12 November, two observed failures: "Approved" said in chat did not apply a setting
         // or charter proposal (Exec sent the owner to the card), and "progress?" was the owner's
-        // most common message. One sentence each: 50,811.
-        assert!(bytes <= 50_850, "Exec fixed prompt grew to {bytes} bytes");
+        // most common message. One sentence each, about 540 bytes.
+        assert!(bytes <= 52_100, "Exec fixed prompt grew to {bytes} bytes");
     }
 
     /// Exec reads people and teams from its wake state instead of re-running `restless people`
@@ -1466,10 +1499,65 @@ mod tests {
             budget_ceiling_usd: 10.0,
             effect_ledger: "customer-contact.email 3 · GBP 27.00 moved".into(),
             org_signals: vec!["\"ship the thing\" is blocked and waiting on someone".into()],
+            org_review: None,
             staffing_routes: "- openai/gpt-6-sol — used by Exec — metered".into(),
             people_changes: Vec::new(),
             library_uploads: Vec::new(),
             roster: Vec::new(),
+            lessons: Vec::new(),
+        }
+    }
+
+    /// What the owner has ruled reaches Exec's wake state, outside the cached system prompt, and
+    /// a company with no lessons carries no heading for them.
+    #[test]
+    fn exec_reads_what_the_owner_has_ruled_and_nothing_when_nothing_is() {
+        let quiet = assemble(&snapshot());
+        assert!(!quiet.user_prompt.contains("# What the owner has ruled"));
+        let mut ruled = snapshot();
+        let lesson = |id: u128, rule: &str, recurrence_count: i32| restless_orgintel::LessonRow {
+            id: uuid::Uuid::from_u128(id << 96),
+            rule: rule.into(),
+            scope_kind: "company".into(),
+            team_id: None,
+            team_name: None,
+            actor_id: None,
+            actor_display: None,
+            source_message_id: Some(4),
+            recorded_by: "exec".into(),
+            created_at: chrono::Utc::now(),
+            status: "active".into(),
+            retired_at: None,
+            retired_by: None,
+            retirement_reason: String::new(),
+            recurrence_count,
+            last_recurred_at: None,
+            last_recurrence_message_id: None,
+        };
+        ruled.lessons = vec![
+            lesson(0xaaaa_aaaa, "Never use stock photos.", 2),
+            lesson(0xbbbb_bbbb, "Quotes show GST on its own line.", 0),
+        ];
+        let package = assemble(&ruled);
+        assert_eq!(package.system_prompt, quiet.system_prompt);
+        let block = package
+            .user_prompt
+            .find("# What the owner has ruled")
+            .expect("lessons block");
+        let newest = package.user_prompt.find("Never use stock photos.").unwrap();
+        let older = package.user_prompt.find("Quotes show GST").unwrap();
+        assert!(block < newest && newest < older);
+        assert!(package
+            .user_prompt
+            .contains("(whole company, lesson aaaaaaaa, came back 2 times)"));
+        // The doctrine that makes Exec record and hold them is in the cached prefix.
+        for needle in [
+            "restless lessons add",
+            "restless lessons recurred",
+            "restless lessons retire",
+            "ask which should stand",
+        ] {
+            assert!(package.system_prompt.contains(needle), "{needle}");
         }
     }
 
