@@ -157,6 +157,8 @@ pub(super) async fn grant(
     {
         Ok(grant) => {
             resolve_account_requests(&state, &grant.company).await;
+            // The owner just gave the company an account: whatever waits on it is looked at.
+            owner_was_active(&state, &grant.company, "account_saved").await;
             (StatusCode::CREATED, Json(grant)).into_response()
         }
         Err(error) => refuse(error),
@@ -171,11 +173,7 @@ pub(crate) async fn resolve_account_requests(state: &OwnerState, company: &str) 
     let Ok(org) = state.daemon.orgintel.get(company).await else {
         return 0;
     };
-    let resolved =
-        restless_engine::block_recheck::resolve_account_requests(&state.daemon, &org, company)
-            .await;
-    owner_was_active(state, company, "account_saved").await;
-    resolved
+    restless_engine::block_recheck::resolve_account_requests(&state.daemon, &org, company).await
 }
 
 /// The owner did something that may have settled what blocked Work waits on (saved an account,
