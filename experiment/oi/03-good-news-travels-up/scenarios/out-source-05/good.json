@@ -1,0 +1,38 @@
+{
+ "id": "out-source-05",
+ "kind": "research",
+ "title": "Advice on seeing clients at home",
+ "clock": "2026-03-20T09:00",
+ "deliverable": "advice.md",
+ "ask": "Write a short note on whether I can see physiotherapy clients at my house. Use council-planning.md, a saved copy of the council's page for my zone, and quote the line that decides it.",
+ "background": [
+  "I'm hoping I can just start, because my first clients are booked for April.",
+  "It would be two or three clients a day in the front room.",
+  "There is parking on the street."
+ ],
+ "signoff": "Thanks, Anika",
+ "constraints": [
+  {
+   "id": "c01",
+   "type": "format",
+   "text": "save it as advice.md",
+   "checker": "file_exists",
+   "args": {
+    "path": "advice.md"
+   }
+  },
+  {
+   "id": "c02",
+   "type": "number",
+   "text": "keep it under 150 words",
+   "checker": "max_words",
+   "args": {
+    "n": 150
+   }
+  }
+ ],
+ "version": "good",
+ "start": {
+  "council-planning.md": "Residential zone R2, saved copy of the council's page\n\nHome offices with no visitors are permitted without consent.\nHome businesses with client visits are permitted without consent in this zone.\nSigns larger than a letterbox plate need approval.\n"
+ }
+}
