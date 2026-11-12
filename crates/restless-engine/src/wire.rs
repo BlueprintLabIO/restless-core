@@ -853,6 +853,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "team-disband" => &["name", "actor", "reason"],
         "judgement" => &["as_actor"],
         "work-handoff-escalate" => &["id", "as_actor", "reason"],
+        "work-handoff-reraise" => &["id", "as_actor", "reason"],
         "receipts" => &["capability", "limit"],
         "spend-correct" => &[
             "correction_id",
@@ -1720,6 +1721,7 @@ mod tests {
             "team-disband",
             "judgement",
             "work-handoff-escalate",
+            "work-handoff-reraise",
             "receipts",
             "spend",
             "telemetry",

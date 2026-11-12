@@ -2579,6 +2579,28 @@ async fn stranded_agent_items(
     items
 }
 
+/// A card Exec raised again after a long wait reads as the same request, still open: its title
+/// says how long ("Still waiting, 5 days: ...") and its first line says what the wait now costs.
+fn reraised_copy(
+    title: String,
+    situation: String,
+    reraise: Option<&restless_orgintel::HandoffReraise>,
+    waiting_since: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> (String, String) {
+    let Some(reraise) = reraise else {
+        return (title, situation);
+    };
+    let mark = restless_orgintel::still_waiting_mark(waiting_since, now);
+    let cost = reraise.reason.trim().trim_end_matches('.');
+    let situation = if cost.is_empty() {
+        situation
+    } else {
+        format!("{cost}. {situation}")
+    };
+    (format!("{mark}: {title}"), situation)
+}
+
 /// Said on a judgement card whose Work changed after it was briefed.
 const STALE_BRIEF_NOTE: &str = "This was briefed for an earlier version of the Work, which has changed since. Its lead has been asked to brief it again; ask them in chat if it still holds.";
 
@@ -3791,6 +3813,11 @@ async fn project_queue(
             .collect::<HashMap<_, _>>(),
         None => HashMap::new(),
     };
+    // Cards Exec raised again after a long wait: the same card, back at the top and marked.
+    let reraises = match org {
+        Some(org) => org.handoff_reraises().await.unwrap_or_default(),
+        None => HashMap::new(),
+    };
     for handoff in work_graph
         .as_ref()
         .map(|graph| graph.handoffs.clone())
@@ -4304,6 +4331,30 @@ async fn project_queue(
             "The provider transfer stays {}, {} {} remains reserved, and the linked Work stays paused.",
             payment.state.as_str(), format_minor(payment.request.amount_minor), payment.request.currency
         ));
+        let reraise = reraises.get(&handoff.id).filter(|_| !preparing);
+        let title = projected_handoff_title(
+            preparing,
+            payment_title.as_deref(),
+            (handoff.category != restless_orgintel::OwnerHandoffCategory::OwnerJudgement)
+                .then_some(handoff.requested_action.as_str()),
+            brief.map(|brief| brief.headline.as_str()),
+            fallback_title,
+        );
+        let situation = if preparing {
+            "The company is preparing the current instructions for your next step. There is nothing for you to do until they are ready.".to_string()
+        } else {
+            payment_situation.unwrap_or_else(|| brief.map_or_else(
+                || format!("The company prepared the final {} step and cannot perform it on your behalf.", handoff_category_words(handoff.category)),
+                |brief| brief.situation.clone(),
+            ))
+        };
+        let (title, situation) = reraised_copy(
+            title,
+            situation,
+            reraise,
+            handoff.escalated_at.unwrap_or(handoff.created_at),
+            Utc::now(),
+        );
         items.push(AttentionItem {
             id: format!("orgintel:handoff:{}", handoff.id),
             work_id: Some(handoff.work_id),
@@ -4315,22 +4366,8 @@ async fn project_queue(
                 call_key: None,
             },
             category: category.into(),
-            title: projected_handoff_title(
-                preparing,
-                payment_title.as_deref(),
-                (handoff.category != restless_orgintel::OwnerHandoffCategory::OwnerJudgement)
-                    .then_some(handoff.requested_action.as_str()),
-                brief.map(|brief| brief.headline.as_str()),
-                fallback_title,
-            ),
-            what_happened: if preparing {
-                "The company is preparing the current instructions for your next step. There is nothing for you to do until they are ready.".into()
-            } else {
-                payment_situation.unwrap_or_else(|| brief.map_or_else(
-                    || format!("The company prepared the final {} step and cannot perform it on your behalf.", handoff_category_words(handoff.category)),
-                    |brief| brief.situation.clone(),
-                ))
-            },
+            title,
+            what_happened: situation,
             why_it_matters: payment_impact.unwrap_or_else(|| brief.map_or_else(
                 || match resume_words(&handoff.resume_condition, &actors) {
                     Some(until) => format!("This Work is paused until {until}"),
@@ -4388,7 +4425,8 @@ async fn project_queue(
             actions,
             preparing,
             can_continue: false,
-            created_at: handoff.created_at,
+            // A card raised again sorts as new, so it returns to the top of its group.
+            created_at: reraise.map_or(handoff.created_at, |reraise| reraise.at),
         });
     }
 
@@ -8149,6 +8187,36 @@ mod schedule_run_tests {
         assert_eq!(
             item.what_happened,
             "The run finished. No note was recorded."
+        );
+    }
+
+    #[test]
+    fn a_reraised_card_is_marked_still_waiting_and_leads_with_what_it_costs() {
+        let since = Utc::now() - chrono::Duration::days(5);
+        let untouched = reraised_copy(
+            "Choose the launch price".into(),
+            "Two prices are prepared.".into(),
+            None,
+            since,
+            Utc::now(),
+        );
+        assert_eq!(untouched.0, "Choose the launch price");
+        let reraise = restless_orgintel::HandoffReraise {
+            count: 1,
+            at: Utc::now(),
+            reason: "The launch page cannot go live without a price.".into(),
+        };
+        let (title, situation) = reraised_copy(
+            "Choose the launch price".into(),
+            "Two prices are prepared.".into(),
+            Some(&reraise),
+            since,
+            Utc::now(),
+        );
+        assert_eq!(title, "Still waiting, 5 days: Choose the launch price");
+        assert_eq!(
+            situation,
+            "The launch page cannot go live without a price. Two prices are prepared."
         );
     }
 }

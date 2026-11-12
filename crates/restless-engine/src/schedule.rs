@@ -652,6 +652,59 @@ async fn recheck_blocked_work(daemon: &Arc<Daemon>, org: &OrgIntel, company: &st
     }
 }
 
+/// Items waiting on the owner do not go stale in silence. One nothing needs any more (its Work
+/// finished or was stopped, its goal closed) is withdrawn here with the reason recorded. One
+/// still needed after days wakes Exec once, with every such item in one message
+/// (`restless_orgintel::STALE_HANDOFF_AFTER`); while the owner is away it waits for their return.
+async fn review_stale_owner_items(daemon: &Arc<Daemon>, org: &OrgIntel, company: &str) {
+    match org.withdraw_obsolete_handoffs().await {
+        Ok(withdrawn) if withdrawn.is_empty() => {}
+        Ok(withdrawn) => {
+            tracing::info!(
+                company,
+                withdrawn = withdrawn.len(),
+                "withdrew owner items nothing needs"
+            )
+        }
+        Err(error) => tracing::warn!(
+            company,
+            "obsolete owner items were not withdrawn: {error:#}"
+        ),
+    }
+    let now = Utc::now();
+    match org.stale_owner_handoffs_at(now).await {
+        Ok(due) if due.is_empty() => return,
+        Ok(_) => {}
+        Err(error) => {
+            tracing::warn!(company, "stale owner items could not be read: {error:#}");
+            return;
+        }
+    }
+    if matches!(
+        crate::away::current(&daemon.authority, company).await,
+        Ok(Some(_))
+    ) || !computer_runs_on_demand(daemon, company).await
+    {
+        return;
+    }
+    match org.signal_stale_owner_handoffs_at(now).await {
+        Ok(asked) if asked.is_empty() => {}
+        Ok(asked) => {
+            tracing::info!(
+                company,
+                items = asked.len(),
+                "asked Exec about stale owner items"
+            )
+        }
+        Err(error) => {
+            tracing::warn!(
+                company,
+                "Exec was not asked about stale owner items: {error:#}"
+            )
+        }
+    }
+}
+
 async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
     if daemon.staff.take_resource_retry_hint() {
         return OVERDUE_RETRY_INTERVAL;
@@ -798,6 +851,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     // Nothing here needs a model or the computer. What it writes is ordinary owed mail, which
     // wakes its actor (and a sleeping computer) through the recovery below.
     recheck_blocked_work(daemon, &org, company).await;
+    review_stale_owner_items(daemon, &org, company).await;
     if daemon.runtime_bridges.is_hosted() {
         let Ok(identity) =
             crate::runtime_bridge::expected_identity(&daemon.authority, company).await

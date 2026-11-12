@@ -2173,6 +2173,19 @@ enum WorkCommand {
         #[arg(long = "as", env = "RESTLESS_ACTOR")]
         as_actor: Option<String>,
     },
+    /// Raise an item that has waited on the owner too long again: the same card returns to
+    /// the top of their Inbox, marked as still waiting. Exec only, once each time it is asked.
+    ReraiseHandoff {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        handoff: String,
+        /// One line: what the wait is now costing.
+        #[arg(long)]
+        reason: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
     /// Pass a judgement up because it is outside this actor's remit. The chain
     /// is recorded: the owner sees who tried first and why they stopped.
     EscalateHandoff {
@@ -4358,6 +4371,17 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "uncertainty": uncertainty, "deadline": deadline,
                 "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
                     .unwrap_or_else(|| "owner".to_string()),
+            }),
+            WorkCommand::ReraiseHandoff {
+                company,
+                handoff,
+                reason,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-handoff-reraise", "company": company, "id": handoff,
+                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
+                    .unwrap_or_else(|| "owner".to_string()),
+                "reason": reason,
             }),
             WorkCommand::EscalateHandoff {
                 company,

@@ -2085,6 +2085,24 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             },
             None => Response::err("judgement needs --as <actor>"),
         },
+        "work-handoff-reraise" => match (
+            request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request.common.as_actor.as_deref(),
+            request.common.reason.as_deref(),
+        ) {
+            (Ok(Some(id)), Some(actor), Some(reason)) => match daemon.orgintel.get(company).await {
+                Ok(org) => match org.reraise_owner_handoff(id, actor, reason, chrono::Utc::now()).await {
+                    Ok(raised) => Response::ok(serde_json::json!({
+                        "handoff_id": id, "times_raised": raised.count,
+                        "shown": "The same card is back at the top of the owner's Inbox, marked as still waiting, with your reason. Tell the owner in one line.",
+                    })),
+                    Err(error) => Response::err(error.plain_message()),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            (Err(error), _, _) => Response::err(format!("bad handoff id: {error}")),
+            _ => Response::err("reraise needs --handoff, --as and --reason"),
+        },
         "work-handoff-escalate" => match (
             request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
             request.common.as_actor.as_deref(),
@@ -3089,6 +3107,18 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                                 Ok(_) => Response::ok("recorded"),
                                 Err(error) => Response::err(format!("{error:#}")),
                             };
+                        }
+                        // Exec was asked about an item that has waited on the owner too long
+                        // and judged it no longer needed.
+                        if state == restless_orgintel::OwnerHandoffState::Withdrawn
+                            && resolved_by == "exec"
+                        {
+                            match org.withdraw_stale_owner_handoff(id, resolved_by, resolution).await {
+                                Ok(()) => return Response::ok("withdrawn; now resume or abandon its Work"),
+                                // Not a stale item of the owner's: the ordinary rules decide.
+                                Err(restless_orgintel::OrgIntelError::InvalidWork(_)) => {}
+                                Err(error) => return Response::err(format!("{error:#}")),
+                            }
                         }
                         match org
                             .resolve_handoff_as(id, resolved_by, state, resolution)
@@ -4905,6 +4935,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "work-edge"
         | "work-gate-retire"
         | "work-handoff-escalate"
+        | "work-handoff-reraise"
         | "work-handoff-refresh"
         | "work-handoff-prepare-brief"
         | "work-handoff-resolve"

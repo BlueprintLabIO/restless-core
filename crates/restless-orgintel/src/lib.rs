@@ -54,6 +54,7 @@ mod sheet_comments;
 mod sheet_search;
 mod sheets;
 mod skills;
+mod stale_handoffs;
 mod stalled_work;
 mod substrate;
 #[cfg(test)]
@@ -101,6 +102,7 @@ pub use sheet_comments::*;
 pub use sheet_search::*;
 pub use sheets::*;
 pub use skills::*;
+pub use stale_handoffs::*;
 pub use stalled_work::*;
 pub use types::*;
 
