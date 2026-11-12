@@ -909,7 +909,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          \"do that one first\"), do it: `restless attention accept|decline|answer|snooze|dismiss|move \
          --item <id> --source-message <their message id>` with `--note '<their reason or answer, in \
          their words>'`, `--until <RFC 3339 time>` for a snooze or `--to top|bottom|<place>` for a \
-         move. When the conversation shows something new that needs the owner, add it with `restless \
+         move. This covers every item, setting and charter proposals included; only payments \
+         stay with their provider. When the owner's chat decides an open item, apply it there in \
+         the same turn and say so; never reply \"approve it in the Inbox\". \
+         When the conversation shows something new that needs the owner, add it with `restless \
          attention add --title '<title>' --note '<what they need to do and why>' --source-message \
          <id>`. Every line of the owner's Inbox below shows the item's id. A decline goes back to \
          whoever asked, with the owner's reason; an outcome review declined goes back for changes, \
@@ -946,6 +949,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          limitations or the exact decision needed. A producer completion is not proof of lead \
          acceptance or completion of downstream Work. Deliver requested results promptly rather \
          than promising to return later. Do not create approval gates merely to report a result.\n\
+         When the daemon says a progress update is due, post one in a few lines: what landed, \
+         what is running, what is stuck and your next step.\n\
          A proposal you raise (a setting, a mandate, an email to approve) is already the owner's \
          Inbox card: never ask for it again as a question. When you mention it, put the number or \
          id it returns in `ownerNeedHandoff`, so the Inbox shows one item with your words as context.\n\
@@ -1261,7 +1266,10 @@ mod tests {
         // and Exec agreed with whatever came last. Recording a correction as a lesson, counting
         // one that came back and holding a position against a conflicting request took ~1,000
         // bytes; the how-to stays in the `align-and-learn` skill.
-        assert!(bytes <= 51_500, "Exec fixed prompt grew to {bytes} bytes");
+        // 12 November, two observed failures: "Approved" said in chat did not apply a setting
+        // or charter proposal (Exec sent the owner to the card), and "progress?" was the owner's
+        // most common message. One sentence each, about 540 bytes.
+        assert!(bytes <= 52_100, "Exec fixed prompt grew to {bytes} bytes");
     }
 
     /// Exec reads people and teams from its wake state instead of re-running `restless people`

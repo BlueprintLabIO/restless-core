@@ -20,6 +20,7 @@ mod actors;
 mod artifacts;
 mod attempts;
 mod attention_dismissals;
+mod block_recheck;
 mod colleague_names;
 mod comment_search;
 mod completion_repairs;
@@ -47,6 +48,7 @@ mod org_review;
 mod owner_ready;
 mod pending_shares;
 mod progress;
+mod progress_due;
 mod responsibility;
 mod review;
 mod rooms;
@@ -55,6 +57,7 @@ mod sheet_comments;
 mod sheet_search;
 mod sheets;
 mod skills;
+mod stale_handoffs;
 mod stalled_work;
 mod substrate;
 #[cfg(test)]
@@ -69,6 +72,7 @@ pub use accounting::*;
 pub use actor_context::*;
 pub use attempts::INTERRUPTION_RESUMES_PER_REVISION;
 pub use attention_dismissals::*;
+pub use block_recheck::*;
 pub use comment_search::*;
 pub use completion_repairs::*;
 pub use decisions::*;
@@ -95,6 +99,7 @@ pub use progress::{
     rounded_percent, take_progress_markers, GoalProgress, ProgressReport, ReportedProgress,
     PROGRESS_HISTORY, PROGRESS_MARKER, PROGRESS_POST_STEP,
 };
+pub use progress_due::*;
 pub use responsibility::*;
 pub use schedules::{
     validate_calendar_days, ScheduleChange, MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS,
@@ -103,6 +108,7 @@ pub use sheet_comments::*;
 pub use sheet_search::*;
 pub use sheets::*;
 pub use skills::*;
+pub use stale_handoffs::*;
 pub use stalled_work::*;
 pub use types::*;
 

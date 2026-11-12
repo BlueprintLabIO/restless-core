@@ -611,6 +611,136 @@ async fn start_unblocked_chain_work(daemon: &Arc<Daemon>, in_flight: &InFlight, 
     .await;
 }
 
+/// Whether this company's computer is running or would start for owed work. One the owner
+/// stopped, or that was removed, is left alone: nothing is queued for it from a timer.
+async fn computer_runs_on_demand(daemon: &Arc<Daemon>, company: &str) -> bool {
+    if daemon.runtime_bridges.is_hosted() {
+        return true;
+    }
+    match runtime::status(company).await {
+        Ok(ContainerStatus::Running) => true,
+        Ok(status) => runtime::power_state(company, status).starts_on_demand(),
+        Err(_) => false,
+    }
+}
+
+/// Blocked work resumes without the owner saying "try now". An app request an account or a
+/// working app already answers is resolved by observation, with no model call. Any other wait on
+/// something outside the company has its agent look again on a bounded backoff, and shortly after
+/// the owner was active (`restless_orgintel::RECHECK_AFTER`).
+async fn recheck_blocked_work(daemon: &Arc<Daemon>, org: &OrgIntel, company: &str) {
+    let resolved = crate::block_recheck::resolve_answered_app_requests(daemon, org, company).await;
+    if resolved > 0 {
+        tracing::info!(company, resolved, "resolved app requests already answered");
+    }
+    let now = Utc::now();
+    match org.next_block_recheck_at().await {
+        Ok(Some(due)) if due <= now => {}
+        Ok(_) => return,
+        Err(error) => {
+            tracing::warn!(company, "blocked work could not be read: {error:#}");
+            return;
+        }
+    }
+    if !computer_runs_on_demand(daemon, company).await {
+        return;
+    }
+    match org.recheck_external_waits_at(now).await {
+        Ok(0) => {}
+        Ok(asked) => tracing::info!(company, asked, "asked waiting agents to look again"),
+        Err(error) => tracing::warn!(company, "blocked work was not rechecked: {error:#}"),
+    }
+}
+
+/// Items waiting on the owner do not go stale in silence. One nothing needs any more (its Work
+/// finished or was stopped, its goal closed) is withdrawn here with the reason recorded. One
+/// still needed after days wakes Exec once, with every such item in one message
+/// (`restless_orgintel::STALE_HANDOFF_AFTER`); while the owner is away it waits for their return.
+async fn review_stale_owner_items(daemon: &Arc<Daemon>, org: &OrgIntel, company: &str) {
+    match org.withdraw_obsolete_handoffs().await {
+        Ok(withdrawn) if withdrawn.is_empty() => {}
+        Ok(withdrawn) => {
+            tracing::info!(
+                company,
+                withdrawn = withdrawn.len(),
+                "withdrew owner items nothing needs"
+            )
+        }
+        Err(error) => tracing::warn!(
+            company,
+            "obsolete owner items were not withdrawn: {error:#}"
+        ),
+    }
+    let now = Utc::now();
+    match org.stale_owner_handoffs_at(now).await {
+        Ok(due) if due.is_empty() => return,
+        Ok(_) => {}
+        Err(error) => {
+            tracing::warn!(company, "stale owner items could not be read: {error:#}");
+            return;
+        }
+    }
+    if matches!(
+        crate::away::current(&daemon.authority, company).await,
+        Ok(Some(_))
+    ) || !computer_runs_on_demand(daemon, company).await
+    {
+        return;
+    }
+    match org.signal_stale_owner_handoffs_at(now).await {
+        Ok(asked) if asked.is_empty() => {}
+        Ok(asked) => {
+            tracing::info!(
+                company,
+                items = asked.len(),
+                "asked Exec about stale owner items"
+            )
+        }
+        Err(error) => {
+            tracing::warn!(
+                company,
+                "Exec was not asked about stale owner items: {error:#}"
+            )
+        }
+    }
+}
+
+/// Progress comes to the owner without "progress?". When Work moved since Exec last wrote to the
+/// owner and they have heard nothing for `restless_orgintel::PROGRESS_UPDATE_AFTER`, Exec is
+/// woken once to post one update. This reads counts only; with nothing changed it never wakes a
+/// model. While the owner is away it waits for their return.
+async fn ask_for_progress_update(daemon: &Arc<Daemon>, org: &OrgIntel, company: &str) {
+    let now = Utc::now();
+    match org.progress_since_last_update_at(now).await {
+        Ok(progress) if progress.due(now) => {}
+        Ok(_) => return,
+        Err(error) => {
+            tracing::warn!(
+                company,
+                "progress since the last update is unreadable: {error:#}"
+            );
+            return;
+        }
+    }
+    if matches!(
+        crate::away::current(&daemon.authority, company).await,
+        Ok(Some(_))
+    ) || !computer_runs_on_demand(daemon, company).await
+    {
+        return;
+    }
+    match org.signal_progress_due_at(now).await {
+        Ok(None) => {}
+        Ok(Some(progress)) => tracing::info!(
+            company,
+            landed = progress.landed,
+            stuck = progress.stuck,
+            "asked Exec for a progress update"
+        ),
+        Err(error) => tracing::warn!(company, "Exec was not asked for an update: {error:#}"),
+    }
+}
+
 async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
     if daemon.staff.take_resource_retry_hint() {
         return OVERDUE_RETRY_INTERVAL;
@@ -690,6 +820,13 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
                     }),
                 );
             }
+            if let Ok(Some(next)) = org.next_block_recheck_at().await {
+                earliest = Some(
+                    earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
+                        current.min(next)
+                    }),
+                );
+            }
         }
     }
     match earliest {
@@ -747,6 +884,11 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     let Ok(org) = daemon.orgintel.get(company).await else {
         return;
     };
+    // Nothing here needs a model or the computer. What it writes is ordinary owed mail, which
+    // wakes its actor (and a sleeping computer) through the recovery below.
+    recheck_blocked_work(daemon, &org, company).await;
+    review_stale_owner_items(daemon, &org, company).await;
+    ask_for_progress_update(daemon, &org, company).await;
     if daemon.runtime_bridges.is_hosted() {
         let Ok(identity) =
             crate::runtime_bridge::expected_identity(&daemon.authority, company).await

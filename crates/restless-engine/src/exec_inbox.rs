@@ -58,6 +58,35 @@ fn outcome_review(item: &AttentionItem) -> bool {
     item.source.kind == "owner_handoff" && item.category == "review"
 }
 
+/// A setting the owner said yes to in chat is applied exactly as proposed. Three kinds still need
+/// something only the owner can give (which account, a missing legal detail, the delivery they
+/// want), so Exec asks for that in chat instead of sending them to the card with no reason.
+fn setting_applies_from_chat(item: &AttentionItem) -> Result<(), String> {
+    let setting = item
+        .setting_proposal
+        .as_ref()
+        .and_then(|proposal| proposal["setting"].as_str())
+        .unwrap_or_default();
+    match setting {
+        "spend_limit" | "reasoning_effort" | "everyday_model" | "decision_model" | "schedule" => {
+            Ok(())
+        }
+        "model" => Err(
+            "switching the company's model also needs the account it runs on, which the owner picks in the card; tell them that is the one thing left"
+                .into(),
+        ),
+        "legal_profile" => Err(
+            "legal details are saved from their card, where the owner checks each value and fills in what only they know; tell them that is the one thing left"
+                .into(),
+        ),
+        "notifications" => Err(
+            "how the owner hears from the company is saved from its card, where they confirm the address and time; tell them that is the one thing left"
+                .into(),
+        ),
+        _ => Err("this setting is answered in its card".into()),
+    }
+}
+
 /// Whether `verb` has a decision path for this item, and if not, what Exec should do instead.
 /// Snooze, move and dismiss apply to everything in the Inbox; deciding needs a decision.
 fn applies(item: &AttentionItem, verb: ExecInboxVerb, app_request: bool) -> Result<(), String> {
@@ -73,15 +102,16 @@ fn applies(item: &AttentionItem, verb: ExecInboxVerb, app_request: bool) -> Resu
             "skill_candidate" | "identity_proposal" | "direction_request" => Ok(()),
             "conversation_owner_review" if verb == "accept" => Ok(()),
             "setting_proposal" if verb == "decline" => Ok(()),
-            "setting_proposal" => Err(
-                "a setting is applied in its card, where the owner can adjust the value first; tell them it is one tap there"
-                    .into(),
-            ),
+            "setting_proposal" => setting_applies_from_chat(item),
             "charter_proposal" if verb == "decline" => Ok(()),
-            "charter_proposal" => Err(
-                "publish the charter the owner agreed with `restless charter apply --requester owner --file <draft> --source-message <id>`"
-                    .into(),
-            ),
+            // The owner agreed to the draft as written: it is published as they would publish it.
+            "charter_proposal" => match item.charter_proposal.as_ref() {
+                Some(draft) if !draft.current => Err(
+                    "the charter changed after this draft was written; draft it again against the charter as it is now, then ask the owner"
+                        .into(),
+                ),
+                _ => Ok(()),
+            },
             "identity_drift" => Err("this asks the owner to choose between versions in its card".into()),
             _ => Err(format!(
                 "this item has nothing to {verb}; snooze, move or dismiss it instead"
@@ -567,12 +597,11 @@ mod tests {
                 "{kind}"
             );
         }
-        // Declined in chat; applied where the value can be adjusted, or by Exec's own command.
+        // A setting and a charter draft are declined in chat like anything else.
         assert!(decide("setting_proposal", "approval", ExecInboxVerb::Decline).is_ok());
-        assert!(decide("setting_proposal", "approval", ExecInboxVerb::Accept).is_err());
         assert!(decide("charter_proposal", "approval", ExecInboxVerb::Decline).is_ok());
-        let charter = decide("charter_proposal", "approval", ExecInboxVerb::Accept).unwrap_err();
-        assert!(charter.contains("restless charter apply"), "{charter}");
+        assert!(decide("setting_proposal", "approval", ExecInboxVerb::Answer).is_err());
+        assert!(decide("charter_proposal", "approval", ExecInboxVerb::Answer).is_err());
         // A finished result is seen (accepted), not declined.
         assert!(decide("conversation_owner_review", "review", ExecInboxVerb::Accept).is_ok());
         assert!(decide(
@@ -587,6 +616,79 @@ mod tests {
         let app = item("owner_handoff", "human_step");
         assert!(applies(&app, ExecInboxVerb::Accept, true).is_err());
         assert!(applies(&app, ExecInboxVerb::Decline, true).is_ok());
+    }
+
+    /// "Approved" said in chat used to do nothing for a setting or a charter draft (12 November):
+    /// both are now accepted from the owner's message, as proposed.
+    #[test]
+    fn a_setting_or_charter_the_owner_agreed_to_in_chat_is_accepted() {
+        let setting = |change: serde_json::Value| {
+            let mut item = item("setting_proposal", "approval");
+            item.setting_proposal = Some(change);
+            item
+        };
+        for change in [
+            serde_json::json!({"setting": "spend_limit", "ceiling_usd": 300.0}),
+            serde_json::json!({"setting": "reasoning_effort", "effort": "high"}),
+            serde_json::json!({"setting": "everyday_model", "model": "anthropic/claude-sonnet-5-5"}),
+            serde_json::json!({"setting": "decision_model", "model": "included"}),
+            serde_json::json!({"setting": "schedule", "schedule_id": "s1", "paused": true}),
+        ] {
+            assert!(
+                applies(&setting(change.clone()), ExecInboxVerb::Accept, false).is_ok(),
+                "{change}"
+            );
+        }
+        // These still need something only the owner can give, and the refusal says what.
+        for (change, needs) in [
+            (
+                serde_json::json!({"setting": "model", "model": "openai/gpt-5.6"}),
+                "account",
+            ),
+            (
+                serde_json::json!({"setting": "legal_profile"}),
+                "only they know",
+            ),
+            (
+                serde_json::json!({"setting": "notifications", "email": true}),
+                "address",
+            ),
+        ] {
+            let refusal = applies(&setting(change), ExecInboxVerb::Accept, false).unwrap_err();
+            assert!(refusal.contains(needs), "{refusal}");
+            assert!(refusal.contains("one thing left"), "{refusal}");
+        }
+        // A setting item with no readable change is never applied blind.
+        assert!(applies(
+            &item("setting_proposal", "approval"),
+            ExecInboxVerb::Accept,
+            false
+        )
+        .is_err());
+
+        let charter = |current: bool| {
+            let mut item = item("charter_proposal", "approval");
+            item.charter_proposal = Some(crate::direction::CharterProposal {
+                id: uuid::Uuid::nil(),
+                markdown: "# Charter".into(),
+                base_revision: "r1".into(),
+                current,
+                reason: "Sharper mission".into(),
+                requester: crate::direction::DirectionPerson {
+                    actor_id: "exec".into(),
+                    name: "Exec".into(),
+                },
+                source_message: None,
+                proposed_at: Utc::now(),
+            });
+            item
+        };
+        assert!(applies(&charter(true), ExecInboxVerb::Accept, false).is_ok());
+        let stale = applies(&charter(false), ExecInboxVerb::Accept, false).unwrap_err();
+        assert!(stale.contains("draft it again"), "{stale}");
+        // Payments stay with their provider: a payment handoff is refused when it is applied
+        // (`answer_handoff_from_owner_message`), and no payment kind is an approval kind here.
+        assert!(!APPROVAL_KINDS.iter().any(|kind| kind.contains("payment")));
     }
 
     #[test]

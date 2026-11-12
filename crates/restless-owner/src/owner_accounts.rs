@@ -157,79 +157,43 @@ pub(super) async fn grant(
     {
         Ok(grant) => {
             resolve_account_requests(&state, &grant.company).await;
+            // The owner just gave the company an account: whatever waits on it is looked at.
+            owner_was_active(&state, &grant.company, "account_saved").await;
             (StatusCode::CREATED, Json(grant)).into_response()
         }
         Err(error) => refuse(error),
     }
 }
 
-/// The app names an account answers to when Exec or a lead asked for an app: its kind and its
-/// provider (`github`), as the app catalogue keys them.
-fn account_app_names(account: &accounts::Account) -> Vec<String> {
-    let mut names = vec![account.kind.clone()];
-    if let Some(provider) = account
-        .provider
-        .as_deref()
-        .filter(|provider| !provider.is_empty())
-    {
-        names.push(provider.to_string());
-    }
-    names.retain(|name| !matches!(name.as_str(), "api" | "website_login" | "browser_profile"));
-    names.sort();
-    names.dedup();
-    names
-}
-
 /// An account the owner gave a company satisfies the app requests it answers (19 October: the
 /// owner granted their GitHub account in Settings › Accounts and Exec's "Add a GitHub token"
-/// request stayed open and overdue). Resolved as an observation, so the Work resumes.
+/// request stayed open and overdue). Resolved as an observation, so the Work resumes. The
+/// scheduler's sweep runs the same check; this one answers at once.
 pub(crate) async fn resolve_account_requests(state: &OwnerState, company: &str) -> usize {
-    let pool = state.daemon.authority.pool();
-    let Ok(granted) = accounts::company_grants(pool, company).await else {
-        return 0;
-    };
     let Ok(org) = state.daemon.orgintel.get(company).await else {
         return 0;
     };
-    let mut resolved = 0;
-    for (grant, account) in granted
-        .iter()
-        .filter(|(grant, account)| !grant.frozen && !account.frozen)
-    {
-        let names = account_app_names(account);
-        if names.is_empty() {
-            continue;
-        }
-        let Ok(requests) = org.app_requests_for(&names).await else {
-            continue;
-        };
-        for id in requests {
-            let outcome = org
-                .resolve_observed_handoff(
-                    id,
-                    "daemon",
-                    &format!(
-                        "The owner gave the company their {} account ({}) in Settings › Accounts. Use it through the account broker.",
-                        account.label,
-                        account.identity.display.as_deref().unwrap_or(&account.kind)
-                    ),
-                )
-                .await;
-            match outcome {
-                Ok(true) => resolved += 1,
-                Ok(false) => {}
-                Err(error) => {
-                    tracing::warn!(company, handoff = %id, grant = %grant.id, error = %error, "app request was not resolved by an account")
-                }
-            }
-        }
+    restless_engine::block_recheck::resolve_account_requests(&state.daemon, &org, company).await
+}
+
+/// The owner did something that may have settled what blocked Work waits on (saved an account,
+/// closed the computer's viewer). Noted only while something waits; the scheduler then has the
+/// waiting agent look again shortly, so the owner never has to say "try now".
+pub(crate) async fn owner_was_active(state: &OwnerState, company: &str, what: &str) {
+    let Ok(org) = state.daemon.orgintel.get(company).await else {
+        return;
+    };
+    match org.note_owner_activity(what).await {
+        Ok(true) => state.daemon.schedule_wake.notify_one(),
+        Ok(false) => {}
+        Err(error) => tracing::debug!(company, what, %error, "owner activity was not noted"),
     }
-    resolved
 }
 
 #[cfg(test)]
 mod account_request_tests {
     use super::*;
+    use restless_engine::block_recheck::account_app_names;
 
     fn account(kind: &str, provider: Option<&str>) -> accounts::Account {
         accounts::Account {

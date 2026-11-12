@@ -461,23 +461,7 @@ pub(super) async fn grant(
     }
 }
 
-/// The names an app request may give this app: its own, its address or its
-/// catalogue key.
-fn requested_names(connection: &connections::Connection) -> Vec<String> {
-    let mut names = vec![connection.name.clone()];
-    if let Some(endpoint) = connection.endpoint.as_deref() {
-        names.push(endpoint.to_string());
-        names.push(endpoint.trim_end_matches('/').to_string());
-    }
-    if let Some(key) = connection
-        .source
-        .as_deref()
-        .and_then(|source| source.strip_prefix("catalogue:"))
-    {
-        names.push(key.to_string());
-    }
-    names
-}
+use restless_engine::block_recheck::connection_app_names as requested_names;
 
 /// A working, allowed app is the observable resume condition of every pending
 /// app request it satisfies, whether a grant or a later sign-in completed it:

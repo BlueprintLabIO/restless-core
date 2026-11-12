@@ -18,6 +18,7 @@ pub mod approval_decisions;
 pub mod attention;
 pub mod authority;
 pub mod away;
+pub mod block_recheck;
 pub mod burst_jobs;
 pub mod capability;
 pub mod cell;

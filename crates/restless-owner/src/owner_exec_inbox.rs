@@ -462,12 +462,17 @@ async fn decide(
             )
             .await
         }
-        "setting_proposal" if !yes => {
+        "setting_proposal" => {
             let proposal: i64 = reference
                 .parse()
                 .map_err(|_| "This setting proposal is unreadable.".to_string())?;
+            // The owner said yes: save the setting as proposed, through the route its own page
+            // saves with, before the answer is recorded.
+            if yes {
+                apply_setting(state, company, org, &owner, proposal).await?;
+            }
             let input = serde_json::from_value(serde_json::json!({
-                "applied": false,
+                "applied": yes,
                 "note": (!note.is_empty()).then(|| note.to_string()),
             }))
             .map_err(|_| "This setting answer could not be formed.".to_string())?;
@@ -481,6 +486,11 @@ async fn decide(
                 .await,
             )
             .await
+        }
+        "charter_proposal" if yes => {
+            let proposal = Uuid::parse_str(reference)
+                .map_err(|_| "This charter draft is unreadable.".to_string())?;
+            publish_charter_draft(state, company, org, proposal).await
         }
         "charter_proposal" if !yes => {
             let proposal = Uuid::parse_str(reference)
@@ -546,4 +556,167 @@ async fn approve(
     // Still held by another worker: it is due, so the decision worker settles it with the same
     // rechecks, and a refusal reaches the owner as that approval's own receipt.
     Ok(())
+}
+
+/// Save the setting a proposal asks for, exactly as proposed, through the same owner route its
+/// Settings page uses, so that route's checks and audit trail hold. Each route's precondition
+/// (the saved revision, the limit now, the schedule as it stands) is read fresh here.
+async fn apply_setting(
+    state: &OwnerState,
+    company: &str,
+    org: &restless_orgintel::OrgIntel,
+    owner: &RequestPrincipal,
+    proposal: i64,
+) -> std::result::Result<(), String> {
+    use restless_engine::setting_proposals::{self, SettingChange};
+    let change = setting_proposals::pending(&state.daemon.authority, company)
+        .await
+        .map_err(|error| logged(error, "The setting proposal could not be read.").to_string())?
+        .into_iter()
+        .find(|(record, _)| record.id == proposal)
+        .map(|(_, waiting)| waiting.change)
+        .ok_or_else(|| "This setting change was already answered.".to_string())?;
+    let config = runtime::CompanyConfig::load(&state.daemon.root, company)
+        .map_err(|error| logged(error, "This company could not be found.").to_string())?;
+    let revision = super::company_setup_view(&config)["revision"].clone();
+    let unformed = |_| "This setting could not be formed.".to_string();
+    match change {
+        SettingChange::SpendLimit { ceiling_usd } => {
+            let input = serde_json::from_value(serde_json::json!({
+                "ceiling": ceiling_usd.to_string(),
+                "expected_ceiling": config.spend_ceiling_usd.to_string(),
+            }))
+            .map_err(unformed)?;
+            outcome(
+                super::company_settings_api::save_spend_limit(
+                    State(state.clone()),
+                    Extension(owner.clone()),
+                    AxumPath(company.to_string()),
+                    Json(input),
+                )
+                .await
+                .into_response(),
+            )
+            .await
+        }
+        SettingChange::ReasoningEffort { effort } => {
+            let input = serde_json::from_value(
+                serde_json::json!({ "effort": effort, "revision": revision }),
+            )
+            .map_err(unformed)?;
+            outcome(
+                super::update_reasoning_effort(
+                    State(state.clone()),
+                    Extension(owner.clone()),
+                    AxumPath(company.to_string()),
+                    Json(input),
+                )
+                .await,
+            )
+            .await
+        }
+        change @ (SettingChange::EverydayModel { .. } | SettingChange::DecisionModel { .. }) => {
+            let input = match change {
+                SettingChange::EverydayModel { model } => {
+                    serde_json::json!({ "everyday_model": model, "revision": revision })
+                }
+                SettingChange::DecisionModel { model } => {
+                    serde_json::json!({ "decision_model": model, "revision": revision })
+                }
+                _ => unreachable!("matched above"),
+            };
+            outcome(
+                super::model_jobs_api::update(
+                    State(state.clone()),
+                    AxumPath(company.to_string()),
+                    Json(serde_json::from_value(input).map_err(unformed)?),
+                )
+                .await,
+            )
+            .await
+        }
+        SettingChange::Schedule {
+            schedule_id,
+            paused,
+            ..
+        } => {
+            let id = Uuid::parse_str(schedule_id.trim())
+                .map_err(|_| "That schedule no longer exists.".to_string())?;
+            let row = org
+                .list_schedules(None, false)
+                .await
+                .map_err(|error| error.plain_message())?
+                .into_iter()
+                .find(|row| row.id == id)
+                .ok_or_else(|| "That schedule no longer exists.".to_string())?;
+            let input = serde_json::from_value(serde_json::json!({
+                "expected_fire_at": row.fire_at,
+                "expected_paused": row.paused_at.is_some(),
+                "paused": paused,
+            }))
+            .map_err(unformed)?;
+            outcome(
+                super::skills_api::update_schedule(
+                    State(state.clone()),
+                    Extension(owner.clone()),
+                    AxumPath((company.to_string(), id)),
+                    Json(input),
+                )
+                .await,
+            )
+            .await
+        }
+        SettingChange::Model { .. }
+        | SettingChange::Notifications { .. }
+        | SettingChange::LegalProfile { .. } => {
+            Err("This setting needs a choice only you can make; it is answered in its card.".into())
+        }
+    }
+}
+
+/// Publish the charter draft the owner agreed to in chat, as written, through the route the
+/// charter editor saves with: same revision check, same history entry, and the draft leaves the
+/// Inbox.
+async fn publish_charter_draft(
+    state: &OwnerState,
+    company: &str,
+    org: &restless_orgintel::OrgIntel,
+    proposal: Uuid,
+) -> std::result::Result<(), String> {
+    let config = runtime::CompanyConfig::load(&state.daemon.root, company)
+        .map_err(|error| logged(error, "This company could not be found.").to_string())?;
+    let current = authority::mandate_revision(&config.mission);
+    let names = restless_engine::direction_authority::Names::read(org)
+        .await
+        .map_err(|error| logged(error, "The charter draft could not be read.").to_string())?;
+    let draft = restless_engine::direction_authority::charter_proposal(
+        &state.daemon.authority,
+        company,
+        &names,
+        &current,
+    )
+    .await
+    .map_err(|error| logged(error, "The charter draft could not be read.").to_string())?
+    .filter(|draft| draft.id == proposal)
+    .ok_or_else(|| "This charter draft was already answered.".to_string())?;
+    if !draft.current {
+        return Err(
+            "The charter changed after this draft was written, so it was not published.".into(),
+        );
+    }
+    outcome(
+        super::revise_company_charter(
+            State(state.clone()),
+            AxumPath(company.to_string()),
+            Json(super::CharterRevisionInput {
+                markdown: draft.markdown,
+                base_revision: current,
+                proposal_id: Some(proposal),
+                source: None,
+            }),
+        )
+        .await
+        .into_response(),
+    )
+    .await
 }
