@@ -204,6 +204,82 @@ try {
 					`${landBays} on land\n${result.errors.join('\n')}`
 			);
 	}
+	// A room's furniture fits the room at every head count (owner, 13 Nov): desks and chairs stand
+	// on whole tiles inside the rug, a full tile clear of its border; each row of desks is centred;
+	// the whiteboard and the plant keep to the rug; nothing hangs over the stone plate.
+	for (let seats = 1; seats <= 6; seats += 1) {
+		const team = {
+			id: 'fit',
+			name: 'Fit',
+			brief: '',
+			lead_actor_id: 'fit-staff-1',
+			created_by: 'exec',
+			created_at: '2026-08-20T00:00:00Z',
+			member_count: seats,
+			in_motion_count: 0,
+			blocked_count: 0
+		};
+		const plan = planModule.createCompanyOfficePlan(
+			[team],
+			[
+				{ actorId: 'exec', teamId: null },
+				...Array.from({ length: seats }, (_, index) => ({
+					actorId: `fit-staff-${index + 1}`,
+					teamId: 'fit'
+				}))
+			],
+			planModule.DEFAULT_OFFICE_PREFERENCES
+		);
+		const zone = plan.zones[0];
+		const rug = { left: zone.col + 1, right: zone.col + zone.width - 1 };
+		const inner = {
+			left: zone.col + 2,
+			top: zone.row + 2,
+			right: zone.col + zone.width - 2,
+			bottom: zone.row + zone.height - 2
+		};
+		const size = { desk: [3, 2], pc: [1, 2], seat: [1, 1], board: [2, 2], plant: [1, 2] };
+		const pieces = plan.layout.furniture.filter((item) => item.uid.startsWith('bay-'));
+		const desks = pieces.filter((item) => item.uid.endsWith('-desk'));
+		if (desks.length !== seats) throw new Error(`${seats} seats drew ${desks.length} desks`);
+		for (const item of pieces) {
+			const [w, h] = size[item.uid.split('-').pop()];
+			const aisle = /-(board|plant)$/.test(item.uid);
+			const left = aisle ? rug.left : inner.left;
+			const right = aisle ? rug.right : inner.right;
+			if (
+				!Number.isInteger(item.col) ||
+				!Number.isInteger(item.row) ||
+				item.col < left ||
+				item.col + w > right ||
+				item.row < inner.top ||
+				item.row + h > inner.bottom
+			)
+				throw new Error(`${seats} seats: ${item.uid} at ${item.col},${item.row} leaves its room`);
+		}
+		for (const row of new Set(desks.map((desk) => desk.row))) {
+			const cols = desks.filter((desk) => desk.row === row).map((desk) => desk.col);
+			const before = Math.min(...cols) - inner.left;
+			const after = inner.right - (Math.max(...cols) + 3);
+			if (before !== after)
+				throw new Error(
+					`${seats} seats: a desk row is off centre (${before} before, ${after} after)`
+				);
+		}
+		// The rug is the plate, one tile in on every side.
+		for (let row = zone.row; row < zone.row + zone.height; row += 1)
+			for (let col = zone.col; col < zone.col + zone.width; col += 1) {
+				const rim =
+					col === zone.col ||
+					row === zone.row ||
+					col === zone.col + zone.width - 1 ||
+					row === zone.row + zone.height - 1;
+				if (Boolean(plan.layout.carpetTiles[row * plan.layout.cols + col]) === rim)
+					throw new Error(
+						`${seats} seats: the rug is not one tile inside its plate at ${col},${row}`
+					);
+			}
+	}
 	if (new Set(shapes.map((shape) => shape.floorTileCount)).size < 4)
 		throw new Error('Real company size no longer changes the generated pavilion footprint.');
 	const unicorn = amenities.AMENITY_DEFINITIONS.find(

@@ -38,8 +38,12 @@ const G = {
 	koi: '#f08a4b',
 	koiWhite: '#fbf4ea',
 	koiShadow: 'rgba(30, 80, 90, 0.35)',
-	sun: 'rgba(255, 244, 214, 0.2)',
-	paver: ['#dfe3dd', '#d8ddd7', '#e3e6df', '#dadfd8'],
+	paver: ['#e1e5df', '#dde2dc', '#e4e8e2'],
+	kerbLight: '#f3f6f1',
+	kerbShade: '#c3cac4',
+	kerbFace: '#aeb7b1',
+	kerbFaceLight: '#bcc4be',
+	kerbBase: '#869189',
 	edgeGrass: '#9ccb8c',
 	edgeGrassDark: '#86b97a',
 	edgeGrassLight: '#b3d99f',
@@ -47,8 +51,8 @@ const G = {
 	wetEdge: 'rgba(60, 110, 110, 0.35)',
 	wetLight: 'rgba(240, 250, 246, 0.55)',
 	edgeFlowers: ['#f3e3a0', '#eab6d0', '#f7f3e9'],
-	paverJoint: '#c2c9c3',
-	paverSpeck: '#cfd5cf'
+	paverJoint: '#cdd4ce',
+	paverSpeck: '#d3d9d3'
 } as const;
 
 function hash(x: number, y: number, salt = 0): number {
@@ -124,42 +128,19 @@ export function paintOfficeGround(ctx: Paint, plan: OfficePlan): void {
 			}
 		}
 	}
-	// Pale travertine pavers where people work: stone, but warm and quiet.
+	// Pale stone flags where people work: one square flag to a tile, on the tile grid, so the
+	// joints line up with every plate's edge, every rug and every desk. Square flags with quiet
+	// joints read as a floor; the old half-offset courses read as a block wall.
 	for (let row = 0; row < rows; row += 1) {
 		for (let col = 0; col < cols; col += 1) {
 			if (tiles[row * cols + col] !== TileType.FLOOR_4) continue;
 			const x = col * TILE_SIZE;
 			const y = row * TILE_SIZE;
-			for (let course = 0; course < 2; course += 1) {
-				const cy = y + course * 8;
-				const shift = (row * 2 + course) % 2 === 0 ? 0 : 8;
-				for (let half = -1; half < 2; half += 1) {
-					const left = Math.max(x, x + shift + half * 16);
-					const right = Math.min(x + TILE_SIZE, x + shift + half * 16 + 16);
-					if (right <= left) continue;
-					const paverId = Math.floor((col * 16 + shift + half * 16) / 16);
-					px(
-						ctx,
-						left,
-						cy,
-						right - left,
-						8,
-						G.paver[Math.floor(hash(paverId, row * 2 + course, 20) * 4)]
-					);
-				}
-				px(ctx, x, cy + 7, TILE_SIZE, 1, G.paverJoint);
-				const joint = x + shift;
-				if (joint >= x && joint < x + TILE_SIZE) px(ctx, joint, cy, 1, 7, G.paverJoint);
-				if (hash(col, row * 2 + course, 21) < 0.3)
-					px(
-						ctx,
-						x + 2 + hash(row, col + course, 22) * 12,
-						cy + 2 + hash(col, row, 23) * 4,
-						1,
-						1,
-						G.paverSpeck
-					);
-			}
+			px(ctx, x, y, TILE_SIZE, TILE_SIZE, G.paver[Math.floor(hash(col, row, 20) * 3)]);
+			px(ctx, x, y + TILE_SIZE - 1, TILE_SIZE, 1, G.paverJoint);
+			px(ctx, x + TILE_SIZE - 1, y, 1, TILE_SIZE, G.paverJoint);
+			if (hash(col, row, 21) < 0.12)
+				px(ctx, x + 3 + hash(row, col, 22) * 9, y + 3 + hash(col, row, 23) * 9, 1, 1, G.paverSpeck);
 		}
 	}
 	paintZenGarden(ctx, plan);
@@ -204,6 +185,10 @@ function paintGroundEdges(ctx: Paint, plan: OfficePlan): void {
 			if (!solid(col, row) || inCourt(col, row)) continue;
 			const x = col * T;
 			const y = row * T;
+			if (tiles[row * cols + col] === TileType.FLOOR_4) {
+				paintKerb(ctx, x, y, (dc, dr) => !solid(col + dc, row + dr) && !isPond(col + dc, row + dr));
+				continue;
+			}
 			for (const side of sides) {
 				const ncol = col + side.dc;
 				const nrow = row + side.dr;
@@ -241,6 +226,30 @@ function paintGroundEdges(ctx: Paint, plan: OfficePlan): void {
 				}
 			}
 		}
+	}
+}
+
+/* A stone plate is a slab standing a little proud of the ground, lit from the top left like every
+ * sprite in the office: a pale lip along its north and west edges, a shaded lip along its east
+ * edge, and along its south edge the slab's front face over a dark base line. One rule for every
+ * open edge, so corners close by themselves: the face runs the full width of a south edge and the
+ * lips stop where it starts. The callback says whether the neighbour in a direction is open ground. */
+function paintKerb(
+	ctx: Paint,
+	x: number,
+	y: number,
+	open: (dc: number, dr: number) => boolean
+): void {
+	const T = TILE_SIZE;
+	const south = open(0, 1);
+	const lipEnd = south ? T - 4 : T;
+	if (open(0, -1)) px(ctx, x, y, T, 1, G.kerbLight);
+	if (open(-1, 0)) px(ctx, x, y, 1, lipEnd, G.kerbLight);
+	if (open(1, 0)) px(ctx, x + T - 1, y, 1, lipEnd, G.kerbShade);
+	if (south) {
+		px(ctx, x, y + T - 4, T, 1, G.kerbFaceLight);
+		px(ctx, x, y + T - 3, T, 2, G.kerbFace);
+		px(ctx, x, y + T - 1, T, 1, G.kerbBase);
 	}
 }
 
@@ -406,25 +415,6 @@ function paintZenGarden(ctx: Paint, plan: OfficePlan): void {
 	px(ctx, lanternX - 2, lanternY + 4, 5, 4, G.lanternBody);
 	px(ctx, lanternX - 1, lanternY + 5, 3, 2, G.lanternLight);
 	px(ctx, lanternX - 1, lanternY + 8, 3, 3, G.lanternShade);
-}
-
-/** Light that falls through skylights onto the team pavilions (above rugs). */
-export function paintOfficeLight(ctx: Paint, plan: OfficePlan): void {
-	for (const zone of plan.zones) {
-		if (zone.kind !== 'team') continue;
-		const x = zone.col * TILE_SIZE;
-		const y = zone.row * TILE_SIZE;
-		for (const [dx, dy] of [
-			[2.5, 3],
-			[7, 5.5]
-		]) {
-			const left = x + dx * TILE_SIZE;
-			const top = y + dy * TILE_SIZE;
-			ctx.fillStyle = G.sun;
-			// A slanted pane of light, stepped one art pixel per row.
-			for (let r = 0; r < 20; r += 1) ctx.fillRect(Math.round(left + r * 0.5), top + r, 26, 1);
-		}
-	}
 }
 
 export interface GroundView {

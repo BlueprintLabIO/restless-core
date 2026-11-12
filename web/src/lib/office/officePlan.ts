@@ -172,21 +172,26 @@ const BAY_CAPACITY = 6;
 /** Land holds two rows of three team bays, so the core campus never crowds; the company grows
  * outward from there. */
 const LAND_BAY_SLOTS = 6;
-const BAY_WIDTH = 12;
-const BAY_HEIGHT = 10;
+/* A bay is three nested rectangles, each one tile inside the last: the stone plate, the room's rug,
+ * and the furniture area. The furniture area is exactly what a full bay needs: three desks three
+ * tiles wide with a tile between them (11), and two bands of desk, chair and a walking row (7).
+ * So nothing stands on the rug's border or hangs over the plate, whatever the head count. */
+const BAY_WIDTH = 15;
+const BAY_HEIGHT = 11;
+const BAY_INSET = 2;
 /** The floating ring: a circular boardwalk on the lake east of the main deck, its centre tile
  * and radius in tiles. Pavilions sit around it. */
 const RING = { col: 91, row: 25, radius: 8 };
 /** Floating pavilions around the ring, nearest the main deck first: either side of the way in,
- * north and south, then the far side. Top-left tiles, from angles of -150, 150, -90, 90, -30
- * and 30 degrees at 18 tiles from the ring's centre. */
+ * north and south, then the far side. Top-left tiles, placed so each plate stands clear of the
+ * ring, the main deck and its neighbours. */
 const FLOATING_BAY_SLOTS: ReadonlyArray<{ col: number; row: number }> = [
-	{ col: 69, row: 11 },
-	{ col: 69, row: 29 },
-	{ col: 85, row: 2 },
-	{ col: 85, row: 38 },
-	{ col: 101, row: 11 },
-	{ col: 101, row: 29 }
+	{ col: 66, row: 9 },
+	{ col: 66, row: 31 },
+	{ col: 84, row: 2 },
+	{ col: 84, row: 38 },
+	{ col: 101, row: 9 },
+	{ col: 101, row: 31 }
 ];
 
 function stableHash(value: string): number {
@@ -306,7 +311,10 @@ interface BaySource {
 	kind: 'team' | 'shared';
 }
 
-/** Desks, screens and chairs for a bay's seats, a whiteboard and a plant. */
+/** Desks, screens and chairs for a bay's seats, a whiteboard and a plant, all on the tile grid
+ * inside the bay's furniture area. A band of desks is centred in the room: one desk sits in the
+ * middle, two sit either side of the middle, three fill the row. The whiteboard and the plant
+ * stand in the room's two side aisles, level with the first row of chairs. */
 function furnishBay(
 	bay: BaySource,
 	index: number,
@@ -315,18 +323,21 @@ function furnishBay(
 	add: (uid: string, type: string, col: number, row: number, color?: ColorValue) => void
 ) {
 	const seats = Math.max(1, bay.seatCount);
+	const left = col + BAY_INSET;
+	const top = row + BAY_INSET;
 	for (let seat = 0; seat < seats; seat += 1) {
-		const column = seat % 3;
 		const band = Math.floor(seat / 3);
-		const deskCol = col + column * 4;
-		const deskRow = row + 1 + band * 4;
+		const inBand = Math.min(3, seats - band * 3);
+		// Desk columns for one, two or three desks in the 11-tile row: 4; 2 and 6; 0, 4 and 8.
+		const deskCol = left + (inBand === 1 ? 4 : inBand === 2 ? 2 + (seat % 3) * 4 : (seat % 3) * 4);
+		const deskRow = top + band * 4;
 		const uid = `bay-${stableHash(`${bay.id}:${bay.bayIndex}`)}-${seat}`;
 		add(`${uid}-desk`, 'DESK_FRONT', deskCol, deskRow, DAYLIGHT.furniture);
 		add(`${uid}-pc`, 'PC_FRONT_OFF', deskCol + 1, deskRow);
 		add(`${uid}-seat`, 'CUSHIONED_CHAIR_BACK', deskCol + 1, deskRow + 2, DAYLIGHT.furniture);
 	}
-	add(`bay-${index}-board`, 'WHITEBOARD', col + 10, row + 8);
-	add(`bay-${index}-plant`, 'PLANT_2', col + 11, row + 4);
+	add(`bay-${index}-board`, 'WHITEBOARD', col + BAY_WIDTH - 3, top + 2);
+	add(`bay-${index}-plant`, 'PLANT_2', col + 1, top + 2);
 }
 
 function buildBays(teams: CockpitTeam[], members: OfficeMember[]): BaySource[] {
@@ -473,10 +484,9 @@ export function createCompanyOfficePlan(
 	// Open team neighbourhoods repeat only when real visible membership needs capacity.
 	const topBayCount = Math.ceil(landBays.length / 2);
 	const slotColumns = (count: number): number[] => {
-		if (count <= 1) return [27];
-		if (count === 2) return [13, 43];
-		if (count === 3) return [5, 28, 51];
-		return [5, 20, 35, 50];
+		if (count <= 1) return [26];
+		if (count === 2) return [12, 42];
+		return [4, 26, 48];
 	};
 	const topColumns = slotColumns(topBayCount);
 	const bottomColumns = slotColumns(Math.max(0, landBays.length - topBayCount));
@@ -516,7 +526,7 @@ export function createCompanyOfficePlan(
 		const col = floating
 			? FLOATING_BAY_SLOTS[index - landBays.length].col
 			: (upper ? topColumns : bottomColumns)[slot];
-		const row = floating ? FLOATING_BAY_SLOTS[index - landBays.length].row : upper ? 4 : 38;
+		const row = floating ? FLOATING_BAY_SLOTS[index - landBays.length].row : upper ? 3 : 38;
 		const suffix = bay.bayIndex ? ` ${bay.bayIndex + 1}` : '';
 		const areaLabel = safeLabel(`${bay.label}${suffix}`);
 		areas.push({ label: areaLabel, color: AREA_COLORS[index % AREA_COLORS.length] });
@@ -548,8 +558,21 @@ export function createCompanyOfficePlan(
 	add('exec-seat', 'CUSHIONED_CHAIR_BACK', 6, 22, DAYLIGHT.furniture);
 	add('exec-whiteboard', 'WHITEBOARD', 9, 19);
 	add('exec-plant', 'PLANT_2', 4, 24);
+	// A team's plate keeps to its own furniture: the plaza's rug and planting step aside for it.
+	const inBay = (col: number, row: number, width = 1, height = 1) =>
+		zones.some(
+			(zone) =>
+				col < zone.col + zone.width &&
+				col + width > zone.col &&
+				row < zone.row + zone.height &&
+				row + height > zone.row
+		);
+	const clearOfBays = (type: string, col: number, row: number) => {
+		const entry = catalogEntry(type);
+		return !inBay(col, row, entry?.footprintW ?? 1, entry?.footprintH ?? 1);
+	};
 	// Soft ground for the west plaza's garden court (furnished further down).
-	rug(4, 39, 13, 9, 2);
+	if (!inBay(4, 39, 13, 9)) rug(4, 39, 13, 9, 2);
 
 	// West pavilion: quiet care spaces open directly onto the garden path.
 	rug(17, 24, 6, 7, 1);
@@ -729,6 +752,7 @@ export function createCompanyOfficePlan(
 			color: /SOFA|BENCH|TABLE/.test(String(type)) ? DAYLIGHT.furniture : undefined
 		};
 		if (
+			clearOfBays(candidate.type, candidate.col, candidate.row) &&
 			isDecorationPlacementValid(
 				baseLayout,
 				candidate.type,
@@ -754,6 +778,7 @@ export function createCompanyOfficePlan(
 				row: Number(row)
 			};
 			if (
+				clearOfBays(candidate.type, candidate.col, candidate.row) &&
 				isDecorationPlacementValid(
 					baseLayout,
 					candidate.type,
