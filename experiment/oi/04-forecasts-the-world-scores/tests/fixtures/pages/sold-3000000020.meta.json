@@ -1,0 +1,6 @@
+{
+ "kind": "sold",
+ "item_id": "3000000020",
+ "captured_at": "2026-11-20T01:05:00Z",
+ "url": "https://example.invalid/sold?item=3000000020"
+}
