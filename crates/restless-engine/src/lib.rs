@@ -99,6 +99,7 @@ pub mod setting_proposals;
 pub mod sheet_commands;
 pub mod skills;
 pub mod spend;
+pub mod org_review;
 pub mod spend_report;
 pub mod staff;
 pub mod telegram;

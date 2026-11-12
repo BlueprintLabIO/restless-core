@@ -564,6 +564,11 @@ enum Command {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
     },
+    /// How the company's own shape is working: each team's results, and when Exec reviews it.
+    Org {
+        #[command(subcommand)]
+        command: OrgCommand,
+    },
     /// Preview or apply an audited correction to exact duplicate spend records.
     /// Preview is the default; mutation requires both owner authority and --apply.
     SpendCorrect {
@@ -1642,6 +1647,25 @@ enum TeamCommand {
         team: String,
         #[arg(long)]
         reason: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum OrgCommand {
+    /// Each team's results since the last review: how many attempts landed, failed or were
+    /// blocked, what the owner sent back, what critics caught, and how many minds it took.
+    Scorecard {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Record a finished review of the company's shape. The next one comes when the owner has
+    /// given enough new signal, and shows what this one changed.
+    Review {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// What the numbers showed and what you changed, or why nothing needed changing.
+        #[arg(long)]
+        conclusion: String,
     },
 }
 
@@ -4106,6 +4130,18 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             }),
         },
         Command::Spend { company: c } => serde_json::json!({ "cmd": "spend", "company": c }),
+        Command::Org { command } => match command {
+            OrgCommand::Scorecard { company } => {
+                serde_json::json!({ "cmd": "org-scorecard", "company": company })
+            }
+            OrgCommand::Review {
+                company,
+                conclusion,
+            } => serde_json::json!({
+                "cmd": "org-review", "company": company, "reason": conclusion,
+                "actor": acting_actor(),
+            }),
+        },
         Command::Telemetry { company: c } => {
             serde_json::json!({ "cmd": "telemetry", "company": c })
         }

@@ -127,6 +127,9 @@ pub struct ContextSnapshot {
     /// Advisory: the Exec is the actor with enough context to tell "stuck"
     /// from "hard", so these are shown, never enforced.
     pub org_signals: Vec<String>,
+    /// The review of the company's own shape, present only when the owner has given enough new
+    /// signal since the last one (`org_review`). An ordinary wake carries nothing.
+    pub org_review: Option<String>,
     /// The models this company can staff with right now: exact route, who
     /// uses it, how it is billed and its list price. Rendered by the Exec
     /// wake from company config, billing and the model catalog.
@@ -691,6 +694,11 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             block.push_str(&format!("- {signal}\n"));
         }
         block
+    };
+
+    let signals = match &snapshot.org_review {
+        Some(review) => format!("{signals}{review}"),
+        None => signals,
     };
 
     let plan_exists = !snapshot.current_plan.trim().is_empty();
@@ -1458,6 +1466,7 @@ mod tests {
             budget_ceiling_usd: 10.0,
             effect_ledger: "customer-contact.email 3 · GBP 27.00 moved".into(),
             org_signals: vec!["\"ship the thing\" is blocked and waiting on someone".into()],
+            org_review: None,
             staffing_routes: "- openai/gpt-6-sol — used by Exec — metered".into(),
             people_changes: Vec::new(),
             library_uploads: Vec::new(),

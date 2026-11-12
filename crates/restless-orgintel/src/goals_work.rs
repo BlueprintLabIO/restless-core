@@ -936,6 +936,21 @@ impl OrgIntel {
                     producer,
                 )));
             }
+            // One critic per candidate (owner finding, 12 November 2026: three critics judging the
+            // same work under one lead). A second critic over the same evidence is an echo
+            // (`COORDINATION_THEORY.md`; EXP-02: an added critic doubled the time for no gain).
+            let open_critic: Option<(Uuid, Uuid)> = sqlx::query_as(
+                "SELECT critic.id, edge.to_work_id FROM work_edges edge                  JOIN work critic ON critic.id=edge.from_work_id                  WHERE edge.kind='revises' AND edge.to_work_id = ANY($1)                    AND critic.status::text IN ('proposed','active','blocked')                  ORDER BY critic.id LIMIT 1",
+            )
+            .bind(revises.to_vec())
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some((critic, producer)) = open_critic {
+                tx.rollback().await?;
+                return Err(OrgIntelError::InvalidWork(second_critic_refusal(
+                    critic, producer,
+                )));
+            }
         }
 
         sqlx::query(
@@ -1532,6 +1547,17 @@ impl OrgIntel {
                 tx.rollback().await?;
                 return Err(OrgIntelError::InvalidWork(self_review_refusal(&owner, to)));
             }
+            let open_critic: Option<Uuid> = sqlx::query_scalar(
+                "SELECT critic.id FROM work_edges edge                  JOIN work critic ON critic.id=edge.from_work_id                  WHERE edge.kind='revises' AND edge.to_work_id=$1 AND critic.id<>$2                    AND critic.status::text IN ('proposed','active','blocked')                  ORDER BY critic.id LIMIT 1",
+            )
+            .bind(to)
+            .bind(from)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(critic) = open_critic {
+                tx.rollback().await?;
+                return Err(OrgIntelError::InvalidWork(second_critic_refusal(critic, to)));
+            }
         }
         if kind == WorkEdgeKind::Requires {
             let closes_cycle = sqlx::query_scalar::<_, bool>(
@@ -1660,6 +1686,13 @@ impl OrgIntel {
         .fetch_all(&self.pool)
         .await?)
     }
+}
+
+/// Why a producer that already has an open critic gets no second one, and the way on.
+fn second_critic_refusal(critic: Uuid, producer: Uuid) -> String {
+    format!(
+        "Work {producer} already has an open critic ({critic}). One critic per candidate: a second          one reading the same evidence doubles the time and rarely changes the result. Send the          extra concern to that critic (`restless message --work {critic}`), or wait for its verdict"
+    )
 }
 
 /// Why Work cannot review (revise) a producer its own owner owns, and the way on.
