@@ -29,6 +29,15 @@ pub enum StallCause {
     },
 }
 
+/// How the platform stopped Work that had nothing wrong with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlatformStop {
+    /// A restart, or a supervisor that ended without recording an outcome.
+    Restart,
+    /// A watchdog cut the turn; the words are the block's own.
+    Interruption(String),
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct StalledWork {
     pub work_id: Uuid,
@@ -113,9 +122,52 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Blocked Work the platform itself stopped, with nothing wrong in the Work: a restart or a
+    /// lost supervisor closed its Attempt as unknown (`restart`), or a watchdog cut its turn
+    /// (`interruption`; never one the owner interrupted). The daemon resumes these itself,
+    /// within its daily bound, so a restart never leaves Work for the owner to resume by hand
+    /// (12 November: the resume was once per revision for good, so a second restart stranded it).
+    /// Only Work stopped in the last two days: enough for the daily bound to free up, and Work
+    /// that has sat blocked for longer is not started again without a person.
+    pub async fn work_stopped_by_platform(&self) -> Result<Vec<(Uuid, PlatformStop)>> {
+        let rows = sqlx::query(
+            "SELECT w.id, w.resolution FROM work w WHERE w.status = 'blocked' \
+               AND w.updated_at > now() - interval '2 days' \
+               AND (w.resolution LIKE $1 OR w.resolution LIKE $2 \
+                    OR (w.resolution LIKE '[resumable] %' \
+                        AND w.resolution NOT LIKE '%the owner interrupted%')) \
+               AND NOT EXISTS (SELECT 1 FROM owner_handoffs h \
+                               WHERE h.work_id = w.id AND h.state = 'pending') \
+             ORDER BY w.updated_at",
+        )
+        .bind(format!(
+            "{}supervisor restarted%",
+            crate::UNKNOWN_OUTCOME_PREFIX
+        ))
+        .bind(format!(
+            "{}its supervising process ended without recording an outcome%",
+            crate::UNKNOWN_OUTCOME_PREFIX
+        ))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let resolution: String = row.get("resolution");
+                let stop = if resolution.starts_with("[resumable] ") {
+                    PlatformStop::Interruption(resolution)
+                } else {
+                    PlatformStop::Restart
+                };
+                (row.get("id"), stop)
+            })
+            .collect())
+    }
+
     /// Work stopped for longer than `after` with nobody asked:
-    /// - blocked, with no pending owner handoff (a handoff has its own card) and not paused on
-    ///   purpose by a person;
+    /// - blocked, with no pending owner handoff (a handoff has its own card), not paused on
+    ///   purpose by a person, and not parked until a time that is still to come (its schedule
+    ///   releases it; a card for it told the owner to resume Work that was only waiting);
     /// - open, but requiring Work that was abandoned that long ago.
     pub async fn stalled_work(&self, after: chrono::Duration) -> Result<Vec<StalledWork>> {
         let cutoff = Utc::now() - after;
@@ -126,6 +178,8 @@ impl OrgIntel {
                AND w.resolution NOT LIKE 'paused by %' \
                AND NOT EXISTS (SELECT 1 FROM owner_handoffs h \
                                WHERE h.work_id = w.id AND h.state = 'pending') \
+               AND NOT EXISTS (SELECT 1 FROM schedules s WHERE s.work_id = w.id \
+                               AND s.fired_at IS NULL AND s.cancelled_at IS NULL) \
              ORDER BY w.updated_at",
         )
         .bind(cutoff)

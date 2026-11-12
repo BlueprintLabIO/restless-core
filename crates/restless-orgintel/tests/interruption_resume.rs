@@ -44,7 +44,7 @@ async fn an_interrupted_turn_resumes_a_bounded_number_of_times() {
         })
         .await
         .unwrap();
-    for round in 0..restless_orgintel::INTERRUPTION_RESUMES_PER_REVISION {
+    for round in 0..restless_orgintel::INTERRUPTION_RESUMES_PER_DAY {
         let claimed = org.claim_ready_work("round").await.unwrap().unwrap();
         assert_eq!(claimed.work.id, work);
         org.finish_work_attempt(claimed.attempt_id, WorkAttemptState::Blocked, CUT)
@@ -73,12 +73,36 @@ async fn an_interrupted_turn_resumes_a_bounded_number_of_times() {
         .unwrap();
     assert!(
         !org.resume_after_interruption(work, CUT).await.unwrap(),
-        "past the bound, the revision waits for its lead"
+        "past the day's bound, the revision waits"
     );
     assert_eq!(
         org.get_work(work).await.unwrap().unwrap().status,
         WorkStatus::Blocked
     );
+    // The daemon's sweep finds it, and the next day it goes on by itself (12 November: the bound
+    // was per revision for good, so a third cut or usage-limit reset stranded long Work).
+    assert_eq!(
+        org.work_stopped_by_platform().await.unwrap(),
+        vec![(
+            work,
+            restless_orgintel::PlatformStop::Interruption(CUT.into())
+        )]
+    );
+    assert!(org
+        .resume_after_interruption_at(work, CUT, chrono::Utc::now() + chrono::Duration::hours(25))
+        .await
+        .unwrap());
+
+    // A turn the owner interrupted is the owner's to restart: the sweep leaves it alone.
+    let claimed = org.claim_ready_work("owner").await.unwrap().unwrap();
+    org.finish_work_attempt(
+        claimed.attempt_id,
+        WorkAttemptState::Blocked,
+        "[resumable] the owner interrupted the turn",
+    )
+    .await
+    .unwrap();
+    assert!(org.work_stopped_by_platform().await.unwrap().is_empty());
 
     org.drop_schema().await.unwrap();
 }

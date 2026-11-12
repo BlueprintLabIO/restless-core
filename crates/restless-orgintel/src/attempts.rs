@@ -4,9 +4,23 @@
 
 use super::*;
 
-/// How many times one Work revision resumes on its own after interrupted turns. Twice covers a
-/// slow tool or a busy host; a third silence in the same revision is the lead's to judge.
-pub const INTERRUPTION_RESUMES_PER_REVISION: i64 = 2;
+/// How many times in a day one Work revision resumes on its own after interrupted turns. Twice
+/// covers a slow tool or a busy host; a third silence the same day waits for the next day or its
+/// lead. The bound is a loop guard, not a lifetime allowance: counted for good, it stranded long
+/// Work on its third usage-limit reset or watchdog cut (12 November).
+pub const INTERRUPTION_RESUMES_PER_DAY: i64 = 2;
+/// How many times in a day one Work revision resumes on its own after a platform restart killed
+/// its Attempt: a release, a memory restart and a daemon restart may share a day; a crash loop
+/// stops at the fourth.
+pub const RESTART_RESUMES_PER_DAY: i64 = 3;
+/// The most either kind of resume happens for one Work revision in all. Past it something is
+/// wrong with the Work itself, so it stays blocked and reaches its lead and the owner.
+pub const PLATFORM_RESUMES_PER_REVISION: i64 = 8;
+/// The window the per-day bounds count in.
+const RESUME_WINDOW: chrono::Duration = chrono::Duration::hours(24);
+/// How an Attempt whose outcome is unknown is summarised; the reason follows.
+pub(crate) const UNKNOWN_OUTCOME_PREFIX: &str =
+    "cognitive process ended without trustworthy semantic completion; productive outcome unknown: ";
 
 struct QualifiedOutcomeReview {
     target_uri: String,
@@ -856,9 +870,7 @@ impl OrgIntel {
         }
 
         let reason = recovery.reason.trim().chars().take(320).collect::<String>();
-        let summary = format!(
-            "cognitive process ended without trustworthy semantic completion; productive outcome unknown: {reason}"
-        );
+        let summary = format!("{UNKNOWN_OUTCOME_PREFIX}{reason}");
         sqlx::query(
             "UPDATE work_attempts \
              SET state='failed', summary=$2, finished_at=now() WHERE id=$1",
@@ -1622,10 +1634,21 @@ impl OrgIntel {
     /// A platform restart killed this Work's Attempt mid-turn, so its outcome
     /// was recorded as unknown (Sprint 104 A3). The restart is the concrete
     /// changed mechanism: the daemon grants one successor Attempt, which
-    /// reloads the agent's saved session and continues. A second restart in
-    /// the same revision leaves the Work blocked for its lead, so a crash
-    /// loop never retries forever. Returns whether the Work resumed.
+    /// reloads the agent's saved session and continues. Bounded so a crash
+    /// loop never retries forever: at most [`RESTART_RESUMES_PER_DAY`] in a
+    /// day and [`PLATFORM_RESUMES_PER_REVISION`] in all for one revision.
+    /// Returns whether the Work resumed.
     pub async fn resume_after_platform_restart(&self, work_id: Uuid) -> Result<bool> {
+        self.resume_after_platform_restart_at(work_id, Utc::now())
+            .await
+    }
+
+    /// [`Self::resume_after_platform_restart`] with the clock given, so the bound is tested.
+    pub async fn resume_after_platform_restart_at(
+        &self,
+        work_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query("SELECT status, revision FROM work WHERE id=$1 FOR UPDATE")
             .bind(work_id)
@@ -1637,16 +1660,24 @@ impl OrgIntel {
             tx.rollback().await?;
             return Ok(false);
         }
-        let held: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM owner_handoffs WHERE work_id=$1 AND state='pending') \
-             OR EXISTS(SELECT 1 FROM events WHERE kind='work_resumed_after_restart' \
-                       AND body->>'work_id'=$1::text AND (body->>'revision')::bigint=$2)",
-        )
-        .bind(work_id)
-        .bind(revision)
-        .fetch_one(&mut *tx)
-        .await?;
-        if held {
+        let (pending_handoff, today, in_all): (bool, i64, i64) = {
+            let row = sqlx::query(
+                "SELECT EXISTS(SELECT 1 FROM owner_handoffs WHERE work_id=$1 AND state='pending') AS pending, \
+                        count(*) FILTER (WHERE e.created_at > $3) AS today, count(*) AS in_all \
+                 FROM events e WHERE e.kind='work_resumed_after_restart' \
+                   AND e.body->>'work_id'=$1::text AND (e.body->>'revision')::bigint=$2",
+            )
+            .bind(work_id)
+            .bind(revision)
+            .bind(now - RESUME_WINDOW)
+            .fetch_one(&mut *tx)
+            .await?;
+            (row.get("pending"), row.get("today"), row.get("in_all"))
+        };
+        if pending_handoff
+            || today >= RESTART_RESUMES_PER_DAY
+            || in_all >= PLATFORM_RESUMES_PER_REVISION
+        {
             tx.rollback().await?;
             return Ok(false);
         }
@@ -1680,9 +1711,21 @@ impl OrgIntel {
     /// session) with nothing wrong in the Work itself. The staff summary promised "the next wake
     /// continues from durable state", but blocked Work is never claimed again, so Sprint 107 sat
     /// blocked for five days with no card (S109 blockers audit). Bounded like the restart
-    /// resume: at most [`INTERRUPTION_RESUMES_PER_REVISION`] times per revision, never past a
-    /// pending owner handoff, and each one is an event.
+    /// resume: at most [`INTERRUPTION_RESUMES_PER_DAY`] times a day and
+    /// [`PLATFORM_RESUMES_PER_REVISION`] in all for one revision, never past a pending owner
+    /// handoff, and each one is an event.
     pub async fn resume_after_interruption(&self, work_id: Uuid, cause: &str) -> Result<bool> {
+        self.resume_after_interruption_at(work_id, cause, Utc::now())
+            .await
+    }
+
+    /// [`Self::resume_after_interruption`] with the clock given, so the bound is tested.
+    pub async fn resume_after_interruption_at(
+        &self,
+        work_id: Uuid,
+        cause: &str,
+        now: DateTime<Utc>,
+    ) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query("SELECT status, revision FROM work WHERE id=$1 FOR UPDATE")
             .bind(work_id)
@@ -1696,19 +1739,24 @@ impl OrgIntel {
             tx.rollback().await?;
             return Ok(false);
         }
-        let (pending_handoff, resumed): (bool, i64) = {
+        let (pending_handoff, today, in_all): (bool, i64, i64) = {
             let row = sqlx::query(
                 "SELECT EXISTS(SELECT 1 FROM owner_handoffs WHERE work_id=$1 AND state='pending') AS pending, \
-                        (SELECT count(*) FROM events WHERE kind='work_resumed_after_interruption' \
-                          AND body->>'work_id'=$1::text AND (body->>'revision')::bigint=$2) AS resumed",
+                        count(*) FILTER (WHERE e.created_at > $3) AS today, count(*) AS in_all \
+                 FROM events e WHERE e.kind='work_resumed_after_interruption' \
+                   AND e.body->>'work_id'=$1::text AND (e.body->>'revision')::bigint=$2",
             )
             .bind(work_id)
             .bind(revision)
+            .bind(now - RESUME_WINDOW)
             .fetch_one(&mut *tx)
             .await?;
-            (row.get("pending"), row.get("resumed"))
+            (row.get("pending"), row.get("today"), row.get("in_all"))
         };
-        if pending_handoff || resumed >= INTERRUPTION_RESUMES_PER_REVISION {
+        if pending_handoff
+            || today >= INTERRUPTION_RESUMES_PER_DAY
+            || in_all >= PLATFORM_RESUMES_PER_REVISION
+        {
             tx.rollback().await?;
             return Ok(false);
         }
