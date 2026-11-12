@@ -3068,13 +3068,36 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                     }
                 };
                 match daemon.orgintel.get(company).await {
-                    Ok(org) => match org
-                        .resolve_handoff_as(id, resolved_by, state, resolution)
-                        .await
-                    {
-                        Ok(()) => Response::ok("recorded"),
-                        Err(error) => Response::err(format!("{error:#}")),
-                    },
+                    Ok(org) => {
+                        // The agent waiting on a sign-in, code or CAPTCHA was asked to look
+                        // again and saw it done: that is an observation, recorded as one, so
+                        // the owner never has to come back and say so.
+                        if state == restless_orgintel::OwnerHandoffState::Resolved
+                            && org
+                                .agent_may_confirm_human_step(id, resolved_by)
+                                .await
+                                .unwrap_or(false)
+                        {
+                            return match org
+                                .resolve_observed_handoff(
+                                    id,
+                                    "daemon",
+                                    &format!("Checked by {resolved_by}: {}", resolution.trim()),
+                                )
+                                .await
+                            {
+                                Ok(_) => Response::ok("recorded"),
+                                Err(error) => Response::err(format!("{error:#}")),
+                            };
+                        }
+                        match org
+                            .resolve_handoff_as(id, resolved_by, state, resolution)
+                            .await
+                        {
+                            Ok(()) => Response::ok("recorded"),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        }
+                    }
                     Err(error) => Response::err(format!("{error:#}")),
                 }
             }

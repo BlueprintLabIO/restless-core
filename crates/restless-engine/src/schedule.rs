@@ -611,6 +611,47 @@ async fn start_unblocked_chain_work(daemon: &Arc<Daemon>, in_flight: &InFlight, 
     .await;
 }
 
+/// Whether this company's computer is running or would start for owed work. One the owner
+/// stopped, or that was removed, is left alone: nothing is queued for it from a timer.
+async fn computer_runs_on_demand(daemon: &Arc<Daemon>, company: &str) -> bool {
+    if daemon.runtime_bridges.is_hosted() {
+        return true;
+    }
+    match runtime::status(company).await {
+        Ok(ContainerStatus::Running) => true,
+        Ok(status) => runtime::power_state(company, status).starts_on_demand(),
+        Err(_) => false,
+    }
+}
+
+/// Blocked work resumes without the owner saying "try now". An app request an account or a
+/// working app already answers is resolved by observation, with no model call. Any other wait on
+/// something outside the company has its agent look again on a bounded backoff, and shortly after
+/// the owner was active (`restless_orgintel::RECHECK_AFTER`).
+async fn recheck_blocked_work(daemon: &Arc<Daemon>, org: &OrgIntel, company: &str) {
+    let resolved = crate::block_recheck::resolve_answered_app_requests(daemon, org, company).await;
+    if resolved > 0 {
+        tracing::info!(company, resolved, "resolved app requests already answered");
+    }
+    let now = Utc::now();
+    match org.next_block_recheck_at().await {
+        Ok(Some(due)) if due <= now => {}
+        Ok(_) => return,
+        Err(error) => {
+            tracing::warn!(company, "blocked work could not be read: {error:#}");
+            return;
+        }
+    }
+    if !computer_runs_on_demand(daemon, company).await {
+        return;
+    }
+    match org.recheck_external_waits_at(now).await {
+        Ok(0) => {}
+        Ok(asked) => tracing::info!(company, asked, "asked waiting agents to look again"),
+        Err(error) => tracing::warn!(company, "blocked work was not rechecked: {error:#}"),
+    }
+}
+
 async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
     if daemon.staff.take_resource_retry_hint() {
         return OVERDUE_RETRY_INTERVAL;
@@ -690,6 +731,13 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
                     }),
                 );
             }
+            if let Ok(Some(next)) = org.next_block_recheck_at().await {
+                earliest = Some(
+                    earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
+                        current.min(next)
+                    }),
+                );
+            }
         }
     }
     match earliest {
@@ -747,6 +795,9 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     let Ok(org) = daemon.orgintel.get(company).await else {
         return;
     };
+    // Nothing here needs a model or the computer. What it writes is ordinary owed mail, which
+    // wakes its actor (and a sleeping computer) through the recovery below.
+    recheck_blocked_work(daemon, &org, company).await;
     if daemon.runtime_bridges.is_hosted() {
         let Ok(identity) =
             crate::runtime_bridge::expected_identity(&daemon.authority, company).await

@@ -505,6 +505,9 @@ pub(crate) async fn desktop_websocket(
             {
                 tracing::warn!(company, "desktop websocket ended: {error:#}");
             }
+            // The owner was on the company computer and has left it: whatever waits on a
+            // sign-in there is looked at again, without them saying it is done.
+            super::accounts_api::owner_was_active(&state, &company, "viewer_closed").await;
         })
         .into_response()
 }
