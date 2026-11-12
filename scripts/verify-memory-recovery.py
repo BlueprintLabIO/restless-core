@@ -52,8 +52,10 @@ def main():
             assert plane.owner(company,'/principal')[0]==200, 'Owner entry was closed by another company memory pressure'
           assert started(companies[1])==before[companies[1]], 'The healthy neighbour restarted'
           _,conversation=plane.owner(companies[0],'/actors/exec/conversation')
-          if any('workload pool has been short of memory' in m.get('body','') for m in conversation.get('messages',[])) and notice_at is None:
-            notice_at=elapsed;assert 280<=notice_at<=345, 'Half-deadline notice was not timely'
+          # The shortage shows on the company's card; a restart that works is never a chat message.
+          assert not any('memory' in m.get('body','').lower() for m in conversation.get('messages',[])), 'A self-healing memory shortage reached the owner chat'
+          if health().get('roll_forward',{}).get('companies',{}).get(companies[0],{}).get('outcome')=='waiting_for_memory' and notice_at is None:
+            notice_at=elapsed;assert 280<=notice_at<=345, 'Half-deadline card was not timely'
           if started(companies[0])!=before[companies[0]]:
             if restarted_at is None:restarted_at=elapsed
             assert 590<=elapsed<=700, 'Runtime restart did not respect the ten-minute budget'
