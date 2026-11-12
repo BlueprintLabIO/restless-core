@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "site": "ebay.com.au",
+  "currency": "AUD",
+  "timezone": "Australia/Sydney",
+  "categories": ["cameras", "electronics", "tools", "lego"],
+  "price_min": 30,
+  "price_max": 2000,
+  "price_bands": [[30, 100], [100, 300], [300, 800], [800, 2000]],
+  "min_days_to_end": 2,
+  "max_days_to_end": 7,
+  "min_bids": 1,
+  "lock_margin_minutes": 60,
+  "simple_rule_last_n": 10,
+  "buy_threshold": 0.7,
+  "main_comparison": ["crowd_5", "one_agent_5x"],
+  "smallest_gap_points": 3,
+  "equivalence_margin_points": 2,
+  "setups": {
+    "one_agent": {"members": 1, "rounds": 1},
+    "one_agent_5x": {"members": 1, "rounds": 1},
+    "crowd_5": {"members": 5, "rounds": 1},
+    "discussing_crowd": {"members": 5, "rounds": 2},
+    "sceptic_team": {"members": 1, "rounds": 1},
+    "mixed_crowd": {"members": 5, "rounds": 1}
+  },
+  "pilot_setups": ["one_agent", "one_agent_5x", "crowd_5"],
+  "exclusion_statuses": ["ended_early", "cancelled", "relisted", "unsold"]
+}
