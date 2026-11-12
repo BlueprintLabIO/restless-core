@@ -1882,7 +1882,12 @@
 	}
 	.conversation-index {
 		container: people-index / inline-size;
-		padding: var(--pane-edge) 8px 0 6px;
+		/* A card like every left list (SidebarShell): its border stands where the 1px insets did. */
+		padding: 0 7px 0 5px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-pane);
+		background: var(--surface-pane);
+		box-shadow: var(--bevel), var(--shadow-soft);
 	}
 	/* The same head as every sidebar: the title, and the main action as a raised button. */
 	.people-head {
@@ -1891,7 +1896,9 @@
 		align-items: center;
 		justify-content: space-between;
 		height: var(--pane-head-h);
-		padding: 0 2px 0 8px;
+		margin: 0 -7px 0 -5px;
+		padding: 0 9px 0 16px;
+		border-bottom: 1px solid var(--border);
 	}
 	.people-head h1 {
 		margin: 0;
@@ -1921,7 +1928,7 @@
 	}
 	.people-search {
 		flex: none;
-		padding: 6px 0 10px;
+		padding: 10px 0 10px;
 	}
 	/* A switch between two modes of the list, not an item in it: a two-part toggle with a raised
 	 * thumb, so it never reads as a second selection beside the open conversation. */

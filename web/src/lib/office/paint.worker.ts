@@ -1,11 +1,11 @@
 /* Paints the office's static layers off the main thread (see offThread.ts):
- * the campus around the office, and the ground and light inside its floor.
+ * the campus around the office, and the ground inside its floor.
  * Each comes back as a bitmap; the campus also sends its plain motion seeds
  * (the shore function is rebuilt on the page from the world's size). This
  * module must only import pure painting code, never offThread.ts. */
 import { TILE_SIZE } from '$lib/vendor/pixel-agents/webview-ui/src/office/types.js';
 import { buildCampusWorld, type CampusSource, type PaintedCampus } from './campusBackdrop';
-import { paintOfficeGround, paintOfficeLight } from './officeGround';
+import { paintOfficeGround } from './officeGround';
 import type { GroundSource } from './offThread';
 import type { OfficePlan } from './officePlan';
 
@@ -43,12 +43,11 @@ function ground(id: number, source: GroundSource) {
 		return canvas.transferToImageBitmap();
 	};
 	const below = layer(paintOfficeGround);
-	const above = layer(paintOfficeLight);
-	if (!below || !above) {
+	if (!below) {
 		scope.postMessage({ id, result: null });
 		return;
 	}
-	scope.postMessage({ id, result: { below, above } }, [below, above]);
+	scope.postMessage({ id, result: { below } }, [below]);
 }
 
 scope.onmessage = (event) => {

@@ -290,7 +290,16 @@ const sprite = (w, h, draw) => {
 	draw(img);
 	return img;
 };
-const shadow = (img, x, y, w) => img.rect(x, y, w, 1, [38, 42, 55, 70]);
+/* One light for every sprite: it falls from the top left. So tops and left edges are the lit
+ * tone, right edges and undersides the shaded one, and whatever stands on the floor drops the
+ * same contact shadow: the sprite's bottom row, under its base and one pixel to the right. It is
+ * laid after the outline and only on empty pixels, so it never eats the outline. */
+const SHADE = [38, 42, 55, 84];
+const ground = (img, x, w) => {
+	const y = img.h - 1;
+	for (let i = x + 1; i <= x + w; i++) if (i < img.w && !img.get(i, y)[3]) img.set(i, y, SHADE);
+	return img;
+};
 
 /* Wooden board seen from the front: lit top, shaded front, dark underside. */
 function board(img, x, y, w, topH, frontH) {
@@ -320,7 +329,7 @@ const BIN = sprite(16, 16, (i) => {
 	i.rect(6, 9, 4, 1, K.metal[3]);
 	i.rect(6, 11, 4, 1, K.metal[3]);
 	i.outline(K.ink);
-	shadow(i, 4, 15, 8);
+	ground(i, 4, 8);
 });
 
 const shelfRow = (img, x, y, w, seed) => {
@@ -382,6 +391,7 @@ const CACTUS = sprite(16, 32, (i) => {
 	i.rect(8, 6, 2, 1, K.rose);
 	pot(i, 9, 31, 10, 8);
 	i.outline(K.ink);
+	ground(i, 4, 10);
 });
 
 const CLOCK = sprite(16, 32, (i) => {
@@ -421,7 +431,7 @@ const COFFEE_TABLE = sprite(32, 32, (i) => {
 	board(i, 2, 6, 28, 16, 4);
 	i.rect(8, 11, 16, 1, [255, 255, 255, 60]);
 	i.outline(K.ink);
-	shadow(i, 4, 31, 24);
+	ground(i, 4, 24);
 });
 
 const seatBench = (i, tone) => {
@@ -431,6 +441,7 @@ const seatBench = (i, tone) => {
 	i.rect(3, 12, 2, 3, W4);
 	i.rect(11, 12, 2, 3, W4);
 	i.outline(K.ink);
+	ground(i, 2, 12);
 };
 const CUSHIONED_BENCH = sprite(16, 16, (i) => seatBench(i, K.teal));
 const WOODEN_BENCH = sprite(16, 16, (i) => {
@@ -440,33 +451,47 @@ const WOODEN_BENCH = sprite(16, 16, (i) => {
 	i.rect(3, 12, 2, 3, W4);
 	i.rect(11, 12, 2, 3, W4);
 	i.outline(K.ink);
+	ground(i, 2, 12);
 });
 
+/* The office chair: a padded back and seat on a stem and a star base. */
 const stool = (view) =>
 	sprite(16, 16, (i) => {
 		const t = K.teal;
+		const base = () => {
+			i.rect(7, 11, 2, 2, K.metal[3]);
+			i.rect(4, 13, 8, 1, K.metal[3]);
+			i.set(3, 14, K.metal[4]);
+			i.set(8, 14, K.metal[4]);
+			i.set(12, 14, K.metal[4]);
+		};
 		if (view === 'back') {
+			base();
+			i.rect(4, 9, 8, 2, t[3]);
 			i.rect(3, 2, 10, 8, t[2]);
-			i.rect(3, 2, 10, 1, t[1]);
-			i.rect(4, 10, 8, 2, t[3]);
-			i.rect(4, 12, 2, 3, K.metal[3]);
-			i.rect(10, 12, 2, 3, K.metal[3]);
+			i.rect(4, 1, 8, 1, t[2]);
+			i.rect(4, 1, 8, 1, t[1]);
+			i.rect(3, 2, 1, 7, t[1]);
+			i.rect(12, 3, 1, 7, t[3]);
+			i.rect(5, 4, 6, 1, t[1]);
 		} else if (view === 'side') {
-			i.rect(8, 1, 5, 9, t[2]);
-			i.rect(8, 1, 5, 1, t[1]);
+			base();
+			i.rect(9, 1, 4, 9, t[2]);
+			i.rect(9, 1, 4, 1, t[1]);
+			i.rect(12, 2, 1, 8, t[3]);
 			i.rect(3, 8, 9, 3, t[1]);
 			i.rect(3, 8, 9, 1, t[0]);
-			i.rect(4, 11, 7, 1, t[3]);
-			i.rect(4, 12, 2, 3, K.metal[3]);
-			i.rect(10, 12, 2, 3, K.metal[3]);
+			i.rect(3, 10, 9, 1, t[3]);
 		} else {
+			base();
+			i.rect(3, 4, 10, 4, t[2]);
+			i.rect(3, 4, 10, 1, t[1]);
 			i.rect(3, 8, 10, 3, t[1]);
 			i.rect(3, 8, 10, 1, t[0]);
-			i.rect(3, 11, 10, 1, t[3]);
-			i.rect(4, 12, 2, 3, K.metal[3]);
-			i.rect(10, 12, 2, 3, K.metal[3]);
+			i.rect(3, 10, 10, 1, t[3]);
 		}
 		i.outline(K.ink);
+		ground(i, 3, 10);
 	});
 
 const woodChair = (view) =>
@@ -499,19 +524,41 @@ const woodChair = (view) =>
 			i.rect(12, 10, 1, 12, W4);
 		}
 		i.outline(K.ink);
+		ground(i, 3, 10);
 	});
 
+/* A desk fills its three tiles edge to edge and is seen from above and in front, as the room is:
+ * a deep top that the screen and keyboard sit on, a thin front edge, a recessed panel with a
+ * drawer, and two legs. */
 const DESK_FRONT = sprite(48, 32, (i) => {
-	i.rect(2, 26, 3, 5, K.metal[3]);
-	i.rect(43, 26, 3, 5, K.metal[3]);
-	board(i, 1, 5, 46, 14, 5);
-	i.rect(1, 24, 46, 1, W4);
-	i.rect(30, 20, 14, 5, W4);
-	i.rect(31, 21, 12, 3, W3);
-	i.rect(36, 22, 2, 1, K.amber);
-	i.rect(3, 8, 10, 1, [255, 255, 255, 60]);
+	// legs, and the recessed panel between them
+	i.rect(3, 28, 3, 3, K.metal[3]);
+	i.rect(42, 28, 3, 3, K.metal[3]);
+	i.rect(3, 28, 1, 3, K.metal[2]);
+	i.rect(42, 28, 1, 3, K.metal[2]);
+	i.rect(6, 28, 36, 2, W5);
+	// the top: lit along its back and left edges, shaded along its right
+	i.rect(1, 3, 46, 22, W2);
+	i.rect(1, 3, 46, 1, W1);
+	i.rect(1, 4, 1, 21, W1);
+	i.rect(46, 4, 1, 21, W3);
+	// front edge of the top, with a drawer pull
+	i.rect(1, 25, 46, 3, W3);
+	i.rect(1, 25, 46, 1, W2);
+	i.rect(1, 27, 46, 1, W4);
+	i.rect(34, 26, 5, 1, K.amber);
+	// a sheet of paper and a mug, clear of the screen in the middle tile
+	i.rect(5, 9, 7, 9, K.paper[0]);
+	i.rect(5, 17, 7, 1, K.paper[2]);
+	i.rect(6, 11, 4, 1, K.metal[2]);
+	i.rect(6, 13, 5, 1, K.metal[2]);
+	i.rect(6, 15, 3, 1, K.metal[2]);
+	i.rect(37, 10, 5, 5, K.paper[0]);
+	i.rect(38, 11, 3, 3, K.clay[3]);
+	i.rect(42, 11, 1, 3, K.paper[1]);
+	i.rect(37, 14, 5, 1, K.paper[2]);
 	i.outline(K.ink);
-	shadow(i, 4, 31, 40);
+	ground(i, 3, 42);
 });
 const DESK_SIDE = sprite(16, 64, (i) => {
 	i.rect(2, 2, 12, 56, W2);
@@ -593,6 +640,7 @@ const LARGE_PLANT = sprite(32, 48, (i) => {
 	pot(i, 16, 47, 16, 13);
 	i.rect(7, 35, 18, 2, K.clay[0]);
 	i.outline(K.ink);
+	ground(i, 8, 16);
 });
 const smallPlant = (kind) =>
 	sprite(16, 32, (i) => {
@@ -623,13 +671,14 @@ const smallPlant = (kind) =>
 		}
 		pot(i, 8, 31, 9, 8);
 		i.outline(K.ink);
+		ground(i, 3, 10);
 	});
 const POT = sprite(16, 16, (i) => {
 	pot(i, 8, 14, 12, 9);
 	i.rect(3, 6, 10, 1, K.clay[3]);
 	i.rect(4, 5, 8, 1, W5);
 	i.outline(K.ink);
-	shadow(i, 3, 15, 10);
+	ground(i, 3, 10);
 });
 
 /* A desktop monitor and keyboard: the screen is the animated part. */
@@ -649,23 +698,29 @@ function monitor(view, screen) {
 			i.rect(4, 21, 8, 2, K.metal[3]);
 			i.rect(3, 25, 10, 3, K.metal[1]);
 		} else {
-			i.rect(1, 5, 14, 12, K.metal[1]);
-			i.rect(2, 6, 12, 9, K.night);
-			i.rect(1, 15, 14, 2, K.metal[2]);
-			i.set(13, 16, K.glow[0]);
-			i.rect(7, 17, 2, 3, K.metal[3]);
-			i.rect(4, 20, 8, 2, K.metal[2]);
+			// The screen stands at the back of the desk top; its stand, keyboard and mouse sit on
+			// the top in front of it (the desk's top runs from row 3 to row 24).
+			i.rect(1, 2, 14, 12, K.metal[1]);
+			i.rect(1, 2, 14, 1, K.metal[0]);
+			i.rect(2, 3, 12, 9, K.night);
+			i.rect(1, 12, 14, 2, K.metal[2]);
+			i.set(13, 13, K.glow[0]);
+			i.rect(7, 14, 2, 3, K.metal[3]);
+			i.rect(4, 17, 8, 2, K.metal[2]);
+			i.rect(4, 17, 8, 1, K.metal[1]);
 			screen?.(i);
-			i.rect(2, 25, 12, 4, K.metal[1]);
-			i.rect(3, 26, 10, 1, K.metal[3]);
-			i.rect(3, 27, 10, 1, K.metal[2]);
-			i.rect(4, 28, 8, 0, K.metal[2]);
+			i.rect(14, 3, 1, 9, K.metal[2]);
+			i.rect(2, 21, 9, 3, K.metal[1]);
+			i.rect(2, 21, 9, 1, K.metal[0]);
+			i.rect(3, 22, 7, 1, K.metal[3]);
+			i.rect(12, 21, 2, 3, K.metal[1]);
+			i.rect(12, 21, 2, 1, K.metal[0]);
 		}
 		i.outline(K.ink);
 	});
 }
 const screenFrame = (n) => (i) => {
-	i.rect(3, 7, 10, 7, K.night);
+	i.rect(3, 4, 10, 7, K.night);
 	const lines = [
 		[2, 6],
 		[4, 8],
@@ -673,9 +728,9 @@ const screenFrame = (n) => (i) => {
 	];
 	for (let k = 0; k < 3; k++) {
 		const row = (k + n) % 3;
-		i.rect(3 + 1, 8 + k * 2, lines[row][1], 1, k === n % 3 ? K.glow[0] : K.glow[2]);
+		i.rect(3 + 1, 5 + k * 2, lines[row][1], 1, k === n % 3 ? K.glow[0] : K.glow[2]);
 	}
-	i.set(11, 7 + (n % 3) * 2, K.amber);
+	i.set(11, 4 + (n % 3) * 2, K.amber);
 };
 
 const SMALL_TABLE_FRONT = sprite(32, 32, (i) => {
@@ -684,7 +739,7 @@ const SMALL_TABLE_FRONT = sprite(32, 32, (i) => {
 	board(i, 2, 6, 28, 14, 4);
 	i.rect(2, 22, 28, 1, K.metal[3]);
 	i.outline(K.ink);
-	shadow(i, 4, 31, 24);
+	ground(i, 4, 24);
 });
 const SMALL_TABLE_SIDE = sprite(16, 48, (i) => {
 	i.rect(2, 2, 12, 36, W2);
@@ -708,6 +763,7 @@ const sofa = (view) => {
 			i.rect(3, 27, 2, 3, W5);
 			i.rect(11, 27, 2, 3, W5);
 			i.outline(K.ink);
+			ground(i, 3, 11);
 		});
 	return sprite(32, 16, (i) => {
 		if (view === 'back') {
@@ -728,6 +784,7 @@ const sofa = (view) => {
 		i.rect(3, 13, 2, 2, W5);
 		i.rect(27, 13, 2, 2, W5);
 		i.outline(K.ink);
+		ground(i, 2, 28);
 		void s;
 	});
 };
@@ -743,22 +800,34 @@ const TABLE_FRONT = sprite(48, 64, (i) => {
 	i.rect(9, 22, 6, 1, K.metal[2]);
 	i.disc(34, 24, 3, 3, K.teal[1]);
 	i.outline(K.ink);
-	shadow(i, 4, 63, 40);
+	ground(i, 4, 40);
 });
 
+/* A whiteboard on a stand. It keeps three pixels clear at each side of its two tiles, so it can
+ * stand in a room's side aisle without touching the rug's border. */
 const WHITEBOARD = sprite(32, 32, (i) => {
-	i.rect(1, 6, 30, 20, K.metal[1]);
-	i.rect(2, 7, 28, 18, K.paper[0]);
-	i.rect(2, 24, 28, 1, K.metal[2]);
-	i.rect(4, 9, 12, 1, K.teal[2]);
-	i.rect(4, 12, 20, 1, K.slate[1]);
-	i.rect(4, 15, 16, 1, K.slate[1]);
-	i.rect(20, 17, 6, 4, K.rose);
-	i.rect(21, 18, 4, 2, K.paper[0]);
-	i.rect(6, 26, 8, 2, K.metal[2]);
-	i.rect(7, 26, 2, 1, K.rose);
-	i.rect(10, 26, 2, 1, K.teal[2]);
+	i.rect(3, 5, 26, 20, K.metal[1]);
+	i.rect(3, 5, 26, 1, K.metal[0]);
+	i.rect(28, 6, 1, 19, K.metal[2]);
+	i.rect(4, 6, 24, 18, K.paper[0]);
+	i.rect(4, 23, 24, 1, K.paper[1]);
+	i.rect(6, 8, 10, 1, K.teal[2]);
+	i.rect(6, 11, 17, 1, K.slate[1]);
+	i.rect(6, 14, 13, 1, K.slate[1]);
+	i.rect(6, 17, 9, 1, K.slate[1]);
+	i.rect(19, 16, 6, 5, K.rose);
+	i.rect(20, 17, 4, 3, K.paper[0]);
+	// pen tray
+	i.rect(8, 25, 9, 1, K.metal[2]);
+	i.rect(9, 25, 2, 1, K.rose);
+	i.rect(12, 25, 2, 1, K.teal[2]);
+	// a stand: two legs and their feet
+	i.rect(6, 25, 2, 5, K.metal[3]);
+	i.rect(24, 25, 2, 5, K.metal[3]);
+	i.rect(4, 29, 6, 1, K.metal[3]);
+	i.rect(22, 29, 6, 1, K.metal[3]);
 	i.outline(K.ink);
+	ground(i, 4, 24);
 });
 
 /* ── write the furniture files ───────────────────────────────────────────── */

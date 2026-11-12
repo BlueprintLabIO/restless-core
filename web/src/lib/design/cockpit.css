@@ -884,25 +884,20 @@
 	background: var(--surface-pane);
 }
 
-/* The Inbox is laid out as every other surface is (Apps, Work, Company): its list sits on the page
- * beside one card for the item, not as a second card. A clear queue still folds the list away
- * (above). */
+/* The Inbox is laid out as every other surface is (Apps, Work, Company): its list is a card beside
+ * the card for the item, the same frame, radius and surface as every pane (owner, 13 Nov). A clear
+ * queue still folds the list away (above). */
 @media (min-width: 761px) {
 	.bridge-root .attention-screen:not(.queue-clear) {
 		--attention-index-w: var(--sidebar-w);
 	}
-	.bridge-root .attention-screen:not(.queue-clear) > .attention-index {
-		border-color: transparent;
-		background: transparent;
-		box-shadow: none;
-	}
 }
 
+/* The office keeps the pane's frame, so it sits between the list and the Exec rail as the same
+ * kind of card, its corners clipped to the pane's radius. */
 .bridge-root .attention-focus.office-focus {
-	border: 0;
-	border-radius: 0;
+	overflow: hidden;
 	background: var(--surface-pane);
-	box-shadow: none;
 }
 
 .bridge-root .attention-focus .inbox-pane {
