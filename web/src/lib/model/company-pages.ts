@@ -119,6 +119,13 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		path: '/week',
 		keywords: 'week review summary finished decided spent report'
 	},
+	{
+		key: 'team-results',
+		group: 'Records',
+		label: 'Team results',
+		path: '/team-results',
+		keywords: 'teams landed failed blocked sent back scorecard organisation organised reviews leads'
+	},
 	{ key: 'health', group: 'Records', label: 'Health', path: '/doctor', keywords: 'doctor diagnose' }
 ];
 

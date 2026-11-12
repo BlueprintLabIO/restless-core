@@ -1474,6 +1474,10 @@
 											>Change lead…</button
 										>
 										<button type="button" onclick={() => void disband(entry.team)}>Disband…</button>
+										<a
+											href={`/${encodeURIComponent(companyId)}/company/team-results`}
+											title="How much of each team's work landed">Team results</a
+										>
 										{#each humanColleagues.length ? [{ actor_id: '', display: 'You' }, ...humanColleagues] : [] as choice (choice.actor_id)}
 											{@const current = (teamOwnerId(entry.team) ?? '') === choice.actor_id}
 											<button

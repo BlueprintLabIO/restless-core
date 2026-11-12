@@ -17,6 +17,7 @@ const COMPANY_SECTIONS: Record<string, string> = {
 	vault: 'company/vault',
 	connections: 'company/connections',
 	skills: 'company/skills',
+	'team results': 'company/team-results',
 	health: 'company/doctor'
 };
 const SECTIONS: Record<string, string> = {

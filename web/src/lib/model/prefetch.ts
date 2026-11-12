@@ -13,13 +13,14 @@ import {
 	roomReadCursorOptions
 } from './room-queries.svelte';
 import { documentDetailOptions } from './document-queries.svelte';
+import { orgReviewOptions } from './org-review';
 
 /** Where a same-origin company link leads, reduced to what it will read. */
 export function prefetchTarget(
 	url: URL,
 	company: string,
 	directRooms: RecentDirectConversation[] | undefined
-): { room: string } | { document: string } | null {
+): { room: string } | { document: string } | { teamResults: true } | null {
 	const base = `/${encodeURIComponent(company)}`;
 	if (url.pathname === `${base}/people`) {
 		const room = url.searchParams.get('room');
@@ -32,6 +33,7 @@ export function prefetchTarget(
 		const document = url.searchParams.get('document');
 		return document ? { document } : null;
 	}
+	if (url.pathname === `${base}/company/team-results`) return { teamResults: true };
 	return null;
 }
 
@@ -53,8 +55,10 @@ export function prefetchLink(client: QueryClient, company: string, href: string)
 		void client.prefetchInfiniteQuery(roomMessagesOptions(company, target.room));
 		void client.prefetchQuery(roomParticipantsOptions(company, target.room));
 		void client.prefetchQuery(roomReadCursorOptions(company, target.room));
-	} else {
+	} else if ('document' in target) {
 		void client.prefetchQuery(documentDetailOptions(client, company, target.document));
+	} else {
+		void client.prefetchQuery(orgReviewOptions(company));
 	}
 }
 
