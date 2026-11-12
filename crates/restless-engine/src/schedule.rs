@@ -705,6 +705,42 @@ async fn review_stale_owner_items(daemon: &Arc<Daemon>, org: &OrgIntel, company:
     }
 }
 
+/// Progress comes to the owner without "progress?". When Work moved since Exec last wrote to the
+/// owner and they have heard nothing for `restless_orgintel::PROGRESS_UPDATE_AFTER`, Exec is
+/// woken once to post one update. This reads counts only; with nothing changed it never wakes a
+/// model. While the owner is away it waits for their return.
+async fn ask_for_progress_update(daemon: &Arc<Daemon>, org: &OrgIntel, company: &str) {
+    let now = Utc::now();
+    match org.progress_since_last_update_at(now).await {
+        Ok(progress) if progress.due(now) => {}
+        Ok(_) => return,
+        Err(error) => {
+            tracing::warn!(
+                company,
+                "progress since the last update is unreadable: {error:#}"
+            );
+            return;
+        }
+    }
+    if matches!(
+        crate::away::current(&daemon.authority, company).await,
+        Ok(Some(_))
+    ) || !computer_runs_on_demand(daemon, company).await
+    {
+        return;
+    }
+    match org.signal_progress_due_at(now).await {
+        Ok(None) => {}
+        Ok(Some(progress)) => tracing::info!(
+            company,
+            landed = progress.landed,
+            stuck = progress.stuck,
+            "asked Exec for a progress update"
+        ),
+        Err(error) => tracing::warn!(company, "Exec was not asked for an update: {error:#}"),
+    }
+}
+
 async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
     if daemon.staff.take_resource_retry_hint() {
         return OVERDUE_RETRY_INTERVAL;
@@ -852,6 +888,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     // wakes its actor (and a sleeping computer) through the recovery below.
     recheck_blocked_work(daemon, &org, company).await;
     review_stale_owner_items(daemon, &org, company).await;
+    ask_for_progress_update(daemon, &org, company).await;
     if daemon.runtime_bridges.is_hosted() {
         let Ok(identity) =
             crate::runtime_bridge::expected_identity(&daemon.authority, company).await
