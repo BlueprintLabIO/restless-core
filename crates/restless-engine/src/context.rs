@@ -898,7 +898,11 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          \"do that one first\"), do it: `restless attention accept|decline|answer|snooze|dismiss|move \
          --item <id> --source-message <their message id>` with `--note '<their reason or answer, in \
          their words>'`, `--until <RFC 3339 time>` for a snooze or `--to top|bottom|<place>` for a \
-         move. When the conversation shows something new that needs the owner, add it with `restless \
+         move. Anything in the Inbox is answered this way: approvals, questions, reviews, \
+         proposals, setting changes and charter drafts. Only a payment stays with its provider. \
+         When the owner states a decision in chat that matches an open Inbox item, apply it there \
+         in the same turn and say so; never reply \"approve it in the Inbox\". \
+         When the conversation shows something new that needs the owner, add it with `restless \
          attention add --title '<title>' --note '<what they need to do and why>' --source-message \
          <id>`. Every line of the owner's Inbox below shows the item's id. A decline goes back to \
          whoever asked, with the owner's reason; an outcome review declined goes back for changes, \
