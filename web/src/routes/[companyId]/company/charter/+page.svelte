@@ -10,6 +10,7 @@
 	import { companyPrincipalQuery, companyQuery } from '$lib/model/queries.svelte';
 	import SharedCharter from '$lib/components/SharedCharter.svelte';
 	import LegalProfile from '$lib/components/LegalProfile.svelte';
+	import CompanyLessons from '$lib/components/CompanyLessons.svelte';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import Target from '@lucide/svelte/icons/target';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
@@ -99,6 +100,8 @@
 				<Empty compact title="No open company goal" />
 			{/if}
 		</Section>
+
+		<CompanyLessons {companyId} />
 
 		<LegalProfile {companyId} {view} onsaved={(company) => source.accept(company)} />
 	{:else if source.failure}

@@ -24,7 +24,8 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		group: 'About',
 		label: 'Charter',
 		path: '/charter',
-		keywords: 'mission name rename logo purpose quality legal profile direction'
+		keywords:
+			'mission name rename logo purpose quality legal profile direction lessons rules corrections'
 	},
 	{
 		key: 'identity',

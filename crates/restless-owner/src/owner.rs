@@ -47,6 +47,8 @@ mod for_you_api;
 mod handoff_decisions_api;
 #[path = "owner_hooks.rs"]
 mod hooks_api;
+#[path = "owner_lessons.rs"]
+mod lessons_api;
 #[path = "owner_library.rs"]
 mod library_api;
 #[path = "owner_machines.rs"]
@@ -1800,6 +1802,15 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/direction/digest",
             get(direction_api::digest),
+        )
+        .route("/companies/{company}/lessons", get(lessons_api::list))
+        .route(
+            "/companies/{company}/lessons/{lesson}/retire",
+            post(lessons_api::retire),
+        )
+        .route(
+            "/companies/{company}/lessons/{lesson}/restore",
+            post(lessons_api::restore),
         )
         .route(
             "/companies/{company}/attention/dismiss",

@@ -528,6 +528,14 @@ enum Command {
         #[command(subcommand)]
         command: TeamCommand,
     },
+    /// What the owner has ruled: corrections kept as standing rules for the company, a team or
+    /// one agent. Everyone a lesson applies to reads it on each wake.
+    Lessons {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: LessonCommand,
+    },
     /// Durable time facts. Exact and weekday schedules create opportunities to inspect; they run no command.
     Schedule {
         #[command(subcommand)]
@@ -1549,6 +1557,45 @@ enum PeopleCommand {
     Retire {
         #[arg(long)]
         actor: String,
+        #[arg(long)]
+        reason: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum LessonCommand {
+    /// Record a rule from a correction. The owner or Exec for anyone; a team lead for its own team.
+    Add {
+        /// The rule, in one or two plain sentences.
+        #[arg(long)]
+        rule: String,
+        /// Who it is for: `company`, `team:<team id or name>` or `actor:<actor id>`.
+        #[arg(long)]
+        scope: String,
+        /// The message the rule came from.
+        #[arg(long)]
+        source_message: i64,
+    },
+    /// The lessons you work under. The owner and Exec see every lesson.
+    List {
+        /// Include retired lessons (owner and Exec).
+        #[arg(long)]
+        include_retired: bool,
+    },
+    /// The same problem came back: count it on the lesson instead of adding a second one.
+    Recurred {
+        /// Lesson id, or the short id a wake shows.
+        #[arg(long)]
+        lesson: String,
+        /// The message that showed the problem came back.
+        #[arg(long)]
+        source_message: i64,
+    },
+    /// Stop applying a lesson that no longer stands. It keeps its record.
+    Retire {
+        /// Lesson id, or the short id a wake shows.
+        #[arg(long)]
+        lesson: String,
         #[arg(long)]
         reason: String,
     },
@@ -4102,6 +4149,33 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 reason,
             } => serde_json::json!({
                 "cmd": "team-disband", "company": company, "name": team, "reason": reason,
+                "actor": acting_actor(),
+            }),
+        },
+        Command::Lessons { company, command } => match command {
+            LessonCommand::Add {
+                rule,
+                scope,
+                source_message,
+            } => serde_json::json!({
+                "cmd": "lesson-add", "company": company, "body": rule, "scope": scope,
+                "source_message_id": source_message,
+                "actor": acting_actor(),
+            }),
+            LessonCommand::List { include_retired } => serde_json::json!({
+                "cmd": "lesson-list", "company": company, "include_retired": include_retired,
+                "actor": acting_actor(),
+            }),
+            LessonCommand::Recurred {
+                lesson,
+                source_message,
+            } => serde_json::json!({
+                "cmd": "lesson-recurred", "company": company, "id": lesson,
+                "source_message_id": source_message,
+                "actor": acting_actor(),
+            }),
+            LessonCommand::Retire { lesson, reason } => serde_json::json!({
+                "cmd": "lesson-retire", "company": company, "id": lesson, "reason": reason,
                 "actor": acting_actor(),
             }),
         },

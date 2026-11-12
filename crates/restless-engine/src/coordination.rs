@@ -2075,6 +2075,17 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             }
             _ => Response::err("team disband needs --team, --reason, and an acting actor"),
         },
+        "lesson-add" | "lesson-list" | "lesson-recurred" | "lesson-retire" => {
+            // Boxed: this dispatcher's future is already large, and a new arm held inline grows
+            // every caller's stack frame.
+            Box::pin(async {
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => lesson_command(&org, &request).await,
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            })
+            .await
+        }
         "judgement" => match request.common.as_actor.as_deref() {
             Some(actor) => match daemon.orgintel.get(company).await {
                 Ok(org) => match org.handoffs_assigned_to(actor).await {
@@ -4836,6 +4847,10 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "team-lead"
         | "team-owner"
         | "team-disband"
+        | "lesson-add"
+        | "lesson-list"
+        | "lesson-recurred"
+        | "lesson-retire"
         | "goal-add"
         | "goal-update"
         | "goal-close"
@@ -5092,6 +5107,88 @@ pub async fn resolve_team(
             "{reference:?} matches more than one live team; use the team id"
         )),
         _ => Err(format!("no live team named {reference:?}")),
+    }
+}
+
+/// `restless lessons ...`: record what the owner ruled, list it, count a problem that came back,
+/// retire a rule that no longer stands. OrgIntel decides who may do which.
+async fn lesson_command(org: &restless_orgintel::OrgIntel, request: &Request) -> Response {
+    let Some(actor) = request.orgintel.actor.as_deref() else {
+        return Response::err("lessons need an acting actor");
+    };
+    let refused = |error: restless_orgintel::OrgIntelError| Response::err(error.plain_message());
+    if request.cmd == "lesson-list" {
+        // The owner and Exec see every lesson; anyone else sees the ones they work under.
+        let listed = if matches!(actor, "owner" | "exec") {
+            org.list_lessons(request.orgintel.include_retired).await
+        } else {
+            org.lessons_for_actor(actor).await
+        };
+        return match listed {
+            Ok(lessons) => Response::ok(serde_json::json!({ "lessons": lessons })),
+            Err(error) => refused(error),
+        };
+    }
+    if request.cmd == "lesson-add" {
+        let (Some(rule), Some(scope), Some(source_message_id)) = (
+            request.common.body.as_deref(),
+            request.orgintel.scope.as_deref(),
+            request.orgintel.source_message_id,
+        ) else {
+            return Response::err(
+                "lessons add needs --rule, --scope company|team:<id>|actor:<id> and --source-message <the message it came from>",
+            );
+        };
+        // A team may be named as the roster shows it, by id or by name.
+        let scope = match scope.trim().strip_prefix("team:") {
+            Some(team) => match resolve_team(org, team.trim()).await {
+                Ok(id) => restless_orgintel::LessonScope::Team(id),
+                Err(error) => return Response::err(error),
+            },
+            None => match restless_orgintel::LessonScope::parse(scope) {
+                Ok(scope) => scope,
+                Err(error) => return Response::err(error),
+            },
+        };
+        return match org
+            .record_lesson(restless_orgintel::NewLesson {
+                rule,
+                scope,
+                source_message_id: Some(source_message_id),
+                recorded_by: actor,
+            })
+            .await
+        {
+            Ok(lesson) => Response::ok_serialized(lesson),
+            Err(error) => refused(error),
+        };
+    }
+    let Some(reference) = request.common.id.as_deref() else {
+        return Response::err(
+            "name the lesson with --lesson <id>; `restless lessons list` shows them",
+        );
+    };
+    let id = match org.resolve_lesson(reference).await {
+        Ok(id) => id,
+        Err(error) => return refused(error),
+    };
+    let changed = if request.cmd == "lesson-recurred" {
+        let Some(source_message_id) = request.orgintel.source_message_id else {
+            return Response::err(
+                "lessons recurred needs --source-message <the message that showed the problem came back>",
+            );
+        };
+        org.mark_lesson_recurred(id, actor, Some(source_message_id))
+            .await
+    } else {
+        let Some(reason) = request.common.reason.as_deref() else {
+            return Response::err("lessons retire needs --reason");
+        };
+        org.retire_lesson(id, actor, reason).await
+    };
+    match changed {
+        Ok(lesson) => Response::ok_serialized(lesson),
+        Err(error) => refused(error),
     }
 }
 

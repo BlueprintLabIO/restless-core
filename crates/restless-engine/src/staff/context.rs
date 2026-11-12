@@ -382,6 +382,13 @@ pub async fn shared_spine(
             ));
         }
     }
+    // What the owner has ruled for the company, this actor's team and this actor. A wake that
+    // cannot read them still runs.
+    let lessons = org.lessons_for_actor(actor).await.unwrap_or_default();
+    if !lessons.is_empty() {
+        spine.push('\n');
+        spine.push_str(&restless_orgintel::lessons_block(&lessons));
+    }
     if let ActorContextFocus::WorkAttempt { work_id, .. } = focus {
         if let Some((handoff_id, prepared_state)) = org.handoff_preparation(work_id).await? {
             spine.push_str(&format!("\n# Human-step preparation [current OrgIntel state]\nHandoff {handoff_id} is being repaired: {prepared_state}\nReuse this handoff ID. Prepare the exact live prompt, then `restless work refresh-handoff --handoff {handoff_id} --action <bounded owner action with the actual URL/code/session> --prepared <the same usable URL/code/session and current state> --resume-when ...` without --preparing to publish it. Do not replace this with an obsolete browser-request instruction. Existing approval remains recorded. Observe completion or expiry; do not ask the owner to confirm an observable result.\n"));
