@@ -58,7 +58,7 @@
 		layoutKey,
 		type CampusWorld
 	} from './campusBackdrop';
-	import { drawGroundMotion, paintOfficeGround, paintOfficeLight } from './officeGround';
+	import { drawGroundMotion, paintOfficeGround } from './officeGround';
 	import { campusWorldAsync, groundLayersAsync, keptGroundLayers } from './offThread';
 	import { yieldToMain } from './yieldToMain';
 	import {
@@ -986,18 +986,13 @@
 	let campusWorld: CampusWorld | null = null;
 	let campusTiles: readonly number[] | null = null;
 
-	/** The floor's ground and light (painted in a worker where possible) and their cache key. */
+	/** The floor's ground (painted in a worker where possible) and its cache key. */
 	function floorGround(currentPlan: OfficePlan) {
 		return {
 			ground: (layer: CanvasRenderingContext2D) => {
 				const painted = keptGroundLayers(layoutKey(currentPlan));
 				if (painted) layer.drawImage(painted.below, 0, 0);
 				else paintOfficeGround(layer, currentPlan);
-			},
-			groundAbove: (layer: CanvasRenderingContext2D) => {
-				const painted = keptGroundLayers(layoutKey(currentPlan));
-				if (painted) layer.drawImage(painted.above, 0, 0);
-				else paintOfficeLight(layer, currentPlan);
 			},
 			groundKey: layoutKey(currentPlan)
 		};

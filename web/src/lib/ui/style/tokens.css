@@ -132,8 +132,8 @@
 	 * The cockpit's lines, set here and only here (S109 F1). Panes sit --app-gutter in from the
 	 * window and --pane-gap from each other. Every pane opens with a header row --pane-head-h tall,
 	 * its bottom rule included, so the sidebar's, the main pane's and the Exec rail's headers end on
-	 * one line. A sidebar on the canvas has no frame, so it starts --pane-edge lower to keep that
-	 * line. The left sidebar is --sidebar-w wide until the person drags it, and the top bar's brand
+	 * one line. The left sidebar is a pane like the others, framed --pane-edge thick, and
+	 * --sidebar-w wide until the person drags it, and the top bar's brand
 	 * takes the same width, so the first top tab starts where the sidebar ends. */
 	/* The seam between panes. Wide enough to read as a channel, thin enough
 	 * that the panes still read as one divided surface rather than as cards

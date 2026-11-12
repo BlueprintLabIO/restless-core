@@ -2,8 +2,8 @@
 	/* A sidebar area: a titled list beside one pane. Every left sidebar has the same structure: a
 	 * title with the area's main action, a search field or switch under it (`top`), views, then
 	 * sections, every row's icon in one column, and what is finished (Archived) pinned to the bottom
-	 * in `foot`. The list sits on the canvas, not on a card; it gets its presence from legible type,
-	 * real controls and a raised selected row. Where the area is too narrow for both, the list steps
+	 * in `foot`. The list is a card of the same kind as the pane beside it (owner, 13 Nov), with
+	 * legible type, real controls and a raised selected row. Where the area is too narrow for both, the list steps
 	 * out; `narrow` is what stands in for it at the top of the pane. */
 	import type { Snippet } from 'svelte';
 
@@ -84,9 +84,15 @@
 		flex-direction: column;
 		width: var(--sidebar-width, var(--sidebar-w));
 		min-height: 0;
-		/* No frame on the canvas: the top inset stands in for one, so the head ends on the panes'
-		 * header line. */
-		padding: var(--pane-edge) 8px 8px 6px;
+		overflow: hidden;
+		/* A card like the pane beside it: the same frame, radius and surface. Its border takes the
+		 * place of the old 1px insets, so the head still ends on the panes' header line and the rows
+		 * keep their place. */
+		padding: 0 7px 7px 5px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-pane);
+		background: var(--surface-pane);
+		box-shadow: var(--bevel), var(--shadow-soft);
 	}
 	.sidebar-head {
 		display: flex;
@@ -95,7 +101,14 @@
 		justify-content: space-between;
 		gap: 8px;
 		height: var(--pane-head-h);
-		padding: 0 2px 0 8px;
+		/* The head row of a pane: its rule runs edge to edge and ends on the line the other panes'
+		 * heads end on, and the title sits where theirs sit. */
+		margin: 0 -7px 0 -5px;
+		padding: 0 9px 0 16px;
+		border-bottom: 1px solid var(--border);
+	}
+	.sidebar-head + .sidebar-list {
+		padding-top: 6px;
 	}
 	.sidebar-head h2 {
 		margin: 0;
@@ -117,7 +130,7 @@
 		grid-template-columns: minmax(0, 1fr);
 		gap: 10px;
 		min-width: 0;
-		padding: 6px 2px 10px;
+		padding: 10px 2px 10px;
 	}
 	.sidebar-list {
 		display: grid;
