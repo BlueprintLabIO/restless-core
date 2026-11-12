@@ -1,0 +1,27 @@
+{
+ "id": "code-02",
+ "family": "code",
+ "commit": "d8b4c0ed4282e4b1a2374fe7e56404a0535c1729",
+ "commit_date": "2026-10-08",
+ "parent": "2fa5d2635bdebf544aa09148d931ed61101d42fb",
+ "parent_tree": "5845345349d517e5a7bb591fbba096724e78a346",
+ "source_paths": [
+  "web/src/lib/components/ExecutiveRail.svelte",
+  "web/src/lib/model/open-question.ts"
+ ],
+ "test_paths": [
+  "web/src/lib/model/open-question.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 93,
+ "test_lines_added": 35,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/open-question.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "844359759394b79edd6ceb3158576b6a00328acff72be9d4683121214ce1724d",
+ "hidden_tests_sha256": "80c28dce9ef2889979a5359e50399d97ef98176d5c82696f353191a1daf8a2bd",
+ "reference_change_sha256": "f0107271930b6208519266824ddc560298b441c72f41b902aed491f3243805cc"
+}

@@ -1,0 +1,30 @@
+{
+ "id": "code-09",
+ "family": "code",
+ "commit": "a6734500c114ad710162f56a7b490dd5ba2565f0",
+ "commit_date": "2026-10-14",
+ "parent": "09b312725d927dca88a81666e28f56cb99ef5522",
+ "parent_tree": "06f06e05ca93e37df433f8405c14b2ce72c79a9f",
+ "source_paths": [
+  "web/src/lib/components/WorkInFlight.svelte",
+  "web/src/lib/model/work-views.ts",
+  "web/src/lib/ui/views/WorkBoard.svelte",
+  "web/src/lib/work/status.ts",
+  "web/src/routes/[companyId]/work/+page.svelte"
+ ],
+ "test_paths": [
+  "web/src/lib/model/work-views.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 270,
+ "test_lines_added": 16,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/work-views.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "e7f866d9a8f263cedde5c0f52d71bb561e2df7134333c6ea272b950e6ca02941",
+ "hidden_tests_sha256": "c9272a9df926be4b5451aa79fd644acd308475d23211168adcc2d6206dcd7f14",
+ "reference_change_sha256": "b6fb3382110c0c4e1a08fcd2f756e1dc9da2f8fd8bfb84ddccde16d4e72911fa"
+}

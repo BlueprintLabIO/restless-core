@@ -1,0 +1,33 @@
+{
+ "id": "code-25",
+ "family": "code",
+ "commit": "22769e1258064fcabab803f1ec87eff48cf03c58",
+ "commit_date": "2026-11-03",
+ "parent": "84b7c9933818299845ccf73c27500f0b16f70173",
+ "parent_tree": "6f3fa047690056f49a440d123b9987cc8230a08a",
+ "source_paths": [
+  "crates/restless-engine/src/runtime.rs",
+  "crates/restless-engine/src/staff/recovery.rs",
+  "crates/restless-orgintel/src/attempts.rs",
+  "crates/restless-orgintel/src/lib.rs",
+  "crates/restless-owner/src/owner.rs"
+ ],
+ "test_paths": [
+  "crates/restless-orgintel/tests/interruption_resume.rs"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 121,
+ "test_lines_added": 84,
+ "grade_command": [
+  "cargo",
+  "test",
+  "-p",
+  "restless-orgintel",
+  "--test",
+  "interruption_resume"
+ ],
+ "grade_runner": "cargo",
+ "brief_sha256": "071c309ffc8344e0f6cf8047b9e22a3d54cc09228686449496c3e7af97534d19",
+ "hidden_tests_sha256": "ab7e66f5cb1d7a1b56866bdc611bb3d1817745a7149f4382a68380ed55531077",
+ "reference_change_sha256": "7026dd2cbe45d74c3fde2119a9fa3df2a372158340d16c42d06cc71264336ed0"
+}

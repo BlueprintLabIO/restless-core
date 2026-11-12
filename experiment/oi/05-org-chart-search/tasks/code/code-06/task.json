@@ -1,0 +1,28 @@
+{
+ "id": "code-06",
+ "family": "code",
+ "commit": "2003476edaf7219059af6735e26317cb0a262fe7",
+ "commit_date": "2026-10-13",
+ "parent": "5c95e348ef74854cba2f3322a8d532c31a23a19d",
+ "parent_tree": "33ccef809a575188b9ff2bfd1bf21efd65980399",
+ "source_paths": [
+  "web/src/lib/model/invite-emails.ts",
+  "web/src/lib/model/members.ts",
+  "web/src/routes/[companyId]/company/members/+page.svelte"
+ ],
+ "test_paths": [
+  "web/src/lib/model/invite-emails.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 215,
+ "test_lines_added": 27,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/invite-emails.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "150da64fe2f18f409a65c6a60fc5883383e3d1d8ccc4e1ac5aa146d3c593d283",
+ "hidden_tests_sha256": "98faee4ab8809227d85f6416bde8a750c0f45f62c88bbf8455fbc1b20368391f",
+ "reference_change_sha256": "95f2170d85fb7b1482999fa87119981fc3d29982105c51b6caaf3e1cb26ea62b"
+}

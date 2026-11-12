@@ -1,0 +1,31 @@
+{
+ "id": "code-22",
+ "family": "code",
+ "commit": "ad0cae1ab7be6354e8de431102e2d49cf3143ebf",
+ "commit_date": "2026-11-02",
+ "parent": "05a95b5ae55f4d63a301b38b44762e37a88b14cb",
+ "parent_tree": "043e1e99dcd7e6b41a5192a4110b661e77270920",
+ "source_paths": [
+  "web/src/lib/components/InboxDetail.svelte",
+  "web/src/lib/components/InboxList.svelte",
+  "web/src/lib/components/inbox-actions.ts",
+  "web/src/lib/model/attention.ts",
+  "web/src/lib/model/inbox-restore.ts",
+  "web/src/lib/model/queries.svelte.ts"
+ ],
+ "test_paths": [
+  "web/src/lib/model/inbox-restore.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 156,
+ "test_lines_added": 59,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/inbox-restore.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "29cc61940f06a69915cbf0ebf887fd6f329c23890fea7111b27e57eabbdc9bb2",
+ "hidden_tests_sha256": "9b2ac32e5563a091a64c02df8b9130a1da8a93e36862cbf6ce4065c804505927",
+ "reference_change_sha256": "d1f74b0cd115cd515a9d57e386438ad2016184fd5cd1c1a6669e36a7ae47dc1a"
+}

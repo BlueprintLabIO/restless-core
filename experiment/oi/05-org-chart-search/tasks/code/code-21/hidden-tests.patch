@@ -1,0 +1,71 @@
+diff --git a/crates/restless-orgintel/tests/actors_and_teams.rs b/crates/restless-orgintel/tests/actors_and_teams.rs
+index 6e295775f36bedf96ffe1b27499c8d5a26b0f952..a2fa7e8fbc56b576b8a82dd8ca511b7c708a04dd 100644
+--- a/crates/restless-orgintel/tests/actors_and_teams.rs
++++ b/crates/restless-orgintel/tests/actors_and_teams.rs
+@@ -2409,3 +2409,66 @@ async fn actor_job_start_lease_serializes_retirement() {
+         .is_none());
+     org.drop_schema().await.unwrap();
+ }
++
++#[tokio::test]
++async fn agents_holding_a_copy_of_the_company_default_follow_the_next_one() {
++    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
++        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping company default scenario");
++        return;
++    };
++    let company = format!("followdefault{}", uuid::Uuid::new_v4().simple());
++    let org = OrgIntel::ensure(&url, &company)
++        .await
++        .expect("ensure scratch company schema");
++    org.ensure_actor("owner", "owner", "owner", "The Owner")
++        .await
++        .unwrap();
++    org.ensure_actor_with_model(
++        "exec",
++        "exec",
++        "exec",
++        "The Exec",
++        Some("anthropic/claude-opus-5-5"),
++    )
++    .await
++    .unwrap();
++    for id in ["centre-copy", "centre-critic", "centre-owned"] {
++        create_actor(&org, id, "copywriter").await;
++    }
++    for (id, model) in [
++        ("centre-copy", "anthropic/claude-opus-5-5"),
++        ("centre-critic", "anthropic/claude-haiku-5-5"),
++        ("centre-owned", "anthropic/claude-opus-5-5"),
++    ] {
++        org.update_actor_model(id, model).await.unwrap();
++    }
++
++    let changed = org
++        .follow_company_default("anthropic/claude-opus-5-5", &["centre-owned".to_string()])
++        .await
++        .unwrap();
++    assert_eq!(changed, 2, "Exec and the Staff copy follow; nothing else");
++    let mut models = Vec::new();
++    for id in [
++        "exec",
++        "centre-copy",
++        "centre-critic",
++        "centre-owned",
++        "owner",
++    ] {
++        models.push(org.active_actor(id).await.unwrap().unwrap().model);
++    }
++    assert_eq!(
++        models,
++        vec![
++            None,
++            None,
++            // A model Exec chose that is not the default stays.
++            Some("anthropic/claude-haiku-5-5".to_string()),
++            // An agent on the owner's own route is left alone.
++            Some("anthropic/claude-opus-5-5".to_string()),
++            None,
++        ]
++    );
++    org.drop_schema().await.unwrap();
++}

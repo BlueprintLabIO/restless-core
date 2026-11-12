@@ -1,0 +1,14 @@
+{
+ "source_ref": "origin/main",
+ "source_head": "9e86763113fd19b72ce6b289943bc51d69cde5b0",
+ "window": {"since": "2026-10-01", "until": "2026-11-12"},
+ "chosen": [
+  "bc8f9e05", "718578c3", "b8f208e2", "f514996f", "0ddbc09e", "ad0cae1a", "8a0d3b2f", "067acd50",
+  "5adc5729", "e2f56656", "de9aadff", "15d772eb", "339d0a3e", "45726330", "a6734500", "2003476e",
+  "463adb6a", "d8b4c0ed",
+  "f98927ef", "53f37495",
+  "b81e1613", "46edae49", "22769e12", "a3147cbb", "602f226d", "903d2fb6", "263e23a9", "f1e85ef2",
+  "ee0bc795", "d657677a"
+ ],
+ "reserve": ["cb7f08b7", "c8dd72f0", "5dc79580", "2d11cbf5", "d5da8c7c", "fbf49283", "b4e0f2cb"]
+}

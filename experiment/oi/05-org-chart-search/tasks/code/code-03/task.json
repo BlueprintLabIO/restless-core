@@ -1,0 +1,31 @@
+{
+ "id": "code-03",
+ "family": "code",
+ "commit": "463adb6a941c149e499f6d36c22e14f498fd56b8",
+ "commit_date": "2026-10-11",
+ "parent": "5acecc5b129b52c64d29ae9a4cb5a4e9bf07c373",
+ "parent_tree": "3b60bd9e800c4306dd743e978c16291ba9f8d3e0",
+ "source_paths": [
+  "web/src/lib/components/WorkInFlight.svelte",
+  "web/src/lib/model/attention-presentation.ts",
+  "web/src/routes/[companyId]/+layout.svelte",
+  "web/src/routes/[companyId]/library/+page.svelte",
+  "web/src/routes/[companyId]/work/+page.svelte",
+  "web/src/routes/[companyId]/work/[workId]/+page.svelte"
+ ],
+ "test_paths": [
+  "web/src/lib/model/attention-presentation.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 119,
+ "test_lines_added": 38,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/attention-presentation.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "ebe7cfd2b3933d418a839a62d40cd88ac7c1487f57acbe9de6beb1c766de9653",
+ "hidden_tests_sha256": "b462c75385036de5f0f0241aa1fc2fe2a023c87d894fe1c77647900e8dfa4470",
+ "reference_change_sha256": "ab10c5f174430c4c0a3ccf74880a49c02845a14295342124723e2751ca8802e8"
+}

@@ -1,0 +1,28 @@
+{
+ "id": "code-28",
+ "family": "code",
+ "commit": "718578c352343bdc680faaa14a952f79eedca411",
+ "commit_date": "2026-11-06",
+ "parent": "3cef99e23b23ddcffc87279a4dbac9a5a5343cc1",
+ "parent_tree": "caca931de9caabd43e4fa296fac547e1395a883a",
+ "source_paths": [
+  "web/src/lib/model/company-pages.ts",
+  "web/src/routes/[companyId]/[alias]/+page.ts",
+  "web/src/routes/[companyId]/company/[alias]/+page.ts"
+ ],
+ "test_paths": [
+  "web/src/lib/model/company-pages.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 46,
+ "test_lines_added": 33,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/company-pages.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "3d00ef6f9b16fc3ddc037982bec4a98789e165f7b94e4f7098a24c3337c9f959",
+ "hidden_tests_sha256": "2c51269161325ddb7c326675156bf93d6d66244d3bf2bcdf713ae6a758cec702",
+ "reference_change_sha256": "75cdb1b88b70b55248077e1a1d09b898e27708fbb9cae8d1a13cd089c178f20c"
+}

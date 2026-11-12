@@ -1,0 +1,28 @@
+{
+ "id": "code-12",
+ "family": "code",
+ "commit": "de9aadff6e66093f1793c3f865f3023d5b88b040",
+ "commit_date": "2026-10-19",
+ "parent": "5a727f96cf07e62abe5ad356f722313059595bd9",
+ "parent_tree": "6eaa02187f97b90aa58bc9c43d6e2cb98eebe905",
+ "source_paths": [
+  "web/src/lib/components/InboxDetail.svelte",
+  "web/src/lib/components/inbox/InlineReply.svelte",
+  "web/src/lib/model/inline-reply.ts"
+ ],
+ "test_paths": [
+  "web/src/lib/model/inline-reply.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 260,
+ "test_lines_added": 22,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/inline-reply.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "2349fd6e7068d558101afc45868708a6cf5fec80a8b656814b1bc8f45398570d",
+ "hidden_tests_sha256": "86a8c5cd1eed0db96fa538a7233bb5b2ac7a83a480766523439b376c768b64e6",
+ "reference_change_sha256": "8df421cf3ad89953fd7c6a75fbb55fcf78020019660deda6e6e92caa9b0ab319"
+}

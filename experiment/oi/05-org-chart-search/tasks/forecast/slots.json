@@ -1,0 +1,221 @@
+{
+ "rules_source": {
+  "branch": "research/oi-04-forecast-preparation",
+  "commit": "fa229c99bdabfc77d832d6cc8c05c824121b2d7d",
+  "path": "experiment/oi/04-forecasts-the-world-scores/rules.json",
+  "sha256": "86673d35ce1602e25ad9e1b75de3f216c0d0faa656f1aeb46f2641d49fab28f4"
+ },
+ "site": "ebay.com.au",
+ "currency": "AUD",
+ "fill_rule": {
+  "status_when_filled": "open",
+  "min_days_to_end": 2,
+  "max_days_to_end": 7,
+  "min_bids": 1,
+  "price_band_is_judged_on": "current bid when the slot is filled",
+  "never": "an auction that has ended, or whose final price is known to anyone or anything in the run",
+  "taken_from": "experiment 4's open batches, collected at the start of the run that uses the slot"
+ },
+ "slots": [
+  {
+   "id": "forecast-01",
+   "family": "forecast",
+   "category": "cameras",
+   "price_band": [
+    30,
+    100
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-02",
+   "family": "forecast",
+   "category": "cameras",
+   "price_band": [
+    100,
+    300
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-03",
+   "family": "forecast",
+   "category": "cameras",
+   "price_band": [
+    300,
+    800
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-04",
+   "family": "forecast",
+   "category": "cameras",
+   "price_band": [
+    800,
+    2000
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-05",
+   "family": "forecast",
+   "category": "cameras",
+   "price_band": [
+    30,
+    100
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-06",
+   "family": "forecast",
+   "category": "electronics",
+   "price_band": [
+    30,
+    100
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-07",
+   "family": "forecast",
+   "category": "electronics",
+   "price_band": [
+    100,
+    300
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-08",
+   "family": "forecast",
+   "category": "electronics",
+   "price_band": [
+    300,
+    800
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-09",
+   "family": "forecast",
+   "category": "electronics",
+   "price_band": [
+    800,
+    2000
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-10",
+   "family": "forecast",
+   "category": "electronics",
+   "price_band": [
+    100,
+    300
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-11",
+   "family": "forecast",
+   "category": "tools",
+   "price_band": [
+    30,
+    100
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-12",
+   "family": "forecast",
+   "category": "tools",
+   "price_band": [
+    100,
+    300
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-13",
+   "family": "forecast",
+   "category": "tools",
+   "price_band": [
+    300,
+    800
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-14",
+   "family": "forecast",
+   "category": "tools",
+   "price_band": [
+    800,
+    2000
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-15",
+   "family": "forecast",
+   "category": "tools",
+   "price_band": [
+    300,
+    800
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-16",
+   "family": "forecast",
+   "category": "lego",
+   "price_band": [
+    30,
+    100
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-17",
+   "family": "forecast",
+   "category": "lego",
+   "price_band": [
+    100,
+    300
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-18",
+   "family": "forecast",
+   "category": "lego",
+   "price_band": [
+    300,
+    800
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-19",
+   "family": "forecast",
+   "category": "lego",
+   "price_band": [
+    800,
+    2000
+   ],
+   "auction": null
+  },
+  {
+   "id": "forecast-20",
+   "family": "forecast",
+   "category": "lego",
+   "price_band": [
+    800,
+    2000
+   ],
+   "auction": null
+  }
+ ]
+}

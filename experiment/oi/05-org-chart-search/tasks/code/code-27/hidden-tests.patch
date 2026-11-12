@@ -1,0 +1,45 @@
+diff --git a/web/src/lib/model/owner-copy.test.ts b/web/src/lib/model/owner-copy.test.ts
+index c21490b1da30ec5879bb8a3edd782859939adb5a..a254396f8b633b4cb0e13e72ded7fb9ff99a83c1 100644
+--- a/web/src/lib/model/owner-copy.test.ts
++++ b/web/src/lib/model/owner-copy.test.ts
+@@ -6,7 +6,9 @@ import {
+ 	ownerLine,
+ 	ownerText,
+ 	RESOLVED_ELSEWHERE,
+-	scrubInternals
++	scrubInternals,
++	ownerTitle,
++	withoutLinks
+ } from './owner-copy.ts';
+ import { blockerSentence } from './work-actions.ts';
+ 
+@@ -197,3 +199,29 @@ test('an agent’s own words stay, without ids and handles', () => {
+ 		assert.ok(!leaksInternals(said), said);
+ 	}
+ });
++
++test('a card title never carries a URL and stays a short line', () => {
++	const raw =
++		'Sign in to Cloudflare as the owner and click Allow on the Wrangler consent page: https://dash.cloudflare.com/oauth2/auth?response_type=code&client_id=54d11594-84e4-41aa-b438-e81b8fa78ee7&code_challenge=xyz';
++	assert.equal(
++		ownerTitle(raw),
++		'Sign in to Cloudflare as the owner and click Allow on the Wrangler consent page'
++	);
++	assert.equal(ownerTitle('Open (https://example.com) now'), 'Open now');
++	const long = ownerTitle('word '.repeat(60));
++	assert.ok(long.length <= 120 && long.endsWith('…'), long);
++	assert.equal(
++		ownerTitle('Let Exec send email: [TEST] emails to your inbox'),
++		'Let Exec send email: [TEST] emails to your inbox'
++	);
++});
++
++test('an ask whose link is the Open button reads as words', () => {
++	assert.equal(
++		withoutLinks(
++			'Sign in to Cloudflare and click Allow on the consent page: https://dash.cloudflare.com/oauth2/auth?x=1'
++		),
++		'Sign in to Cloudflare and click Allow on the consent page.'
++	);
++	assert.equal(withoutLinks('https://example.com'), 'https://example.com');
++});

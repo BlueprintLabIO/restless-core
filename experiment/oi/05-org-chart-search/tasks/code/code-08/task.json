@@ -1,0 +1,27 @@
+{
+ "id": "code-08",
+ "family": "code",
+ "commit": "45726330034868f28dc97e8f48395aa6218278f5",
+ "commit_date": "2026-10-14",
+ "parent": "9f58d665a537b6f526d912fe2f59aa045cf6015a",
+ "parent_tree": "d5985394b2c46bd64413384d7f6b4e4469b611c0",
+ "source_paths": [
+  "web/src/lib/model/turn-failure.ts",
+  "web/src/lib/primitives/ConversationTurnDock.svelte"
+ ],
+ "test_paths": [
+  "web/src/lib/model/turn-failure.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 106,
+ "test_lines_added": 28,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/turn-failure.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "bcfbf1db743316299f3aafce61eb9b51e48258f6a07d3df2c23df13b1b31db09",
+ "hidden_tests_sha256": "365044f194c9085ed2a534c04f7c63e74385cc654095b38c7547d8f1835cf0ec",
+ "reference_change_sha256": "8e743982255d2db318b234e92644337fb59849d6b6f2dbc3b9435384a98b3a6c"
+}

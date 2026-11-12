@@ -1,0 +1,31 @@
+{
+ "id": "code-13",
+ "family": "code",
+ "commit": "e2f56656ae46f200ddbeccedf58353b98bf72e26",
+ "commit_date": "2026-10-23",
+ "parent": "dba16a2e2707e4d84808a340a1be861b171f70b8",
+ "parent_tree": "42c3b784c2021830de78b6d53eeaeed46ab9f7cb",
+ "source_paths": [
+  "web/src/lib/components/AccountConnections.svelte",
+  "web/src/lib/components/OwnerAccounts.svelte",
+  "web/src/lib/model/company-start.ts",
+  "web/src/lib/model/owner-accounts.ts"
+ ],
+ "test_paths": [
+  "web/src/lib/model/company-start.test.ts",
+  "web/src/lib/model/owner-accounts.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 85,
+ "test_lines_added": 114,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/model/company-start.test.ts",
+  "web/src/lib/model/owner-accounts.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "451fd675cfd87d738a10e9a7fd9a1ad22522620efa37d54bdd760f85fcf52d0e",
+ "hidden_tests_sha256": "29e58f898b8e4d7a24d398c7748b50f4d4a5c3b14718a6acc3bf5954b382433e",
+ "reference_change_sha256": "be18846611967c6b5525b84902ac05a6bd2a5b3738390441b24e98ff9998354e"
+}

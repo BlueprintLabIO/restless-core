@@ -1,0 +1,330 @@
+{
+ "source": {
+  "branch": "research/oi-task-bank",
+  "commit": "51f18bf62d166a08023c10164c90dcf0978fc485",
+  "root": "experiment/oi/tasks/bank"
+ },
+ "note": "Each job is one bank task with all four of its versions. Which version an arm gets is set by the run design, not here.",
+ "jobs": [
+  {
+   "id": "ops-01",
+   "family": "operations",
+   "bank_task": "resale-01",
+   "kind": "resale",
+   "title": "List a used surfboard",
+   "files": {
+    "fixtures.json": "9248f27015ff01b23836befa118caa14a289b2d185e9239c100bad944e956bb9",
+    "task.json": "47bbef9f2b2994048f7d27b3fe10939838d23496185b836e5342d076e54f705b",
+    "v1.md": "5e91d165e2d0c12daa6bc71f3bdbd3eb183963406bcf151576f48669e92055ef",
+    "v2.md": "6b592f943c8c03595959077987def1d831c66d5f7654890cf6f2da175305ccd4",
+    "v3.md": "7d776960f7d52e9363bbf7267e5900386cea3b7e4dd0b9ab05a0c4747e3937c6",
+    "v4.md": "3e783607c454f67fc82f0d1e92183b45f4096dddc3058e15088182f90ca57662",
+    "versions.json": "87773966782afb9446cc9d1a5d8e403ccf3829dd237340a03a102ad822a843ea"
+   }
+  },
+  {
+   "id": "ops-02",
+   "family": "operations",
+   "bank_task": "resale-02",
+   "kind": "resale",
+   "title": "List a road bike",
+   "files": {
+    "fixtures.json": "356aa8e0b730bafc5a471aaab85c4f472694a892c665c933f7b53bcfec39c322",
+    "task.json": "934ecb4902ccb035c5cf5cc65997a7d226a404859f4835d0c0b0369a8672fe49",
+    "v1.md": "edcd193e4b5475eda3a26f53be3392a588b5a8d4f9225ff4170c883a169d1e35",
+    "v2.md": "b5e15ebcbe3438ded9a42ffe2e472ddef32108095e6b7a6a13b19ca3cc0ef4ec",
+    "v3.md": "ab7b368bbe2e4c541944ce2b9c048e3c01411851b9bf926187d449f5880b6ea6",
+    "v4.md": "9ae01f3281a0519c453f408fd5845540a29d8d30efee07c24a9408fa0174b51b",
+    "versions.json": "7840d35e40a7067ff395dd01b151c06f430a4ed06087390225c4f1c070f3b249"
+   }
+  },
+  {
+   "id": "ops-03",
+   "family": "operations",
+   "bank_task": "resale-03",
+   "kind": "resale",
+   "title": "List an espresso machine",
+   "files": {
+    "fixtures.json": "eac37b640ec05b45632e6c4d678d4bb29d7527e83a06aba1f79bf8a342d23f64",
+    "task.json": "b45cfe94a2d2321b6826b38f303f2d3a996f9d9c0a134b116ac9a937c85872c4",
+    "v1.md": "6f8eeb2df4464aada39e560a45b284122b0d97eb895afc8c5fd22e1e4cd7cae4",
+    "v2.md": "3df0ddd8db3dc99ff55d2f3d2c26d5ef09724242cc0cbf463a0167aa235a2160",
+    "v3.md": "429da5b52833df03f000a5ffed9cccc46c726c0f3308929085584cfe5fb95cd7",
+    "v4.md": "2729edb714f35239ef3fab479b84619e4264079357a3f3cadbc69e72e5d7de6c",
+    "versions.json": "3b7582289176942aba20605d152512ef0f05c0da74cc0d48157e697c611c385f"
+   }
+  },
+  {
+   "id": "ops-04",
+   "family": "operations",
+   "bank_task": "resale-04",
+   "kind": "resale",
+   "title": "List a mid-century style armchair",
+   "files": {
+    "fixtures.json": "7c4330cadfbecc21b1e9f51a65a7be6b81b404e714d9f864d90f11760d0293fb",
+    "task.json": "53b22ae4bb0d3c4516140b00c51fbfa63e599b8d1fe60fb623ec9097dd69e968",
+    "v1.md": "92805e095feb63e65214348fa66a16186049564bfcfa5ce2e068de46fb8ef382",
+    "v2.md": "f7e9c23608f5c25a19f9b7304f62f11011254e2c3b52226b7dadc1d8e4d26559",
+    "v3.md": "d0e450d0e335c4a84f6502774412700fdd7899cf74943d7df40a0a52bfe9272d",
+    "v4.md": "52f77fb310aa4ae1205324eb50c67fee6fde1d32351a978078602922f8355a71",
+    "versions.json": "837ae4421d18d7a293a36c5083143df053160ed5a9b4fe4dce8fc7a0af9b5cf6"
+   }
+  },
+  {
+   "id": "ops-05",
+   "family": "operations",
+   "bank_task": "resale-05",
+   "kind": "resale",
+   "title": "List a 35mm film camera",
+   "files": {
+    "fixtures.json": "f778e7fdcdd5b8d9291c74a854d3986b927edbe326face2ea3692f37b48689af",
+    "task.json": "8c492aeca3c88fd49ded1288610f6d262ccebe7ccf59a82c45d469849d213974",
+    "v1.md": "e592ec2607f6c8dc27ec95909d307c0571d1e5654c31ae744ac5b3bc7a9efcf9",
+    "v2.md": "385fd501ced58c71925936a87eaa9f272a83378422fcff31db4b07fcc0183c34",
+    "v3.md": "f014eed67ce7291d8da41a618876f7c69822abfc924fa3b86e3b60af7b870315",
+    "v4.md": "2e142ef4e930298468a92da10c63d4adc80ee711731185c4be6db3dc2d300c85",
+    "versions.json": "84eae2f5fed4d39d729e84dedd94a20423e77864c18a9668a127703b92be6d0f"
+   }
+  },
+  {
+   "id": "ops-06",
+   "family": "operations",
+   "bank_task": "resale-06",
+   "kind": "resale",
+   "title": "List an acoustic guitar",
+   "files": {
+    "fixtures.json": "b1c60ff4ea7bec78334f948a173f6737b9d9cd1a82982e11c0812e5df15a4298",
+    "task.json": "724521c07b3f2a100b4e1197861ace5a8f584199caf66fa3d78abb4f8a2f85a3",
+    "v1.md": "ee513a06b1af0a4861ce5a36076f961a56c07d9e92618727143833835e6ac718",
+    "v2.md": "63b58706ad68b2ebcdfeea3a300d35493a921b1be38f566a4aae8d6d29abcef6",
+    "v3.md": "bd169309f85bd2b087369caf09012b3f16c4dad0f5e8a088410fd3bee0d9e99e",
+    "v4.md": "eb3893d1618abbe975af3248759a7a6a453850f35866f99ecb493a0921fd4f48",
+    "versions.json": "23dd7c9a39efc9b7a45acefaf18d668f15557735dc6f23ea1fda2236fe110328"
+   }
+  },
+  {
+   "id": "ops-07",
+   "family": "operations",
+   "bank_task": "resale-07",
+   "kind": "resale",
+   "title": "List a standing desk",
+   "files": {
+    "fixtures.json": "98ff12479a3b46aeda946edcb086838aa98cc0f935a8de4c7ffadc13b87e8575",
+    "task.json": "1a7ef21256ca3631fa1e0fd0cefdb265b4c2166f7a19929fe4f3e32127679d24",
+    "v1.md": "e4b12f3556bbe8d4ae84b8c6d0b1d69ddddbbce828ca9d5d0503f508ab0e6d85",
+    "v2.md": "5c0efb9493b4e2b667cf30ce7a85cb2d06fd3f34d96b5f38185443d3ba42000b",
+    "v3.md": "c07a25f7f045ca72041df265ad512984272ddeed026d91acdc7a389e3d3b3265",
+    "v4.md": "dfc220d814847a27bb9282c0931c1737f1d2a6d14815669edee22f93040b9ad5",
+    "versions.json": "e54acaf5aae46cd9576b57a100d763cbb09c9ce3d54b2fb1474bb390a0b79258"
+   }
+  },
+  {
+   "id": "ops-08",
+   "family": "operations",
+   "bank_task": "resale-08",
+   "kind": "resale",
+   "title": "List a pram",
+   "files": {
+    "fixtures.json": "6f58619a031e6fc07cf73e8b926027de3f2254a4f037960570980aad988b2221",
+    "task.json": "45ed6e89ce76e390275e58a2dabc8be2904e4dec2dedec3b57feb821ab0b4cd6",
+    "v1.md": "b21f9cedb62428778692e3a9db360937c3c10c010729f517f37155682b711bc4",
+    "v2.md": "bd99d9f55bf7ec6a3d25f9c92bea336725a851583cb4a289eeae9cdb6fce909a",
+    "v3.md": "bfad2eeccbfa16329df2aa188107f8b6cca65e374797e9784d6184999ad7ce66",
+    "v4.md": "60868bb9d7d9159fb04958a6cbede01dcb770da24789eea1385c59f26f20c7d2",
+    "versions.json": "09c73f5bfdda38e482b94a3c8a5eeac94548295b614b365ca942ff99259d5e20"
+   }
+  },
+  {
+   "id": "ops-09",
+   "family": "operations",
+   "bank_task": "resale-09",
+   "kind": "resale",
+   "title": "List a sewing machine",
+   "files": {
+    "fixtures.json": "428f3b5aa2bd307f5ef2cfaf90e76ff20aa59b933e005230d1005bd8357a227e",
+    "task.json": "64b811b644f65d4fe4be1ce49f2c6b4b26ba98078eca121d1d28c1c50921bc4d",
+    "v1.md": "5dea9e6a26c7e028de099641c260c7db99c75aa14770fcef6b7dda1cfe97f70c",
+    "v2.md": "2278967fa69b81ceb05350e4be633378f9c71e16a453149449f7a88570e26124",
+    "v3.md": "f39cf701313fb28fee879f85aba315cf5d30606ca05398cbdc151785cce7d9f4",
+    "v4.md": "2aa2bf4a83566439fcc9e234aead7f8df3940d4a70634d979bba3745be0b3b43",
+    "versions.json": "283e99c6cfc21acb5e3b814754b5619f0b1d4ee8aa8ebf7a16fb7379fdd774cc"
+   }
+  },
+  {
+   "id": "ops-10",
+   "family": "operations",
+   "bank_task": "resale-10",
+   "kind": "resale",
+   "title": "List a turntable",
+   "files": {
+    "fixtures.json": "c35f265ab5dc48949653055f82bd4425c7a0c162d08b625dc4e24768fc6f2143",
+    "task.json": "d69ef1aa9b938de3cf6367e2ef7047493704c68d118e5bde8c8882bdcda827e8",
+    "v1.md": "a982010520e3d8c63cda4144f149a37a099ac216739519ad0065ec62ad0c356e",
+    "v2.md": "1a396e97283d83431586cf4c9f57e6f647e877d6f1fa889cb9937349aa0488c8",
+    "v3.md": "b01117b019cc900ff9c7bb4408f273f3a540082c53ff8871df21b6b1d24f00ee",
+    "v4.md": "daa75a9111bf2d52b8ca636ef4a99ca1b89b14d9e9ccb97cb13cded8727d41b2",
+    "versions.json": "f4de05e1c059cdb2d4f71f94c00cf58ba33a0f094b6df5404cb9ef0b82b714f6"
+   }
+  },
+  {
+   "id": "ops-11",
+   "family": "operations",
+   "bank_task": "email-01",
+   "kind": "email",
+   "title": "Late bike delivery",
+   "files": {
+    "fixtures.json": "b4a7d967b30c651fb011030625eadcb876db9b2231b9c885d7007533904e19a4",
+    "task.json": "f429e66c1dee7f1575f5c3c5caa784159149ea5aff461a401c864791d4fc49f6",
+    "v1.md": "2a26e96cd11c3b361dd85bda4145764fe895129697f15e007b1c48a462d70fb2",
+    "v2.md": "e958ba0e039b01f796e77d1a00ff960ef1338c2bd5729b822cda7c362e3a7c79",
+    "v3.md": "f3cd42756c3d371fcc53891493c3006259c0060ddc56aea6c885fd67495141c1",
+    "v4.md": "51cde7a874e66dc263a214206c60535720060bbffbeadf35924e729f822be108",
+    "versions.json": "2432ee8350c37ec6b5c0895d3be4c6ee6dbaaa7f8efce9c446d92483a2bb138f"
+   }
+  },
+  {
+   "id": "ops-12",
+   "family": "operations",
+   "bank_task": "email-02",
+   "kind": "email",
+   "title": "Refund asked for after the return window",
+   "files": {
+    "fixtures.json": "c75ce31b712f86c8906e866a7394dd38fb2e31846a5bb76b550cf26bf80ec520",
+    "task.json": "5ee17a4daaa7a2567e9209c76469adcf7bf12eb292b393f71286a3cdf9b99d75",
+    "v1.md": "fb1b9af3e644f29c81b23e3b331a0f4656e6cb59c8edb660ba74235bdb7e0b8e",
+    "v2.md": "8e210cd7cc8ad1a16485b65a859a11e95d64eab8162147e6862b8630c408b893",
+    "v3.md": "ecec0ebe5604d6da4e8291c62ec64ee2cfa8278a0ad76b4e5bcd41deebe29dab",
+    "v4.md": "8f45790a384b38c93e0ab06388cb22bc80349403832b4bacbb1b512e871a39b3",
+    "versions.json": "0ae984239f71ac85ef2a9dbdc62a594de937758917f0e430c3e4f3a99cdfb53e"
+   }
+  },
+  {
+   "id": "ops-13",
+   "family": "operations",
+   "bank_task": "email-03",
+   "kind": "email",
+   "title": "Moving a kayak tour booking",
+   "files": {
+    "fixtures.json": "fc0bf88d4ae483da8482bdfd4faa9ac2692bfa92cdcec59b56c69a74f3a46079",
+    "task.json": "8bce58fd74ee9502b4907e4aae858931ca3970a431481ed898a4875a2e6f76a4",
+    "v1.md": "e0a600e9743391b2fdf9345f0ccb882246e09081baa2fab8f86880f5e1727bde",
+    "v2.md": "89ee459d94f3460e29a253f8f03383f068f6b7ae6c3c42ec0fd7b1bcb994138b",
+    "v3.md": "3fe22fb161d60c8df28e80ec43c730f085aaac228d8e25ec5dc60fbf2c30088f",
+    "v4.md": "dc85c33d642aa4f5440b61d6f9348950aa1f604559fbe092997ec3976c710cf7",
+    "versions.json": "3c98f3c1abddc6128371a8813cbe8ca7c4c30662e332e7bb1edd87113fea2f2b"
+   }
+  },
+  {
+   "id": "ops-14",
+   "family": "operations",
+   "bank_task": "email-04",
+   "kind": "email",
+   "title": "Lamp arrived with a cracked shade",
+   "files": {
+    "fixtures.json": "bb7ea402f56a2b0ee2f179ef65ed37083a56415ea8824a702225e25b6159b57c",
+    "task.json": "584bea228397c0c6bfaff2fe7be7357b7193072bde41e6c0866d688b7849af10",
+    "v1.md": "e6dddcc47ae483ce3d2ab1ae60bfda7b260e1c99ffb87bab4eb5f3958c9a29ea",
+    "v2.md": "301f6a0d3a44cf1871bcae5f1bbe988ae71534c375be497f6382e14e5c5dfa4a",
+    "v3.md": "c1ca9302d12d105a34547dae9612db7e47ab99f90727b239bd14a310766424fd",
+    "v4.md": "1aa1f6fa6a6512c07b6554789245a14f55d2a840b54ec0453f40e7e18e6a37bf",
+    "versions.json": "2cfa05122da204983ba944df814fcc58bd4212b5a307f87f7d0bcdc5924266e1"
+   }
+  },
+  {
+   "id": "ops-15",
+   "family": "operations",
+   "bank_task": "email-05",
+   "kind": "email",
+   "title": "Coffee subscription cancellation",
+   "files": {
+    "fixtures.json": "b7f2f14f29b9f96c68925183f49a50ad3b55d55867225c063724b83f24ecb889",
+    "task.json": "af02caa9b4b44010b22b93433b8022150df90fdd652d89e7403b91db04ed39f5",
+    "v1.md": "c68d57082458a6caaa3eaa00cd644794a6a22ac1d166cfb794685aa042617c59",
+    "v2.md": "aaacd522cc6608b21cbb53d1761d13004f137ec26967e4ceb35bd303cac74ee1",
+    "v3.md": "21c856b3678c7cf4a9425a12c61f23bbf515da32cac2755a2659d4b9e14d796e",
+    "v4.md": "08bd2bd114ff964827b19e6d8a4139772799549c619bddc378f6e4d102541fc1",
+    "versions.json": "af53db8cf4a18baec9d51dfc1136b3c4e4ecfc468e4ad2654e3540ea5cb543bd"
+   }
+  },
+  {
+   "id": "ops-16",
+   "family": "operations",
+   "bank_task": "email-06",
+   "kind": "email",
+   "title": "Wholesale price enquiry from a cafe",
+   "files": {
+    "fixtures.json": "87010f62447dc77aa5ba16f1e9a33de52011b1e2088b5bfa1cdc5099cf57bb0a",
+    "task.json": "54abc3d5db319bde9298d6e3ccdd5f4ae813a337c1a30f686c217e25429ed21a",
+    "v1.md": "8764afc4eb0bbb0e32bceed8121edcd16fe12f650ee710d6effdb7f83e61ea77",
+    "v2.md": "0cce5ffe375fdf8788e2bff96396ed76414957a51b743e9e7a0eeccc683c6c18",
+    "v3.md": "499b49f059e3cccca612ad67f08759e6e60282a9257803b5b9dc2432536ce1cf",
+    "v4.md": "4cac8fa3ee2de0358b5a63bbca50b9eb147b2abd1c0fbed3284887ea5703b7a7",
+    "versions.json": "6bcb59acb4bb8bb168728d09fc153cd1cc8263e05e43efba0572b1de751f83bb"
+   }
+  },
+  {
+   "id": "ops-17",
+   "family": "operations",
+   "bank_task": "email-07",
+   "kind": "email",
+   "title": "Missed physio appointment",
+   "files": {
+    "fixtures.json": "2bb92f80f87b2d2809e538b4354eb216e06ff5fc80b2ce3e649ac7f353df5237",
+    "task.json": "073ebd0ad0e066f8a756dcf94ba009c8f9dd441635a26690c2aa55704d58651b",
+    "v1.md": "dc6838dd61f81108746464f5129f64a7c46905889408db98d95e9e30cf2007e1",
+    "v2.md": "62b4992dfd7e37c34e8c137a4d824c50d3d71145fb0c20e4106168188470b724",
+    "v3.md": "45d3a59116715f3d465357f8d8760f04c5d558f734fd4b61d05e83dc981171ba",
+    "v4.md": "1c1cc508178b3c7227196c4ea883a9eca531cdeaee4835c1fec208b261400009",
+    "versions.json": "ab9bf996036907a60e98663414b0245bbbb22ebb93eae5bb10950374fbade41a"
+   }
+  },
+  {
+   "id": "ops-18",
+   "family": "operations",
+   "bank_task": "email-08",
+   "kind": "email",
+   "title": "Shipping stationery to Japan",
+   "files": {
+    "fixtures.json": "2bf610cb819e7c40bf52ea67d54fee98af077e0a7edd7a20d1670edd7571b038",
+    "task.json": "f71541209dee104b7ccf5072f0b0e4d7b91ba2ce9c8fd373d30f51ebbaf5335a",
+    "v1.md": "9840a894d57a5dc11b12b8389e24fbb7535005f9eb3f59de3eab642dbd252b8e",
+    "v2.md": "125572bdfae352494a4b53f2c0d72f06c39f78a80dd43010b44a3da2169d6bf3",
+    "v3.md": "529873164351e287bb5b5aa8bdf0e7bf0f49668cb70ba124726d2f438da2afbd",
+    "v4.md": "6b23b96e39a892d58df85ec95cfe1e2a97c85567cce89c0409db01f6e2c416cf",
+    "versions.json": "e89b4b4e7dc96f02d1045b2da399efdcdc3079d5acb0492e8e97f3e5fecaaa2d"
+   }
+  },
+  {
+   "id": "ops-19",
+   "family": "operations",
+   "bank_task": "email-09",
+   "kind": "email",
+   "title": "Blender warranty claim",
+   "files": {
+    "fixtures.json": "959682cb0a34f77319b6a7c373f079a5ad0c862847bd091ed3cc76e5886d80aa",
+    "task.json": "8c44dc992cffc734582983553d4451adaa3f94be03c20acb79ef3557c842201a",
+    "v1.md": "dd05bcac471454f6a5f3b93c0344019a69ec90309e557723a5ea06005e51373c",
+    "v2.md": "42a48288f98076fe035c238fc0d48bbb644ad3474f501fcf04b3bf723655e394",
+    "v3.md": "5becc301097ad2df5c3ec50442e4422c7ad957e96844df471b152b406f5976bc",
+    "v4.md": "0a4f1eb80a7afc19e2a80f1a62169c17d7f36e3bff1fe834cc86b417ceea4013",
+    "versions.json": "7cfe168d9cec0d06d0c925a94b3611d5d083508166ba9329f4b1080d57add56f"
+   }
+  },
+  {
+   "id": "ops-20",
+   "family": "operations",
+   "bank_task": "email-10",
+   "kind": "email",
+   "title": "Catering quote for 40 guests",
+   "files": {
+    "fixtures.json": "2da040785357846f8fe72f1c0872e021b7b3653695829ca5de5c46f33dbe4fcb",
+    "task.json": "d5f9372869ac5a94e4adaf5c8e968f4498546d0eb576a28ea07316b3eb4ca29c",
+    "v1.md": "4b562db137d2841d374e64674771f2a9ef3045d5a77f06b234344c83187fed20",
+    "v2.md": "b4939e2ac51dc38f9f7b6b3524f442f56e8404fc6e8dbf7f58748e85736bf5e6",
+    "v3.md": "32bee76820d9f1a61e351514cb7b49893de2983645d6f3eeaa8b480ec6907c92",
+    "v4.md": "c5658e1922752b1b072ca1849d6ae61c458472444fa8412e2a36b00eca82c4db",
+    "versions.json": "a60cd2e873cb458ba2ce0811d1512b414a634ee90cd07d3f0edc7d39ca703809"
+   }
+  }
+ ]
+}

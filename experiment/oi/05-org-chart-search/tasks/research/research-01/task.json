@@ -1,0 +1,24 @@
+{
+ "id": "research-01",
+ "family": "research",
+ "world": "w-01",
+ "kind": "threshold",
+ "params": {
+  "region": "Isgareth Coast",
+  "threshold": 137500
+ },
+ "documents": {
+  "01-register.md": "d2ac9b9a3a0e7de730ef11a1c3b47b4e67d5c126db556106d0ebb32e98bc8b4b",
+  "02-annual-return.md": "693ea2bb495d97911fa0098617c6930a61cec40321881daa7213d5cf0a99ea28",
+  "03-units-note.md": "8523e4da2b295291c9d094f1f58f0524a92846683f08b4a491365721e6755447",
+  "04-correction-notice.md": "c046446a821cb81cf90daf2b9f2b90ff4e3bbe5b6ae2bbcc71399442583ab24b",
+  "05-draft-return.md": "f82737a828f5e371be688e6fb5821f25c213fd5d170038bfcc9cdba16a3a5f54",
+  "06-withdrawals.md": "c9a9af6e669dc418f6958f2267d9a5929a22106090452c6e74720f4b9c7f469c",
+  "07-former-names.md": "1e3f2f3ecd3fe454fc85f10a1df383e1a1efff30dd49f91d7198ca358c89c5b6",
+  "08-log.md": "48ae86a52e7077b20f165ac04da6bcc7db0733a450035d86d6f437c2ef36aedd",
+  "09-void-entries.md": "8f465d7daade3170bda95dddc487f133fefdd827cfab76d6fedda29cdfaf786b"
+ },
+ "question_sha256": "fb4e6f4e13c8a16bc655896171f56c87e24071354528f1677ce8dc48eb491889",
+ "key_sha256": "cb23fe91ac2abd7f2c3a1eb5804caa815bc0c469701b97ce256ad845fe3ee8ea",
+ "scoring": "The answer is the set of names given. Pass means the set equals the key exactly. Share of key names found and share of given names that are right are also recorded."
+}

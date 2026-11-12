@@ -1,0 +1,26 @@
+{
+ "id": "research-24",
+ "family": "research",
+ "world": "w-12",
+ "kind": "count",
+ "params": {
+  "category": "Class B",
+  "at_least": 2,
+  "from": "2025-02-15",
+  "to": "2025-06-19"
+ },
+ "documents": {
+  "01-register.md": "74495c065b742ec6db189675da3af3ae0ffbd21d439677ebc557703907807092",
+  "02-annual-return.md": "c43c0c8e456e0d4ca8a05d0cfd5881745a5472f7a11b6649dcf496312c716ef3",
+  "03-units-note.md": "56f02a05027d6585a76c660ed5c04152423bcd78e1d2ce49426f3d1bbad13aae",
+  "04-correction-notice.md": "c5b7c331eed8edad3c635b0671bc3c48dfea365f62b4a85b9f8049cf6e3f30fb",
+  "05-draft-return.md": "47c8e8b29ef18e12995af59dd6cc461d5ffefaff8b23431984e96fdc34df8e18",
+  "06-withdrawals.md": "15a0875f72b384d2721cbcc0a674b5962de56a7588dbcfeff6306e57e98eaa08",
+  "07-former-names.md": "50c2cf39d8f5df73f30d99c27bdfbad54cacf0e270f12e52cd95273cc56ec229",
+  "08-log.md": "e909cd5edab60b76d526880c9f585f178f285739c467eaeef3285bc9ba180c88",
+  "09-void-entries.md": "2a04d28aa1df03200d35b1cd6a71051186acd2355c16a97ee11de279ea7d384e"
+ },
+ "question_sha256": "00a9945fb924a52fc5fa0ff9844476f665642564eac28a55747e741bf7bbe787",
+ "key_sha256": "7ba584feec82b9eb8b4f24e5c561de9aeedef9ba75ef9989714e68e9540398f6",
+ "scoring": "The answer is the set of names given. Pass means the set equals the key exactly. Share of key names found and share of given names that are right are also recorded."
+}

@@ -1,0 +1,29 @@
+{
+ "id": "code-14",
+ "family": "code",
+ "commit": "5adc57299e9f90f359a91724d0417953c67e504d",
+ "commit_date": "2026-10-25",
+ "parent": "40972681f40c4662ced355cb0eef24431ac0206f",
+ "parent_tree": "58fab4adb4535b5eedef5ea8b43950087bd0ffe1",
+ "source_paths": [
+  "web/src/lib/components/WorkDetail.svelte",
+  "web/src/lib/office/projection.ts",
+  "web/src/lib/work/status.ts",
+  "web/src/routes/[companyId]/work/+page.svelte"
+ ],
+ "test_paths": [
+  "web/src/lib/work/status.test.ts"
+ ],
+ "other_paths": [],
+ "source_lines_changed": 58,
+ "test_lines_added": 34,
+ "grade_command": [
+  "node",
+  "--test",
+  "web/src/lib/work/status.test.ts"
+ ],
+ "grade_runner": "node",
+ "brief_sha256": "3e4056c98a46784cac0b3c4e4c79d9741315bf81464cb3b153c519dc9a2a8dbe",
+ "hidden_tests_sha256": "63aa8d04af059a0fb4496ff5765d88bb86a33919636a8003ed4bdfb54d39a42a",
+ "reference_change_sha256": "992852fd750b73cbe433f162ce8c5d11d89e182507f5129157db6fb074eccb07"
+}
