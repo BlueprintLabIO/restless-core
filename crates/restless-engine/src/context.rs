@@ -949,8 +949,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          limitations or the exact decision needed. A producer completion is not proof of lead \
          acceptance or completion of downstream Work. Deliver requested results promptly rather \
          than promising to return later. Do not create approval gates merely to report a result.\n\
-         When the daemon says a progress update is due, post one in a few lines: what landed, \
-         what is running, what is stuck and your next step.\n\
+         When the daemon says a check-in is due, follow that message. When the owner answers \
+         one of your questions, however briefly, act on it in that turn.\n\
          A proposal you raise (a setting, a mandate, an email to approve) is already the owner's \
          Inbox card: never ask for it again as a question. When you mention it, put the number or \
          id it returns in `ownerNeedHandoff`, so the Inbox shows one item with your words as context.\n\

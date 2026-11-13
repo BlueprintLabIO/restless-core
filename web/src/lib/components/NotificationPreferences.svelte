@@ -45,6 +45,19 @@
 			>{:else if desktopNotify.blocked}<span class="quiet">Blocked in browser settings</span>{/if}
 	</Row>
 	<EmailDeliveryEditor {companyId} />
+	{#if typeof settings.preferences?.checkins === 'boolean'}
+		<Row
+			label="Check-ins"
+			info="About once an hour while you are around, Exec tells you in a few lines what landed and what is next, and asks what it needs from you. If you do not answer it reminds you once, three hours later, then waits for you."
+		>
+			<Toggle
+				label="Check-ins from Exec"
+				checked={settings.preferences.checkins}
+				disabled={settings.busy}
+				onchange={(on) => settings.save({ checkins: on })}
+			/>
+		</Row>
+	{/if}
 </Section>
 
 <style>

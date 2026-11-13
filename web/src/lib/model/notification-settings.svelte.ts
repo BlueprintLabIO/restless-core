@@ -36,7 +36,7 @@ export function notificationSettings(companyId: () => string, restorePush = fals
 		if (restorePush && desktopNotify.active && pushKey && companyId())
 			void enablePush(companyId(), pushKey).catch(() => undefined);
 	});
-	async function save(change: { email?: boolean; digest?: string }) {
+	async function save(change: { email?: boolean; digest?: string; checkins?: boolean }) {
 		if (busy || !query.view) return;
 		const company = companyId();
 		busy = true;

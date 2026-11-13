@@ -612,6 +612,9 @@ struct NotificationPreferencesInput {
     /// The IANA time zone the digest time is in.
     #[serde(default)]
     time_zone: Option<String>,
+    /// Whether Exec checks in unprompted. The owner's choice; ignored from anyone else.
+    #[serde(default)]
+    checkins: Option<bool>,
 }
 
 /// This person's own choice of email, and the key their browsers subscribe to pushes with.
@@ -624,24 +627,38 @@ async fn notification_preferences(
         Ok(org) => org,
         Err(response) => return no_store(response),
     };
-    preferences_response(&state, &org, principal.actor_id()).await
+    preferences_response(
+        &state,
+        &org,
+        principal.actor_id(),
+        principal.membership_role() == "owner",
+    )
+    .await
 }
 
 async fn preferences_response(
     state: &RoomApiState,
     org: &restless_orgintel::OrgIntel,
     actor_id: &str,
+    is_owner: bool,
 ) -> Response<Body> {
     let read = async {
         Ok::<_, restless_orgintel::OrgIntelError>((
             org.email_notifications(actor_id).await?,
             org.email_digest(actor_id).await?,
+            // Check-ins go to the owner, so only an owner has the choice; null for anyone else.
+            if is_owner {
+                Some(org.exec_checkins(actor_id).await?)
+            } else {
+                None
+            },
         ))
     };
     match read.await {
-        Ok((email, digest)) => no_store(
+        Ok((email, digest, checkins)) => no_store(
             Json(serde_json::json!({
                 "email": email,
+                "checkins": checkins,
                 "digest": digest.as_ref().map(|digest| digest.at.format("%H:%M").to_string()),
                 "time_zone": digest.map(|digest| digest.time_zone),
                 "push_key": state.push_key.as_deref(),
@@ -700,9 +717,13 @@ async fn set_notification_preferences(
         },
     };
     let actor = principal.actor_id();
+    let is_owner = principal.membership_role() == "owner";
     let write = async {
         if let Some(email) = input.email {
             org.set_email_notifications(actor, email).await?;
+        }
+        if let Some(checkins) = input.checkins.filter(|_| is_owner) {
+            org.set_exec_checkins(actor, checkins).await?;
         }
         if let Some(digest) = &digest {
             org.set_email_digest(actor, digest.as_ref()).await?;
@@ -710,7 +731,7 @@ async fn set_notification_preferences(
         Ok::<_, restless_orgintel::OrgIntelError>(())
     };
     match write.await {
-        Ok(()) => preferences_response(&state, &org, actor).await,
+        Ok(()) => preferences_response(&state, &org, actor, is_owner).await,
         Err(error) => no_store(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
