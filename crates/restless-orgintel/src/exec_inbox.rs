@@ -269,7 +269,7 @@ impl OrgIntel {
             tx.commit().await?;
             return Ok(saved);
         }
-        let saved = sqlx::query_as::<_, ExecInboxAction>(
+        let Some(saved) = sqlx::query_as::<_, ExecInboxAction>(
             "UPDATE exec_inbox_actions SET state='canceled',completed_at=clock_timestamp() \
              WHERE id=$1 AND state='pending' \
                AND (undo_until IS NULL OR undo_until>clock_timestamp()) RETURNING *",
@@ -277,7 +277,12 @@ impl OrgIntel {
         .bind(id)
         .fetch_optional(&mut *tx)
         .await?
-        .ok_or_else(|| OrgIntelError::InvalidWork("The Undo window has ended.".into()))?;
+        else {
+            // Release the row now. A dropped transaction rolls back later, and until then the
+            // worker applying this due change skips the row as locked.
+            tx.rollback().await?;
+            return Err(OrgIntelError::InvalidWork("The Undo window has ended.".into()).into());
+        };
         notify_exec_inbox_changed(&mut tx).await?;
         tx.commit().await?;
         Ok(saved)
