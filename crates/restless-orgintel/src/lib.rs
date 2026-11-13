@@ -70,7 +70,10 @@ mod work_collaboration;
 pub use access::*;
 pub use accounting::*;
 pub use actor_context::*;
-pub use attempts::INTERRUPTION_RESUMES_PER_REVISION;
+pub(crate) use attempts::UNKNOWN_OUTCOME_PREFIX;
+pub use attempts::{
+    INTERRUPTION_RESUMES_PER_DAY, PLATFORM_RESUMES_PER_REVISION, RESTART_RESUMES_PER_DAY,
+};
 pub use attention_dismissals::*;
 pub use block_recheck::*;
 pub use comment_search::*;

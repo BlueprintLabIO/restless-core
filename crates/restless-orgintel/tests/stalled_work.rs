@@ -267,3 +267,74 @@ async fn stalled_work_is_found_once_and_its_lead_is_told_once() {
 
     org.drop_schema().await.unwrap();
 }
+
+/// From the owner, 12 November ("getting heaps of stuck jobs?"): Reno's "Reply-rate readouts: 30
+/// Nov and 18 Dec" was parked until its date and still got a "Stuck since 11 Nov" card with
+/// Resume on it. Work a schedule will release is waiting, not stuck: no card, no notice to its
+/// lead and no recheck, until that schedule is cancelled.
+#[tokio::test]
+async fn work_parked_until_a_time_is_not_stuck() {
+    let Some(org) = company().await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping parked Work scenario");
+        return;
+    };
+    let readout = org
+        .add_work(work("alpha-build", "Reply-rate readouts for the owner"))
+        .await
+        .unwrap();
+    let claimed = org.claim_ready_work("first").await.unwrap().unwrap();
+    org.finish_work_attempt(
+        claimed.attempt_id,
+        WorkAttemptState::Blocked,
+        "the readout is due a week after the last close-out",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.stalled_work(chrono::Duration::zero())
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "blocked with nothing to release it is stalled"
+    );
+    assert_eq!(org.external_waits().await.unwrap().len(), 1);
+
+    let schedule = org
+        .add_work_release_schedule(
+            "alpha-build",
+            readout,
+            "Full reply-rate read, 7 days after the last close-out",
+            chrono::Utc::now() + chrono::Duration::days(18),
+        )
+        .await
+        .unwrap();
+    assert!(
+        org.stalled_work(chrono::Duration::zero())
+            .await
+            .unwrap()
+            .is_empty(),
+        "a schedule will release it: no card"
+    );
+    assert_eq!(
+        org.tell_leads_of_stalled_work(chrono::Duration::zero())
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(
+        org.external_waits().await.unwrap().is_empty(),
+        "and its lead is not asked to look again before the date"
+    );
+
+    // With the schedule gone nothing will release it, so it is stalled again.
+    assert!(org
+        .cancel_schedule(schedule, "alpha-build", "the campaign was dropped")
+        .await
+        .unwrap());
+    let stalled = org.stalled_work(chrono::Duration::zero()).await.unwrap();
+    assert_eq!(stalled.len(), 1, "{stalled:?}");
+    assert_eq!(stalled[0].work_id, readout);
+
+    org.drop_schema().await.unwrap();
+}

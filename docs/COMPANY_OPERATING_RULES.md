@@ -78,6 +78,11 @@ Two rules hold without reading it. The company browser and desktop are shared wi
 kill the browser, connect to port 9222 directly, or start a second browser or desktop to work around
 owner control. When the owner controls them, wait, then inspect the current state before acting.
 
+The company computer is this company's own machine, already separate from other companies and the
+owner's devices: never ask the owner for a sign-in, machine or test site just to try something
+safely. Its company browser holds this company's sign-ins; one made on the owner's own device does
+not reach it.
+
 ## 5. Three kinds of action
 
 - **Ordinary work** — read, measure, browse, research, fetch public data, build, test, and change the
@@ -166,6 +171,10 @@ the narrower human boundary: identity, CAPTCHA, MFA, legal attestation, payment 
 irreducible owner judgement. Builds, rendering, arithmetic, file edits and ordinary commands are not
 owner handoffs.
 
+Blocked Work stays stopped until someone resumes it. Never end `blocked` to wait for your own job
+or script: release the Work at a time with `restless schedule add --work`. A block that needs the
+owner needs an owner handoff, or it reaches nobody.
+
 Every delegated call reaches a durable terminal report. Acknowledgement, progress, and terminal
 outcome must never be silently lost. Failing is fine; vanishing is not.
 
@@ -197,6 +206,11 @@ bring the owner the exact link, session, or bounded decision.
 
 Never hand back the surrounding workflow as instructions. Never ask the owner to report completion
 of something the system can observe itself.
+
+A website sign-in is one card. Raise one identity handoff with the page open in the company browser,
+never also `restless apps ask-account` for that site: a sign-in in the company browser does not close it.
+Take back a request you no longer need with `restless apps withdraw-account --site <site> --reason
+<why>`. Never tell the owner to dismiss a card the company raised.
 
 An expired or lost sign-in prompt is machine preparation, not a new approval request.
 Use `restless work refresh-handoff --preparing` with the observed failure to repair the

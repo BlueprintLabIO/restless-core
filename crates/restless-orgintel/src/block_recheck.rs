@@ -136,8 +136,9 @@ impl ExternalWait {
                  whether what you were waiting for has changed (try the real thing, for example \
                  the sign-in). If it is done, record what you saw with `restless work \
                  resolve-handoff --handoff {handoff} --state resolved --resolution <what you \
-                 checked> --as {}` and the Work continues. Otherwise say so in one line and stay \
-                 blocked.",
+                 checked> --as {}` and the Work continues; take back any account request the \
+                 company filed for the same site (`restless apps withdraw-account`). Otherwise \
+                 say so in one line and stay blocked.",
                 self.work_id,
                 self.work_title,
                 first_line(&self.waiting_on),
@@ -193,6 +194,8 @@ impl OrgIntel {
                                  AND h.state IN ('pending','preparing')) \
                  AND NOT EXISTS (SELECT 1 FROM native_document_work_review_dependencies d \
                                  WHERE d.work_id=w.id AND d.status='pending') \
+                 AND NOT EXISTS (SELECT 1 FROM schedules sc WHERE sc.work_id=w.id \
+                                 AND sc.fired_at IS NULL AND sc.cancelled_at IS NULL) \
                  AND (SELECT a.state FROM work_attempts a \
                       WHERE a.work_id=w.id AND a.revision=w.revision \
                       ORDER BY a.attempt_no DESC LIMIT 1) = 'blocked' \

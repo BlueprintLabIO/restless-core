@@ -809,6 +809,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "attention-act" => &["as_actor", "source_message_id", "attention_action"],
         "apps-search" => &["body"],
         "account-ask" => &["actor", "tool", "body"],
+        "account-withdraw" => &["actor", "body"],
         "capabilities" => &["actor"],
         "restless-fault" => &["actor", "body", "reason"],
         "decision-ask" => &["actor", "decision"],
@@ -1784,6 +1785,7 @@ mod tests {
             "attention-act",
             "apps-search",
             "account-ask",
+            "account-withdraw",
             "capabilities",
             "restless-fault",
         ];

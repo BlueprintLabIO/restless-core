@@ -389,12 +389,42 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                         "name": name,
                         "message": format!("Asked. The owner sees {} in their Inbox. Their answer goes into the company Vault as {name}; then `restless effect --secret API_KEY={name} ...` uses it.", site.trim()),
                     }),
+                    ("browser_profile", _) => serde_json::json!({
+                        "requested": true,
+                        "id": request.id,
+                        "message": format!("Asked. The owner sees \"sign in to {site}\" in their Inbox. It closes only when the owner adds that sign-in from the card (then its tools appear in your next session), or when you withdraw it. Signing in in the company browser does not close it: if that is how the owner signs in, or a sign-in handoff already covers {site}, run `restless apps withdraw-account --site {site} --reason <what you saw>` so the owner is not left with two cards.", site = site.trim()),
+                    }),
                     _ => serde_json::json!({
                         "requested": true,
                         "id": request.id,
                         "message": format!("Asked. The owner sees {} in their Inbox. When they add it in Settings › Accounts and give it to this company, its tools appear in your tool list.", site.trim()),
                     }),
                 }),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "account-withdraw" => {
+            // The agent no longer needs an account it asked for (the owner signed in in the
+            // company browser, the Work changed): its request leaves the owner's Inbox with the
+            // reason, instead of waiting a week or being dismissed by the owner (12 November).
+            let actor = if principal == Principal::Owner { "owner" } else {
+                match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
+            };
+            let asked = request.common.body.as_deref().unwrap_or_default().trim();
+            let Some((site, reason)) = asked.split_once(": ").filter(|(site, reason)| !site.trim().is_empty() && !reason.trim().is_empty()) else {
+                return Response::err("Name the site and what changed: restless apps withdraw-account --site ebay.com.au --reason '...'");
+            };
+            // The owner's own CLI acts with Exec's reach over the company's requests.
+            let by = if actor == "owner" { "exec" } else { actor };
+            match crate::account_broker::withdraw_requests(daemon.authority.pool(), company, site, by, reason).await {
+                Ok(withdrawn) if withdrawn.is_empty() => Response::ok(serde_json::json!({
+                    "withdrawn": 0,
+                    "message": format!("No open request of yours names {}. Nothing changed.", site.trim()),
+                })),
+                Ok(withdrawn) => Response::ok(serde_json::json!({
+                    "withdrawn": withdrawn.len(),
+                    "message": format!("Withdrawn. The request for {} has left the owner's Inbox; its history keeps your reason.", site.trim()),
+                })),
                 Err(error) => Response::err(format!("{error:#}")),
             }
         }
@@ -4981,6 +5011,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "tools-list"
         | "tools-check"
         | "account-ask"
+        | "account-withdraw"
         | "capabilities"
         | "restless-fault"
         | "document-review-request" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
