@@ -78,9 +78,11 @@ enum AppsCommand {
         #[arg(required = true)]
         words: Vec<String>,
     },
-    /// Ask the owner for an account the company does not have: a site login (eBay, Facebook
-    /// Marketplace, a supplier portal), an API key or GitHub. It goes to the owner's Inbox; once
-    /// given from Settings › Accounts, its tools appear in your tool list. Never ask for a password.
+    /// Ask the owner for an account the company does not have: an API key, GitHub, or a site
+    /// login the owner keeps in Settings › Accounts. It goes to the owner's Inbox; once given,
+    /// its tools appear in your tool list. Never ask for a password. A sign-in the owner makes in
+    /// the company browser is a different request (`restless work handoff --category identity`)
+    /// and does not close this one: raise one or the other for a site, never both.
     AskAccount {
         /// website_login, api or github.
         #[arg(long)]
@@ -89,6 +91,16 @@ enum AppsCommand {
         #[arg(long)]
         site: String,
         /// What you need it for, in a sentence or two.
+        #[arg(long)]
+        reason: String,
+    },
+    /// Take back an account request you no longer need (the owner signed in in the company
+    /// browser, the Work changed). It leaves the owner's Inbox and its history keeps your reason.
+    WithdrawAccount {
+        /// The site or service the request named, such as ebay.com.au.
+        #[arg(long)]
+        site: String,
+        /// What changed, as you observed it.
         #[arg(long)]
         reason: String,
     },
@@ -3274,6 +3286,11 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "cmd": "account-ask",
                 "company": company.context("no company: pass -c or set RESTLESS_COMPANY")?,
                 "tool": kind,
+                "body": format!("{}: {}", site.trim(), reason.trim()),
+            }),
+            AppsCommand::WithdrawAccount { site, reason } => serde_json::json!({
+                "cmd": "account-withdraw",
+                "company": company.context("no company: pass -c or set RESTLESS_COMPANY")?,
                 "body": format!("{}: {}", site.trim(), reason.trim()),
             }),
         },

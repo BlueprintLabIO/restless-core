@@ -1502,6 +1502,51 @@ pub async fn retire_requests(
     Ok(retired)
 }
 
+/// The company no longer needs what it asked for: take its open requests for `site` out of the
+/// owner's Inbox, keeping each row with the reason (12 November: the owner signed in to eBay in
+/// the company browser, the request card for eBay stayed, and Exec told the owner to dismiss it).
+/// An agent withdraws its own requests; Exec, who answers for the company's Inbox, any of them.
+pub async fn withdraw_requests(
+    pool: &PgPool,
+    company: &str,
+    site: &str,
+    by: &str,
+    reason: &str,
+) -> Result<Vec<AccountRequest>> {
+    let site = site.trim();
+    let reason = reason.trim().trim_end_matches('.');
+    if site.is_empty() || reason.is_empty() {
+        bail!("Name the site and what changed: restless apps withdraw-account --site ebay.com.au --reason '...'");
+    }
+    let mut withdrawn = Vec::new();
+    for open in open_requests(pool, company).await? {
+        if open.account_id.is_some()
+            || !(open.requested_by == by || by == "exec")
+            || !requested_site(&open).is_some_and(|asked| asked.eq_ignore_ascii_case(site))
+        {
+            continue;
+        }
+        let resolution = format!(
+            "The company no longer needs {}: {}.",
+            requested_site(&open).unwrap_or(site),
+            reason.chars().take(400).collect::<String>()
+        );
+        if let Some(row) = sqlx::query(
+            "UPDATE restless_authority.owner_account_requests \
+             SET state = 'withdrawn', resolution = $2, decided_at = now() \
+             WHERE id = $1 AND state = 'open' RETURNING *",
+        )
+        .bind(&open.id)
+        .bind(&resolution)
+        .fetch_optional(pool)
+        .await?
+        {
+            withdrawn.push(row_request(&row)?);
+        }
+    }
+    Ok(withdrawn)
+}
+
 /// [`retire_requests`] with each linked Work's status read from OrgIntel, then each asking agent
 /// told, so a request whose reason has gone leaves the Inbox by itself and its history says why.
 pub async fn retire_stale_requests(
@@ -2349,6 +2394,88 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+
+        sqlx::query("DELETE FROM restless_authority.owner_account_requests WHERE company = $1")
+            .bind(&company)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    /// From the owner, 12 November: signing in in the company browser left the "sign in to
+    /// ebay.com.au" request in the Inbox. The agent that no longer needs a request takes it back;
+    /// the row stays as history with the reason, and nobody else's request is touched.
+    #[tokio::test]
+    async fn an_agent_takes_back_a_request_it_no_longer_needs() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            return;
+        };
+        let pool = crate::authority::AuthorityStore::test_pool(&url)
+            .await
+            .unwrap();
+        let company = format!("withdraw_{}_test", uuid::Uuid::new_v4().simple());
+        let ask = |kind: &'static str, reason: &'static str, by: &'static str| {
+            let pool = pool.clone();
+            let company = company.clone();
+            async move {
+                create_request(&pool, &company, None, Some(kind), None, reason, by, None)
+                    .await
+                    .unwrap()
+            }
+        };
+        let ebay = ask(
+            "browser_profile",
+            "ebay.com.au: sold prices need a sign-in",
+            "exec",
+        )
+        .await;
+        let facebook = ask("browser_profile", "facebook.com: Marketplace", "deals-lead").await;
+        let key = ask("api", "api.resend.com: send receipts", "exec").await;
+
+        // Another agent's request is not this agent's to withdraw, and a reason is required.
+        assert!(
+            withdraw_requests(&pool, &company, "ebay.com.au", "deals-lead", "signed in")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            withdraw_requests(&pool, &company, "ebay.com.au", "exec", " ")
+                .await
+                .is_err()
+        );
+
+        let withdrawn = withdraw_requests(
+            &pool,
+            &company,
+            "EBAY.com.au",
+            "exec",
+            "the owner signed in to eBay in the company browser.",
+        )
+        .await
+        .unwrap();
+        assert_eq!(withdrawn.len(), 1);
+        assert_eq!(withdrawn[0].id, ebay.id);
+        assert_eq!(withdrawn[0].state, "withdrawn");
+        assert_eq!(
+            withdrawn[0].resolution.as_deref(),
+            Some("The company no longer needs ebay.com.au: the owner signed in to eBay in the company browser.")
+        );
+        // Exec answers for the company's Inbox, so it may withdraw a lead's request too.
+        let withdrawn = withdraw_requests(&pool, &company, "facebook.com", "exec", "signed in")
+            .await
+            .unwrap();
+        assert_eq!(withdrawn.len(), 1);
+        assert_eq!(withdrawn[0].id, facebook.id);
+
+        // The Inbox holds only what is still wanted; a stale tab cannot answer a withdrawn one.
+        let open = open_requests(&pool, &company).await.unwrap();
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].id, key.id);
+        assert_eq!(ended_requests(&pool, &company).await.unwrap().len(), 2);
+        assert!(settle_request(&pool, &ebay.id, "denied", None, "owner")
+            .await
+            .is_err());
 
         sqlx::query("DELETE FROM restless_authority.owner_account_requests WHERE company = $1")
             .bind(&company)

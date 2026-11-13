@@ -319,6 +319,7 @@ async fn check_stopped_work(daemon: &Arc<Daemon>) {
             }
         };
         resume_work_after_provider_refusals(daemon, &org, &company).await;
+        resume_work_stopped_by_platform(daemon, &org, &company).await;
         match org
             .tell_leads_of_stalled_work(restless_orgintel::STALLED_AFTER)
             .await
@@ -335,9 +336,51 @@ async fn check_stopped_work(daemon: &Arc<Daemon>) {
     }
 }
 
+/// Work the platform itself stopped (a restart that closed its Attempt as unknown, a watchdog that
+/// cut its turn) goes on by itself: the restart paths resume it at once, and this sweep picks up
+/// what they could not, such as Work past the day's bound, an Attempt the scheduler closed as
+/// unsupervised, or a restart that failed before its resume step. The owner is never the one to
+/// press Resume for it (12 November). Bounded per day and per revision in OrgIntel; left alone
+/// while the company is still recovering.
+async fn resume_work_stopped_by_platform(daemon: &Arc<Daemon>, org: &OrgIntel, company: &str) {
+    if daemon.lifecycle.company_is_recovering(company) {
+        return;
+    }
+    let stopped = match org.work_stopped_by_platform().await {
+        Ok(stopped) if !stopped.is_empty() => stopped,
+        Ok(_) => return,
+        Err(error) => {
+            tracing::warn!(company, "platform-stopped Work unavailable: {error:#}");
+            return;
+        }
+    };
+    let mut resumed = false;
+    for (work_id, stop) in stopped {
+        let outcome = match &stop {
+            restless_orgintel::PlatformStop::Restart => {
+                org.resume_after_platform_restart(work_id).await
+            }
+            restless_orgintel::PlatformStop::Interruption(cause) => {
+                org.resume_after_interruption(work_id, cause).await
+            }
+        };
+        match outcome {
+            Ok(true) => {
+                resumed = true;
+                tracing::info!(company, %work_id, ?stop, "resumed Work the platform had stopped");
+            }
+            Ok(false) => {}
+            Err(error) => tracing::warn!(company, %work_id, "could not resume Work: {error:#}"),
+        }
+    }
+    if resumed {
+        daemon.schedule_wake.notify_one();
+    }
+}
+
 /// Work that stopped because a model provider refused (credit, usage or rate limit, a refused
 /// sign-in or key) goes on once no such refusal is active for the company: a top-up, a reset or a
-/// new connection. Bounded like any interruption resume, at most twice per revision.
+/// new connection. Bounded like any interruption resume, at most twice a day per revision.
 async fn resume_work_after_provider_refusals(daemon: &Arc<Daemon>, org: &OrgIntel, company: &str) {
     let stopped = match org.work_blocked_by_provider_refusal().await {
         Ok(stopped) if !stopped.is_empty() => stopped,

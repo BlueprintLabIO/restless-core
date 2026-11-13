@@ -26,6 +26,36 @@ For a CommonJS Playwright script, resolve the globally installed package with
 The same owner-control rule covers visible-desktop automation: do not use `xdotool` or `wmctrl` to
 focus, type into, move, or otherwise take over the shared desktop while the owner controls the browser.
 
+## The company computer, sign-ins and the cards that ask for them
+
+The company computer is this company's own persistent Linux machine: its files under `/company`,
+its processes, its desktop and its one browser. It is separate from every other company and from
+the owner's own devices, so it is already the safe place to try something. Do not ask the owner to
+sign in to a test site, or for another machine, to get a "sandbox"; say plainly when a test would
+cause a real external effect instead.
+
+A website sign-in lives in the company browser's profile. The owner signs in there once, through
+the Inbox card or Company › Computer, and every agent of this company then uses that session
+through `restless browser attach`. A sign-in on the owner's own computer or phone does not reach
+it. Two different cards can ask for a sign-in, and each closes in its own way:
+
+- **A sign-in handoff** (`restless work handoff --work <id> --category identity`): the owner signs
+  in in the company browser, at the page you left open. Use this when your Work drives the company
+  browser. It closes when the owner confirms it on the card, or when you are asked to recheck, see the
+  site signed in and record it with `restless work resolve-handoff --handoff <id> --state resolved
+  --resolution <what you checked>`. Name every site the Work needs in the one handoff.
+- **An account request** (`restless apps ask-account`): the owner adds an account in Settings ›
+  Accounts and gives it to the company; it then reaches you as that account's own tools in your
+  next session. Use it for an API key, GitHub, or a login the owner wants to keep as an account.
+  It closes only when the owner adds the account from the card or declines, when the Work that
+  asked ends, or after a week. Signing in in the company browser does not close it.
+
+Raise one card for one sign-in, never both kinds for the same site, and not a second card when an
+open one already covers it. If a request you filed is no longer needed (the site is signed in in
+the company browser, a handoff covers it, the Work changed), take it back with `restless apps
+withdraw-account --site <site> --reason <what you saw>`. Never tell the owner to dismiss a card the
+company raised, and never say a sign-in worked without trying the site.
+
 Start shared visible applications on `DISPLAY=:1`; that is the company desktop the owner can see.
 Do not confuse it with a display leased through the Work resource gate: use the lease's exact display
 only for that bounded Work. Use the installed Browser, Terminal, and Godot desktop launchers or their

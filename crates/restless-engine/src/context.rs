@@ -961,7 +961,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          When work needs a login or account the company does not have, file the request yourself \
          with `restless apps ask-account --kind website_login|api|github --site <site> --reason \
          <what it is for>`; it reaches the owner's Inbox, or names the key the Vault already \
-         holds. Never tell the owner to go and set it up \
+         holds. For a sign-in made in the company browser, raise the identity handoff instead, \
+         never also an account request. Never tell the owner to go and set it up \
          in Settings, and never ask for a password in chat.\n\
          When a proactive update asks the owner for anything, end it with the intent marker \
          described below (kind conversation) and put the exact question in `ownerNeed`; \
@@ -1269,7 +1270,37 @@ mod tests {
         // 12 November, two observed failures: "Approved" said in chat did not apply a setting
         // or charter proposal (Exec sent the owner to the card), and "progress?" was the owner's
         // most common message. One sentence each, about 540 bytes.
-        assert!(bytes <= 52_100, "Exec fixed prompt grew to {bytes} bytes");
+        // 12 November, three more observed failures: Exec asked the owner to sign in to a test
+        // site for a "sandbox" (nothing said the company computer is one), two cards were raised
+        // for one sign-in and the owner was told to dismiss the spare, and Work ended `blocked`
+        // waiting on its own background job. Three short paragraphs in the operating rules.
+        assert!(bytes <= 52_900, "Exec fixed prompt grew to {bytes} bytes");
+    }
+
+    /// From the owner, 12 November ("exec is not fully aware of how the harness itself works"):
+    /// Exec asked the owner to sign in to a test site to get a "sandbox" when the company computer
+    /// already is one, raised an account request beside a lead's sign-in card for the same site,
+    /// and told the owner to dismiss the spare. The rules every agent reads now say what the
+    /// company computer and browser are, which card a sign-in is, and how each card closes.
+    #[test]
+    fn every_agent_is_told_what_the_company_computer_and_its_sign_ins_are() {
+        for rule in [
+            "already separate",
+            "holds this company's sign-ins",
+            "A website sign-in is one card.",
+            "a sign-in in the company browser does not close it",
+            "withdraw-account --site",
+            "Never tell the owner to dismiss a card",
+            "Blocked Work stays stopped until someone resumes it.",
+        ] {
+            assert!(COMPANY_OPERATING_RULES.contains(rule), "{rule}");
+        }
+        let mut quiet = snapshot();
+        quiet.operating_rules = COMPANY_OPERATING_RULES.to_string();
+        let package = assemble(&quiet);
+        let prompt = format!("{}{}", package.system_prompt, package.user_prompt);
+        assert!(prompt.contains("A website sign-in is one card."));
+        assert!(prompt.contains("never also an account request"));
     }
 
     /// Exec reads people and teams from its wake state instead of re-running `restless people`
