@@ -281,7 +281,9 @@ impl OrgIntel {
             // Release the row now. A dropped transaction rolls back later, and until then the
             // worker applying this due change skips the row as locked.
             tx.rollback().await?;
-            return Err(OrgIntelError::InvalidWork("The Undo window has ended.".into()).into());
+            return Err(OrgIntelError::InvalidWork(
+                "The Undo window has ended.".into(),
+            ));
         };
         notify_exec_inbox_changed(&mut tx).await?;
         tx.commit().await?;
