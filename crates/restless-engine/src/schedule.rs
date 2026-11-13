@@ -748,39 +748,48 @@ async fn review_stale_owner_items(daemon: &Arc<Daemon>, org: &OrgIntel, company:
     }
 }
 
-/// Progress comes to the owner without "progress?". When Work moved since Exec last wrote to the
-/// owner and they have heard nothing for `restless_orgintel::PROGRESS_UPDATE_AFTER`, Exec is
-/// woken once to post one update. This reads counts only; with nothing changed it never wakes a
-/// model. While the owner is away it waits for their return.
-async fn ask_for_progress_update(daemon: &Arc<Daemon>, org: &OrgIntel, company: &str) {
+/// Exec comes to the owner instead of waiting to be driven (`restless_orgintel::checkin`): a
+/// check-in about an hour after the last one while the owner engages, one nudge three hours
+/// after a check-in they did not answer, then nothing until they return. This reads facts only;
+/// with nothing active it never wakes a model. It waits while the owner is away, while the
+/// plane is draining for an update, while the spend limit is reached, and for a computer the
+/// owner stopped; a company with no model never gets here.
+async fn check_in_with_owner(
+    daemon: &Arc<Daemon>,
+    config: &CompanyConfig,
+    org: &OrgIntel,
+    company: &str,
+) {
+    let rhythm = checkin_rhythm();
     let now = Utc::now();
-    match org.progress_since_last_update_at(now).await {
-        Ok(progress) if progress.due(now) => {}
+    match org.checkin_state().await {
+        Ok(state) if state.due(now, rhythm).is_some() => {}
         Ok(_) => return,
         Err(error) => {
-            tracing::warn!(
-                company,
-                "progress since the last update is unreadable: {error:#}"
-            );
+            tracing::warn!(company, "the check-in rhythm is unreadable: {error:#}");
             return;
         }
     }
-    if matches!(
-        crate::away::current(&daemon.authority, company).await,
-        Ok(Some(_))
-    ) || !computer_runs_on_demand(daemon, company).await
+    if daemon.lifecycle.tasks_paused()
+        || !daemon.spend.budget_state(config).is_available()
+        || matches!(
+            crate::away::current(&daemon.authority, company).await,
+            Ok(Some(_))
+        )
+        || !computer_runs_on_demand(daemon, company).await
     {
         return;
     }
-    match org.signal_progress_due_at(now).await {
+    match org.signal_checkin_at(now, rhythm).await {
         Ok(None) => {}
-        Ok(Some(progress)) => tracing::info!(
+        Ok(Some((kind, state))) => tracing::info!(
             company,
-            landed = progress.landed,
-            stuck = progress.stuck,
-            "asked Exec for a progress update"
+            kind = kind.as_str(),
+            landed = state.landed,
+            stuck = state.stuck,
+            "asked Exec to check in with the owner"
         ),
-        Err(error) => tracing::warn!(company, "Exec was not asked for an update: {error:#}"),
+        Err(error) => tracing::warn!(company, "Exec was not asked to check in: {error:#}"),
     }
 }
 
@@ -870,6 +879,17 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
                     }),
                 );
             }
+            // Only one still ahead: a check-in that is due but held (away, spend limit) is
+            // picked up by the ordinary sweep and must not spin this timer.
+            if let Ok(Some(next)) = org.next_checkin_at(checkin_rhythm()).await {
+                if next > now {
+                    earliest = Some(
+                        earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
+                            current.min(next)
+                        }),
+                    );
+                }
+            }
         }
     }
     match earliest {
@@ -931,7 +951,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     // wakes its actor (and a sleeping computer) through the recovery below.
     recheck_blocked_work(daemon, &org, company).await;
     review_stale_owner_items(daemon, &org, company).await;
-    ask_for_progress_update(daemon, &org, company).await;
+    check_in_with_owner(daemon, &config, &org, company).await;
     if daemon.runtime_bridges.is_hosted() {
         let Ok(identity) =
             crate::runtime_bridge::expected_identity(&daemon.authority, company).await
@@ -2521,6 +2541,23 @@ fn ready_work_age_limit() -> Duration {
 /// How long judgement may wait on a person before Exec reminds them, and before it goes to the
 /// owner. One and two days; `RESTLESS_PERSON_REMIND_AFTER_SECS` and
 /// `RESTLESS_PERSON_ESCALATE_AFTER_SECS` shorten them for tests.
+/// The check-in rhythm: an hour, and three hours for the nudge. `RESTLESS_CHECKIN_EVERY_SECS`
+/// and `RESTLESS_CHECKIN_NUDGE_AFTER_SECS` shorten them for tests and local stacks.
+fn checkin_rhythm() -> restless_orgintel::CheckinRhythm {
+    let seconds = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|value| *value > 0)
+            .map(chrono::Duration::seconds)
+    };
+    let default = restless_orgintel::CheckinRhythm::default();
+    restless_orgintel::CheckinRhythm {
+        every: seconds("RESTLESS_CHECKIN_EVERY_SECS").unwrap_or(default.every),
+        nudge_after: seconds("RESTLESS_CHECKIN_NUDGE_AFTER_SECS").unwrap_or(default.nudge_after),
+    }
+}
+
 /// How often each person's digest of FYI notices is written: daily, unless a test sets it.
 fn notice_digest_every() -> chrono::Duration {
     chrono::Duration::seconds(

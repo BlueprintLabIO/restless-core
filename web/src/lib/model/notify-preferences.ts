@@ -6,6 +6,8 @@ import { ownerRequest } from './setting.svelte';
 
 export type NotifyPreferences = {
 	email: boolean;
+	/** Whether Exec checks in unprompted; null for anyone but an owner, who has no such choice. */
+	checkins?: boolean | null;
 	/** `HH:MM` local time for one email a day, or null for email as things happen. */
 	digest: string | null;
 	time_zone: string | null;
@@ -22,7 +24,7 @@ export function readNotifyPreferences(company: string): Promise<NotifyPreference
 /** Change email on or off, or the digest time (`''` for as it happens), in this browser's zone. */
 export function saveNotifyPreferences(
 	company: string,
-	change: { email?: boolean; digest?: string }
+	change: { email?: boolean; digest?: string; checkins?: boolean }
 ): Promise<NotifyPreferences> {
 	return ownerRequest<NotifyPreferences>(`${base(company)}/notification-preferences`, {
 		method: 'PUT',

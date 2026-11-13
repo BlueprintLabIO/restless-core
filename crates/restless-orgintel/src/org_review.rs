@@ -138,7 +138,9 @@ impl OrgIntel {
     }
 
     /// What the owner did after `after`, oldest first: outcomes accepted or sent back, short
-    /// messages, and lessons recorded from their corrections.
+    /// messages, and lessons recorded from their corrections. The owner's first message after a
+    /// check-in Exec posted is an answer to it ("continue", "go on"), not a nudge they had to
+    /// give, so it is left out.
     pub async fn owner_signals_after(&self, after: DateTime<Utc>) -> Result<Vec<OwnerSignalRow>> {
         Ok(sqlx::query_as(
             "SELECT kind, at, actor_id, detail FROM ( \
@@ -155,6 +157,16 @@ impl OrgIntel {
                WHERE (author.kind='owner' OR author.actor_class='human') \
                  AND message.created_at > $1 AND message.deleted_at IS NULL \
                  AND char_length(message.body) <= $2 \
+                 AND NOT EXISTS ( \
+                   SELECT 1 FROM events checkin \
+                   JOIN messages said ON said.from_actor='exec' \
+                     AND (said.to_actor IS NULL OR said.to_actor=message.from_actor) \
+                     AND said.id > (checkin.body->>'message_mark')::bigint \
+                     AND said.id < message.id \
+                   WHERE checkin.kind='exec_checkin' \
+                     AND NOT EXISTS (SELECT 1 FROM messages earlier \
+                       WHERE earlier.from_actor=message.from_actor AND earlier.id < message.id \
+                         AND earlier.id > (checkin.body->>'message_mark')::bigint)) \
                UNION ALL \
                SELECT 'lesson', event.created_at, event.actor_id, event.kind \
                FROM events event \

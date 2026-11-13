@@ -48,7 +48,7 @@ mod org_review;
 mod owner_ready;
 mod pending_shares;
 mod progress;
-mod progress_due;
+mod checkin;
 mod responsibility;
 mod review;
 mod rooms;
@@ -102,7 +102,7 @@ pub use progress::{
     rounded_percent, take_progress_markers, GoalProgress, ProgressReport, ReportedProgress,
     PROGRESS_HISTORY, PROGRESS_MARKER, PROGRESS_POST_STEP,
 };
-pub use progress_due::*;
+pub use checkin::*;
 pub use responsibility::*;
 pub use schedules::{
     validate_calendar_days, ScheduleChange, MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS,
