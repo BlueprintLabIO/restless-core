@@ -115,9 +115,11 @@ model wake: ordinary successful partition completions may accumulate durably unt
 closes. Harm, blockage, changed policy, contradiction or another decision-relevant exception remains
 urgent.
 
-EXP-17 measures the premium against the identical first-party Codex worker. Four sparse pairs reached
-practical quality parity, while the explicit `R1` call chain added 77%-194% latency and 74%-230% spend
-without a recovery or continuity win. This does not remove the lead as an accountability boundary. It
+EXP-17 compared the identical first-party Codex worker alone and under the explicit serial supervised
+chain. In four single-run pairs on small tasks the solo worker already passed (97 to 99.8 out of 100),
+the chain added a roughly fixed supervisor cost of about $0.50 per task and 3 to 6 minutes, with no
+recovery or continuity win because nothing failed. Part of the gap came from the worker itself spending
+more inside Restless, a runtime difference still to explain (see `experiment/coordination/experiments/EXP-17/RESULTS.md`). This does not remove the lead as an accountability boundary. It
 separates **role existence** from **model wake frequency**: one worker remains the producing topology;
 the lead stays durable and authorised, while fresh supervisory reasoning is reserved for material
 judgement rather than routine commissioning and acceptance narration.
@@ -205,8 +207,9 @@ These are current priors, not permanent truths:
 - current model assignments, team-size guidance, ACP, Work schemas, token speeds and provider limits;
 - current effort-tier behaviour, cache/usage visibility and provider concurrency envelope;
 - any fixed numerical routing threshold.
-- the current EXP-17 observation that a serial supervised call chain costs roughly 1.7x-3.3x on
-  bounded exact-Sol work; different models, longer horizons or authority-sensitive effects may move it.
+- the EXP-17 observation that a serial supervised call chain adds a roughly fixed cost (about $0.50
+  per task) on small exact-Sol tasks with nothing to catch; it says nothing yet about harder work,
+  other models, longer horizons or authority-sensitive effects.
 
 The exact Work graph is not the theory. The enduring requirement is a small factual substrate that can
 show who really accepted responsibility, what evidence returned and who judged the combined outcome.
