@@ -816,10 +816,14 @@ async fn review_goals_daily(
             return;
         }
     }
-    if daemon.lifecycle.tasks_paused()
-        || !daemon.spend.budget_state(config).is_available()
-        || !computer_runs_on_demand(daemon, company).await
-    {
+    // Away is not a hold. An unread owner message is one too, read with the ask itself.
+    let holds = restless_orgintel::DailyReviewHolds {
+        spend_limit_reached: !daemon.spend.budget_state(config).is_available(),
+        plane_draining: daemon.lifecycle.tasks_paused(),
+        computer_stopped: !computer_runs_on_demand(daemon, company).await,
+        owner_message_unread: false,
+    };
+    if holds.held() {
         return;
     }
     match org.signal_daily_review_at(now, rhythm).await {

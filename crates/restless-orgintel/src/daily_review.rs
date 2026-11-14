@@ -16,8 +16,8 @@
 //!   more is asked until one of those happens.
 //! - Before the first review the company must have stirred (the owner engaged, or a goal changed)
 //!   within the last two intervals, so existing quiet companies are not all woken at rollout.
-//! - It never shares a scan with a check-in: it waits [`DAILY_REVIEW_SETTLE`] after one, and a
-//!   check-in waits the same after a review. What Exec posts from a review is its last word to
+//! - It never shares a scan with a check-in: it waits [`DAILY_REVIEW_SETTLE`] after one (and
+//!   after the owner's own message or goal change), and a check-in waits the same after a review. What Exec posts from a review is its last word to
 //!   the owner, which the check-in rhythm already counts from.
 //!
 //! Like a check-in it is a daemon message: not owner activity and not an org-review signal.
@@ -61,6 +61,32 @@ impl Default for DailyReviewRhythm {
         Self {
             every: DAILY_REVIEW_EVERY,
         }
+    }
+}
+
+/// What makes a due daily review wait. It is held, never dropped: the next scan asks again.
+///
+/// The owner being away is deliberately not here (the company keeps working while they are
+/// away), and neither is the Check-ins notification choice (that is about messages, this is
+/// about work).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DailyReviewHolds {
+    /// The company's spend limit is reached: a turn could not run.
+    pub spend_limit_reached: bool,
+    /// The plane is draining for an update.
+    pub plane_draining: bool,
+    /// The owner stopped the company computer.
+    pub computer_stopped: bool,
+    /// A message from the owner to Exec is unread: Exec is about to answer them.
+    pub owner_message_unread: bool,
+}
+
+impl DailyReviewHolds {
+    pub fn held(self) -> bool {
+        self.spend_limit_reached
+            || self.plane_draining
+            || self.computer_stopped
+            || self.owner_message_unread
     }
 }
 
@@ -146,10 +172,15 @@ impl DailyReviewState {
             return None;
         }
         let after_last = self.last.or(self.stirred_at)? + rhythm.every;
-        let after_checkin = self
-            .last_checkin
-            .map(|checkin| checkin + settle_for(rhythm.every));
-        Some(after_checkin.map_or(after_last, |settled| settled.max(after_last)))
+        // Never on the heels of a check-in, nor of the owner's own message or goal change: the
+        // Exec turn that answers them settles first (seen live: a review asked in the same
+        // second as Exec's reply to a returning owner).
+        let settled = [self.last_checkin, self.stirred_at]
+            .into_iter()
+            .flatten()
+            .max()
+            .map(|at| at + settle_for(rhythm.every));
+        Some(settled.map_or(after_last, |settled| settled.max(after_last)))
     }
 
     /// Whether a daily review is due at `now`.
@@ -281,7 +312,11 @@ impl OrgIntel {
         ))
         .fetch_one(&mut *tx)
         .await?;
-        if owner_waiting {
+        let holds = DailyReviewHolds {
+            owner_message_unread: owner_waiting,
+            ..DailyReviewHolds::default()
+        };
+        if holds.held() {
             tx.rollback().await?;
             return Ok(None);
         }
@@ -426,6 +461,46 @@ mod tests {
     }
 
     #[test]
+    fn each_hold_makes_a_due_review_wait_and_nothing_else_does() {
+        let clear = DailyReviewHolds::default();
+        assert!(!clear.held());
+        for held in [
+            DailyReviewHolds {
+                spend_limit_reached: true,
+                ..clear
+            },
+            DailyReviewHolds {
+                plane_draining: true,
+                ..clear
+            },
+            DailyReviewHolds {
+                computer_stopped: true,
+                ..clear
+            },
+            DailyReviewHolds {
+                owner_message_unread: true,
+                ..clear
+            },
+        ] {
+            assert!(held.held(), "{held:?}");
+        }
+        // Held, not dropped: the review is still due when the hold lifts, days later.
+        let waiting = DailyReviewState {
+            last: Some(at(24, 0)),
+            quiet_reviews: 1,
+            ..idle()
+        };
+        assert!(waiting.due(at(48, 0), rhythm()) && waiting.due(at(120, 0), rhythm()));
+        // Away and the Check-ins choice are not holds: there is nothing here to set for them.
+        let DailyReviewHolds {
+            spend_limit_reached: _,
+            plane_draining: _,
+            computer_stopped: _,
+            owner_message_unread: _,
+        } = clear;
+    }
+
+    #[test]
     fn it_does_not_stack_with_a_check_in() {
         // A check-in was asked at 08:55 the next day: the review waits out the settling time.
         let checked = DailyReviewState {
@@ -473,7 +548,11 @@ mod tests {
             stirred_at: Some(at(200, 0)),
             ..three.clone()
         };
-        assert!(stirred.due(at(200, 1), rhythm()));
+        assert!(
+            !stirred.due(at(200, 14), rhythm()),
+            "not in the same breath as Exec's answer to them"
+        );
+        assert!(stirred.due(at(200, 15), rhythm()));
         // A review that did start Work does not count toward going quiet.
         let working = DailyReviewState {
             last: Some(at(72, 0)),
