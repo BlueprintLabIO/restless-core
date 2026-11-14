@@ -5,6 +5,13 @@
 **Authority:** Subordinate to `ARCHITECTURE.md`; empirical claims are indexed in
 `experiment/coordination/EVIDENCE.md`.
 
+> **Note, November 2026: the EXP-17 finding is retired.** This document cites EXP-17 in two places,
+> under "Supervision is a function the lead adds when workers do" and under "Contingent conclusions",
+> for how much time and spend a supervising lead adds. That result came from four single runs on tasks
+> one worker already finished without mistakes. It is too small to support a general figure, so we no
+> longer quote it. Both passages are left as written, as a record of what was believed at the time. See
+> [why the programme was archived](https://github.com/BlueprintLabIO/restless-core/blob/research/org-intel-programme/experiment/archive/2026-11-coordination-programme/ARCHIVED.md).
+
 ## Central proposition
 
 > **An organisation is bounded minds exchanging lossy information to produce coherent outcomes.**
