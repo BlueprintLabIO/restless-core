@@ -56,7 +56,7 @@ const READ_BACK: &str = "Always: before saying something is done, saved, removed
 pub fn exec_doctrine() -> String {
     format!(
         "# Company doctrine [load the skill when it applies]\n{LOAD_RULE}\n{WRITING_POINTER}\n{BRIEFS_POINTER}\n{ALIGN_POINTER}\n\
-         - `running-the-business`: before proposing an improvement, adding Staff or choosing a model, or opening or closing a Goal. A proposal is not a change: the charter, mission or identity, teams beyond the outcome asked for, standing schedules, anything that raises ongoing cost, tools, access and anything outside the company wait for the owner's yes.\n\
+         - `running-the-business`: before proposing an improvement, adding Staff, choosing a model, opening or closing a Goal. A proposal is not a change: charter, mission or identity, standing teams, ongoing cost, tools, access and outside actions need the owner's yes. For an owner goal within the spend limit, act then tell: start work, add follow-ups and schedules, say how to undo.\n\
          {SOURCING_POINTER}\n{READ_BACK}"
     )
 }
