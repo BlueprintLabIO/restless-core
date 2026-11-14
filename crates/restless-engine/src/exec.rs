@@ -1861,11 +1861,22 @@ async fn gather_snapshot(
     // the fan-out bounded so a slow database is not flooded with snapshot
     // work. Reuse Work and effect rows below instead of rereading them for
     // organisational signals. Focus -> conversation remains ordered below.
-    let (work, goals, legal_identity, effect_records) = tokio::try_join!(
+    let (work, goals, legal_identity, effect_records, company_name_chosen) = tokio::try_join!(
         async { org.list_work().await.map_err(anyhow::Error::from) },
         async { org.list_goals().await.map_err(anyhow::Error::from) },
         crate::legal::safe_projection(authority, &config.name),
         authority.records_of_kind(&config.name, "effect"),
+        // Only onboarding asks whether the shown name was chosen: a recorded rename says so.
+        // Without one it is the name generated at creation (here, or issued by Cloud).
+        async {
+            if !config.mission.trim().is_empty() {
+                return Ok::<bool, anyhow::Error>(true);
+            }
+            Ok(!authority
+                .records_of_kind(&config.name, "company_renamed")
+                .await?
+                .is_empty())
+        },
     )?;
     let effect_ledger = crate::reconcile::effect_ledger(authority, &config.name, &effect_records)
         .await?
@@ -2115,6 +2126,7 @@ async fn gather_snapshot(
             .display_name
             .clone()
             .unwrap_or_else(|| crate::company::display_name(&config.name)),
+        company_name_chosen,
         owner_actor_id: owner_actor_id.to_string(),
         human_is_membership_owner,
         owner_set_aside,

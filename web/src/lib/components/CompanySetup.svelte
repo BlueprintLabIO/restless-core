@@ -408,6 +408,21 @@
 	$effect(() => () => {
 		if (header) header.name = null;
 	});
+	/* The Exec renames the company the moment the owner asks; its reply carries the new name, so
+	 * the header and card read it now rather than at the next poll. */
+	let nameCheckedFor = '';
+	$effect(() => {
+		const named = reply?.intent?.proposedName?.trim() ?? '';
+		if (!reply || !named || !currentName || named === currentName) return;
+		if (nameCheckedFor === reply.id) return;
+		nameCheckedFor = reply.id;
+		for (const queryKey of [
+			queryKeys.companies,
+			queryKeys.attention(companyId),
+			queryKeys.cockpit(companyId)
+		])
+			void queryClient.invalidateQueries({ queryKey });
+	});
 
 	/* A company that already has a charter has met its owner. */
 	$effect(() => {
