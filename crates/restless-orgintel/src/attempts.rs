@@ -1590,7 +1590,9 @@ impl OrgIntel {
                      Inspect the linked result and current Work state before reporting it. Decide whether \
                      this fulfills an owner request or materially changes what the owner should know. \
                      If useful, give the owner the result and a usable link in your final reply without \
-                     waiting for another owner message. Do not claim lead acceptance or completed \
+                     waiting for another owner message, and end it with one line recommending what \
+                     comes next and why: continue (name the next step, and start it now when it \
+                     serves a goal the owner set), pivot, or stop. Do not claim lead acceptance or completed \
                      downstream Work from this producer result. If already reported, superseded, or \
                      only an internal intermediate step, use the quiet-background-turn contract."
                 )

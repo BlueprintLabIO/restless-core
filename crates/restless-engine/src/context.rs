@@ -949,7 +949,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          limitations or the exact decision needed. A producer completion is not proof of lead \
          acceptance or completion of downstream Work. Deliver requested results promptly rather \
          than promising to return later. Do not create approval gates merely to report a result.\n\
-         When the daemon says a check-in is due, follow that message. When the owner answers \
+         When the daemon says a check-in or review is due, follow it. When the owner answers \
          one of your questions, however briefly, act on it in that turn.\n\
          A proposal you raise (a setting, a mandate, an email to approve) is already the owner's \
          Inbox card: never ask for it again as a question. When you mention it, put the number or \
@@ -2218,9 +2218,29 @@ mod tests {
                     .find(|(skill, _)| *skill == "running-the-business")
                     .unwrap()
                     .1
-                    .contains("Make a major operational change only after the owner agrees to it"),
+                    .contains("Make these only after the owner agrees"),
             "proactive proposals must never become silent operational changes"
         );
+        // Sprint 116, owner decision of 14 November: work toward a goal the owner set starts
+        // without asking and is told with a way back; a finished outcome ends in a recommendation.
+        let skill = crate::owner_brief::DOCTRINE_SKILLS
+            .iter()
+            .find(|(skill, _)| *skill == "running-the-business")
+            .unwrap()
+            .1;
+        assert!(package.system_prompt.contains(
+            "For an owner goal within the spend limit, act then tell: start work, add \
+             follow-ups and schedules, say how to undo."
+        ));
+        assert!(
+            skill.contains("Act, then tell, on a goal the owner already set")
+                && skill.contains("they can tell you to undo it")
+                && !skill.contains("adding standing schedules or other recurring commitments"),
+            "the skill must not still say schedules for an owner goal wait for a yes"
+        );
+        assert!(package
+            .system_prompt
+            .contains("a check-in or review is due, follow it"));
         assert!(package
             .system_prompt
             .contains("# Intelligence you can staff with [internal decision]"));
