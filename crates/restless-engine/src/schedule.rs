@@ -793,6 +793,47 @@ async fn check_in_with_owner(
     }
 }
 
+/// The company moves first (`restless_orgintel::daily_review`): once a day, for a company with
+/// an open goal that has nothing in motion or is nearly due, Exec is asked to start the next
+/// step and tell the owner. This reads facts only; with no such goal it never wakes a model. It
+/// waits while the plane is draining for an update, while the spend limit is reached, for a
+/// computer the owner stopped and for an unread owner message. It does not wait for an owner
+/// who is away (the company keeps working) and is not the Check-ins notification choice, which
+/// is about messages. A company with no model never gets here.
+async fn review_goals_daily(
+    daemon: &Arc<Daemon>,
+    config: &CompanyConfig,
+    org: &OrgIntel,
+    company: &str,
+) {
+    let rhythm = daily_review_rhythm();
+    let now = Utc::now();
+    match org.daily_review_state().await {
+        Ok(state) if state.due(now, rhythm) => {}
+        Ok(_) => return,
+        Err(error) => {
+            tracing::warn!(company, "the daily review is unreadable: {error:#}");
+            return;
+        }
+    }
+    if daemon.lifecycle.tasks_paused()
+        || !daemon.spend.budget_state(config).is_available()
+        || !computer_runs_on_demand(daemon, company).await
+    {
+        return;
+    }
+    match org.signal_daily_review_at(now, rhythm).await {
+        Ok(None) => {}
+        Ok(Some(state)) => tracing::info!(
+            company,
+            goals = state.listed(now).len(),
+            quiet_reviews = state.quiet_reviews,
+            "asked Exec for the daily review of open goals"
+        ),
+        Err(error) => tracing::warn!(company, "Exec was not asked for a daily review: {error:#}"),
+    }
+}
+
 async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
     if daemon.staff.take_resource_retry_hint() {
         return OVERDUE_RETRY_INTERVAL;
@@ -890,6 +931,16 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
                     );
                 }
             }
+            // The same for the daily review: one that is due but held must not spin the timer.
+            if let Ok(Some(next)) = org.next_daily_review_at(daily_review_rhythm()).await {
+                if next > now {
+                    earliest = Some(
+                        earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
+                            current.min(next)
+                        }),
+                    );
+                }
+            }
         }
     }
     match earliest {
@@ -952,6 +1003,8 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     recheck_blocked_work(daemon, &org, company).await;
     review_stale_owner_items(daemon, &org, company).await;
     check_in_with_owner(daemon, &config, &org, company).await;
+    // After the check-in, never with it: a review waits out a check-in asked in this scan.
+    review_goals_daily(daemon, &config, &org, company).await;
     if daemon.runtime_bridges.is_hosted() {
         let Ok(identity) =
             crate::runtime_bridge::expected_identity(&daemon.authority, company).await
@@ -2555,6 +2608,21 @@ fn checkin_rhythm() -> restless_orgintel::CheckinRhythm {
     restless_orgintel::CheckinRhythm {
         every: seconds("RESTLESS_CHECKIN_EVERY_SECS").unwrap_or(default.every),
         nudge_after: seconds("RESTLESS_CHECKIN_NUDGE_AFTER_SECS").unwrap_or(default.nudge_after),
+    }
+}
+
+/// How often open goals get a daily review: every 24 hours. `RESTLESS_DAILY_REVIEW_EVERY_SECS`
+/// shortens it for tests and local stacks (the settling time against check-ins shortens with it).
+fn daily_review_rhythm() -> restless_orgintel::DailyReviewRhythm {
+    restless_orgintel::DailyReviewRhythm {
+        every: std::env::var("RESTLESS_DAILY_REVIEW_EVERY_SECS")
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|value| *value > 0)
+            .map_or(
+                restless_orgintel::DAILY_REVIEW_EVERY,
+                chrono::Duration::seconds,
+            ),
     }
 }
 

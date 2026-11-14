@@ -163,7 +163,7 @@ impl OrgIntel {
                      AND (said.to_actor IS NULL OR said.to_actor=message.from_actor) \
                      AND said.id > (checkin.body->>'message_mark')::bigint \
                      AND said.id < message.id \
-                   WHERE checkin.kind='exec_checkin' \
+                   WHERE checkin.kind IN ('exec_checkin','exec_daily_review') \
                      AND NOT EXISTS (SELECT 1 FROM messages earlier \
                        WHERE earlier.from_actor=message.from_actor AND earlier.id < message.id \
                          AND earlier.id > (checkin.body->>'message_mark')::bigint)) \
