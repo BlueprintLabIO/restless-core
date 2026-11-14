@@ -23,6 +23,18 @@ choice of model, and nothing reads replies aloud.
   company says so in its Inbox with a one-tap fix, never a quiet fallback.
 - [ ] A4 The Exec names the company during onboarding from what the owner says (the blog company
   kept the placeholder "Jolly Heron" after being asked to rename itself).
+  - Cause (lines at f86d4d9c). Both halves were true. Onboarding told the Exec the owner had
+    already chosen the name: `crates/restless-engine/src/context.rs:771` appended 'The owner
+    named the company "…"' and `crates/restless-engine/prompts/welcome-the-owner.md:8` and `:33`
+    said the same, so a generated "Jolly Heron" was kept as the owner's choice. And the Exec had
+    no way to rename: `DirectionOperation` (`crates/restless-engine/src/direction.rs:371-379`)
+    ended at the charter operations, and the only writer of `display_name` was the owner's own
+    settings session (`update_company_setup`, `crates/restless-owner/src/owner.rs:6838`), so the
+    name could change only through `proposedName` (`welcome-the-owner.md:51`) at the read-back.
+  - Fix. Onboarding says whether the name was chosen (a recorded `company_renamed`) or is a
+    placeholder to replace from the owner's words, and `restless charter rename` lets the Exec
+    rename at once on the owner's word. On Cloud the name lives in the owner's account, so the
+    command refuses there and the name goes through `proposedName` or Company settings.
 
 ## B. Account defaults that new companies inherit
 

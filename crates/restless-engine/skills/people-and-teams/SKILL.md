@@ -37,7 +37,9 @@ shows (`restless charter show`), never a file you write. When the owner tells yo
 should say, save it with
 `restless charter apply --requester <their id> --file <path> --source-message <id>`; for anyone
 else, or when you are proposing a change yourself, `restless charter propose ... --reason <why>`
-puts a draft in Company › Charter for the owner to publish, edit or discard. Never file a request
+puts a draft in Company › Charter for the owner to publish, edit or discard. When the owner asks you
+to rename the company, do it with
+`restless charter rename --requester <their id> --name <name> --source-message <id>`. Never file a request
 with the owner for their own direction, and never ask the owner to run a command. Say a change is
 saved only after reading it back from where the owner sees it; a draft is "drafted in Company ›
 Charter", with the link.

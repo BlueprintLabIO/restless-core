@@ -122,6 +122,18 @@ pub(crate) enum CharterCommand {
         #[arg(long)]
         source_message: Option<String>,
     },
+    /// Rename the company because the owner asked or agreed: the name the header, the company
+    /// card and the switcher show. Refused for anyone else.
+    Rename {
+        /// The owner, by Actor id.
+        #[arg(long)]
+        requester: String,
+        /// The new name, as the owner wants it written.
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        source_message: Option<String>,
+    },
 }
 
 impl CharterCommand {
@@ -147,6 +159,14 @@ impl CharterCommand {
             } => json!({
                 "operation":"charter_propose","requester":requester,"markdown":read(&file)?,
                 "reason":reason,"source_message":source_message,
+            }),
+            Self::Rename {
+                requester,
+                name,
+                source_message,
+            } => json!({
+                "operation":"company_rename","requester":requester,"name":name,
+                "source_message":source_message,
             }),
         };
         Ok(envelope(company, operation))

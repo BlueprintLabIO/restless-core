@@ -1346,6 +1346,23 @@ pub async fn execute(
             )
             .await?
         }
+        DirectionOperation::CompanyRename {
+            requester,
+            name,
+            source_message,
+        } => {
+            company_rename(
+                authority,
+                root,
+                company,
+                &names,
+                by,
+                &requester,
+                &name,
+                source_message.as_deref(),
+            )
+            .await?
+        }
     })
 }
 
@@ -1480,6 +1497,93 @@ async fn charter_apply(
         "status": outcome.evidence_status,
         "say": "Saved to Company › Charter.",
     }))
+}
+
+/// Rename the company on the owner's word (Sprint 107 A4: the blog company kept "Jolly Heron"
+/// after being asked to rename itself, because Exec had no way to). The shown name is what the
+/// header, the company card and the switcher read; it is read back before saying it is done.
+#[allow(clippy::too_many_arguments)]
+async fn company_rename(
+    authority: &AuthorityStore,
+    root: &std::path::Path,
+    company: &str,
+    names: &Names,
+    by: &str,
+    requester: &str,
+    name: &str,
+    source_message: Option<&str>,
+) -> std::result::Result<Value, DirectionError> {
+    let owner = company_owner(authority, company).await?;
+    if requester != owner && requester != "owner" {
+        return Err(DirectionError::NotYours(format!(
+            "Only {} renames the company. Tell them the name that was suggested.",
+            names.person(&owner).name
+        )));
+    }
+    // On Cloud the owner's account owns the name and every sign-in brings it back, so a name
+    // saved only here would quietly revert. Only the owner's own session renames it there.
+    if std::env::var("RESTLESS_ENTRY_MODE").as_deref() == Ok("network") {
+        return Err(DirectionError::Invalid(
+            "On Cloud the company's name lives in the owner's account. During setup put it in \
+             `proposedName` (confirming the read-back renames it); after setup, link them to \
+             Company settings, where Name saves it."
+                .into(),
+        ));
+    }
+    let (from, to) = rename_shown_company(root, company, name)?;
+    if from != to {
+        authority
+            .emit(
+                company,
+                "company_renamed",
+                Some(by),
+                json!({"from": from, "to": to, "source_message": source_message}),
+            )
+            .await
+            .map_err(DirectionError::Store)?;
+    }
+    Ok(json!({
+        "name": to,
+        "source_message": source_message,
+        "say": format!("The company is now called {to}."),
+    }))
+}
+
+/// Save `name` as the company's shown name and read it back. Returns the name shown before and
+/// after. The same bounds as the owner's own Name field: not empty, up to 120 UTF-16 units.
+fn rename_shown_company(
+    root: &std::path::Path,
+    company: &str,
+    name: &str,
+) -> std::result::Result<(String, String), DirectionError> {
+    let name = name.trim();
+    if name.is_empty() || name.encode_utf16().count() > 120 {
+        return Err(DirectionError::Invalid(
+            "A company name is 1 to 120 characters.".into(),
+        ));
+    }
+    let shown = |config: &crate::runtime::CompanyConfig| {
+        config
+            .display_name
+            .clone()
+            .unwrap_or_else(|| crate::company::display_name(&config.name))
+    };
+    let mut config = crate::runtime::CompanyConfig::load(root, company)
+        .map_err(|error| DirectionError::Missing(format!("{error:#}")))?;
+    let from = shown(&config);
+    if config.display_name.as_deref() != Some(name) {
+        config.display_name = Some(name.to_string());
+        crate::runtime::CompanyConfig::save(root, &config).map_err(DirectionError::Store)?;
+    }
+    let saved = crate::runtime::CompanyConfig::load(root, company)
+        .map_err(|error| DirectionError::Missing(format!("{error:#}")))?;
+    if saved.display_name.as_deref() != Some(name) {
+        return Err(DirectionError::Store(anyhow!(
+            "the name did not change; the company is still called {}",
+            shown(&saved)
+        )));
+    }
+    Ok((from, name.to_string()))
 }
 
 /// Draft a charter change for the owner. It shows in Company › Charter as a draft over the
@@ -1649,6 +1753,71 @@ mod tests {
             self.authority.delete_test_company(&self.company).await.ok();
             self.org.drop_schema().await.unwrap();
         }
+    }
+
+    /// Sprint 107 A4: "rename yourself to X" takes effect in the shown name the header and the
+    /// company card read, over a generated placeholder, and a bad name changes nothing.
+    #[test]
+    fn an_explicit_rename_replaces_the_placeholder_name() {
+        let company = format!("rename{}_test", std::process::id());
+        let root = std::env::temp_dir().join(&company);
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let mut config: crate::runtime::CompanyConfig =
+            toml::from_str(&format!("name = \"{company}\"\nmodel = \"openai/existing\"\n"))
+                .unwrap();
+        config.display_name = Some("Jolly Heron".into());
+        crate::runtime::CompanyConfig::save(&root, &config).unwrap();
+
+        let (from, to) = rename_shown_company(&root, &company, "  Field Notes  ").unwrap();
+        assert_eq!((from.as_str(), to.as_str()), ("Jolly Heron", "Field Notes"));
+        let saved = crate::runtime::CompanyConfig::load(&root, &company).unwrap();
+        assert_eq!(saved.display_name.as_deref(), Some("Field Notes"));
+
+        assert!(rename_shown_company(&root, &company, "   ").is_err());
+        assert!(rename_shown_company(&root, &company, &"x".repeat(121)).is_err());
+        let kept = crate::runtime::CompanyConfig::load(&root, &company).unwrap();
+        assert_eq!(kept.display_name.as_deref(), Some("Field Notes"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The owner's rename goes through the Exec's direction path and is recorded as the
+    /// company_renamed fact onboarding reads; nobody else may rename the company.
+    #[tokio::test]
+    async fn only_the_owner_renames_the_company_and_it_is_recorded() {
+        let Some(f) = fixture("n").await else { return };
+        let names = f.names().await;
+        let root = std::env::temp_dir().join(&f.company);
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let mut config: crate::runtime::CompanyConfig = toml::from_str(&format!(
+            "name = \"{}\"\nmodel = \"openai/existing\"\n",
+            f.company
+        ))
+        .unwrap();
+        config.display_name = Some("Jolly Heron".into());
+        crate::runtime::CompanyConfig::save(&root, &config).unwrap();
+
+        let refused = company_rename(
+            &f.authority, &root, &f.company, &names, "exec", "human-bianca", "Bianca Co", None,
+        )
+        .await;
+        assert!(matches!(refused, Err(DirectionError::NotYours(_))));
+
+        let done = company_rename(
+            &f.authority, &root, &f.company, &names, "exec", "owner", "Field Notes", Some("41"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(done["name"], "Field Notes");
+        let saved = crate::runtime::CompanyConfig::load(&root, &f.company).unwrap();
+        assert_eq!(saved.display_name.as_deref(), Some("Field Notes"));
+        let records = f
+            .authority
+            .records_of_kind(&f.company, "company_renamed")
+            .await
+            .unwrap();
+        assert_eq!(records.len(), 1);
+        std::fs::remove_dir_all(&root).ok();
+        f.done().await;
     }
 
     /// Acceptance 1 and 7: a member's content rule for a team nobody owns applies at once, the

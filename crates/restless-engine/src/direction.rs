@@ -382,6 +382,13 @@ pub enum DirectionOperation {
         reason: String,
         source_message: Option<String>,
     },
+    /// Rename the company because the owner asked: the name the header, the company card and the
+    /// company switcher show. Refused for anyone else's direction.
+    CompanyRename {
+        requester: String,
+        name: String,
+        source_message: Option<String>,
+    },
 }
 
 /// A charter change Exec drafted, shown in Company › Charter and the Inbox until the owner
