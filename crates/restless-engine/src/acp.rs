@@ -3200,7 +3200,16 @@ pub async fn purge_exact_secret_residue(
         .await
         .context("purge agent capability residue")?;
     if !output.status.success() {
-        anyhow::bail!("agent profile retained a scoped capability after cleanup");
+        // The last stderr line is the script's own reason (a path and a
+        // message, never file contents or the secret, which travels only in
+        // the environment). Without it a vanished file and a real residue
+        // read the same.
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let reason = stderr.lines().rev().find(|line| !line.trim().is_empty());
+        anyhow::bail!(
+            "agent profile capability cleanup failed: {}",
+            reason.unwrap_or("no reason reported").trim()
+        );
     }
     Ok(())
 }
@@ -3371,6 +3380,81 @@ fn pids_in_session(table: &str, session_id: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// The profile root is shared with other live sessions. Their files
+    /// vanishing or being atomically replaced mid-scan must not read as this
+    /// session's capability staying behind (2026-11-05: every Staff run under
+    /// memory pressure ended with "agent profile retained a scoped capability
+    /// after cleanup"), while a real residue is still cleared or refused.
+    #[test]
+    fn capability_purge_tolerates_other_sessions_churn_but_not_residue() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let root = std::env::temp_dir().join(format!("restless-purge-{}", uuid::Uuid::new_v4()));
+        let blobs = root.join("blobs");
+        std::fs::create_dir_all(&blobs).unwrap();
+        for index in 0..800 {
+            std::fs::write(blobs.join(format!("b{index}")), vec![b'.'; 2000]).unwrap();
+        }
+        let secret = "r1.regressionscopedcapability.signature";
+        let purge = |root: &std::path::Path| {
+            std::process::Command::new("python3")
+                .args(["-c", include_str!("purge_capability.py")])
+                .arg(root)
+                .env("RESTLESS_PURGE_SECRET", secret)
+                .output()
+                .expect("python3 runs the purge script")
+        };
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let churn = {
+            let (root, stop) = (root.clone(), stop.clone());
+            std::thread::spawn(move || {
+                let mut index = 0u64;
+                while !stop.load(Ordering::Relaxed) {
+                    index += 1;
+                    let temporary = root.join(format!("models.yml.{index}"));
+                    std::fs::write(&temporary, "other session").unwrap();
+                    std::fs::rename(&temporary, root.join("models.yml")).unwrap();
+                    let session = root.join(format!("sessions/s{}", index % 40));
+                    std::fs::create_dir_all(&session).unwrap();
+                    std::fs::write(session.join("x.log"), "other session").unwrap();
+                    let _ = std::fs::remove_dir_all(
+                        root.join(format!("sessions/s{}", (index + 20) % 40)),
+                    );
+                    std::fs::write(root.join("agent.db-wal"), "wal").unwrap();
+                    let _ = std::fs::remove_file(root.join("agent.db-wal"));
+                }
+            })
+        };
+        let mut failures = Vec::new();
+        for run in 0..12 {
+            let residue = blobs.join(format!("b{run}"));
+            std::fs::write(&residue, format!("before {secret} after")).unwrap();
+            let output = purge(&root);
+            if !output.status.success() {
+                failures.push(String::from_utf8_lossy(&output.stderr).trim().to_string());
+            }
+            assert_eq!(
+                std::fs::metadata(&residue).unwrap().len(),
+                0,
+                "residue cleared"
+            );
+        }
+        stop.store(true, Ordering::Relaxed);
+        churn.join().unwrap();
+        assert!(
+            failures.is_empty(),
+            "purge failed under churn: {failures:#?}"
+        );
+
+        // A residue the script may not clear still fails closed.
+        let large = blobs.join("large");
+        let mut contents = vec![b'.'; 5 * 1024 * 1024];
+        contents.extend_from_slice(secret.as_bytes());
+        std::fs::write(&large, contents).unwrap();
+        let output = purge(&root);
+        assert!(!output.status.success(), "large residue is refused");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     #[tokio::test]
     #[ignore = "requires an isolated RESTLESS_TEST_SESSION_CONTAINER with Docker init"]
     async fn session_cleanup_waits_for_exit_and_rejects_live_residue() {
