@@ -62,6 +62,9 @@ pub struct ContextSnapshot {
     pub company: String,
     /// What the owner sees the company called; a new company has a generated one.
     pub company_display: String,
+    /// Whether someone chose `company_display` (a recorded rename); otherwise it is the
+    /// placeholder generated at creation, which the Exec replaces during onboarding.
+    pub company_name_chosen: bool,
     pub owner_actor_id: String,
     pub human_is_membership_owner: bool,
     /// Standing rules for every company actor, compiled from the canonical
@@ -1052,9 +1055,19 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         // A company with no charter is meeting its owner: Exec interviews instead of working.
         welcome = if snapshot.mission.trim().is_empty() && snapshot.human_is_membership_owner {
             format!(
-                "\n# Meeting the owner for the first time [owner-only shared contract]\n{}\n\nThe owner named the company \"{}\".\n",
+                "\n# Meeting the owner for the first time [owner-only shared contract]\n{}\n\n{}\n",
                 crate::owner_brief::WELCOME_THE_OWNER.trim(),
-                snapshot.company_display
+                if snapshot.company_name_chosen {
+                    format!(
+                        "The owner named the company \"{}\". Keep that name in `proposedName` unless they ask for another.",
+                        snapshot.company_display
+                    )
+                } else {
+                    format!(
+                        "The company is called \"{}\", a placeholder generated when it was created: the owner has not chosen a name. Put a real one in `proposedName`: the name they use or ask for, otherwise a short, plain name drawn from their own words about the company. Keep the placeholder only if they say they want it.",
+                        snapshot.company_display
+                    )
+                }
             )
         } else {
             String::new()
@@ -1482,6 +1495,7 @@ mod tests {
         ContextSnapshot {
             company: "probe".into(),
             company_display: "Hopeful Piano".into(),
+            company_name_chosen: true,
             owner_actor_id: "owner".into(),
             human_is_membership_owner: true,
             exec_inbox_actions: vec![],
@@ -1675,6 +1689,24 @@ mod tests {
             .system_prompt
             .contains("# Company skills [shared contract]"));
         assert!(!package.system_prompt.contains("[shared skill]"));
+    }
+
+    /// Sprint 107 A4: the blog company kept "Jolly Heron" because onboarding told the Exec the
+    /// owner had named it. A generated name must reach the Exec as a placeholder to replace.
+    #[test]
+    fn onboarding_replaces_a_generated_name_and_keeps_a_chosen_one() {
+        let mut meeting = snapshot();
+        meeting.mission = String::new();
+        meeting.company_name_chosen = false;
+        let placeholder = assemble(&meeting).system_prompt;
+        assert!(placeholder.contains("# Meeting the owner for the first time"));
+        assert!(placeholder.contains("\"Hopeful Piano\", a placeholder"));
+        assert!(!placeholder.contains("The owner named the company"));
+
+        meeting.company_name_chosen = true;
+        let chosen = assemble(&meeting).system_prompt;
+        assert!(chosen.contains("The owner named the company \"Hopeful Piano\""));
+        assert!(!chosen.contains("a placeholder generated"));
     }
 
     /// A provider's prompt cache reuses only an unchanged prefix. Two wakes that differ only in
