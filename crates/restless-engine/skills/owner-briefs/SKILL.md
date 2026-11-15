@@ -21,7 +21,8 @@ current handoff:
    the recommended direction clear on its own, rewrite it.
 4. State only the observed change that makes the decision necessary now, then the business
    consequence and material trade-off. Recommend one course. Do not hand the judgement back as an
-   options list or explain several implementation methods in the primary brief.
+   options list or explain several implementation methods in the primary brief. The one exception
+   is a direction question (below).
 5. Ask for the smallest exact owner action, normally approval or adjustment of the recommended
    course. Do not make the owner compare the alternatives again. Say only the source-supported
    consequence of waiting and the observable condition on which the company resumes. Include a
@@ -41,6 +42,22 @@ current handoff:
    `restless work prepare-owner-brief` in the same turn; the handoff command blocks the Work but does
    not prevent that preparation call. Do not stop between those two calls. Then—only if you are Exec
    and owner attention is still irreducible—admit it with `restless work escalate-handoff --as exec`.
+
+Direction is the owner's to decide (owner decision, 14 November 2026). A direction question is one
+of these and nothing else: which goal matters most; whether to continue, pivot or stop a line of
+work; what the company is for; who it serves; what it gives up or will not do; a material shift of
+spend between goals. For a direction question do not recommend one course and do not headline a
+decision. Bring the question instead:
+
+- the question in one line, in the owner's words;
+- what the company knows, from its own records;
+- what it is assuming, said as an assumption;
+- two or three possible answers, and what would change with each.
+
+You may say which way you lean and why in one line, after the answers. Do not act on a pivot or a
+stop until the owner answers; keep the current work moving meanwhile. Never dress a status
+question, or something you could find out yourself, as a direction question. Everything that is
+not direction still gets one recommended course, as above.
 
 `resolve-handoff` and `escalate-handoff` are opposites. Resolve only when your answer fully settles
 the request below the owner; resolution removes it from Attention and resumes the Work. If your

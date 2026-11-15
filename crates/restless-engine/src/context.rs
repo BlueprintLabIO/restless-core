@@ -1277,6 +1277,72 @@ mod tests {
         assert!(bytes <= 52_900, "Exec fixed prompt grew to {bytes} bytes");
     }
 
+    /// Owner decision, 14 November (Sprint 117): on direction the company brings questions and
+    /// its assumptions and the owner decides; on everything else it still recommends one
+    /// course. Both halves must be said wherever either is, or one rule silently wins.
+    #[test]
+    fn direction_is_the_owners_and_everything_else_still_gets_one_recommended_course() {
+        for rule in [
+            "**Direction is the owner's.**",
+            "whether to continue, pivot or stop a line",
+            "bring the owner the question",
+            "On everything else, recommend one course and act.",
+        ] {
+            assert!(COMPANY_OPERATING_RULES.contains(rule), "{rule}");
+        }
+        assert!(
+            !COMPANY_OPERATING_RULES.contains("what matters next"),
+            "the rules must not still say models decide what matters next"
+        );
+        let skill = |name: &str| {
+            crate::owner_brief::DOCTRINE_SKILLS
+                .iter()
+                .find(|(skill, _)| *skill == name)
+                .unwrap()
+                .1
+        };
+        let briefs = skill("owner-briefs");
+        for part in [
+            "Recommend one course.",
+            "The one exception\n   is a direction question",
+            "For a direction question do not recommend one course",
+            "what would change with each",
+            "Do not act on a pivot or a\nstop until the owner answers",
+            "Everything that is\nnot direction still gets one recommended course",
+        ] {
+            assert!(briefs.contains(part), "owner-briefs lost {part:?}");
+        }
+        let business = skill("running-the-business");
+        for part in [
+            "You choose the next step toward a\ngoal; you do not choose the goal.",
+            "On everything else, recommend\none course and act.",
+            // Assumptions are written where the work is commissioned, in a shape read back
+            // without a model.
+            "    Assumptions:\n",
+            "    Least sure of:",
+            // A quiet owner and a thin mission: act cheaply, write the assumption, ask once.
+            "do not\nstall and do not invent a direction",
+            "ask the owner once",
+            "Do not ask again until they are back.",
+        ] {
+            assert!(business.contains(part), "running-the-business lost {part:?}");
+        }
+        // The shape the skill teaches is the shape the reader accepts.
+        let taught = business
+            .split("this shape, so the company can read them back")
+            .nth(1)
+            .unwrap();
+        let read = restless_orgintel::read_assumptions(taught);
+        assert_eq!(read.assumptions.len(), 2, "{read:?}");
+        assert!(read.least_sure.is_some(), "{read:?}");
+        let mut quiet = snapshot();
+        quiet.operating_rules = COMPANY_OPERATING_RULES.to_string();
+        let package = assemble(&quiet);
+        assert!(package
+            .system_prompt
+            .contains("recommend one course and the smallest exact action. On direction, ask."));
+    }
+
     /// From the owner, 12 November ("exec is not fully aware of how the harness itself works"):
     /// Exec asked the owner to sign in to a test site to get a "sandbox" when the company computer
     /// already is one, raised an account request beside a lead's sign-in card for the same site,

@@ -183,7 +183,10 @@ Create persistent roles only when recurring responsibility and continuity improv
 The Exec is accountable for internal company coherence. It may:
 
 - interpret the owner mandate;
-- choose goals and milestones;
+- choose milestones and the next step toward a goal, and propose goals (direction itself is the
+  owner's since 14 November 2026: which goal matters most, whether to continue, pivot or stop a
+  line of work, what the company is for and who it serves reach the owner as questions with the
+  company's assumptions; see `COMPANY_OPERATING_RULES.md` §3);
 - allocate resources and form teams;
 - assign, pause, reassign, or abandon work;
 - select and change teamwork or process patterns;

@@ -1592,7 +1592,9 @@ impl OrgIntel {
                      If useful, give the owner the result and a usable link in your final reply without \
                      waiting for another owner message, and end it with one line recommending what \
                      comes next and why: continue (name the next step, and start it now when it \
-                     serves a goal the owner set), pivot, or stop. Do not claim lead acceptance or completed \
+                     serves a goal the owner set), pivot, or stop. To pivot or stop a goal is the \
+                     owner's call: say which you would choose and why, ask them, and keep the \
+                     current work going until they answer. Do not claim lead acceptance or completed \
                      downstream Work from this producer result. If already reported, superseded, or \
                      only an internal intermediate step, use the quiet-background-turn contract."
                 )
