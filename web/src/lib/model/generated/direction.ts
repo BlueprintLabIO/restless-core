@@ -122,6 +122,16 @@ source_request: string | null,
  */
 label: string, };
 
+export type DirectionBrief = { 
+/**
+ * The brief as Exec wrote it, in plain words, without its markers.
+ */
+text: string, 
+/**
+ * When Exec wrote it. A brief from an earlier day is shown dated.
+ */
+at: string, };
+
 export type DirectionDigest = { 
 /**
  * The company-local day, `YYYY-MM-DD`.
@@ -134,7 +144,16 @@ summary: string, applied: Array<DirectionApplied>,
 /**
  * Open requests, oldest first: those older than a day lead.
  */
-requests_waiting: Array<DirectionRequest>, };
+requests_waiting: Array<DirectionRequest>, 
+/**
+ * The latest brief, for the owner only. Absent until a daily review has produced one.
+ */
+brief?: DirectionBrief, 
+/**
+ * One calm line on where the company stands, for the owner only, shown when there is no
+ * brief: "2 goals open · work in motion on 1". Read from rows; it wakes nothing.
+ */
+standing?: string, };
 
 export type DirectionRequestPage = { items: Array<DirectionRequest>, };
 

@@ -37,7 +37,7 @@ pub const CHECKIN_MESSAGE_PREFIX: &str = "Check-in";
 
 pub(crate) const OWNER_WROTE: &str = "(m.from_actor='owner' OR EXISTS (SELECT 1 FROM human_principal_actor_bindings b \
      WHERE b.actor_id=m.from_actor AND b.membership_role='owner' AND b.membership_status='active'))";
-const TO_OWNER: &str = "(m.to_actor IS NULL OR m.to_actor='owner' OR EXISTS (SELECT 1 FROM human_principal_actor_bindings b \
+pub(crate) const TO_OWNER: &str = "(m.to_actor IS NULL OR m.to_actor='owner' OR EXISTS (SELECT 1 FROM human_principal_actor_bindings b \
      WHERE b.actor_id=m.to_actor AND b.membership_role='owner' AND b.membership_status='active'))";
 
 /// The two intervals, so a test or a local stack can shorten them.
@@ -330,11 +330,12 @@ impl OrgIntel {
         ))
         .fetch_one(&mut *tx)
         .await?;
-        // Nor in the same scan as a daily review or just after one: that Exec turn settles first,
-        // and what it posts moves this rhythm on by itself.
+        // Nor in the same scan as a daily review or a direction session, or just after one:
+        // that Exec turn settles first, and what it posts moves this rhythm on by itself.
         let just_reviewed: bool = sqlx::query_scalar(&format!(
-            "SELECT EXISTS(SELECT 1 FROM events e WHERE e.kind='{}' AND e.created_at > $1)",
-            crate::daily_review::DAILY_REVIEW_EVENT
+            "SELECT EXISTS(SELECT 1 FROM events e WHERE e.kind IN ('{}','{}') AND e.created_at > $1)",
+            crate::daily_review::DAILY_REVIEW_EVENT,
+            crate::direction_session::DIRECTION_SESSION_EVENT
         ))
         .bind(now - crate::daily_review::settle_for(rhythm.every))
         .fetch_one(&mut *tx)

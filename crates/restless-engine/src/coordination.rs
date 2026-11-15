@@ -2761,17 +2761,28 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                                 opportunity_source,
                             )
                             .await;
+                        // Work toward a goal says what it rests on (Sprint 117). Missing
+                        // assumptions never block it: the commissioner is told once, here.
+                        let assumptions_note = (goal_id.is_some()
+                            && restless_orgintel::read_assumptions(outcome).is_empty())
+                        .then_some(restless_orgintel::MISSING_ASSUMPTIONS_NOTE);
                         match added {
-                            Ok(id) => Response::ok(serde_json::json!({
-                                "work_id": id,
-                                "accountable_lead_id": accountable_lead,
-                                "producer_actor_id": owner,
-                                "commissioned_by": commissioned_by,
-                                "producing_topology": producing_topology,
-                                "skills": &request.orgintel.skills,
-                                "opportunity_id": opportunity_source.map(|source| source.opportunity_id),
-                                "source_schedule_id": opportunity_source.map(|source| source.schedule_id),
-                            })),
+                            Ok(id) => {
+                                let mut added = serde_json::json!({
+                                    "work_id": id,
+                                    "accountable_lead_id": accountable_lead,
+                                    "producer_actor_id": owner,
+                                    "commissioned_by": commissioned_by,
+                                    "producing_topology": producing_topology,
+                                    "skills": &request.orgintel.skills,
+                                    "opportunity_id": opportunity_source.map(|source| source.opportunity_id),
+                                    "source_schedule_id": opportunity_source.map(|source| source.schedule_id),
+                                });
+                                if let Some(note) = assumptions_note {
+                                    added["note"] = note.into();
+                                }
+                                Response::ok(added)
+                            }
                             Err(error) => Response::err(format!("{error:#}")),
                         }
                     }

@@ -21,11 +21,16 @@
 //!   the owner, which the check-in rhythm already counts from.
 //!
 //! Like a check-in it is a daemon message: not owner activity and not an org-review signal.
+//!
+//! What Exec writes the owner from a review is the day's brief (Sprint 117): what moved, what it
+//! is starting unless they say no, and what it needs from them. [`OrgIntel::latest_brief`] reads
+//! it back for the landing page and the notification, without waking anything.
 
 use chrono::{DateTime, Datelike as _, NaiveDate, Utc};
 use sqlx::Row as _;
 
-use crate::checkin::{CHECKIN_EVENT, OWNER_WROTE};
+use crate::checkin::{CHECKIN_EVENT, OWNER_WROTE, TO_OWNER};
+use crate::direction_session::DIRECTION_SESSION_EVENT;
 use crate::{ensure_direct_message_room_in_tx, OrgIntel, Result};
 
 /// How long after a daily review the next one is due.
@@ -43,6 +48,10 @@ pub const DAILY_REVIEW_MESSAGE_PREFIX: &str = "Daily review";
 /// Goals named in one message; the rest are counted.
 const LISTED_GOALS: usize = 6;
 const TITLE_CHARS: usize = 80;
+/// How long after a review Exec's message to the owner still counts as that review's brief.
+pub const BRIEF_WITHIN: chrono::Duration = chrono::Duration::hours(1);
+/// Things a brief may ask of the owner.
+pub const MAX_BRIEF_NEEDS: usize = 3;
 
 /// The settling time for a given interval: a quarter of it, at most [`DAILY_REVIEW_SETTLE`], so
 /// shortened test intervals shorten it too.
@@ -112,7 +121,7 @@ impl GoalStanding {
                 .is_some_and(|days| days <= DUE_SOON_DAYS)
     }
 
-    fn line(&self, today: NaiveDate) -> String {
+    pub(crate) fn line(&self, today: NaiveDate) -> String {
         let mut title: String = self.title.chars().take(TITLE_CHARS).collect();
         if self.title.chars().count() > TITLE_CHARS {
             title.push('…');
@@ -149,10 +158,27 @@ pub struct DailyReviewState {
     pub quiet_reviews: i64,
     /// When the owner last engaged or a goal last changed.
     pub stirred_at: Option<DateTime<Utc>>,
-    /// When Exec was last asked to check in.
+    /// When Exec was last asked to check in, or for a direction session.
     pub last_checkin: Option<DateTime<Utc>>,
+    /// Attempts that ended with a result, and that ended blocked or failed, since the last
+    /// review.
+    pub landed: i64,
+    pub stuck: i64,
     /// The open goals, soonest due first.
     pub goals: Vec<GoalStanding>,
+}
+
+/// The brief Exec wrote the owner from a daily review.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MorningBrief {
+    /// The review it answers; one brief per review.
+    pub review_id: i64,
+    pub message_id: i64,
+    /// The message as stored, markers included.
+    pub body: String,
+    pub at: DateTime<Utc>,
+    /// The owner has engaged since it was written: they have seen it or moved on.
+    pub answered: bool,
 }
 
 impl DailyReviewState {
@@ -211,15 +237,28 @@ impl DailyReviewState {
         if listed.len() > LISTED_GOALS {
             lines.push(format!("- and {} more", listed.len() - LISTED_GOALS));
         }
+        let moved = match (self.landed, self.stuck) {
+            (0, 0) => "nothing finished".to_string(),
+            (landed, 0) => format!("{landed} finished"),
+            (0, stuck) => format!("{stuck} blocked or failed"),
+            (landed, stuck) => format!("{landed} finished, {stuck} blocked or failed"),
+        };
         format!(
             "{DAILY_REVIEW_MESSAGE_PREFIX} due. The owner has not asked for this; it is the \
-             company moving on the goals they set. Goals that need a next step:\n{}\n\
+             company moving on the goals they set. Since the last review: {moved}. Goals that \
+             need a next step:\n{}\n\
              For each one, start the next step now: commission it to an accountable lead as Work \
              under that goal. Do not ask first; the owner set these goals and this stays inside \
-             the spend limit. Only when a goal is truly blocked on the owner, ask them one \
-             prepared question instead. Then write the owner one short message in plain words, \
-             with no ids and no commands: what you started and why, and that they can tell you \
-             to undo it. If nothing needs starting, stay quiet.",
+             the spend limit. End the outcome of what you commission with what it rests on: a \
+             line `Assumptions:`, up to three lines each starting `- `, and one line `Least sure \
+             of: …`. Only when a goal is truly blocked on the owner, ask them one prepared \
+             question instead. Then write the owner today's brief: one short message in plain \
+             words, with no ids and no commands, in three parts. What moved since the last \
+             brief. What you are starting today unless they say no, and why; they can tell you \
+             to undo it. What you need from them: at most {MAX_BRIEF_NEEDS} things, each \
+             answerable in a word. Lead with the part that matters most and leave out a part \
+             that is empty. If nothing moved, nothing needs starting and you need nothing, stay \
+             quiet.",
             lines.join("\n")
         )
     }
@@ -254,8 +293,17 @@ impl OrgIntel {
                    AND (changed.id IS NULL OR e.id > changed.id) \
                    AND (started.id IS NULL OR e.id > started.id)) AS quiet_reviews, \
                GREATEST(wrote.at, decided.at, acted.at, changed.at) AS stirred_at, \
-               (SELECT max(e.created_at) FROM events e WHERE e.kind='{CHECKIN_EVENT}') AS last_checkin \
-             FROM wrote, decided, acted, changed, started"
+               (SELECT max(e.created_at) FROM events e \
+                 WHERE e.kind IN ('{CHECKIN_EVENT}','{DIRECTION_SESSION_EVENT}')) AS last_checkin, \
+               (SELECT count(*) FROM work_attempts a \
+                 WHERE a.state IN ('produced','changes_requested') \
+                   AND a.finished_at > COALESCE(reviewed.through, '-infinity')) AS landed, \
+               (SELECT count(*) FROM work_attempts a \
+                 WHERE a.state IN ('blocked','failed') \
+                   AND a.finished_at > COALESCE(reviewed.through, '-infinity')) AS stuck \
+             FROM wrote, decided, acted, changed, started, \
+               (SELECT (SELECT (e.body->>'through')::timestamptz FROM events e \
+                         WHERE e.kind='{DAILY_REVIEW_EVENT}' ORDER BY e.id DESC LIMIT 1) AS through) reviewed"
         ))
         .fetch_one(&self.pool)
         .await?;
@@ -278,8 +326,54 @@ impl OrgIntel {
             quiet_reviews: row.get("quiet_reviews"),
             stirred_at: row.get("stirred_at"),
             last_checkin: row.get("last_checkin"),
+            landed: row.get("landed"),
+            stuck: row.get("stuck"),
             goals,
         })
+    }
+
+    /// The latest brief: the first thing Exec wrote the owner after a daily review, within
+    /// `within` of it, before the owner wrote again (after that, Exec is answering them) and
+    /// before Exec was asked for a check-in or a direction session (after that, it is answering
+    /// those).
+    /// A review Exec ended quietly has no brief, so the one before it stays the latest.
+    /// A read only: it wakes nothing.
+    pub async fn latest_brief(&self, within: chrono::Duration) -> Result<Option<MorningBrief>> {
+        let owner_wrote = OWNER_WROTE.replace("m.", "o.");
+        let row = sqlx::query(&format!(
+            "SELECT r.id AS review_id, brief.id AS message_id, brief.body, brief.created_at, \
+               (EXISTS (SELECT 1 FROM messages o WHERE o.to_actor='exec' AND o.id > brief.id \
+                          AND {owner_wrote}) \
+                OR EXISTS (SELECT 1 FROM owner_handoff_decisions d \
+                            WHERE d.state <> 'canceled' AND d.created_at > brief.created_at) \
+                OR EXISTS (SELECT 1 FROM events e WHERE e.kind='owner_activity' \
+                            AND e.created_at > brief.created_at)) AS answered \
+             FROM events r \
+             JOIN LATERAL ( \
+               SELECT m.id, m.body, m.created_at FROM messages m \
+               WHERE m.from_actor='exec' AND {TO_OWNER} AND m.deleted_at IS NULL \
+                 AND m.id > (r.body->>'message_mark')::bigint \
+                 AND m.created_at <= (r.body->>'through')::timestamptz + $1 \
+                 AND NOT EXISTS (SELECT 1 FROM messages o WHERE o.to_actor='exec' \
+                                   AND o.id > (r.body->>'message_mark')::bigint AND o.id < m.id \
+                                   AND {owner_wrote}) \
+                 AND NOT EXISTS (SELECT 1 FROM events w \
+                                 WHERE w.kind IN ('{CHECKIN_EVENT}','{DIRECTION_SESSION_EVENT}') \
+                                   AND w.id > r.id \
+                                   AND (w.body->>'message_mark')::bigint < m.id) \
+               ORDER BY m.id LIMIT 1) brief ON true \
+             WHERE r.kind='{DAILY_REVIEW_EVENT}' ORDER BY r.id DESC LIMIT 1"
+        ))
+        .bind(within)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|row| MorningBrief {
+            review_id: row.get("review_id"),
+            message_id: row.get("message_id"),
+            body: row.get("body"),
+            at: row.get("created_at"),
+            answered: row.get("answered"),
+        }))
     }
 
     /// When the next daily review could be due, so the scheduler can sleep until then.
@@ -380,6 +474,8 @@ mod tests {
             quiet_reviews: 0,
             stirred_at: Some(at(0, 0)),
             last_checkin: None,
+            landed: 0,
+            stuck: 0,
             goals: vec![goal("Three paying clients", None, false)],
         }
     }
@@ -614,7 +710,12 @@ mod tests {
             goal("Rewrite the welcome email", Some(40), false),
         ];
         goals.extend((0..4).map(|n| goal(&format!("Extra goal {n}"), None, false)));
-        let state = DailyReviewState { goals, ..idle() };
+        let state = DailyReviewState {
+            goals,
+            landed: 2,
+            stuck: 1,
+            ..idle()
+        };
         let body = state.message(at(0, 0));
         assert!(body.starts_with(DAILY_REVIEW_MESSAGE_PREFIX), "{body}");
         for part in [
@@ -629,7 +730,14 @@ mod tests {
             "Do not ask first",
             "inside the spend limit",
             "one prepared question",
-            "what you started and why",
+            // The brief (Sprint 117): three parts, and the assumptions the new Work rests on.
+            "Since the last review: 2 finished, 1 blocked or failed.",
+            "today's brief",
+            "What moved since the last brief",
+            "What you are starting today unless they say no",
+            "What you need from them: at most 3 things",
+            "`Assumptions:`",
+            "`Least sure of: …`",
             "undo it",
             "no ids and no commands",
             "stay quiet",
@@ -641,8 +749,10 @@ mod tests {
             !body.contains("restless ") && !body.contains("goal_id"),
             "{body}"
         );
-        assert!(body.len() < 1_500, "{}", body.len());
-        // The usual case, one goal, is well under a kilobyte.
-        assert!(idle().message(at(24, 0)).len() < 800);
+        assert!(body.len() < 2_200, "{}", body.len());
+        // The usual case, one goal, stays near a kilobyte.
+        let usual = idle().message(at(24, 0));
+        assert!(usual.contains("Since the last review: nothing finished."));
+        assert!(usual.len() < 1_400, "{}", usual.len());
     }
 }
