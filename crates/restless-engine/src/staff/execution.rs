@@ -1677,6 +1677,36 @@ impl StaffDrive {
             );
             // A Work turn that ends with its own decision needs no second call to ask for it.
             let declared = exec::take_turn_marker(&end.transcript().last_message_text).1;
+            // A question for the owner written on that marker is recorded here, once per
+            // Attempt, and rides the owner's next check-in. Whatever the decision is, it stands:
+            // the question never stops the Work (Sprint 118).
+            if let (Some(work_id), Some(attempt_id)) = (self.work_id, self.attempt_id) {
+                if let Some(ask) = exec::owner_question_marker(&end.transcript().last_message_text)
+                {
+                    match self
+                        .org
+                        .record_owner_question(restless_orgintel::NewOwnerQuestion {
+                            key: &format!("attempt:{attempt_id}"),
+                            work_id,
+                            asked_by: &self.actor,
+                            question: &ask.question,
+                            assumed: &ask.assumed,
+                            source: "attempt",
+                        })
+                        .await
+                    {
+                        Ok(true) => tracing::info!(
+                            company = %self.company, actor = %self.actor, %work_id,
+                            "recorded a question for the owner from a Work turn"
+                        ),
+                        Ok(false) => {}
+                        Err(error) => tracing::warn!(
+                            company = %self.company, %work_id,
+                            "a question for the owner could not be recorded: {error:#}"
+                        ),
+                    }
+                }
+            }
             let steered = turn.is_cancelled() && !self.cancellation.is_cancelled();
             // A Work turn whose whole answer is a provider or connection error did no work: it is
             // a failover to retry, not a result to ask the completion protocol about.
@@ -1981,7 +2011,11 @@ async fn run_staff(
                  `<!--restless-turn:{\"decision\":\"outcome_met|blocked|changes_requested|abandon\",\"reason\":\"<one plain line>\"}-->`: \
                  outcome_met when your assigned task and its outputs are complete; blocked names the condition and who must act; \
                  changes_requested only as a reviewer who found concrete changes; abandon says why. Judge only your assignment. \
-                 Without it you are asked for the decision separately.",
+                 Without it you are asked for the decision separately. \
+                 An open question is not a reason to stop. If only the owner can answer it, choose the most likely answer, finish on it wherever the step can be undone, \
+                 and add `\"ownerQuestion\":\"<the question, one line>\",\"assumed\":\"<the answer you went with>\"` to that marker: \
+                 it reaches the owner at their next check-in and the answer comes back through your lead. \
+                 Use blocked for it only when the next step cannot be undone or acts outside the company.",
             StaffTurnKind::OwnerConversation =>
                 "After using any tools you need, end with the complete owner-facing reply and its required intent marker. Do not narrate private reasoning in that reply.",
             StaffTurnKind::InternalConversation =>

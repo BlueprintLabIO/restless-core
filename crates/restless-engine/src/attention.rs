@@ -2611,7 +2611,7 @@ async fn stalled_work_items(
     config: &runtime::CompanyConfig,
     org: &OrgIntel,
 ) -> Result<Vec<AttentionItem>> {
-    let stalled = org.stalled_work(restless_orgintel::STALLED_AFTER).await?;
+    let stalled = org.stalled_work(crate::schedule::stalled_after()).await?;
     if stalled.is_empty() {
         return Ok(Vec::new());
     }
