@@ -2400,8 +2400,9 @@
 	.bridge-root .attention-index {
 		display: grid;
 	}
-	/* The empty Inbox already says nothing needs the owner; on a phone the pill only repeated it. */
-	.bridge-root .attention-clear-control {
+	/* The empty Inbox already says nothing needs the owner; on a phone the pill only repeated it.
+	 * It stays when it carries the owner's brief or where the company stands (S117). */
+	.bridge-root .attention-clear-control:not(.briefed) {
 		display: none;
 	}
 

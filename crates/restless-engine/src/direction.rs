@@ -258,6 +258,16 @@ pub struct DirectionGrant {
     pub label: String,
 }
 
+/// The brief Exec wrote the owner from the latest daily review (Sprint 117): what moved, what it
+/// is starting unless they say no, and what it needs from them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct DirectionBrief {
+    /// The brief as Exec wrote it, in plain words, without its markers.
+    pub text: String,
+    /// When Exec wrote it. A brief from an earlier day is shown dated.
+    pub at: DateTime<Utc>,
+}
+
 /// One day's direction for whoever owns it: the Today card, the For you roll-up and the email.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct DirectionDigest {
@@ -268,6 +278,15 @@ pub struct DirectionDigest {
     pub applied: Vec<DirectionApplied>,
     /// Open requests, oldest first: those older than a day lead.
     pub requests_waiting: Vec<DirectionRequest>,
+    /// The latest brief, for the owner only. Absent until a daily review has produced one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub brief: Option<DirectionBrief>,
+    /// One calm line on where the company stands, for the owner only, shown when there is no
+    /// brief: "2 goals open · work in motion on 1". Read from rows; it wakes nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub standing: Option<String>,
 }
 
 /// `GET /direction/requests?state=open|mine`
@@ -523,6 +542,15 @@ pub mod fixtures {
             summary: "Exec applied 1 change for others · 1 request waiting".into(),
             applied: vec![applied()],
             requests_waiting: vec![request()],
+            brief: Some(DirectionBrief {
+                text: "The list of twelve prospects is done.\n\nToday I am starting the emails \
+                       to them, toward three paying clients. Tell me if you would rather I did \
+                       not.\n\nOne thing I need from you: should the emails come from your \
+                       name or the company's?"
+                    .into(),
+                at: at(7, 30),
+            }),
+            standing: Some("2 goals open · work in motion on 1".into()),
         }
     }
 
@@ -662,6 +690,7 @@ mod direction_contract_tests {
             RequestOffers::decl(&cfg),
             DirectionRequest::decl(&cfg),
             DirectionGrant::decl(&cfg),
+            DirectionBrief::decl(&cfg),
             DirectionDigest::decl(&cfg),
             DirectionRequestPage::decl(&cfg),
             DirectionAppliedPage::decl(&cfg),

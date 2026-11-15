@@ -54,7 +54,8 @@
 	import { dropComputerFile } from '$lib/model/computer-files';
 	import type { LibraryArtifact } from '$lib/model/library-files';
 	import { holdQueries } from '$lib/model/hold-queries.svelte';
-	import { useQueryClient } from '@tanstack/svelte-query';
+	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { briefDay, briefLead, directionDigestQuery } from '$lib/model/direction';
 	import { markDoneSoon } from '$lib/components/inbox-actions';
 
 	const companyId = $derived(page.params.companyId ?? '');
@@ -211,6 +212,15 @@
 	/* The pill speaks only when the list is folded away; with For you open beside it, the list
 	 * already says there are no decisions (S85-22). */
 	const showClear = $derived(queueClear && !catalogPending && !startBlocker);
+	/* With nothing waiting, the owner's pill says more than "No decisions" (S117): the opening
+	 * line of the brief Exec wrote from the latest daily review, or one calm line on where the
+	 * company stands. It is the read the Inbox's Today row uses, already made with the cockpit,
+	 * so it wakes nothing and the pill appears with its words. The whole brief opens under it. */
+	const digest = createQuery(() => directionDigestQuery(companyId));
+	const brief = $derived(digest.data?.brief ?? null);
+	const briefOpening = $derived(briefLead(brief?.text ?? ''));
+	const standing = $derived(digest.data?.standing ?? '');
+	let showBrief = $state(false);
 	/* The queue starts collapsed until its source answers, so an idle
 	 * company's office is never squeezed and released; when items do arrive,
 	 * the queue opens with the same motion as any later change. */
@@ -893,19 +903,33 @@
 			<button
 				class="attention-clear-control"
 				class:visible={showClear && paneEmpty}
+				class:briefed={!!standing}
 				type="button"
 				aria-hidden={!(showClear && paneEmpty)}
+				aria-expanded={brief && briefOpening ? showBrief : undefined}
 				tabindex={showClear && paneEmpty ? 0 : -1}
 				title={showClear && paneEmpty
-					? 'No decision is waiting on you. Check again now.'
+					? brief && briefOpening
+						? showBrief
+							? 'No decision is waiting on you. Fold the brief away.'
+							: 'No decision is waiting on you. Read the whole brief.'
+						: 'No decision is waiting on you. Check again now.'
 					: undefined}
-				onclick={() => void refresh()}
+				onclick={() => (brief && briefOpening ? (showBrief = !showBrief) : void refresh())}
 			>
 				<span class="attention-clear-glyph" aria-hidden="true">
 					<MatrixGlyph rows={GLYPHS.check} size={7} />
 				</span>
-				<span>No decisions</span>
+				{#if brief && briefOpening}<span class="attention-clear-words"
+						><b>{briefDay(brief.at)}</b> {briefOpening}</span
+					>{:else}<span class="attention-clear-words">{standing || 'No decisions'}</span>{/if}
 			</button>
+			{#if showBrief && brief && showClear && paneEmpty}
+				<div class="brief-card" role="region" aria-label="The brief">
+					<Markdown text={brief.text} />
+					<small>To answer, write to Exec in the chat beside this page.</small>
+				</div>
+			{/if}
 			{#if queueClear && paneEmpty}<div class="attention-set-aside">
 					{#if owner}<a href={`/${companyId}?filter=all`} class="attention-archived"
 							>All Inbox items</a
@@ -1103,6 +1127,40 @@
 	.clear-office {
 		height: 100%;
 		overflow: hidden;
+	}
+	/* The pill keeps one line and one height whatever it says. */
+	.attention-clear-words {
+		min-width: 0;
+		max-width: min(520px, calc(100vw - 96px));
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.attention-clear-words b {
+		font-weight: 700;
+	}
+	/* The whole brief, opened from the pill: over the office, never moving anything. */
+	.brief-card {
+		position: absolute;
+		top: 54px;
+		left: 12px;
+		z-index: 7;
+		box-sizing: border-box;
+		max-width: min(520px, calc(100% - 24px));
+		max-height: calc(100% - 78px);
+		overflow: auto;
+		padding: 10px 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+		box-shadow: 0 6px 20px rgb(0 0 0 / 0.08);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.brief-card small {
+		display: block;
+		margin-top: 8px;
+		color: var(--text-tertiary);
 	}
 	.brand-nudge {
 		position: absolute;

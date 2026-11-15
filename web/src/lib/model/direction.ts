@@ -104,6 +104,31 @@ export function directionDigestQuery(companyId: string) {
 	};
 }
 
+/** A brief's opening line, without list or heading marks: a row shows one line of it. */
+export function briefLead(text: string): string {
+	return (
+		text
+			.split('\n')
+			.map((line) =>
+				line
+					.replace(/^\s*(?:#{1,6}\s+|>\s+|[-*•]\s+|\d+[.)]\s+)/, '')
+					.replace(/[*_`]/g, '')
+					.trim()
+			)
+			.find(Boolean) ?? ''
+	);
+}
+
+/** "Today", "Yesterday", or the day a brief was written: an older brief is shown dated. */
+export function briefDay(at: string, now = new Date()): string {
+	const written = new Date(at);
+	const day = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+	const days = Math.round((day(now).getTime() - day(written).getTime()) / 86_400_000);
+	if (days <= 0) return 'Today';
+	if (days === 1) return 'Yesterday';
+	return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' }).format(written);
+}
+
 /** What a change touched, in a few words: "the Site Renovation Studio brief". */
 export function targetPhrase(target: DirectionTarget | null): string {
 	if (!target) return '';

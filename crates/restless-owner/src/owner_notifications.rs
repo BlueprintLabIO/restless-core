@@ -623,6 +623,18 @@ async fn owed_intents(
         .map(|record| (record.id.to_string(), record))
         .collect::<HashMap<_, _>>();
 
+    // The day's brief (Sprint 117): what Exec wrote the owner from the latest daily review
+    // reaches email and push through the kinds Cloud already accepts. It is owed for a day, to
+    // an owner who has not engaged since it was written; after that it is withdrawn.
+    if let Some(brief) = org.latest_brief(restless_orgintel::BRIEF_WITHIN).await? {
+        let now = Utc::now();
+        if let Some(summary) = brief_summary(&brief, now) {
+            for owner in owners.iter().cloned() {
+                intents.push(brief_intent(company, identity, owner, &brief, &summary));
+            }
+        }
+    }
+
     for item in attention.items {
         // An item still being prepared has nothing for the owner to do yet.
         // Its handoff revision changes again when it is ready, and that is the
@@ -790,6 +802,44 @@ fn for_you_intent(
         format!("{who} {verb} {title}"),
         for_you_api::href(company, item),
         item.at,
+    )
+}
+
+/// How long a brief the owner has not seen stays owed.
+const BRIEF_OWED_FOR: chrono::Duration = chrono::Duration::hours(24);
+
+/// The words a brief is announced with, or `None` when it is no longer owed: the owner has
+/// engaged since, or it is more than a day old.
+fn brief_summary(brief: &restless_orgintel::MorningBrief, now: DateTime<Utc>) -> Option<String> {
+    if brief.answered || now - brief.at > BRIEF_OWED_FOR {
+        return None;
+    }
+    let text = restless_engine::transcript::decode_body(&brief.body).body;
+    let summary = bounded_summary(text);
+    (!summary.is_empty()).then_some(summary)
+}
+
+/// One brief per daily review: a later review's brief is a new notice, and the same one never
+/// notifies twice. It opens the company's landing page, where the brief sits at the top.
+fn brief_intent(
+    company: &str,
+    identity: restless_orgintel::CompanyAccessIdentity,
+    owner: restless_orgintel::HumanNotificationRecipient,
+    brief: &restless_orgintel::MorningBrief,
+    summary: &str,
+) -> NotificationIntent {
+    intent(
+        "personal_attention",
+        &format!("orgintel:brief:{}", brief.review_id),
+        &format!("orgintel-brief:{}:{}", brief.review_id, brief.message_id),
+        identity,
+        owner,
+        "exec".into(),
+        None,
+        "Exec".into(),
+        summary.to_string(),
+        format!("/{}", encode(company)),
+        brief.at,
     )
 }
 
@@ -1292,6 +1342,61 @@ mod tests {
         );
         assert_eq!(reply.object.id, later.object.id);
         assert_ne!(reply.intent_id, later.intent_id);
+    }
+
+    /// The day's brief (Sprint 117) is announced once per daily review under a kind Cloud
+    /// already accepts, opens the landing page, and is withdrawn once the owner has engaged
+    /// or a day has passed. Its markers never reach the email.
+    #[test]
+    fn the_brief_is_owed_once_for_a_day_under_a_closed_kind() {
+        let identity = restless_orgintel::CompanyAccessIdentity {
+            company_id: Uuid::from_u128(1),
+            cell_id: Uuid::from_u128(2),
+        };
+        let owner = restless_orgintel::HumanNotificationRecipient {
+            identity_issuer: "https://fleet.example".into(),
+            user_id: "user-1".into(),
+            membership_id: "member-1".into(),
+            actor_id: "human-1".into(),
+        };
+        let now = Utc::now();
+        let brief = |review_id: i64, hours_ago: i64, answered: bool| {
+            restless_orgintel::MorningBrief {
+                review_id,
+                message_id: review_id * 10,
+                body: "The list of twelve is done.\n\nToday I am starting the emails.\n\n\
+                       <!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Brief\"}-->"
+                    .into(),
+                at: now - chrono::Duration::hours(hours_ago),
+                answered,
+            }
+        };
+        let fresh = brief(7, 2, false);
+        let summary = brief_summary(&fresh, now).expect("owed");
+        assert_eq!(
+            summary,
+            "The list of twelve is done. Today I am starting the emails."
+        );
+        let sent = brief_intent("acme", identity, owner.clone(), &fresh, &summary);
+        assert_eq!(sent.kind, "personal_attention");
+        assert_eq!(sent.object.kind, "attention");
+        assert_eq!(sent.object.id, "orgintel:brief:7");
+        assert_eq!(sent.deep_link_path, "/acme");
+        assert_eq!(sent.occurred_at, fresh.at);
+        assert_eq!(sent.summary, summary);
+        // The same brief is the same notice; the next review's brief is a new one.
+        assert_eq!(
+            brief_intent("acme", identity, owner.clone(), &fresh, &summary).intent_id,
+            sent.intent_id
+        );
+        let next = brief(8, 1, false);
+        assert_ne!(
+            brief_intent("acme", identity, owner, &next, &summary).intent_id,
+            sent.intent_id
+        );
+        // Seen, or a day old: no longer owed, so a pending delivery is withdrawn at preflight.
+        assert_eq!(brief_summary(&brief(7, 2, true), now), None);
+        assert_eq!(brief_summary(&brief(7, 25, false), now), None);
     }
 
     #[test]

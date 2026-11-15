@@ -346,7 +346,7 @@ pub(super) async fn digest(
     AxumPath(company): AxumPath<String>,
     Query(query): Query<DigestQuery>,
 ) -> Response<Body> {
-    let (_, names) = match setup(&state, &principal, &company).await {
+    let (org, names) = match setup(&state, &principal, &company).await {
         Ok(ready) => ready,
         Err(response) => return response,
     };
@@ -360,7 +360,55 @@ pub(super) async fn digest(
     )
     .await
     {
-        Ok(digest) => no_store(Json(digest).into_response()),
+        Ok(mut digest) => {
+            // The brief is the owner's. Reading it is two queries and wakes nothing; a failure
+            // leaves the Today line as it was rather than failing the Inbox.
+            if principal.membership_role() == "owner" && query.day.is_none() {
+                match owner_brief(&org).await {
+                    Ok((brief, standing)) => {
+                        digest.brief = brief;
+                        digest.standing = Some(standing);
+                    }
+                    Err(error) => tracing::warn!(%error, %company, "the brief is unreadable"),
+                }
+            }
+            no_store(Json(digest).into_response())
+        }
         Err(error) => unavailable(error),
+    }
+}
+
+/// The latest brief and the calm line shown without one (Sprint 117). Rows only: reading the
+/// landing page never wakes a model.
+async fn owner_brief(
+    org: &restless_orgintel::OrgIntel,
+) -> restless_orgintel::Result<(Option<restless_engine::direction::DirectionBrief>, String)> {
+    let brief = org
+        .latest_brief(restless_orgintel::BRIEF_WITHIN)
+        .await?
+        .and_then(|brief| {
+            let text = restless_engine::transcript::decode_body(&brief.body)
+                .body
+                .trim()
+                .to_string();
+            (!text.is_empty()).then_some(restless_engine::direction::DirectionBrief {
+                text,
+                at: brief.at,
+            })
+        });
+    let goals = org.daily_review_state().await?.goals;
+    Ok((brief, standing_line(&goals)))
+}
+
+/// "2 goals open · work in motion on 1": where the company stands, in the owner's words.
+pub(super) fn standing_line(goals: &[restless_orgintel::GoalStanding]) -> String {
+    let moving = goals.iter().filter(|goal| goal.in_motion).count();
+    match (goals.len(), moving) {
+        (0, _) => "No goals yet. Tell Exec what you want done.".into(),
+        (1, 0) => "1 goal open · nothing in motion yet".into(),
+        (1, _) => "1 goal open · work in motion".into(),
+        (open, 0) => format!("{open} goals open · nothing in motion yet"),
+        (open, moving) if moving == open => format!("{open} goals open · work in motion on all"),
+        (open, moving) => format!("{open} goals open · work in motion on {moving}"),
     }
 }

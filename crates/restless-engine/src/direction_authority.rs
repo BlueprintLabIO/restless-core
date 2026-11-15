@@ -1572,6 +1572,9 @@ pub async fn digest(
         summary: parts.join(" · "),
         applied,
         requests_waiting: waiting,
+        // The owner's brief and standing line come from OrgIntel; the owner API adds them.
+        brief: None,
+        standing: None,
     })
 }
 
