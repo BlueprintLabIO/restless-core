@@ -42,7 +42,8 @@ pub enum PlatformStop {
 pub struct StalledWork {
     pub work_id: Uuid,
     pub title: String,
-    /// The Work's lead: who it waits on.
+    /// The Work's lead, who it waits on: the lead of its owner's team, or its owner when there
+    /// is none (Sprint 118: a stuck worker's lead is told, not the worker).
     pub lead: String,
     pub revision: i64,
     /// When it stopped: the block, or the requirement's abandonment.
@@ -173,7 +174,10 @@ impl OrgIntel {
         let cutoff = Utc::now() - after;
         let mut stalled = Vec::new();
         let blocked = sqlx::query(
-            "SELECT w.id, w.title, w.owner_id, w.revision, w.resolution, w.updated_at FROM work w \
+            "SELECT w.id, w.title, w.revision, w.resolution, w.updated_at, \
+                    COALESCE((SELECT t.lead_actor_id FROM actors a JOIN teams t ON t.id=a.team_id \
+                               WHERE a.id=w.owner_id AND t.disbanded_at IS NULL), w.owner_id) AS owner_id \
+             FROM work w \
              WHERE w.status = 'blocked' AND w.updated_at < $1 \
                AND w.resolution NOT LIKE 'paused by %' \
                AND NOT EXISTS (SELECT 1 FROM owner_handoffs h \
@@ -198,7 +202,9 @@ impl OrgIntel {
             });
         }
         let stranded = sqlx::query(
-            "SELECT DISTINCT ON (w.id) w.id, w.title, w.owner_id, w.revision, \
+            "SELECT DISTINCT ON (w.id) w.id, w.title, w.revision, \
+                    COALESCE((SELECT t.lead_actor_id FROM actors a JOIN teams t ON t.id=a.team_id \
+                               WHERE a.id=w.owner_id AND t.disbanded_at IS NULL), w.owner_id) AS owner_id, \
                     u.id AS upstream_id, u.title AS upstream_title, u.updated_at AS abandoned_at \
              FROM work_edges e JOIN work w ON w.id = e.to_work_id JOIN work u ON u.id = e.from_work_id \
              WHERE e.kind = 'requires' AND u.status = 'abandoned' AND u.updated_at < $1 \

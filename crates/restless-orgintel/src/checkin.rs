@@ -18,6 +18,10 @@
 //! This replaces the two-hour progress wake (`progress_due`, 12 November), so the two never
 //! both fire. A check-in is a daemon message: it is not an owner message, an owner nudge or
 //! owner activity anywhere else in the company.
+//!
+//! A check-in also carries the team's questions for the owner (Sprint 118, `owner_questions`):
+//! up to two of its three questions are theirs, so a question a worker or a lead had reaches
+//! the owner without anyone relaying it, and without a turn of its own.
 
 use chrono::{DateTime, Utc};
 use sqlx::Row as _;
@@ -101,6 +105,10 @@ pub struct CheckinState {
     pub stuck: i64,
     /// Inbox items waiting on the owner.
     pub waiting_on_owner: i64,
+    /// Questions from the team still waiting for the owner, and how many of them no check-in
+    /// has carried yet.
+    pub team_questions: i64,
+    pub uncarried_questions: i64,
 }
 
 impl CheckinState {
@@ -111,7 +119,11 @@ impl CheckinState {
 
     /// Whether the company has anything a check-in could be about. Without it no model is woken.
     pub fn active(&self) -> bool {
-        self.open_goals > 0 || self.open_work > 0 || self.changes() > 0 || self.waiting_on_owner > 0
+        self.open_goals > 0
+            || self.open_work > 0
+            || self.changes() > 0
+            || self.waiting_on_owner > 0
+            || self.team_questions > 0
     }
 
     /// When the next check-in is due and which kind, or `None` while nothing is owed: nothing
@@ -134,11 +146,12 @@ impl CheckinState {
                 Some((anchor + rhythm.every, CheckinKind::Checkin))
             }
             // One check-in went unanswered. If it said something, nudge once. If it ended
-            // quietly there is nothing to restate: check in again only once Work has moved.
+            // quietly there is nothing to restate: check in again only once Work has moved or
+            // the team has a question it has not carried.
             (1, Some(last)) => {
                 if self.said_since_last {
                     Some((last + rhythm.nudge_after, CheckinKind::Nudge))
-                } else if self.changes() > 0 {
+                } else if self.changes() > 0 || self.uncarried_questions > 0 {
                     Some((last + rhythm.nudge_after, CheckinKind::Checkin))
                 } else {
                     None
@@ -286,7 +299,13 @@ impl OrgIntel {
         ))
         .fetch_one(&self.pool)
         .await?;
+        let questions = self.open_owner_questions().await?;
         Ok(CheckinState {
+            team_questions: questions.len() as i64,
+            uncarried_questions: questions
+                .iter()
+                .filter(|question| question.carried == 0)
+                .count() as i64,
             enabled: row.get("enabled"),
             last: row.get("last"),
             unanswered: row.get("unanswered"),
@@ -350,12 +369,27 @@ impl OrgIntel {
             tx.rollback().await?;
             return Ok(None);
         };
+        // A full check-in carries the team's questions for the owner; a nudge restates only
+        // what the last one asked.
+        let questions: Vec<_> = if kind == CheckinKind::Checkin {
+            self.open_owner_questions()
+                .await?
+                .into_iter()
+                .take(crate::owner_questions::QUESTIONS_PER_CHECKIN)
+                .collect()
+        } else {
+            Vec::new()
+        };
         let room_id = ensure_direct_message_room_in_tx(&mut tx, "daemon", Some("exec")).await?;
         sqlx::query(
             "INSERT INTO messages (room_id,from_actor,to_actor,body) VALUES ($1,'daemon','exec',$2)",
         )
         .bind(room_id)
-        .bind(state.message(kind, now))
+        .bind(format!(
+            "{}{}",
+            state.message(kind, now),
+            crate::owner_questions::owner_questions_block(&questions)
+        ))
         .execute(&mut *tx)
         .await?;
         sqlx::query(&format!(
@@ -371,6 +405,7 @@ impl OrgIntel {
             "running": state.running,
             "open_work": state.open_work,
             "waiting_on_owner": state.waiting_on_owner,
+            "questions": questions.iter().map(|question| &question.key).collect::<Vec<_>>(),
         }))
         .bind(now)
         .execute(&mut *tx)
@@ -433,6 +468,8 @@ mod tests {
             landed: 0,
             stuck: 0,
             waiting_on_owner: 0,
+            team_questions: 0,
+            uncarried_questions: 0,
         }
     }
 
@@ -599,6 +636,45 @@ mod tests {
         // Work moved since: one more check-in at the three-hour mark, a full one, then silence.
         let moved = CheckinState { stuck: 1, ..quiet };
         assert_eq!(moved.next(rhythm()), Some((at(4, 1), CheckinKind::Checkin)));
+        // So does a question from the team that no check-in has carried yet; one already
+        // carried into that silence does not ask again.
+        let asked = CheckinState {
+            team_questions: 1,
+            uncarried_questions: 1,
+            ..quiet
+        };
+        assert_eq!(asked.next(rhythm()), Some((at(4, 1), CheckinKind::Checkin)));
+        let carried = CheckinState {
+            team_questions: 1,
+            ..quiet
+        };
+        assert_eq!(carried.next(rhythm()), None);
+    }
+
+    #[test]
+    fn a_question_from_the_team_is_enough_for_a_check_in() {
+        // Nothing else is open: the owner is here and the team has a question for them.
+        let idle = CheckinState {
+            open_goals: 0,
+            open_work: 0,
+            running: 0,
+            ..working()
+        };
+        assert_eq!(idle.due(at(1, 1), rhythm()), None);
+        let asked = CheckinState {
+            team_questions: 1,
+            uncarried_questions: 1,
+            ..idle
+        };
+        assert!(asked.active());
+        assert_eq!(asked.due(at(1, 1), rhythm()), Some(CheckinKind::Checkin));
+        // Never into silence: after the check-in and its nudge, a question waits for the owner.
+        let silent = CheckinState {
+            last: Some(at(4, 1)),
+            unanswered: CHECKINS_INTO_SILENCE,
+            ..asked
+        };
+        assert_eq!(silent.next(rhythm()), None);
     }
 
     #[test]
