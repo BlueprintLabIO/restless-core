@@ -838,6 +838,57 @@ async fn review_goals_daily(
     }
 }
 
+/// It comes to the owner with the right questions (`restless_orgintel::direction_session`): at
+/// most once a week, for a company with an open goal and something happening, Exec is handed
+/// what the company's records show and asked for at most three questions about direction. This
+/// reads facts only; it never wakes a model for a company with no open goal, one that has gone
+/// still, or one whose owner left the last session unanswered. It is a question for the owner,
+/// so it waits like a check-in: while they are away, while the plane is draining, while the
+/// spend limit is reached, for a computer the owner stopped and for an unread owner message.
+async fn ask_about_direction(
+    daemon: &Arc<Daemon>,
+    config: &CompanyConfig,
+    org: &OrgIntel,
+    company: &str,
+) {
+    let rhythm = direction_session_rhythm();
+    let now = Utc::now();
+    match org.direction_session_state().await {
+        Ok(state) if state.due(now, rhythm) => {}
+        Ok(_) => return,
+        Err(error) => {
+            tracing::warn!(company, "the direction session is unreadable: {error:#}");
+            return;
+        }
+    }
+    // An unread owner message is a hold too, read with the ask itself.
+    let holds = restless_orgintel::DirectionSessionHolds {
+        spend_limit_reached: !daemon.spend.budget_state(config).is_available(),
+        plane_draining: daemon.lifecycle.tasks_paused(),
+        computer_stopped: !computer_runs_on_demand(daemon, company).await,
+        owner_message_unread: false,
+        owner_away: matches!(
+            crate::away::current(&daemon.authority, company).await,
+            Ok(Some(_))
+        ),
+    };
+    if holds.held() {
+        return;
+    }
+    match org.signal_direction_session_at(now, rhythm).await {
+        Ok(None) => {}
+        Ok(Some(state)) => tracing::info!(
+            company,
+            goals = state.goals.len(),
+            work_with_assumptions = state.assumptions.len(),
+            "asked Exec for the weekly direction session"
+        ),
+        Err(error) => {
+            tracing::warn!(company, "Exec was not asked for a direction session: {error:#}")
+        }
+    }
+}
+
 async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
     if daemon.staff.take_resource_retry_hint() {
         return OVERDUE_RETRY_INTERVAL;
@@ -945,6 +996,19 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
                     );
                 }
             }
+            // And for the weekly direction session.
+            if let Ok(Some(next)) = org
+                .next_direction_session_at(direction_session_rhythm())
+                .await
+            {
+                if next > now {
+                    earliest = Some(
+                        earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
+                            current.min(next)
+                        }),
+                    );
+                }
+            }
         }
     }
     match earliest {
@@ -1009,6 +1073,8 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     check_in_with_owner(daemon, &config, &org, company).await;
     // After the check-in, never with it: a review waits out a check-in asked in this scan.
     review_goals_daily(daemon, &config, &org, company).await;
+    // Last, and never with either: a session waits out a check-in or a review asked in this scan.
+    ask_about_direction(daemon, &config, &org, company).await;
     if daemon.runtime_bridges.is_hosted() {
         let Ok(identity) =
             crate::runtime_bridge::expected_identity(&daemon.authority, company).await
@@ -2627,6 +2693,24 @@ fn daily_review_rhythm() -> restless_orgintel::DailyReviewRhythm {
                 restless_orgintel::DAILY_REVIEW_EVERY,
                 chrono::Duration::seconds,
             ),
+    }
+}
+
+/// How often the owner is brought questions about direction: every seven days.
+/// `RESTLESS_DIRECTION_SESSION_EVERY_SECS` shortens it for tests and local stacks. It keeps
+/// the daily review's settling time, and never more than a quarter of its own interval.
+fn direction_session_rhythm() -> restless_orgintel::DirectionSessionRhythm {
+    let every = std::env::var("RESTLESS_DIRECTION_SESSION_EVERY_SECS")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .map_or(
+            restless_orgintel::DIRECTION_SESSION_EVERY,
+            chrono::Duration::seconds,
+        );
+    restless_orgintel::DirectionSessionRhythm {
+        every,
+        settle: restless_orgintel::settle_for(daily_review_rhythm().every).min(every / 4),
     }
 }
 
