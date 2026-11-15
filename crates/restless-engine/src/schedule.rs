@@ -884,7 +884,10 @@ async fn ask_about_direction(
             "asked Exec for the weekly direction session"
         ),
         Err(error) => {
-            tracing::warn!(company, "Exec was not asked for a direction session: {error:#}")
+            tracing::warn!(
+                company,
+                "Exec was not asked for a direction session: {error:#}"
+            )
         }
     }
 }

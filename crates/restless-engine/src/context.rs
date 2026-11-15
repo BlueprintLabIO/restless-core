@@ -1325,7 +1325,10 @@ mod tests {
             "ask the owner once",
             "Do not ask again until they are back.",
         ] {
-            assert!(business.contains(part), "running-the-business lost {part:?}");
+            assert!(
+                business.contains(part),
+                "running-the-business lost {part:?}"
+            );
         }
         // The shape the skill teaches is the shape the reader accepts.
         let taught = business
