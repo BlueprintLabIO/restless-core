@@ -53,6 +53,7 @@ mod owner_ready;
 mod pending_shares;
 mod progress;
 mod assumptions;
+mod attention_report;
 mod checkin;
 mod daily_review;
 mod direction_session;
@@ -109,6 +110,7 @@ pub use observations::{
     OBSERVATIONS_BEFORE_LESSON, OBSERVATION_EVENT, OBSERVATION_LIVES, UNUSED_LESSON_REASON,
 };
 pub use org_review::*;
+pub use attention_report::*;
 pub use outcome_record::*;
 pub use owner_questions::*;
 pub use owner_ready::*;

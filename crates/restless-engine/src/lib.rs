@@ -16,6 +16,7 @@ pub mod app_catalogue;
 pub mod approval;
 pub mod approval_decisions;
 pub mod attention;
+pub mod attention_report;
 pub mod authority;
 pub mod away;
 pub mod block_recheck;

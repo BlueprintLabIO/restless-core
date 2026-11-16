@@ -1865,6 +1865,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(company_org_review),
         )
         .route(
+            "/companies/{company}/company/attention-report",
+            get(company_attention_report),
+        )
+        .route(
             "/companies/{company}/company/spend/report",
             get(company_spend_report),
         )
@@ -8222,6 +8226,56 @@ async fn company_spend(
 
 /// How each team's work is landing and what the company changed about its own shape: the numbers
 /// Exec reviews, and its recent reviews in its own words.
+#[derive(Debug, Deserialize)]
+struct AttentionReportQuery {
+    from: Option<String>,
+    to: Option<String>,
+}
+
+/// The attention report: results the owner accepted and each time they stepped in, by kind,
+/// for `from..to` (the last three days unless told). Read-only; no model.
+async fn company_attention_report(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<AttentionReportQuery>,
+) -> Response<Body> {
+    let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) else {
+        return api_error(StatusCode::NOT_FOUND, "company", "company does not exist");
+    };
+    let (from, to) = match restless_engine::attention_report::range(
+        query.from.as_deref(),
+        query.to.as_deref(),
+        chrono::Utc::now(),
+    ) {
+        Ok(range) => range,
+        Err(message) => return api_error(StatusCode::BAD_REQUEST, "attention_report", message),
+    };
+    let unavailable = |error: anyhow::Error| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "attention_report",
+            logged(error, "The attention report could not be read. Try again."),
+        )
+    };
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => return unavailable(error),
+    };
+    match restless_engine::attention_report::report(
+        &config,
+        &state.daemon.authority,
+        &org,
+        from,
+        to,
+    )
+    .await
+    {
+        Ok(report) => Json(serde_json::json!({ "summary": report.summary(), "report": report }))
+            .into_response(),
+        Err(error) => unavailable(error),
+    }
+}
+
 async fn company_org_review(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
