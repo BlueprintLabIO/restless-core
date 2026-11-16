@@ -186,6 +186,7 @@ pub async fn wake(
             .remaining_micro_usd()
             .map(|remaining| remaining as f64 / 1_000_000.0),
         hosted_identity.as_ref().map(|_| (String::new(), None)),
+        spend,
     );
     // Preflight: a company whose computer is stopped or whose disk is full
     // must not be woken, and its verdict decides before the snapshot is used
@@ -1558,6 +1559,48 @@ pub const TURN_MARKER: &str = "<!--restless-turn:";
 /// the main model. Only the everyday model is told it may (see `lead_tier`).
 pub const ESCALATE_PREFIX: &str = "[escalate] ";
 
+/// A question only the owner can answer, written on a Work turn's end marker beside its
+/// decision: `"ownerQuestion":"…","assumed":"…"` (Sprint 118). The turn's decision stands as
+/// written; the question travels to the owner by itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnerQuestionAsk {
+    pub question: String,
+    /// The answer the work went on with.
+    pub assumed: String,
+}
+
+/// The question on the last turn marker of `text` that holds one.
+pub fn owner_question_marker(text: &str) -> Option<OwnerQuestionAsk> {
+    let mut found = None;
+    let mut rest = text;
+    while let Some(start) = rest.find(TURN_MARKER) {
+        let after = &rest[start + TURN_MARKER.len()..];
+        let Some(end) = after.find("-->") else {
+            break;
+        };
+        let marker = &after[..end];
+        if let (Some(open), Some(close)) = (marker.find('{'), marker.rfind('}')) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&marker[open..=close]) {
+                let field = |name: &str| {
+                    value[name]
+                        .as_str()
+                        .map(str::trim)
+                        .filter(|text| !text.is_empty())
+                        .map(str::to_string)
+                };
+                if let Some(question) = field("ownerQuestion") {
+                    found = Some(OwnerQuestionAsk {
+                        question,
+                        assumed: field("assumed").unwrap_or_default(),
+                    });
+                }
+            }
+        }
+        rest = &after[end + 3..];
+    }
+    found
+}
+
 /// The text without its turn markers, and the decision the last valid one held.
 pub fn take_turn_marker(text: &str) -> (String, Option<TerminationDecision>) {
     if !text.contains(TURN_MARKER) {
@@ -1835,6 +1878,7 @@ async fn gather_snapshot(
     spent_usd: f64,
     remaining_usd: Option<f64>,
     hosted_files: Option<(String, Option<String>)>,
+    spend: &SpendLedger,
 ) -> Result<ContextSnapshot> {
     // The owner's Inbox is the slowest read here and needs nothing below, so it runs alongside
     // the rest instead of after it. Only an owner-directed turn reads it.
@@ -1871,20 +1915,43 @@ async fn gather_snapshot(
         .await?
         .summary();
     let (actors, teams) = tokio::join!(org.list_actors(), org.list_teams());
-    let mut org_signals = health::organisational(spent_usd, &work, &effect_records);
-    if let (Ok(actors), Ok(teams)) = (&actors, &teams) {
-        org_signals.extend(health::team_shape(
-            chrono::Utc::now(),
-            actors,
-            teams,
-            &goals,
-            &work,
-        ));
-    }
-    let org_signals = org_signals
-        .into_iter()
-        .map(|signal| format!("[{}] {}", signal.kind, signal.detail))
-        .collect();
+    // The same function the scheduler's sweep reads (`health::company_signals`), so what Exec
+    // sees and what leads are woken for cannot disagree. A failed read costs those signals,
+    // never the wake.
+    let health_facts = match org.health_facts().await {
+        Ok(facts) => Some(facts),
+        Err(error) => {
+            tracing::warn!(company = %config.name, %error, "health facts unavailable");
+            None
+        }
+    };
+    let work_spend = health_facts
+        .as_ref()
+        .filter(|facts| facts.work.iter().any(|work| !work.attempts.is_empty()))
+        .map(|facts| health::work_spend(&spend.records(&config.name), facts))
+        .unwrap_or_default();
+    let org_signals = health::signals(&health::SignalInputs {
+        now: chrono::Utc::now(),
+        spent_usd,
+        work: &work,
+        effect_records: &effect_records,
+        roster: match (&actors, &teams) {
+            (Ok(actors), Ok(teams)) => Some((actors.as_slice(), teams.as_slice())),
+            _ => None,
+        },
+        goals: &goals,
+        facts: health_facts.as_ref(),
+        work_spend: &work_spend,
+        rhythm: restless_orgintel::HealthRhythm::default(),
+    })
+    .into_iter()
+    // A question a lead holds is told to that lead in its own words; Exec meets it as a
+    // question in its next check-in instead.
+    .filter(|signal| {
+        signal.kind != "held-question" || signal.wake.as_ref().is_some_and(|wake| wake.to == "exec")
+    })
+    .map(|signal| signal.line())
+    .collect();
     // The review of the company's own shape. It is shown only on the owner's own turns and only
     // once they have given enough new signal; a failed read costs the review, never the wake.
     let org_review = if pending_mention.is_none() && human_is_membership_owner {
@@ -2388,6 +2455,45 @@ mod tests {
         assert_eq!(decision.termination, Termination::OutcomeMet);
         assert_eq!(decision.retry_after_seconds, None);
         assert!(TERMINATION_PROMPT.contains("current wake's checklist"));
+    }
+
+    /// Sprint 118: a question for the owner rides the Work turn's own marker. The decision is
+    /// read exactly as before, so a question never turns a finished turn into a stopped one.
+    #[test]
+    fn a_question_for_the_owner_rides_the_turn_marker_and_the_decision_stands() {
+        let text = "Menu priced.\n<!--restless-turn:{\"decision\":\"outcome_met\",\"reason\":\"Priced with tax\",\"ownerQuestion\":\" Should prices show with or without tax? \",\"assumed\":\"with tax, as on the old menu\"}-->";
+        let (clean, decision) = take_turn_marker(text);
+        assert_eq!(clean, "Menu priced.");
+        assert_eq!(decision.unwrap().termination, Termination::OutcomeMet);
+        assert_eq!(
+            owner_question_marker(text),
+            Some(OwnerQuestionAsk {
+                question: "Should prices show with or without tax?".into(),
+                assumed: "with tax, as on the old menu".into(),
+            })
+        );
+        // No question, a blank one, or no marker at all: nothing is recorded.
+        for quiet in [
+            "<!--restless-turn:{\"decision\":\"outcome_met\",\"reason\":\"Done\"}-->",
+            "<!--restless-turn:{\"decision\":\"blocked\",\"reason\":\"x\",\"ownerQuestion\":\"  \"}-->",
+            "Should prices show with or without tax?",
+            "<!--restless-turn:nope-->",
+        ] {
+            assert_eq!(owner_question_marker(quiet), None, "{quiet}");
+        }
+        // A stopped turn may still carry one, and the assumption is optional.
+        let stopped = "<!--restless-turn:{\"decision\":\"blocked\",\"reason\":\"The supplier must sign first\",\"ownerQuestion\":\"Which supplier do we sign with?\"}-->";
+        assert_eq!(
+            take_turn_marker(stopped).1.unwrap().termination,
+            Termination::Blocked
+        );
+        assert_eq!(
+            owner_question_marker(stopped),
+            Some(OwnerQuestionAsk {
+                question: "Which supplier do we sign with?".into(),
+                assumed: String::new(),
+            })
+        );
     }
 
     #[test]

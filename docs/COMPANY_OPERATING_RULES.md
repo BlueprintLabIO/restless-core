@@ -115,10 +115,9 @@ An accountable lead first builds a causal understanding of the outcome. Work tha
 coupled piece, or too small to split, it then produces directly, through Work it owns. Work that splits
 into pieces that can proceed independently runs in parallel by default: commission Staff for those
 pieces at once rather than doing them one after another, and keep the integration, review and final
-judgement. A good result sooner matters more than the model tokens saved by working alone; one actor
-doing everything while colleagues wait is slow, not frugal. Up to four Work Attempts run at once per
-company, because parallel Staff share the company's model capacity; more wait their turn. A large
-elastic Staff pool is valid when accepted unit throughput repays it.
+judgement. A good result sooner matters more than the model tokens saved by working alone. Up to
+four Work Attempts run at once per company, because parallel Staff share the company's model
+capacity; more wait their turn.
 
 When collaboration helps, communicate as capable colleagues do: explain the purpose, current
 understanding, important unknowns, ownership seam, and observable result; invite material challenge;
@@ -135,9 +134,9 @@ aggregate evidence and handles exceptions rather than recreating every unit. The
 handoff template, message cadence, shared-state form, or teamwork state machine.
 
 Preserve more lead attention for supervision as worker count, duration, volatility, capability
-uncertainty, consequence or repair cost rises. Do not poll workers merely to look attentive; material
-events and artifacts wake useful supervision. Never wait inside a turn: no `sleep`, no repeated
-status reads while other Work runs. End the turn; its result, failure or a person's message wakes you.
+uncertainty, consequence or repair cost rises. Never wait inside a turn: no `sleep`, no polling, no
+repeated status reads while other Work runs. End the turn; its result, failure or a person's
+message wakes you.
 
 Give independently judgeable outcomes to separate leads. Leads exchange material facts, decisions,
 artifacts and true dependencies directly; only portfolio, resource, charter or strategy conflicts
@@ -149,8 +148,8 @@ Attempt and its observed artifact or terminal result prove that another actor co
 narration, role-play, a process command, or a private subagent. If no Staff Work exists, describe the
 execution truthfully as solo. The graph is a sparse record of cross-actor responsibility and recovery,
 not the lead's plan, reasoning, checklist, or project-management mirror.
-For a repeated queue, one Work item may own an attributable batch, territory or campaign; do not turn
-every prospect or case into organisational graph ceremony.
+A repeated queue is one Work item for an attributable batch, territory or campaign, not a node for
+every prospect or case.
 
 `requires` is a hard acyclic dependency; `revises` returns review feedback and may cycle. The
 scheduler claims ready Work and records an Attempt with its exact artifact versions and linked
@@ -177,15 +176,19 @@ Blocked Work stays stopped until someone resumes it. Never end `blocked` to wait
 or script: release the Work at a time with `restless schedule add --work`. A block that needs the
 owner needs an owner handoff, or it reaches nobody.
 
+An open question is not a block. Never tell anyone to stop and report back on one: state it, pick
+the likeliest answer, write it down as an assumption and carry on wherever the step can be undone.
+One only the owner can answer goes to their next check-in while the Work continues. Stop only for
+a step that cannot be undone or acts outside the company.
+
 Every delegated call reaches a durable terminal report. Acknowledgement, progress, and terminal
 outcome must never be silently lost. Failing is fine; vanishing is not.
 
 Use a one-shot schedule only when time itself creates a real review or follow-up opportunity. The due
 fact wakes the accountable actor to judge current evidence; it never implies that production is
-necessary, successful or complete, and it should not be renewed merely to keep the company active.
-A weekday recurring schedule is the same kind of time fact for a genuine standing operating cadence.
-It wakes judgement, runs no command, coalesces missed days and must not manufacture work merely to
-satisfy the cadence.
+necessary, successful or complete, and is not renewed merely to keep the company active. A weekday
+recurring schedule is the same kind of fact for a standing cadence: it wakes judgement, runs no
+command and must not manufacture work.
 
 The Runtime records artifacts, gates and final Work state before delivering a durable terminal fact.
 Exceptions go to the accountable lead; successful results go directly to Exec for owner communication

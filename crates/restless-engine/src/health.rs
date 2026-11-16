@@ -647,10 +647,181 @@ const REPEATED_FAILURE_THRESHOLD: usize = 3;
 /// These never block. They are surfaced to the Exec in its next wake, because
 /// the actor with the context is the one who can tell "stuck" from "hard"
 /// (§7.2: trigger awareness, not a universal blocker).
+///
+/// Since Sprint 118 a signal may also owe one wake ([`SignalWake`]): the scheduler's sweep
+/// reads the same signals from the same rows ([`signals`]) and raises each once, so a problem
+/// nobody is looking at still reaches whoever answers for it.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct OrgSignal {
     pub kind: &'static str,
     pub detail: String,
+    /// The one wake this observation owes, or `None` when it is awareness only.
+    #[serde(skip)]
+    pub wake: Option<SignalWake>,
+}
+
+/// Who a signal wakes, and what makes it this problem and not the next one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignalWake {
+    /// Raised once per key (`restless_orgintel::health_signals`).
+    pub key: String,
+    /// The accountable lead, or `exec`.
+    pub to: String,
+    pub work_id: Option<uuid::Uuid>,
+}
+
+impl SignalWake {
+    fn exec(key: String) -> Option<Self> {
+        Some(Self {
+            key,
+            to: "exec".into(),
+            work_id: None,
+        })
+    }
+}
+
+impl OrgSignal {
+    /// The problem to raise for this signal, if it owes a wake.
+    pub fn problem(&self) -> Option<restless_orgintel::HealthProblem> {
+        let wake = self.wake.as_ref()?;
+        Some(restless_orgintel::HealthProblem {
+            kind: self.kind,
+            key: wake.key.clone(),
+            to: wake.to.clone(),
+            work_id: wake.work_id,
+            detail: self.detail.clone(),
+        })
+    }
+
+    /// The line Exec reads under "What looks wrong".
+    pub fn line(&self) -> String {
+        format!("[{}] {}", self.kind, self.detail)
+    }
+}
+
+/// Everything the organisational signals are read from. One function reads it ([`signals`]),
+/// for Exec's context and for the sweep, so the two cannot disagree.
+pub struct SignalInputs<'a> {
+    pub now: chrono::DateTime<chrono::Utc>,
+    pub spent_usd: f64,
+    pub work: &'a [restless_orgintel::WorkRow],
+    pub effect_records: &'a [crate::authority::AuthorityRecord],
+    /// Actors and teams; `None` when they could not be read.
+    pub roster: Option<(
+        &'a [restless_orgintel::ActorRow],
+        &'a [restless_orgintel::TeamRow],
+    )>,
+    pub goals: &'a [restless_orgintel::GoalRow],
+    /// Open Work with its Attempts and edges; `None` when it could not be read.
+    pub facts: Option<&'a restless_orgintel::HealthFacts>,
+    /// What each open Work has cost since its last result.
+    pub work_spend: &'a [restless_orgintel::WorkSpend],
+    pub rhythm: restless_orgintel::HealthRhythm,
+}
+
+/// Every organisational signal the company's records show now.
+pub fn signals(inputs: &SignalInputs<'_>) -> Vec<OrgSignal> {
+    let mut signals = organisational(inputs.spent_usd, inputs.work, inputs.effect_records);
+    if let Some((actors, teams)) = inputs.roster {
+        signals.extend(team_shape(
+            inputs.now,
+            actors,
+            teams,
+            inputs.goals,
+            inputs.work,
+        ));
+    }
+    if let Some(facts) = inputs.facts {
+        signals.extend(
+            restless_orgintel::health_problems(facts, inputs.now, inputs.rhythm, inputs.work_spend)
+                .into_iter()
+                .map(|problem| OrgSignal {
+                    kind: problem.kind,
+                    detail: problem.detail,
+                    wake: Some(SignalWake {
+                        key: problem.key,
+                        to: problem.to,
+                        work_id: problem.work_id,
+                    }),
+                }),
+        );
+    }
+    signals
+}
+
+/// What each open Work has cost since its last result, from the spend ledger. The ledger
+/// records the Work and Attempt of every charged request, so cost is attributed exactly; a turn
+/// on a route that is not charged per token is recorded at zero and adds nothing here.
+pub fn work_spend(
+    records: &[restless_model_gateway::SpendRecord],
+    facts: &restless_orgintel::HealthFacts,
+) -> Vec<restless_orgintel::WorkSpend> {
+    let since: std::collections::HashMap<uuid::Uuid, Option<chrono::DateTime<chrono::Utc>>> = facts
+        .work
+        .iter()
+        .map(|work| {
+            (
+                work.id,
+                work.last_output().and_then(|attempt| attempt.finished_at),
+            )
+        })
+        .collect();
+    let mut micro: std::collections::BTreeMap<uuid::Uuid, u64> = std::collections::BTreeMap::new();
+    for record in records {
+        let Some(work_id) = record.work_id else {
+            continue;
+        };
+        let Some(since) = since.get(&work_id) else {
+            continue;
+        };
+        if since.is_none_or(|since| record.occurred_at > since) {
+            *micro.entry(work_id).or_default() += record.cost_micro_usd;
+        }
+    }
+    micro
+        .into_iter()
+        .filter(|(_, micro)| *micro > 0)
+        .map(|(work_id, micro)| restless_orgintel::WorkSpend {
+            work_id,
+            usd_since_output: micro as f64 / 1_000_000.0,
+        })
+        .collect()
+}
+
+/// Read the company's records and return its signals with the facts they came from: the
+/// scheduler's sweep. Exec's context reads the same rows through [`signals`].
+pub async fn company_signals(
+    org: &restless_orgintel::OrgIntel,
+    authority: &crate::authority::AuthorityStore,
+    spend: &crate::spend::SpendLedger,
+    company: &str,
+    now: chrono::DateTime<chrono::Utc>,
+    rhythm: restless_orgintel::HealthRhythm,
+) -> Result<(Vec<OrgSignal>, restless_orgintel::HealthFacts)> {
+    let (work, goals, facts, effect_records) = tokio::try_join!(
+        async { org.list_work().await.map_err(anyhow::Error::from) },
+        async { org.list_goals().await.map_err(anyhow::Error::from) },
+        async { org.health_facts().await.map_err(anyhow::Error::from) },
+        authority.records_of_kind(company, "effect"),
+    )?;
+    let (actors, teams) = tokio::join!(org.list_actors(), org.list_teams());
+    let roster = match (&actors, &teams) {
+        (Ok(actors), Ok(teams)) => Some((actors.as_slice(), teams.as_slice())),
+        _ => None,
+    };
+    let work_spend = work_spend(&spend.records(company), &facts);
+    let signals = signals(&SignalInputs {
+        now,
+        spent_usd: spend.spent_usd(company),
+        work: &work,
+        effect_records: &effect_records,
+        roster,
+        goals: &goals,
+        facts: Some(&facts),
+        work_spend: &work_spend,
+        rhythm,
+    });
+    Ok((signals, facts))
 }
 
 /// Inspect the company's coordination state from the Exec's shared snapshot.
@@ -675,6 +846,12 @@ pub fn organisational(
                 "${spent_usd:.2} spent and no Work item has ever completed — \
                  is the work too big to finish, or is something quietly failing?"
             ),
+            // The whole company's problem, so Exec's: once at the threshold, again when the
+            // figure has doubled. The first completed Work clears it for good.
+            wake: SignalWake::exec(format!(
+                "effort-without-output:{}",
+                restless_orgintel::cost_level(spent_usd, EFFORT_WITHOUT_OUTPUT_USD)
+            )),
         });
     }
 
@@ -704,6 +881,12 @@ pub fn organisational(
                     "{capability} has failed {count} times — the approach is not working; \
                      read the error rather than retrying it"
                 ),
+                // No one Work owns an effect class: Exec, once at three failures and again
+                // when the count has doubled.
+                wake: SignalWake::exec(format!(
+                    "repeating-a-failed-approach:{capability}:{}",
+                    restless_orgintel::cost_level(count as f64, REPEATED_FAILURE_THRESHOLD as f64)
+                )),
             });
         }
     }
@@ -722,6 +905,10 @@ pub fn organisational(
                 item.title.chars().take(60).collect::<String>(),
                 item.resolution.chars().take(120).collect::<String>()
             ),
+            // Awareness only: stopped Work already owes its lead one notice per stall and
+            // the owner one card (`restless_orgintel::stalled_work`). A second wake for the
+            // same block would stack with it.
+            wake: None,
         });
     }
     signals
@@ -833,6 +1020,9 @@ pub fn team_shape(
                 facts.join("; "),
                 asks.join(", and ")
             ),
+            // Awareness only: the shape of the company changes on the owner's signal, in
+            // the org review, never from a timer.
+            wake: None,
         });
     }
     // A goal that names a team which no longer exists has no accountable lead, even if some
@@ -855,6 +1045,8 @@ pub fn team_shape(
                 goal.title.chars().take(60).collect::<String>(),
                 goal.id
             ),
+            // Nobody answers for it, so nobody else would be told: Exec, once per goal and team.
+            wake: SignalWake::exec(format!("goal-without-team:{}:{team_id}", goal.id)),
         });
     }
     signals
@@ -1480,5 +1672,202 @@ mod org_tests {
         // And it does fire on the shape it exists for: money spent, nothing done.
         let stuck = 0 == 0 && 6.0 >= EFFORT_WITHOUT_OUTPUT_USD;
         assert!(stuck);
+    }
+
+    /// Sprint 118. Exec's context and the scheduler's sweep read one function, and each signal
+    /// says whether it owes a wake, to whom, and what would make it a new problem.
+    #[test]
+    fn a_signal_names_who_it_wakes_and_what_makes_it_new() {
+        use restless_orgintel::WorkStatus::{Active, Blocked};
+        use team_shape_fixture::*;
+        let blocked = restless_orgintel::WorkRow {
+            resolution: "waiting for the supplier".into(),
+            ..work("studio-maker", Blocked, days_ago(0))
+        };
+        let work = vec![work("studio-maker", Active, days_ago(0)), blocked];
+        let wake = |signals: &[OrgSignal], kind: &str| {
+            signals
+                .iter()
+                .find(|signal| signal.kind == kind)
+                .unwrap_or_else(|| panic!("no {kind} in {signals:?}"))
+                .wake
+                .clone()
+        };
+
+        // Money spent with nothing ever completed is the whole company's problem: Exec's.
+        let first = organisational(6.0, &work, &[]);
+        let effort = wake(&first, "effort-without-output").expect("owes a wake");
+        assert_eq!(effort.to, "exec");
+        assert_eq!(effort.key, "effort-without-output:1");
+        // More of the same is the same problem; doubled is a new one.
+        let more = organisational(9.0, &work, &[]);
+        assert_eq!(
+            wake(&more, "effort-without-output").unwrap().key,
+            effort.key
+        );
+        let doubled = organisational(10.5, &work, &[]);
+        assert_ne!(
+            wake(&doubled, "effort-without-output").unwrap().key,
+            effort.key
+        );
+        // Blocked Work is told by the stalled-Work notice, never twice.
+        assert_eq!(wake(&first, "blocked-on-a-person"), None);
+        assert!(first
+            .iter()
+            .find(|signal| signal.kind == "blocked-on-a-person")
+            .unwrap()
+            .problem()
+            .is_none());
+
+        // A goal whose team is gone has no lead to tell: Exec, once per goal and team.
+        let gone = uuid::Uuid::new_v4();
+        let goals = vec![goal("Grow the service", gone)];
+        let shape = team_shape(chrono::Utc::now(), &[], &[], &goals, &[]);
+        let orphan = wake(&shape, "goal-without-team").expect("owes a wake");
+        assert_eq!(orphan.to, "exec");
+        assert_eq!(
+            orphan.key,
+            format!("goal-without-team:{}:{gone}", goals[0].id)
+        );
+        // Team shape is awareness: the company's shape changes on the owner's signal.
+        let id = uuid::Uuid::new_v4();
+        let actors = ["studio-lead", "idle-one", "idle-two"].map(|a| actor(a, id));
+        let teams = [team(id, "studio-lead")];
+        let shape = team_shape(chrono::Utc::now(), &actors, &teams, &[], &[]);
+        assert_eq!(wake(&shape, "team-shape"), None);
+
+        // One function for both readers: the problem a signal raises carries its own words.
+        let all = signals(&SignalInputs {
+            now: chrono::Utc::now(),
+            spent_usd: 6.0,
+            work: &work,
+            effect_records: &[],
+            roster: Some((&actors, &teams)),
+            goals: &goals,
+            facts: None,
+            work_spend: &[],
+            rhythm: restless_orgintel::HealthRhythm::default(),
+        });
+        let kinds: Vec<_> = all.iter().map(|signal| signal.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                "effort-without-output",
+                "blocked-on-a-person",
+                "team-shape",
+                "goal-without-team"
+            ]
+        );
+        let problem = all[0].problem().unwrap();
+        assert_eq!(problem.to, "exec");
+        assert_eq!(problem.detail, all[0].detail);
+        assert!(all[0]
+            .line()
+            .starts_with("[effort-without-output] $6.00 spent"));
+    }
+
+    /// The spend ledger records the Work of every charged request, so "cost rising without
+    /// output" is exact: what one Work cost since its last result, and nothing else.
+    #[test]
+    fn cost_is_attributed_to_one_work_since_its_last_result() {
+        use restless_orgintel::{
+            HealthAttempt, HealthFacts, HealthWork, WorkAttemptState, WorkStatus,
+        };
+        let at = |minutes: i64| {
+            chrono::DateTime::parse_from_rfc3339("2026-11-16T09:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+                + chrono::Duration::minutes(minutes)
+        };
+        let item = |title: &str, attempts: Vec<HealthAttempt>| HealthWork {
+            id: uuid::Uuid::new_v4(),
+            title: title.into(),
+            outcome: "done".into(),
+            expected_artifact: String::new(),
+            goal_id: None,
+            owner_id: "alpha-build".into(),
+            lead: "alpha-lead".into(),
+            status: WorkStatus::Active,
+            resolution: String::new(),
+            revision: 1,
+            created_at: at(0),
+            updated_at: at(0),
+            waiting_on_owner: false,
+            parked: false,
+            sent_back: false,
+            attempts,
+        };
+        let produced = item(
+            "Rebuild the importer",
+            vec![HealthAttempt {
+                id: uuid::Uuid::new_v4(),
+                state: WorkAttemptState::Produced,
+                summary: "done".into(),
+                finished_at: Some(at(10)),
+            }],
+        );
+        let fresh = item("Write the changelog", Vec::new());
+        let facts = HealthFacts {
+            work: vec![produced.clone(), fresh.clone()],
+            ..HealthFacts::default()
+        };
+        let charge = |work_id: Option<uuid::Uuid>, micro: u64, minutes: i64| {
+            restless_model_gateway::SpendRecord {
+                request_id: uuid::Uuid::new_v4(),
+                company_id: "acme".into(),
+                model: "openai/test".into(),
+                input_tokens: 0,
+                output_tokens: 0,
+                total_tokens: 10,
+                cached_input_tokens: None,
+                cost_micro_usd: micro,
+                actor_id: "alpha-build".into(),
+                session_id: "s".into(),
+                responsibility: "work".into(),
+                work_id,
+                attempt_id: None,
+                settlement: restless_model_gateway::SpendSettlement::Accounted,
+                native: None,
+                occurred_at: at(minutes),
+            }
+        };
+        let records = [
+            charge(Some(produced.id), 1_000_000, 5), // before its result: paid for
+            charge(Some(produced.id), 1_500_000, 12), // after
+            charge(Some(produced.id), 1_000_000, 20), // after
+            charge(Some(fresh.id), 500_000, 3),
+            charge(Some(fresh.id), 0, 4), // a turn that is not charged per token
+            charge(None, 9_000_000, 6),   // Exec's own turns
+            charge(Some(uuid::Uuid::new_v4()), 9_000_000, 6), // finished Work
+        ];
+        let mut spend = work_spend(&records, &facts);
+        spend.sort_by(|a, b| b.usd_since_output.total_cmp(&a.usd_since_output));
+        assert_eq!(spend.len(), 2, "{spend:?}");
+        assert_eq!(spend[0].work_id, produced.id);
+        assert!((spend[0].usd_since_output - 2.5).abs() < 1e-9);
+        assert_eq!(spend[1].work_id, fresh.id);
+        assert!((spend[1].usd_since_output - 0.5).abs() < 1e-9);
+
+        let all = signals(&SignalInputs {
+            now: at(30),
+            spent_usd: 0.0,
+            work: &[],
+            effect_records: &[],
+            roster: None,
+            goals: &[],
+            facts: Some(&facts),
+            work_spend: &spend,
+            rhythm: restless_orgintel::HealthRhythm::default(),
+        });
+        assert_eq!(all.len(), 1, "{all:?}");
+        assert_eq!(all[0].kind, "cost-without-output");
+        let wake = all[0].wake.clone().unwrap();
+        assert_eq!(wake.to, "alpha-lead");
+        assert_eq!(wake.work_id, Some(produced.id));
+        assert!(
+            all[0].detail.contains("$2.50 since its last result"),
+            "{}",
+            all[0].detail
+        );
     }
 }

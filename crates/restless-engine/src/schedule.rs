@@ -296,13 +296,112 @@ pub async fn run(daemon: Arc<Daemon>) {
 const STOPPED_WORK_CHECK: Duration = Duration::from_secs(2 * 60);
 
 async fn stalled_work_loop(daemon: Arc<Daemon>) {
+    // A shortened health interval (tests, local stacks) shortens this loop with it.
+    let tick = health_rhythm()
+        .every
+        .to_std()
+        .map_or(STOPPED_WORK_CHECK, |every| every.min(STOPPED_WORK_CHECK));
     // Let startup recovery (restart resumes, orphan reaping) settle first.
-    tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+    tokio::time::sleep(if tick < STOPPED_WORK_CHECK {
+        tick
+    } else {
+        Duration::from_secs(5 * 60)
+    })
+    .await;
     loop {
         if let Some(_lease) = daemon.lifecycle.try_enter() {
             check_stopped_work(&daemon).await;
         }
-        tokio::time::sleep(STOPPED_WORK_CHECK).await;
+        tokio::time::sleep(tick).await;
+    }
+}
+
+/// When each company's health was last looked at. In memory on purpose: a restart is itself a
+/// reason to look once, and what was raised is in the company's own events.
+static HEALTH_SWEPT: std::sync::LazyLock<Mutex<HashMap<String, std::time::Instant>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// It notices and repairs itself (`restless_orgintel::health_signals`): every ten minutes the
+/// organisational signals are read from the company's own rows, with no model, and each
+/// problem not raised before owes one message to its accountable lead (Exec when no single lead
+/// is accountable). A healthy company gets nothing, and a problem that has not changed is
+/// never raised twice. A notice is advice: it never pauses, gates or changes Work.
+///
+/// It waits like a check-in (plane draining, spend limit reached, a computer the owner
+/// stopped) except that an owner who is away does not hold it: repair carries on. A company
+/// with no model never gets here.
+async fn notice_health_problems(daemon: &Arc<Daemon>, org: &OrgIntel, company: &str) {
+    let rhythm = health_rhythm();
+    let every = rhythm.every.to_std().unwrap_or(Duration::from_secs(600));
+    {
+        let swept = HEALTH_SWEPT.lock().expect("health sweep clock poisoned");
+        if swept
+            .get(company)
+            .is_some_and(|last| last.elapsed() < every)
+        {
+            return;
+        }
+    }
+    let Ok(config) = CompanyConfig::load(&daemon.root, company) else {
+        return;
+    };
+    if !config.has_configured_model_route()
+        || daemon.lifecycle.tasks_paused()
+        || !daemon.spend.budget_state(&config).is_available()
+        || !computer_runs_on_demand(daemon, company).await
+    {
+        return;
+    }
+    HEALTH_SWEPT
+        .lock()
+        .expect("health sweep clock poisoned")
+        .insert(company.to_string(), std::time::Instant::now());
+    let now = Utc::now();
+    let (signals, facts) = match crate::health::company_signals(
+        org,
+        &daemon.authority,
+        &daemon.spend,
+        company,
+        now,
+        rhythm,
+    )
+    .await
+    {
+        Ok(read) => read,
+        Err(error) => {
+            tracing::warn!(company, "the company's health is unreadable: {error:#}");
+            return;
+        }
+    };
+    // A question an agent has held too long goes to the owner's next check-in whatever its
+    // holder does, and whether or not today's bound lets the holder be told.
+    match org.carry_held_questions_at(now, &facts.held, rhythm).await {
+        Ok(0) => {}
+        Ok(carried) => tracing::info!(company, carried, "held questions go to the next check-in"),
+        Err(error) => tracing::warn!(company, "held questions were not carried: {error:#}"),
+    }
+    let problems: Vec<_> = signals
+        .iter()
+        .filter_map(crate::health::OrgSignal::problem)
+        .collect();
+    if problems.is_empty() {
+        return;
+    }
+    match org.raise_health_problems_at(now, &problems, rhythm).await {
+        Ok(raised) if raised.is_empty() => {}
+        Ok(raised) => {
+            for problem in &raised {
+                tracing::info!(
+                    company,
+                    kind = problem.kind,
+                    to = %problem.to,
+                    key = %problem.key,
+                    "raised a health problem with its accountable lead"
+                );
+            }
+            daemon.schedule_wake.notify_one();
+        }
+        Err(error) => tracing::warn!(company, "health problems were not raised: {error:#}"),
     }
 }
 
@@ -320,10 +419,7 @@ async fn check_stopped_work(daemon: &Arc<Daemon>) {
         };
         resume_work_after_provider_refusals(daemon, &org, &company).await;
         resume_work_stopped_by_platform(daemon, &org, &company).await;
-        match org
-            .tell_leads_of_stalled_work(restless_orgintel::STALLED_AFTER)
-            .await
-        {
+        match org.tell_leads_of_stalled_work(stalled_after()).await {
             Ok(0) => {}
             Ok(told) => tracing::info!(company, told, "told leads of stalled Work"),
             Err(error) => tracing::warn!(company, "stalled Work check failed: {error:#}"),
@@ -333,6 +429,8 @@ async fn check_stopped_work(daemon: &Arc<Daemon>) {
             Ok(asked) => tracing::info!(company, asked, "asked for out-of-date owner briefs again"),
             Err(error) => tracing::warn!(company, "stale owner brief check failed: {error:#}"),
         }
+        // After the stalled notices, so a block told there is not also raised here.
+        notice_health_problems(daemon, &org, &company).await;
     }
 }
 
@@ -2718,6 +2816,31 @@ fn direction_session_rhythm() -> restless_orgintel::DirectionSessionRhythm {
 }
 
 /// How often each person's digest of FYI notices is written: daily, unless a test sets it.
+/// How often the company's health is looked at: every ten minutes, with the waits that go with
+/// it (`restless_orgintel::HealthRhythm`). `RESTLESS_HEALTH_SWEEP_EVERY_SECS` shortens them all
+/// for tests and local stacks.
+fn health_rhythm() -> restless_orgintel::HealthRhythm {
+    std::env::var("RESTLESS_HEALTH_SWEEP_EVERY_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map_or_else(restless_orgintel::HealthRhythm::default, |seconds| {
+            restless_orgintel::HealthRhythm {
+                every: chrono::Duration::seconds(seconds),
+            }
+        })
+}
+
+/// How long Work may sit stopped before its lead is told and the owner gets a card: a day.
+/// `RESTLESS_STALLED_AFTER_SECS` shortens it for tests and local stacks.
+pub(crate) fn stalled_after() -> chrono::Duration {
+    std::env::var("RESTLESS_STALLED_AFTER_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map_or(restless_orgintel::STALLED_AFTER, chrono::Duration::seconds)
+}
+
 fn notice_digest_every() -> chrono::Duration {
     chrono::Duration::seconds(
         std::env::var("RESTLESS_NOTICE_DIGEST_EVERY_SECS")

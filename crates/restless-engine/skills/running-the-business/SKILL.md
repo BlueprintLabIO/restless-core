@@ -93,8 +93,11 @@ capacity or choosing a model:
 - when you hold several independent pieces of Work, hand them to Staff to run in parallel rather than
   queueing them behind one person; the board flags Work waiting in Next behind someone with three or
   more in motion;
-- when Work is being redone past its third revision, stop and say in its thread why it keeps coming
+- when a health notice says review keeps sending Work back, say in its thread why it keeps coming
   back and what will make the next pass the last;
+- an open question never stops Work: have whoever has it choose the most likely answer, write it
+  under `Assumptions:` and carry on; a question only the owner can answer reaches them in your
+  next check-in, and you pass their answer to its lead;
 - use `restless spend` to see what each actor and model actually cost before changing a preference,
   and propose the change to the owner when it moves ongoing cost.
 
