@@ -357,6 +357,17 @@ async fn notice_health_problems(daemon: &Arc<Daemon>, org: &OrgIntel, company: &
         .expect("health sweep clock poisoned")
         .insert(company.to_string(), std::time::Instant::now());
     let now = Utc::now();
+    // Lessons the company learned whose problem has not come back are dropped here, with the
+    // reason on the record. No model; a lesson the owner ruled is never touched.
+    match org.prune_learned_lessons_at(now).await {
+        Ok(retired) if retired.is_empty() => {}
+        Ok(retired) => tracing::info!(
+            company,
+            lessons = retired.len(),
+            "retired learned lessons whose problem has not come back"
+        ),
+        Err(error) => tracing::warn!(company, "learned lessons were not pruned: {error:#}"),
+    }
     let (signals, facts) = match crate::health::company_signals(
         org,
         &daemon.authority,
@@ -924,7 +935,16 @@ async fn review_goals_daily(
     if holds.held() {
         return;
     }
-    match org.signal_daily_review_at(now, rhythm).await {
+    // A due review of the company's own shape rides this turn, at most weekly. The test for
+    // "due" is the owner's signal and is unchanged; an unreadable scorecard carries nothing.
+    let org_review_due = crate::org_review::scorecard(org, now)
+        .await
+        .map(|card| card.due)
+        .unwrap_or(false);
+    match org
+        .signal_daily_review_with_at(now, rhythm, org_review_due)
+        .await
+    {
         Ok(None) => {}
         Ok(Some(state)) => tracing::info!(
             company,

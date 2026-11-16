@@ -2547,6 +2547,46 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             }
             Err(error) => Response::err(format!("{error:#}")),
         },
+        "work-outcome" => match daemon.orgintel.get(company).await {
+            // The outcome record: expected, what happened, cost, verdict. One Work by id, or
+            // the Work that ended most recently. Cost comes from the daemon's spend ledger.
+            Ok(org) => {
+                let records = daemon.spend.records(company);
+                let costed = |record: restless_orgintel::OutcomeRecord| {
+                    let cost = crate::health::work_cost(&records, record.work_id);
+                    record.with_cost(cost)
+                };
+                let read = match request.common.id.as_deref() {
+                    Some(id) => match uuid::Uuid::parse_str(id) {
+                        Ok(id) => org.outcome_record(id).await.map(|record| vec![record]),
+                        Err(error) => return Response::err(format!("bad Work id: {error}")),
+                    },
+                    None => {
+                        org.outcome_records(restless_orgintel::OUTCOME_RECORDS_LISTED)
+                            .await
+                    }
+                };
+                match read {
+                    Ok(records) => {
+                        let records: Vec<_> = records.into_iter().map(costed).collect();
+                        let summary = records
+                            .iter()
+                            .map(|record| {
+                                let mut text = format!("{}\n", record.title);
+                                for (label, value) in record.lines() {
+                                    text.push_str(&format!("  {label}: {value}\n"));
+                                }
+                                text
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        Response::ok(serde_json::json!({ "summary": summary, "outcomes": records }))
+                    }
+                    Err(error) => Response::err(error.plain_message()),
+                }
+            }
+            Err(error) => Response::err(format!("{error:#}")),
+        },
         "work-assign" => match (
             request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
             request.common.to.as_deref(),
@@ -5263,6 +5303,75 @@ async fn lesson_command(org: &restless_orgintel::OrgIntel, request: &Request) ->
         };
         return match listed {
             Ok(lessons) => Response::ok(serde_json::json!({ "lessons": lessons })),
+            Err(error) => refused(error),
+        };
+    }
+    if request.cmd == "lesson-add" && request.orgintel.once {
+        // A one-off: noted as an observation, not a rule. On a Work that was sent back or
+        // failed it is what its lead would do differently; otherwise it is the owner's one-off
+        // correction, which needs the scope and the message like a lesson does.
+        let Some(rule) = request.common.body.as_deref() else {
+            return Response::err("lessons add --once needs --rule");
+        };
+        if let Some(work) = request.common.work_id.as_deref() {
+            let work_id = match uuid::Uuid::parse_str(work.trim()) {
+                Ok(id) => id,
+                Err(error) => return Response::err(format!("bad Work id: {error}")),
+            };
+            return match org.note_next_time(work_id, actor, rule).await {
+                Ok(observation) => Response::ok(serde_json::json!({
+                    "noted": true,
+                    "rule": observation.lesson_id.is_some(),
+                    "message": if observation.lesson_id.is_some() {
+                        "Noted. The same thing has now gone wrong twice, so this is a rule everyone it applies to reads."
+                    } else {
+                        "Noted. It is not a rule; it becomes one only if the same thing happens again."
+                    },
+                })),
+                Err(error) => refused(error),
+            };
+        }
+        let (Some(scope), Some(source_message_id)) = (
+            request.orgintel.scope.as_deref(),
+            request.orgintel.source_message_id,
+        ) else {
+            return Response::err(
+                "lessons add --once needs --work <the Work that was sent back>, or --scope company|team:<id>|actor:<id> and --source-message <the owner's message>",
+            );
+        };
+        let scope = match scope.trim().strip_prefix("team:") {
+            Some(team) => match resolve_team(org, team.trim()).await {
+                Ok(id) => restless_orgintel::LessonScope::Team(id),
+                Err(error) => return Response::err(error),
+            },
+            None => match restless_orgintel::LessonScope::parse(scope) {
+                Ok(scope) => scope,
+                Err(error) => return Response::err(error),
+            },
+        };
+        return match org
+            .record_correction_at(
+                chrono::Utc::now(),
+                restless_orgintel::NewLesson {
+                    rule,
+                    scope,
+                    source_message_id: Some(source_message_id),
+                    recorded_by: actor,
+                },
+            )
+            .await
+        {
+            Ok(observed) => Response::ok(serde_json::json!({
+                "noted": true,
+                "rule": observed.lesson.is_some(),
+                "lesson_id": observed.lesson.map(|(id, _)| id),
+                "message": match observed.lesson {
+                    Some((_, restless_orgintel::LessonChange::Promoted)) =>
+                        "Noted. This is the second time, so it is now a rule everyone it applies to reads.",
+                    Some(_) => "Noted. A rule already covers this; it has been counted as coming back.",
+                    None => "Noted. It is not a rule; it becomes one only if the same thing happens again.",
+                },
+            })),
             Err(error) => refused(error),
         };
     }

@@ -1675,6 +1675,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(teams_api::work_spend),
         )
         .route(
+            "/companies/{company}/work/{work}/outcome",
+            get(teams_api::work_outcome),
+        )
+        .route(
             "/companies/{company}/loops",
             get(skills_api::list_loops).post(skills_api::add_loop),
         )

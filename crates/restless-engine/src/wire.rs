@@ -164,6 +164,9 @@ pub struct SkillInput {
 pub struct OrgIntelInput {
     #[serde(default)]
     pub include_retired: bool,
+    /// `lessons add --once`: a one-off, noted as an observation rather than recorded as a rule.
+    #[serde(default)]
+    pub once: bool,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
@@ -853,7 +856,14 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "team-lead" => &["name", "to", "actor", "reason"],
         "team-owner" => &["name", "to", "actor", "reason", "source_message_id"],
         "team-disband" => &["name", "actor", "reason"],
-        "lesson-add" => &["body", "scope", "source_message_id", "actor"],
+        "lesson-add" => &[
+            "body",
+            "scope",
+            "source_message_id",
+            "actor",
+            "once",
+            "work_id",
+        ],
         "lesson-list" => &["actor", "include_retired"],
         "lesson-recurred" => &["id", "source_message_id", "actor"],
         "lesson-retire" => &["id", "reason", "actor"],
@@ -887,6 +897,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "work-skill" => &["id", "as_actor", "skills"],
         "work-goal" => &["id", "goal", "actor"],
         "work-attempts" => &["id"],
+        "work-outcome" => &["id"],
         "work-assign" => &["id", "to", "actor", "reason"],
         "work-add" => &[
             "actor",
@@ -1748,6 +1759,7 @@ mod tests {
             "work",
             "work-graph",
             "work-attempts",
+            "work-outcome",
             "work-assign",
             "work-add",
             "work-edge",
