@@ -301,5 +301,13 @@ in it:
 ## Teardown
 
 Removed at the end of the session: both test companies, this session's dev profile `dev172673`
-with its containers, volumes and network, its state folder, the model-gateway profile folders,
-the borrowed `node_modules` and `web/build` links, the scripted model and the daemon.
+with its seven containers (the company's two, its documents service, Postgres and the vault's
+three), five volumes and one network, its state folder, the two model-gateway profile folders,
+the borrowed `node_modules` and `web/build` links, the scripted model and the daemon. Test
+schemas that test runs left in that profile's database went with its volume.
+
+One container was removed that this session did not start: the exited documents service left by
+Sprint 117 (`restless-local-docs-af993b8b-…`, company `s117q_test`). It carries the same profile
+label as this session's own documents service, and the cleanup matched on that label. It had
+exited, and its company and database were already gone. Nothing else on the box was touched; 54
+containers were running before and after.
