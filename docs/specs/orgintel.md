@@ -1011,6 +1011,16 @@ It may surface dormancy, stale Work nodes, repeated retries, cost anomalies, con
 
 It should trigger awareness or a wakeup, not become a universal blocker.
 
+**Built (Sprint 118).** The deterministic signals are read every ten minutes from the company's
+own rows, with no model, by the same function that fills Exec's "What looks wrong". Each problem
+owes at most one message to the lead accountable for the affected Work (Exec when no single lead
+is), keyed so it is never raised again until it has changed: a review loop, one blocker holding
+several jobs, cost rising with no result, duplicate work, the same failure twice (replan, not
+retry) and a question for the owner that a lead has held. A notice is advice with its evidence.
+It never pauses Work, gates a commission or blocks an Attempt, and at most twelve are raised per
+company in a day. Stalled Work keeps its own notice. See `health_signals.rs` and
+`owner_questions.rs` in `restless-orgintel`.
+
 Internal wakeups and messages may be at-least-once. Consequential external effects rely on Authority Kernel idempotency and reconciliation.
 
 ## 7.3 Safe self-building

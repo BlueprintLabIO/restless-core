@@ -1277,6 +1277,42 @@ mod tests {
         assert!(bytes <= 52_900, "Exec fixed prompt grew to {bytes} bytes");
     }
 
+    /// Sprint 118: an open question never stops Work, and a question only the owner can answer
+    /// travels to their next check-in. Said in the rules every actor reads and in Exec's skill.
+    #[test]
+    fn an_open_question_is_not_a_block() {
+        let rules = COMPANY_OPERATING_RULES
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        for rule in [
+            "An open question is not a block.",
+            "Never tell anyone to stop and report back on one",
+            "write it down as an assumption and carry on wherever the step can be undone",
+            "goes to their next check-in while the Work continues",
+            "Stop only for a step that cannot be undone or acts outside the company.",
+        ] {
+            assert!(rules.contains(rule), "{rule}");
+        }
+        let skill = crate::owner_brief::DOCTRINE_SKILLS
+            .iter()
+            .find(|(skill, _)| *skill == "running-the-business")
+            .map(|(_, body)| body.split_whitespace().collect::<Vec<_>>().join(" "))
+            .expect("the running-the-business skill");
+        assert!(
+            skill.contains("an open question never stops Work"),
+            "{skill}"
+        );
+        assert!(
+            skill.contains("you pass their answer to its lead"),
+            "{skill}"
+        );
+        assert!(
+            !skill.contains("past its third revision"),
+            "that advice is a detector now"
+        );
+    }
+
     /// Owner decision, 14 November (Sprint 117): on direction the company brings questions and
     /// its assumptions and the owner decides; on everything else it still recommends one
     /// course. Both halves must be said wherever either is, or one rule silently wins.
