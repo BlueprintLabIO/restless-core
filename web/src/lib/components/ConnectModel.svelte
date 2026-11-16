@@ -126,7 +126,7 @@
 		event.preventDefault();
 		const key = secret.trim();
 		if (!key) {
-			failure = 'Paste the API key.';
+			failure = 'Paste the key first.';
 			return;
 		}
 		void run(async () => {
@@ -179,7 +179,7 @@
 			{#if canPaste}<button
 					type="button"
 					class="connect-link"
-					onclick={() => (pastingChoice = true)}>Paste a new API key instead</button
+					onclick={() => (pastingChoice = true)}>Paste a new key instead</button
 				>{:else}<a class="connect-link" href={manageUrl}>Add a key in your account</a>{/if}
 		{:else if !canPaste}
 			<p class="connect-note">
@@ -195,8 +195,8 @@
 					</select>
 				</Field>
 				<Field
-					label="API key"
-					hint="Saved to your account, so your other companies can use it too."
+					label="Key from your AI provider"
+					hint="Your provider calls this an API key. Saved to your account, so your other companies can use it too."
 					for="connect-secret"
 				>
 					<input
@@ -204,7 +204,7 @@
 						type="password"
 						bind:value={secret}
 						autocomplete="off"
-						placeholder="Paste your API key"
+						placeholder="Paste the key"
 						disabled={busy}
 					/>
 				</Field>

@@ -1,7 +1,8 @@
 /* Owner-surface capture for visual review: every primary route at desktop,
  * tablet and phone widths, with overflow and page-error probes, and the jank
  * probes of Sprint 84: content clipped by its box, boxes that scroll sideways,
- * and raw ids, codes, paths or shell commands shown to a person. It reads only;
+ * and raw ids, codes, paths or shell commands shown to a person. On the first-run
+ * screens (Sprint 120) it also looks for words a new owner would not know. It reads only;
  * point it at a `_test` company on a running restless-dev stack, ideally one
  * filled by scripts/seed-reno-scale.mjs. Exits non-zero when anything is found. */
 import { chromium } from 'playwright';
@@ -68,6 +69,8 @@ const routes = [
 		: []),
 
 	['home', '/'],
+	['welcome', `/${company}/welcome`],
+	['welcome-tour', `/${company}?tour=1`],
 	['attention', `/${company}`],
 	['attention-skipped', `/${company}?filter=skipped`],
 	['attention-done', `/${company}?filter=done`],
@@ -100,6 +103,9 @@ const routes = [
 	['account', '/account/settings/accounts'],
 	['not-found', `/${company}/no-such-surface`]
 ].filter(([name]) => !only || only.includes(name));
+/* What a brand-new owner sees before their first result. `welcome` shows setup only for a
+ * company that has not finished it; one that has is sent on to its Inbox, which is probed too. */
+const firstRun = new Set(['welcome', 'welcome-tour', 'attention']);
 
 if (!routes.length || only?.some((name) => !routes.some(([route]) => route === name)))
 	throw new Error('No surfaces selected or unknown ROUTES entry');
@@ -180,7 +186,7 @@ try {
 				return { scroll: doc.scrollWidth > doc.clientWidth + 1, wide };
 			});
 			/* Sprint 84: the jank a page-level check never sees (14 October report). */
-			const jank = await page.evaluate(() => {
+			const jank = await page.evaluate((firstRunScreen) => {
 				const name = (el) =>
 					`${el.tagName.toLowerCase()}${[...el.classList]
 						.filter((c) => !c.startsWith('svelte-'))
@@ -236,7 +242,17 @@ try {
 						'shell command'
 					],
 					[/\$\(cat /, 'shell command'],
-					[/\/company\/(outputs|archive|mission)/i, 'company path']
+					[/\/company\/(outputs|archive|mission)/i, 'company path'],
+					/* Sprint 120: words a café owner will not know, on the first-run screens only.
+					 * Company settings keep their names. */
+					...(firstRunScreen
+						? [
+								[
+									/\b(charter|vault|api key|compute|revision|harness|runtime identity)\b/i,
+									'first-run word'
+								]
+							]
+						: [])
 				]
 					.map(([pattern, label]) => {
 						const hit = text.match(pattern);
@@ -248,7 +264,7 @@ try {
 					sideways: [...new Set(sideways)].slice(0, 6),
 					raw
 				};
-			});
+			}, firstRun.has(name));
 			const file = `${out}/${name}-${width}-${scheme}${reduced ? '-rm' : ''}.png`;
 			await page.screenshot({ path: file });
 			report.push({

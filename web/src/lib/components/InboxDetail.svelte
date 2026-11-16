@@ -264,7 +264,7 @@
 		if (ask.kind === 'website_login' || ask.kind === 'browser_profile')
 			return 'Sign in below, then choose what the company may do there. Or deny.';
 		if (ask.kind === 'api')
-			return 'Add the key below. It goes into Company › Vault under the name shown. Or deny.';
+			return 'Add the key below. It is locked away for this company under the name shown (Company › Vault). Or deny.';
 		if (ask.kind === 'github')
 			return `Add ${kindPhrase(ask.kind)} below, or choose one you hold, then choose what the company may do with it. Or deny.`;
 		return item.requestedAction;

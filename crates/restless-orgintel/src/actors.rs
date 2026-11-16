@@ -661,8 +661,10 @@ impl OrgIntel {
         .bind(room_id)
         .bind(created_by)
         .bind(lead_actor_id)
+        // The owner's chat shows the start of this line as a one-line note, so it opens with
+        // what the lead does, in plain words (S120).
         .bind(format!(
-            "{APPOINTMENT_PREFIX}{name}. Read the current team charter, produce the first useful outcome yourself through Work you own (add Staff only for a real seam), and report only material results or blockers.",
+            "{APPOINTMENT_PREFIX}{name}. Produce the first useful outcome yourself through Work you own (add Staff only for a real seam), after reading the current team charter, and report only material results or blockers.",
             name = name.trim()
         ))
         .execute(&mut *tx)

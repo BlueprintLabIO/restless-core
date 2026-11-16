@@ -1465,7 +1465,7 @@
 		!ownerFixes
 			? 'Its model connection isn’t working. The company owner can fix it in Company → Intelligence.'
 			: neverConnected
-				? `${participantName} needs one to think and act. Use an API key or a ChatGPT or Claude sign-in.`
+				? `${participantName} needs one to think and act. Sign in with ChatGPT or Claude, or paste a key from your AI provider.`
 				: 'Its model connection stopped working.'
 	);
 	const providerAction = $derived(neverConnected ? 'Connect a model' : providerLabel);

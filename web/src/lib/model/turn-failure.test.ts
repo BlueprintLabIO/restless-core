@@ -53,7 +53,7 @@ test('the company spend ceiling reads as a sentence with where to raise it, neve
 		turnFailureReason(
 			'[budget] acme has used 40 of its 40 native-harness turns this month; raise it'
 		),
-		/native-harness allowance/
+		/monthly allowance for agent turns/
 	);
 });
 

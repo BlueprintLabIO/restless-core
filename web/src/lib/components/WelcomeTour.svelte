@@ -38,7 +38,7 @@
 		{
 			place: 'company',
 			title: 'Company',
-			text: 'Who the company is and how it runs: the charter, brand and voice, spending limits and the keys it holds.'
+			text: 'Who the company is and how it runs: what it is for, its brand and voice, spending limits and the passwords it keeps.'
 		},
 		{
 			place: 'exec',
