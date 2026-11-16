@@ -47,6 +47,10 @@ const LISTED_WORK: usize = 4;
 const LISTED_TITLES: usize = 5;
 const TITLE_CHARS: usize = 80;
 const STATEMENT_CHARS: usize = 120;
+const LISTED_CHANGES: usize = 6;
+/// The part of the weekly message that says what the company changed about how it works
+/// (Sprint 119). It is there only when something changed.
+pub const WHAT_CHANGED_HEADING: &str = "What changed about how we work";
 
 /// The interval and the settling time, so a test or a local stack can shorten them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +131,9 @@ pub struct DirectionSessionState {
     pub sent_back: Vec<String>,
     /// Work a daily review started toward a goal since the last session.
     pub started_by_reviews: Vec<String>,
+    /// What the company changed about how it works since the last session, one plain line
+    /// each: rules learned, given, dropped or brought back, and team changes.
+    pub changed: Vec<String>,
 }
 
 fn short(text: &str, chars: usize) -> String {
@@ -236,10 +243,33 @@ impl DirectionSessionState {
                 facts.push(format!("{label}: {}", titles(list)));
             }
         }
+        let changed = if self.changed.is_empty() {
+            String::new()
+        } else {
+            let mut lines: Vec<String> = self
+                .changed
+                .iter()
+                .take(LISTED_CHANGES)
+                .map(|line| format!("- {line}"))
+                .collect();
+            if self.changed.len() > LISTED_CHANGES {
+                lines.push(format!(
+                    "- and {} more",
+                    self.changed.len() - LISTED_CHANGES
+                ));
+            }
+            format!(
+                "{WHAT_CHANGED_HEADING} since the last one, from the records:\n{}\n\
+                 End your message to the owner with one short part headed \"{WHAT_CHANGED_HEADING}\": \
+                 each of those lines in a few plain words with its reason, so they can say if \
+                 one is wrong. Send that part even if you have no direction question.\n",
+                lines.join("\n")
+            )
+        };
         format!(
             "{DIRECTION_SESSION_MESSAGE_PREFIX} due. The owner has not asked for this. Once a \
              week the company brings them the questions about direction; the owner decides \
-             direction, not you. From the company's own records since the last one:\n{}\n\
+             direction, not you. From the company's own records since the last one:\n{}\n{changed}\
              Write the owner one short message in plain words, with no ids and no commands, \
              holding at most {MAX_DIRECTION_QUESTIONS} questions about direction: which goal \
              matters most, whether to continue, pivot or stop a line of work, what the company \
@@ -253,8 +283,8 @@ impl DirectionSessionState {
              \"ownerNeed\" and its answers in \"ownerReplies\", a list of two or three short \
              strings. When the owner answers, act on it in that turn, record a changed goal, \
              and if another of these questions is still open, offer it the same way. Fewer \
-             than {MAX_DIRECTION_QUESTIONS} is fine. If there is no real direction question, \
-             stay quiet. You will not be asked again until the owner has engaged, so keep the \
+             than {MAX_DIRECTION_QUESTIONS} is fine. If there is no real direction question and \
+             nothing above changed about how we work, stay quiet. You will not be asked again until the owner has engaged, so keep the \
              work moving on the goals as they stand.",
             facts.join("\n")
         )
@@ -407,7 +437,16 @@ impl OrgIntel {
         .fetch_all(&self.pool)
         .await?;
 
+        // What the company changed about how it works: since the last session, or over the
+        // last interval before the first one.
+        let changed = self
+            .working_changes_since(Some(
+                through.unwrap_or_else(|| Utc::now() - DIRECTION_SESSION_EVERY),
+            ))
+            .await?;
+
         Ok(DirectionSessionState {
+            changed,
             enabled: row.get("enabled"),
             last: row.get("last"),
             unanswered: row.get("unanswered"),
@@ -530,6 +569,7 @@ mod tests {
             accepted: Vec::new(),
             sent_back: Vec::new(),
             started_by_reviews: Vec::new(),
+            changed: Vec::new(),
         }
     }
 
@@ -679,6 +719,47 @@ mod tests {
     }
 
     #[test]
+    fn the_weekly_message_says_what_changed_about_how_we_work_only_when_something_did() {
+        let mut state = busy();
+        let quiet = state.message(at(8, 0));
+        assert!(!quiet.contains(WHAT_CHANGED_HEADING), "{quiet}");
+
+        state.changed = vec![
+            "Learned, for the Menu team, after the same thing went wrong twice: Show every price with GST included.".into(),
+            "Dropped a rule (Never post on Sundays) because: The owner changed their mind.".into(),
+            "Closed the Web team because: one lead now carries both".into(),
+        ];
+        let message = state.message(at(8, 0));
+        assert!(
+            message.contains(&format!(
+                "{WHAT_CHANGED_HEADING} since the last one, from the records:\n- Learned, for the Menu team"
+            )),
+            "{message}"
+        );
+        for line in &state.changed {
+            assert!(message.contains(&format!("- {line}")), "{line}");
+        }
+        // Exec is told to say it to the owner, under that heading, even with no question.
+        assert!(message.contains(&format!("one short part headed \"{WHAT_CHANGED_HEADING}\"")));
+        assert!(message.contains("Send that part even if you have no direction question."));
+        // The records come before the instructions for the questions, and nothing in them is an id.
+        assert!(
+            message.find(WHAT_CHANGED_HEADING) < message.find("Write the owner one short message")
+        );
+
+        // A long week is cut to a few lines, with the rest counted.
+        state.changed = (0..9)
+            .map(|n| format!("New rule from the owner, for the whole company: rule {n}"))
+            .collect();
+        let message = state.message(at(8, 0));
+        assert!(
+            message.contains("rule 5") && !message.contains("rule 6"),
+            "{message}"
+        );
+        assert!(message.contains("- and 3 more"), "{message}");
+    }
+
+    #[test]
     fn the_interval_can_be_shortened() {
         let fast = DirectionSessionRhythm {
             every: chrono::Duration::seconds(300),
@@ -721,6 +802,7 @@ mod tests {
             accepted: vec!["Price list".into()],
             sent_back: vec!["Welcome email".into()],
             started_by_reviews: vec!["List twelve local prospects".into()],
+            changed: Vec::new(),
             ..busy()
         };
         let body = state.message(at(7, 0));
@@ -779,6 +861,7 @@ mod tests {
             accepted: vec![long.clone(); 30],
             sent_back: vec![long.clone(); 30],
             started_by_reviews: vec![long.clone(); 30],
+            changed: Vec::new(),
             ..busy()
         };
         let body = crowded.message(at(7, 0));

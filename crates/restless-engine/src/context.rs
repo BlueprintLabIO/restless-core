@@ -144,6 +144,9 @@ pub struct ContextSnapshot {
     /// Active teams and agents, one line each (`roster_lines`), so Exec does not re-read
     /// `restless people` and `restless teams list` on every wake (S101 measured up to 28 reads).
     pub roster: Vec<String>,
+    /// The released Brand, truth and voice, bounded (`OrgIntel::brand_brief`). `None` when the
+    /// owner has released nothing or this is not an owner-directed turn.
+    pub brand: Option<String>,
     /// Every active company lesson, newest first: what the owner has ruled. Exec records them, so
     /// it reads all of them, each labelled with who it is for. Bounded when rendered.
     pub lessons: Vec<restless_orgintel::LessonRow>,
@@ -924,10 +927,11 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          plainly and point them to the card. Never redo a change the owner undid unless they ask \
          again.\n\n\
          # What the owner has ruled [owner policy]\n\
-         When the owner corrects work, states a preference that should hold next time, or sends \
-         work back for a reason that will come up again, record it in the same turn: `restless \
+         When the owner gives a standing instruction (\"from now on\", \"never\"), \
+         record it in the same turn: `restless \
          lessons add --rule '<one or two plain sentences>' --scope company|team:<id>|actor:<id> \
-         --source-message <their message id>`, then tell them in one line what you recorded. Act, \
+         --source-message <their message id>`; for a one-off correction add `--once` (noted, a \
+         rule only if it happens again). Tell them in one line. Act, \
          then tell; no approval card. If it matches a lesson already listed, run `restless lessons \
          recurred --lesson <id> --source-message <id>` instead of adding a duplicate, and fix why \
          it did not hold (wrong scope, too vague, the team never saw it). Hold your position: when \
@@ -1081,6 +1085,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          {budget}\n\n\
          # Staffing routes\n{staffing_routes}\n\n\
          {lessons}\
+         {brand}\
          # Plan\n{plan}\n\n\
          {journal}\
          {lead_exchanges}\
@@ -1102,6 +1107,12 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             block if block.is_empty() => block,
             block => format!("{block}\n"),
         },
+        // Absent with no released Brand, so nothing is invented and nothing is paid.
+        brand = snapshot
+            .brand
+            .as_deref()
+            .map(|brand| format!("{}\n\n", brand.trim_end()))
+            .unwrap_or_default(),
         ledger = snapshot.effect_ledger.trim(),
         signals = signals,
         budget = match snapshot.budget_remaining_usd {
@@ -1274,6 +1285,9 @@ mod tests {
         // site for a "sandbox" (nothing said the company computer is one), two cards were raised
         // for one sign-in and the owner was told to dismiss the spare, and Work ended `blocked`
         // waiting on its own background job. Three short paragraphs in the operating rules.
+        // 16 November (Sprint 119): one correction no longer becomes a rule at once. The lesson
+        // paragraph now tells a standing instruction (a rule) from a one-off (`--once`, noted)
+        // in fewer bytes: 52,877 before, 52,869 after.
         assert!(bytes <= 52_900, "Exec fixed prompt grew to {bytes} bytes");
     }
 
@@ -1641,6 +1655,7 @@ mod tests {
             library_uploads: Vec::new(),
             roster: Vec::new(),
             lessons: Vec::new(),
+            brand: None,
         }
     }
 
@@ -1669,9 +1684,14 @@ mod tests {
             recurrence_count,
             last_recurred_at: None,
             last_recurrence_message_id: None,
+            learned: false,
         };
+        let mut learned = lesson(0xcccc_cccc, "Show every price with GST included.", 1);
+        learned.learned = true;
+        learned.recorded_by = "daemon".into();
         ruled.lessons = vec![
             lesson(0xaaaa_aaaa, "Never use stock photos.", 2),
+            learned,
             lesson(0xbbbb_bbbb, "Quotes show GST on its own line.", 0),
         ];
         let package = assemble(&ruled);
@@ -1686,6 +1706,29 @@ mod tests {
         assert!(package
             .user_prompt
             .contains("(whole company, lesson aaaaaaaa, came back 2 times)"));
+        // What the company learned is shown apart from what the owner ruled, after it.
+        let learned_heading = package
+            .user_prompt
+            .find("# What the company has learned")
+            .expect("learned block");
+        let learned_rule = package
+            .user_prompt
+            .find("Show every price with GST included.")
+            .unwrap();
+        assert!(older < learned_heading && learned_heading < learned_rule);
+        // A one-off correction is noted, not ruled: the doctrine says which is which.
+        for needle in [
+            "standing instruction",
+            "add `--once`",
+            "only if it happens again",
+        ] {
+            let prompt = package
+                .system_prompt
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(prompt.contains(needle), "{needle}");
+        }
         // The doctrine that makes Exec record and hold them is in the cached prefix.
         for needle in [
             "restless lessons add",

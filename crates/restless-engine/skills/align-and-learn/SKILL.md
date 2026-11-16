@@ -31,10 +31,23 @@ the whole thing: one owner judgement, a minute of their time, instead of a full 
 direction. When the owner has said to go ahead without checking back, skip the first look: build
 the direction closest to their examples and say which one in the review message.
 
-**3. Learn from every correction.** When the owner corrects something, states a preference that
-should hold next time, or sends work back for a reason that will come up again, record a lesson in
-the same turn. A lesson is one rule in one or two plain sentences, in the owner's words. Everyone
-it applies to reads it on every wake, under "What the owner has ruled".
+**3. Learn from every correction.** One incident is a hypothesis, not a rule. Tell the two apart:
+- **A standing instruction** ("from now on", "always", "never", or a preference the owner says
+  should hold) is a rule at once. Record a lesson in the same turn. A lesson is one rule in one or
+  two plain sentences, in the owner's words. Everyone it applies to reads it on every wake, under
+  "What the owner has ruled".
+- **A one-off correction** is noted, not ruled: the same command with `--once`. Nobody is shown it
+  as a rule. If the same kind of thing is corrected a second time within four weeks it becomes a
+  lesson by itself, under "What the company has learned".
+- **Work sent back or failed** is noted for you, without a model. When your team's Work is sent
+  back you are asked one thing: what you would do differently next time. Answer in one sentence
+  with `restless lessons add --once --work <the Work> --rule '<one sentence>'`. If the same thing
+  goes wrong on a second piece of Work, your sentence becomes the team's lesson.
+- A learned lesson whose problem has not come back in six weeks is dropped from the wake with the
+  reason recorded, and returns if the problem does. A lesson the owner ruled is never dropped that
+  way. A wake carries at most twenty lessons; `restless lessons list` shows the rest.
+
+For a standing instruction:
 - Record it: `restless lessons add --rule '<the rule>' --scope company|team:<team id or name>|actor:<actor id>
   --source-message <the message it came from>`. Pick the narrowest scope that covers where the
   problem can happen again: one agent's habit is `actor:`, a team's way of working is `team:`,
@@ -49,8 +62,8 @@ it applies to reads it on every wake, under "What the owner has ruled".
   the work never saw it. A lesson that keeps coming back is a problem to solve, not to recount.
 - Rewrite a lesson by retiring it (`restless lessons retire --lesson <id> --reason <why>`) and
   recording the new wording.
-- Not a lesson: a one-off preference for a single piece of Work (put it in that Work's brief), a
-  typo or a fact fix.
+- Not a lesson and not worth noting: a preference for a single piece of Work (put it in that
+  Work's brief), a typo or a fact fix.
 
 **Hold your position.** A lesson stands until the owner changes it. When a new request conflicts
 with an active lesson or something the owner ruled earlier, do not quietly go along with whichever

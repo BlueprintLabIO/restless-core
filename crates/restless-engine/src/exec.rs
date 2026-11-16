@@ -1952,9 +1952,15 @@ async fn gather_snapshot(
     })
     .map(|signal| signal.line())
     .collect();
-    // The review of the company's own shape. It is shown only on the owner's own turns and only
-    // once they have given enough new signal; a failed read costs the review, never the wake.
-    let org_review = if pending_mention.is_none() && human_is_membership_owner {
+    // The review of the company's own shape, only once the owner has given enough new signal.
+    // It rides the owner's own turn, or a daily review that says it carries one (at most weekly,
+    // `restless_orgintel::org_review_rides`); no other turn shows it and none is woken for it.
+    // A failed read costs the review, never the wake.
+    let org_review_turn = conversation_inbox.iter().any(|message| {
+        message.from_actor == owner_actor_id
+            || restless_orgintel::carries_org_review(&message.from_actor, &message.body)
+    });
+    let org_review = if pending_mention.is_none() && human_is_membership_owner && org_review_turn {
         match crate::org_review::scorecard(org, chrono::Utc::now()).await {
             Ok(card) => crate::org_review::exec_block(&card),
             Err(error) => {
@@ -2172,7 +2178,18 @@ async fn gather_snapshot(
     // What the owner has ruled. A wake that cannot read them still runs; `restless lessons list`
     // reads them again.
     let lessons = org.list_lessons(false).await.unwrap_or_default();
+    // The released Brand, for a turn that may write to the owner or commission what customers
+    // see. A failed read costs the block, never the wake.
+    let brand = if pending_mention.is_none() && human_is_membership_owner {
+        org.brand_brief().await.unwrap_or_else(|error| {
+            tracing::warn!(company = %config.name, %error, "Brand brief unavailable");
+            None
+        })
+    } else {
+        None
+    };
     Ok(ContextSnapshot {
+        brand,
         people_changes,
         library_uploads,
         roster,

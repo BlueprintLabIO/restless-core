@@ -788,6 +788,25 @@ pub fn work_spend(
         .collect()
 }
 
+/// What one Work has cost in metered model spend, over all its Attempts, for its outcome
+/// record. `None` when the ledger holds no request for it: the record then says "unknown", it
+/// never guesses. Requests on a route that is not charged per token are entries that add to
+/// nothing, so such Work reads $0.00.
+pub fn work_cost(
+    records: &[restless_model_gateway::SpendRecord],
+    work_id: uuid::Uuid,
+) -> Option<f64> {
+    let mut seen = false;
+    let mut micro = 0u64;
+    for record in records {
+        if record.work_id == Some(work_id) {
+            seen = true;
+            micro += record.cost_micro_usd;
+        }
+    }
+    seen.then(|| micro as f64 / 1_000_000.0)
+}
+
 /// Read the company's records and return its signals with the facts they came from: the
 /// scheduler's sweep. Exec's context reads the same rows through [`signals`].
 pub async fn company_signals(

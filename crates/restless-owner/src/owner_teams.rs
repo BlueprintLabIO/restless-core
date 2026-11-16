@@ -552,6 +552,33 @@ pub(super) async fn work_feedback(
     }
 }
 
+/// One Work's outcome record: what was expected, what happened, what it cost and the verdict,
+/// each derived from the Work's own rows and the spend ledger. Cost is "unknown" when the
+/// ledger holds nothing for it.
+pub(super) async fn work_outcome(
+    State(state): State<OwnerState>,
+    AxumPath((company, work)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.outcome_record(work).await {
+        Ok(record) => {
+            let cost =
+                restless_engine::health::work_cost(&state.daemon.spend.records(&company), work);
+            let record = record.with_cost(cost);
+            let lines: Vec<_> = record
+                .lines()
+                .into_iter()
+                .map(|(label, value)| serde_json::json!({ "label": label, "value": value }))
+                .collect();
+            Json(serde_json::json!({ "outcome": record, "lines": lines })).into_response()
+        }
+        Err(error) => api_error(StatusCode::NOT_FOUND, "orgintel", error.plain_message()),
+    }
+}
+
 /// What each piece of Work has cost in metered model spend, from the exact request records.
 /// Owner only, like the rest of spend.
 pub(super) async fn work_spend(

@@ -370,6 +370,8 @@ pub fn exec_block(card: &Scorecard) -> Option<String> {
          its own its own lead, or move a lead whose team keeps failing the same way. Only a team \
          or spend beyond what the owner asked for needs their yes.\n\
          - If the last review's change made its number worse, undo it.\n\
+         - Where two lessons listed above say the same thing, keep the clearer one and retire \
+         the other (`restless lessons retire --lesson <id> --reason 'same as <the one kept>'`).\n\
          - Status and try-again messages mean the owner had to pull. Say what you changed so they \
          need not ask next time.\n\
          Tell the owner each change in one line with the number behind it. Then record it, or this \

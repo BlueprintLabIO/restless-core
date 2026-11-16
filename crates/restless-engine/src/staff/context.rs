@@ -389,7 +389,27 @@ pub async fn shared_spine(
         spine.push('\n');
         spine.push_str(&restless_orgintel::lessons_block(&lessons));
     }
+    // The released Brand reaches the people who brief the work, not only the workers (Sprint
+    // 119). A Staff Attempt still gets the Work-bound constitution; a lead gets this bounded
+    // brief on every wake. With no release nothing is added.
+    if accountable_lead {
+        if let Ok(Some(brand)) = org.brand_brief().await {
+            spine.push('\n');
+            spine.push_str(&brand);
+        }
+    }
     if let ActorContextFocus::WorkAttempt { work_id, .. } = focus {
+        // A lead's own Work that was sent back or failed: the same one-sentence ask a lead gets
+        // by message for a worker's Work, on the Attempt that was already going to run.
+        if accountable_lead || actor == "exec" {
+            if let Ok(Some(observation)) = org.unanswered_observation(work_id).await {
+                spine.push_str(&format!(
+                    "\n# What went wrong last time on this Work [observation]\n{}\n{}\n",
+                    observation.happened,
+                    restless_orgintel::next_time_ask(work_id).trim_start()
+                ));
+            }
+        }
         if let Some((handoff_id, prepared_state)) = org.handoff_preparation(work_id).await? {
             spine.push_str(&format!("\n# Human-step preparation [current OrgIntel state]\nHandoff {handoff_id} is being repaired: {prepared_state}\nReuse this handoff ID. Prepare the exact live prompt, then `restless work refresh-handoff --handoff {handoff_id} --action <bounded owner action with the actual URL/code/session> --prepared <the same usable URL/code/session and current state> --resume-when ...` without --preparing to publish it. Do not replace this with an obsolete browser-request instruction. Existing approval remains recorded. Observe completion or expiry; do not ask the owner to confirm an observable result.\n"));
         }

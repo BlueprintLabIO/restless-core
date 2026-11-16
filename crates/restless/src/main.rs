@@ -1581,17 +1581,25 @@ enum PeopleCommand {
 
 #[derive(Subcommand)]
 enum LessonCommand {
-    /// Record a rule from a correction. The owner or Exec for anyone; a team lead for its own team.
+    /// Record a standing instruction as a rule. The owner or Exec for anyone; a team lead for
+    /// its own team. With --once it is only noted: a one-off correction, or what you would do
+    /// differently on Work that was sent back. It becomes a rule if the same thing happens again.
     Add {
         /// The rule, in one or two plain sentences.
         #[arg(long)]
         rule: String,
         /// Who it is for: `company`, `team:<team id or name>` or `actor:<actor id>`.
-        #[arg(long)]
-        scope: String,
+        #[arg(long, required_unless_present = "work")]
+        scope: Option<String>,
         /// The message the rule came from.
+        #[arg(long, required_unless_present = "work")]
+        source_message: Option<i64>,
+        /// Note it without making it a rule.
         #[arg(long)]
-        source_message: i64,
+        once: bool,
+        /// With --once: the Work that was sent back or failed.
+        #[arg(long, requires = "once")]
+        work: Option<String>,
     },
     /// The lessons you work under. The owner and Exec see every lesson.
     List {
@@ -1974,6 +1982,14 @@ enum WorkCommand {
         company: Option<String>,
     },
     Attempts {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        work: Option<String>,
+    },
+    /// The outcome record: what was expected, what happened, what it cost and the verdict.
+    /// One Work, or the Work that ended most recently.
+    Outcome {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
         #[arg(long)]
@@ -4211,9 +4227,11 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 rule,
                 scope,
                 source_message,
+                once,
+                work,
             } => serde_json::json!({
                 "cmd": "lesson-add", "company": company, "body": rule, "scope": scope,
-                "source_message_id": source_message,
+                "source_message_id": source_message, "once": once, "work_id": work,
                 "actor": acting_actor(),
             }),
             LessonCommand::List { include_retired } => serde_json::json!({
@@ -4310,6 +4328,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             }
             WorkCommand::Attempts { company, work } => serde_json::json!({
                 "cmd": "work-attempts", "company": company, "id": work,
+            }),
+            WorkCommand::Outcome { company, work } => serde_json::json!({
+                "cmd": "work-outcome", "company": company, "id": work,
             }),
             WorkCommand::Add {
                 company,

@@ -45,7 +45,9 @@ mod library_pins;
 mod messages;
 mod notice_digest;
 mod notifications;
+mod observations;
 mod org_review;
+mod outcome_record;
 mod owner_questions;
 mod owner_ready;
 mod pending_shares;
@@ -83,6 +85,7 @@ pub use attention_dismissals::*;
 pub use block_recheck::*;
 pub use comment_search::*;
 pub use completion_repairs::*;
+pub use constitution::{render_brand_brief, BRAND_BRIEF_BYTES};
 pub use decisions::*;
 pub use document_copies::*;
 pub use document_decisions::*;
@@ -100,7 +103,13 @@ pub use library_pins::*;
 pub use messages::{ConversationStop, MailSettle};
 pub use notice_digest::notice_digest_body;
 pub use notifications::*;
+pub use observations::{
+    learned_rule, next_time_ask, observation_kind, same_kind, LessonChange, Observation,
+    ObservationSource, Observed, LEARNED_BY, LEARNED_LESSON_UNUSED_AFTER,
+    OBSERVATIONS_BEFORE_LESSON, OBSERVATION_EVENT, OBSERVATION_LIVES, UNUSED_LESSON_REASON,
+};
 pub use org_review::*;
+pub use outcome_record::*;
 pub use owner_questions::*;
 pub use owner_ready::*;
 pub use pending_shares::*;
@@ -518,11 +527,14 @@ async fn invalidate_from(
             .bind(reviewer)
             .bind(&lead)
             .bind(format!(
-                "Review rejected Work {target} owned by {target_owner}: {reason}. Change the failed mechanism, then resume the node."
+                "Review rejected Work {target} owned by {target_owner}: {reason}. Change the failed mechanism, then resume the node.{}",
+                observations::next_time_ask(target)
             ))
             .execute(&mut **tx)
             .await?;
     }
+    // One observation per send-back (Sprint 119): not a rule until the same kind repeats.
+    observations::observe_sent_back_in_tx(tx, target, reviewer, reason).await?;
     // A rejected Work generation also retires its exact native-document
     // review obligation. Leaving a pending dependency attached to the prior
     // revision would make the next producer Attempt unable to request its own
