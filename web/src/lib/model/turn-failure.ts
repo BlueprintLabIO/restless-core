@@ -22,7 +22,7 @@ const RULES: {
 	},
 	{
 		test: /\[budget\][^]*?native-harness (turns|tokens)/i,
-		say: 'the company has used its monthly native-harness allowance. Raise it in Company → Resources.',
+		say: 'the company has used its monthly allowance for agent turns. Raise it in Company → Resources.',
 		fix: LIMITS
 	},
 	{

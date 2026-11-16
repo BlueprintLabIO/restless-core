@@ -1725,6 +1725,19 @@ enum OrgCommand {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
     },
+    /// The attention diary: results the owner accepted and every time the owner stepped in,
+    /// by kind, with chasing for status counted apart. Read from the records; no model.
+    /// Covers the last three days unless told.
+    Diary {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Start: a day (YYYY-MM-DD, from midnight UTC) or a time (2026-11-16T09:30:00Z).
+        #[arg(long)]
+        from: Option<String>,
+        /// End, written the same way. Now, if left out.
+        #[arg(long)]
+        to: Option<String>,
+    },
     /// Record a finished review of the company's shape. The next one comes when the owner has
     /// given enough new signal, and shows what this one changed.
     Review {
@@ -4255,6 +4268,16 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Org { command } => match command {
             OrgCommand::Scorecard { company } => {
                 serde_json::json!({ "cmd": "org-scorecard", "company": company })
+            }
+            OrgCommand::Diary { company, from, to } => {
+                let mut request = serde_json::json!({ "cmd": "org-diary", "company": company });
+                if let Some(from) = from {
+                    request["from"] = from.into();
+                }
+                if let Some(to) = to {
+                    request["to"] = to.into();
+                }
+                request
             }
             OrgCommand::Review {
                 company,

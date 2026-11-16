@@ -176,7 +176,7 @@
 				}}
 			/>
 		{:else if usesToken}
-			<Field label="Token" hint="Kept in the company Vault; agents never see it.">
+			<Field label="Token" hint="Locked away for this company (its Vault); agents never see it.">
 				<TokenPicker
 					{companyId}
 					app={request.catalogueKey ?? request.name}

@@ -16,6 +16,13 @@
 		queryKeys
 	} from '$lib/model/queries.svelte';
 	import { excerptOf } from '$lib/model/open-question';
+	import {
+		offeredStarters,
+		starterMessage,
+		starterObjective,
+		type StarterOutcome
+	} from '$lib/model/starter-outcomes';
+	import { addGoal } from '$lib/model/skills';
 	import { renameInAccount, reviseCompanyCharter } from '$lib/model/company';
 	import { failureSentence } from '$lib/model/failure';
 	import type { ReadbackLine } from '$lib/model/generated/conversation';
@@ -326,8 +333,15 @@
 		].join('\n');
 	}
 
-	async function begin() {
+	/* A first job the owner tapped (S120). It confirms the read-back like "Let's do it", becomes
+	 * the company's first goal through the ordinary goal call, and Exec is told to start it. */
+	const starters = offeredStarters();
+	let starter = $state<StarterOutcome | null>(null);
+	let goalSetFor = '';
+
+	async function begin(chosen?: StarterOutcome) {
 		if (starting || !lines.length) return;
+		if (chosen) starter = chosen;
 		keep();
 		starting = true;
 		error = '';
@@ -368,7 +382,17 @@
 		error = '';
 		nameFailure = '';
 		try {
-			await conversation.send(asAnswer('Let’s do it'), [], `/${companyId}/welcome`);
+			if (starter && goalSetFor !== starter.id) {
+				/* Exec is told either way; if the goal did not save, Exec sets it from the words. */
+				await addGoal(companyId, starterObjective(starter))
+					.then(() => (goalSetFor = starter?.id ?? ''))
+					.catch(() => {});
+			}
+			await conversation.send(
+				asAnswer(starter ? starterMessage(starter) : 'Let’s do it'),
+				[],
+				`/${companyId}/welcome`
+			);
 			/* On a phone the setup chat simply is Exec's chat from here on. Wider, a still copy of it
 			 * morphs into Exec's rail as the company's tabs take the bar. */
 			if (window.matchMedia('(max-width: 760px)').matches) {
@@ -492,6 +516,12 @@
 					/>
 				{/each}
 
+				<!-- Its own block (S120): inside the chain below it hid Exec's question card, the
+				     thinking dots and every recovery line for the whole interview. -->
+				{#if step === 'idea'}<SetupAccountOffer
+						{companyId}
+						interviewStarted={lastOwner >= 0}
+					/>{/if}
 				{#if step === 'model'}
 					<div class="setup-card" role="group" aria-label="Exec needs a model">
 						<p>I can’t think until I have a model. Connect one here and I’ll pick up right away.</p>
@@ -501,8 +531,6 @@
 							onready={() => void catalog.refresh()}
 						/>
 					</div>
-				{:else if step === 'idea'}
-					<SetupAccountOffer {companyId} interviewStarted={lastOwner >= 0} />
 				{:else if step === 'readback'}
 					<div
 						class="setup-card readback"
@@ -550,20 +578,49 @@
 						<SetupBrand {companyId} />
 						{#if nameFailure}
 							<p class="setup-note" role="alert">
-								The charter is saved, but the name is still {currentName || 'unchanged'}: {nameFailure}
+								That is saved, but the name is still {currentName || 'unchanged'}: {nameFailure}
 							</p>
 							<div class="setup-actions">
-								<button type="button" class="btn primary" onclick={begin} disabled={starting}
-									>Try the name again</button
+								<button
+									type="button"
+									class="btn primary"
+									onclick={() => begin()}
+									disabled={starting}>Try the name again</button
 								><button type="button" class="btn" onclick={finish} disabled={starting}
 									>Keep {currentName || 'it'} for now</button
 								>
 							</div>
 						{:else}
+							{#if starters.length}
+								<div class="setup-starters" role="group" aria-label="A first job to start with">
+									<p>Want me to start on one of these first?</p>
+									<div class="setup-replies">
+										{#each starters as option (option.id)}
+											<button
+												type="button"
+												disabled={starting}
+												title={`Done when ${option.doneWhen}. First, I’ll ${option.firstStep}.`}
+												onclick={() => begin(option)}
+												><i aria-hidden="true"></i><span>{option.title}</span></button
+											>
+										{/each}
+									</div>
+								</div>
+							{/if}
 							<div class="setup-actions">
-								<button type="button" class="btn primary" onclick={begin} disabled={starting}
-									>{starting ? 'Setting things up…' : 'Let’s do it'}</button
-								><span class="setup-note">Saves this as your charter.</span>
+								<button
+									type="button"
+									class="btn primary"
+									onclick={() => begin()}
+									disabled={starting}
+									title={starters.length
+										? 'Start without choosing one. Exec picks the first job.'
+										: undefined}>{starting ? 'Setting things up…' : 'Let’s do it'}</button
+								><span
+									class="setup-note"
+									title="This is saved as what your company is for. It is kept in Company › Charter."
+									>You can change any of this later.</span
+								>
 							</div>
 						{/if}
 					</div>
@@ -747,6 +804,25 @@
 	}
 	.setup-replies button:hover:not(:disabled) i {
 		border-color: var(--ink);
+	}
+	.setup-starters {
+		display: grid;
+		gap: 4px;
+		padding-top: 10px;
+		border-top: 1px solid var(--border);
+	}
+	.setup-starters > p {
+		margin: 0;
+		color: var(--ink);
+		font-weight: 500;
+		line-height: 1.4;
+	}
+	/* One line each, whatever the width: a long title is cut, the row never grows. */
+	.setup-starters .setup-replies span {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.readback dl {
 		display: grid;

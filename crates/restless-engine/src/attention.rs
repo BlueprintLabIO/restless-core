@@ -1825,7 +1825,7 @@ fn account_request_title(
             "{who} asks for {}",
             match (account, kind) {
                 (Some(_), _) => "more on an account",
-                (None, Some("api")) => "an API key",
+                (None, Some("api")) => "a key for an outside service",
                 (None, Some("github")) => "a GitHub account",
                 (None, Some("mcp_tool")) => "a tool connection",
                 (None, Some("ai_provider")) => "an AI account",
@@ -2112,8 +2112,8 @@ async fn account_items(
             .flatten()
             .and_then(crate::credential::vault_name_for_service);
         if vault_key {
-            item.why_it_matters = "The key is kept in this company's Vault. Agents use it by name and never see it in chat.".into();
-            item.recommendation = "Add the key to Company › Vault, or deny.".into();
+            item.why_it_matters = "The key is locked away for this company. Agents use it by name and never see it in chat.".into();
+            item.recommendation = "Add the key (it is kept in Company › Vault), or deny.".into();
             item.requested_action = "Add the key, or deny.".into();
         } else {
             item.why_it_matters = "Companies use your accounts only as you grant them; nothing is shared until you say so.".into();
@@ -4124,10 +4124,10 @@ async fn project_queue(
                     id: "request-revision".into(),
                     label: "Request changes".into(),
                     role: "decision",
-                    consequence: "Sends exact feedback to the lead and starts a new Work revision."
-                        .into(),
-                    next_state: "The lead receives the feedback and the Work returns for revision."
-                        .into(),
+                    consequence: "Sends your feedback to the lead, who redoes the work.".into(),
+                    next_state:
+                        "The lead gets your feedback and the work comes back once it is redone."
+                            .into(),
                     href: None,
                 },
                 AttentionAction {
@@ -6860,7 +6860,7 @@ mod tests {
             expired.item_id.as_deref(),
             Some("authority:account_request:r-expired")
         );
-        assert_eq!(expired.title, "Exec asks for an API key");
+        assert_eq!(expired.title, "Exec asks for a key for an outside service");
         assert!(expired
             .current_state
             .ends_with("asks again if it still needs it."));

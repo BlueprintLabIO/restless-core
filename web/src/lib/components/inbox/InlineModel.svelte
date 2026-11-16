@@ -150,7 +150,7 @@
 						detail: modelLabel(option.model),
 						mark: option.inUse ? 'Fallback' : undefined
 					})),
-					{ value: ADD, title: 'Another account', detail: 'Add an API key' }
+					{ value: ADD, title: 'Another account', detail: 'Paste a key from your AI provider' }
 				]}
 				bind:value={choice}
 			/>

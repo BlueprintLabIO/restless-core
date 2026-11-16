@@ -32,16 +32,19 @@ These are product facts supported by the current architecture and exercised dogf
 - `product.persistence.work` — Work is a durable responsibility; an Attempt is one replaceable execution
   against an exact revision and evidence set.
 - `product.models.labour` — Models supply labour and judgement but do not constitute the institution.
-- `product.autonomy.proactive` — The company can wake, follow up, recover and continue without another
-  owner prompt.
+- `product.autonomy.proactive` — With an open goal, the company starts the next step itself once a day,
+  brings the owner its questions about direction once a week, notices stalled or duplicated work and
+  repairs it or brings it to the owner, and keeps a lesson when the same mistake is sent back twice,
+  without another owner prompt. With no open goal it does not start work by itself.
 
 ### Accountable delegation
 
-- `organisation.exec.dispatch` — The Exec dispatches executable outcomes and remains available for
-  portfolio judgement rather than becoming the producer.
+- `organisation.exec.dispatch` — The Exec dispatches production outcomes to an accountable lead, does
+  small asks itself, and remains available for portfolio judgement.
 - `organisation.lead.accountable` — Every executable outcome has one accountable lead.
-- `organisation.lead.nonproducing` — The lead frames, guides, reviews and repairs the process; Staff
-  performs content-changing production.
+- `organisation.lead.nonproducing` — The lead produces a tightly coupled outcome directly, through Work
+  it owns. When it adds Staff it frames, guides, reviews and repairs through them, and does not silently
+  change their work.
 - `organisation.staff.semantic` — Delegation transfers an independently useful semantic responsibility,
   not merely a tool call.
 - `organisation.team.minimum` — One end-to-end worker is the default; additional Staff must repay
@@ -95,8 +98,8 @@ These are product facts supported by the current architecture and exercised dogf
   provider and purpose where applicable.
 - `authority.effects.receipted` — Consequential external effects use explicit capabilities, idempotency,
   authoritative receipts and unknown-outcome reconciliation.
-- `authority.spend.visible` — Missing terminal charged usage fails closed rather than becoming invisible
-  spend.
+- `authority.spend.visible` — Missing terminal charged usage is recorded as unknown rather than becoming
+  invisible spend. New model turns are still admitted against the charges that are known.
 - `authority.external_history` — Runtime restoration cannot roll back or erase external-effect history.
 - `authority.failure.local` — Failure pauses the affected actor, capability or effect rather than freezing
   unrelated company work.

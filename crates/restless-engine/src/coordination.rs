@@ -2498,6 +2498,39 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
+        "org-diary" => {
+            // The attention report: results the owner accepted and each time they stepped in.
+            let (from, to) = match crate::attention_report::range(
+                request.common.from.as_deref(),
+                request.common.to.as_deref(),
+                chrono::Utc::now(),
+            ) {
+                Ok(range) => range,
+                Err(message) => return Response::err(message),
+            };
+            let config = match runtime::CompanyConfig::load(&daemon.root, company) {
+                Ok(config) => config,
+                Err(error) => return Response::err(format!("{error:#}")),
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match crate::attention_report::report(
+                    &config,
+                    &daemon.authority,
+                    &org,
+                    from,
+                    to,
+                )
+                .await
+                {
+                    Ok(report) => Response::ok(serde_json::json!({
+                        "summary": report.summary(),
+                        "report": report,
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "org-review" => match (
             request.orgintel.actor.as_deref(),
             request.common.reason.as_deref(),

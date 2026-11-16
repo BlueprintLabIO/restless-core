@@ -898,6 +898,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "work-goal" => &["id", "goal", "actor"],
         "work-attempts" => &["id"],
         "work-outcome" => &["id"],
+        "org-diary" => &["from", "to"],
         "work-assign" => &["id", "to", "actor", "reason"],
         "work-add" => &[
             "actor",
@@ -1748,6 +1749,7 @@ mod tests {
             "spend",
             "telemetry",
             "org-scorecard",
+            "org-diary",
             "org-review",
             "spend-correct",
             "goals",
