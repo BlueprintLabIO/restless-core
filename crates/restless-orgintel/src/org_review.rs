@@ -171,6 +171,7 @@ impl OrgIntel {
                SELECT 'lesson', event.created_at, event.actor_id, event.kind \
                FROM events event \
                WHERE event.kind IN ('lesson_recorded','lesson_recurred') AND event.created_at > $1 \
+                 AND event.actor_id IS DISTINCT FROM 'daemon' \
              ) signals ORDER BY at LIMIT $3",
         )
         .bind(after)

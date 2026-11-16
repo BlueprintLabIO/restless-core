@@ -406,7 +406,7 @@ const STOPWORDS: [&str; 18] = [
 
 /// The words a text is compared by: lower case, letters and digits only, short and filler
 /// words dropped. Numbers are always kept, so "prospects 1 to 10" and "prospects 11 to 20" differ.
-fn words(text: &str) -> BTreeSet<String> {
+pub(crate) fn words(text: &str) -> BTreeSet<String> {
     text.split(|character: char| !character.is_alphanumeric())
         .map(str::to_lowercase)
         .filter(|word| {
@@ -418,7 +418,7 @@ fn words(text: &str) -> BTreeSet<String> {
 }
 
 /// The outcome without what it rests on: two jobs sharing an assumption are not the same job.
-fn outcome_body(outcome: &str) -> &str {
+pub(crate) fn outcome_body(outcome: &str) -> &str {
     let lower = outcome.to_ascii_lowercase();
     match lower.find(&crate::assumptions::ASSUMPTIONS_HEADING.to_ascii_lowercase()) {
         Some(at) => &outcome[..at],
@@ -426,7 +426,7 @@ fn outcome_body(outcome: &str) -> &str {
     }
 }
 
-fn overlap(a: &BTreeSet<String>, b: &BTreeSet<String>) -> f64 {
+pub(crate) fn overlap(a: &BTreeSet<String>, b: &BTreeSet<String>) -> f64 {
     if a.is_empty() || b.is_empty() {
         return 0.0;
     }
@@ -581,28 +581,34 @@ pub fn failure_signature(state: WorkAttemptState, summary: &str) -> Option<Strin
     {
         return None;
     }
-    if let Some((kind, _)) = summary
+    let way = text_signature(summary);
+    let platform = way
         .strip_prefix('[')
-        .and_then(|rest| rest.split_once(']'))
-    {
-        let kind = kind.trim().to_lowercase();
-        return (!NOT_THE_WORKS_FAILURE.contains(&kind.as_str())).then(|| format!("[{kind}]"));
+        .and_then(|rest| rest.strip_suffix(']'))
+        .is_some_and(|kind| NOT_THE_WORKS_FAILURE.contains(&kind));
+    (!platform).then_some(way)
+}
+
+/// What a reason is called when two reasons are compared: a typed one (`[kind] …`) is its
+/// kind; free text is its first twelve words with numbers and ids removed. Sprint 119's
+/// observations use the same reading for work that was sent back.
+pub(crate) fn text_signature(text: &str) -> String {
+    let text = text.trim();
+    if let Some((kind, _)) = text.strip_prefix('[').and_then(|rest| rest.split_once(']')) {
+        return format!("[{}]", kind.trim().to_lowercase());
     }
-    Some(
-        summary
-            .split(|character: char| !character.is_alphanumeric())
-            .filter(|word| !word.is_empty())
-            .map(|word| {
-                if word.chars().any(|character| character.is_ascii_digit()) {
-                    "#".to_string()
-                } else {
-                    word.to_lowercase()
-                }
-            })
-            .take(12)
-            .collect::<Vec<_>>()
-            .join(" "),
-    )
+    text.split(|character: char| !character.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            if word.chars().any(|character| character.is_ascii_digit()) {
+                "#".to_string()
+            } else {
+                word.to_lowercase()
+            }
+        })
+        .take(12)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Replan, not retry (`ARCHITECTURE.md` §4.6): the last [`SAME_FAILURES_BEFORE_REPLAN`] Attempts

@@ -22,7 +22,124 @@ fn drift_kind(pillar: IdentityPillar) -> IdentityDriftKind {
     }
 }
 
+/// The most of the released Brand that Exec and a lead carry on a wake (Sprint 119).
+pub const BRAND_BRIEF_BYTES: usize = 1_500;
+
+/// The Brand brief from the released statements: facts first, then how the company sounds,
+/// each statement whole, within `max_bytes`. A fact the record states two ways is left out and
+/// named, never smoothed over. `None` with nothing to say.
+pub fn render_brand_brief(evidence: &[IdentityEvidenceRow], max_bytes: usize) -> Option<String> {
+    let mut stated = std::collections::BTreeMap::<&str, BTreeSet<&str>>::new();
+    for row in evidence {
+        if row.pillar == IdentityPillar::Truth && row.statement_kind == IdentityStatementKind::Fact
+        {
+            stated
+                .entry(row.claim_key.as_str())
+                .or_default()
+                .insert(row.statement.as_str());
+        }
+    }
+    let disputed: BTreeSet<&str> = stated
+        .into_iter()
+        .filter_map(|(key, values)| (values.len() > 1).then_some(key))
+        .collect();
+    let line = |row: &IdentityEvidenceRow| {
+        let statement = row
+            .statement
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        match row.polarity {
+            IdentityPolarity::Negative => format!("- Never: {statement}\n"),
+            _ => format!("- {statement}\n"),
+        }
+    };
+    let truth: Vec<String> = evidence
+        .iter()
+        .filter(|row| {
+            row.pillar == IdentityPillar::Truth && !disputed.contains(row.claim_key.as_str())
+        })
+        .map(line)
+        .collect();
+    let voice: Vec<String> = evidence
+        .iter()
+        .filter(|row| row.pillar == IdentityPillar::Voice)
+        .map(line)
+        .collect();
+    if truth.is_empty() && voice.is_empty() {
+        return None;
+    }
+    let mut body = String::from(
+        "# Brand [released by the owner; hold to it when you write to the owner or commission \
+         work customers will see; invent nothing beyond it]\n",
+    );
+    let mut left_out = 0usize;
+    // Room is kept for the two closing lines, so the whole brief stays inside the bound.
+    let room = max_bytes.saturating_sub(220);
+    for (heading, lines) in [
+        ("What is true about the company:\n", &truth),
+        ("How it sounds:\n", &voice),
+    ] {
+        let mut headed = false;
+        for line in lines {
+            let cost = line.len() + if headed { 0 } else { heading.len() };
+            if body.len() + cost > room {
+                left_out += 1;
+                continue;
+            }
+            if !headed {
+                body.push_str(heading);
+                headed = true;
+            }
+            body.push_str(line);
+        }
+    }
+    if !disputed.is_empty() {
+        body.push_str(&format!(
+            "- Left out because the record states it two ways: {}\n",
+            disputed
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join(", ")
+                .chars()
+                .take(100)
+                .collect::<String>()
+        ));
+    }
+    if left_out > 0 {
+        body.push_str(&format!(
+            "- … {left_out} more not shown: `restless identity show`\n"
+        ));
+    }
+    Some(body)
+}
+
 impl OrgIntel {
+    /// The released Brand for Exec and leads: truth and voice from the current release, with no
+    /// Work binding, within [`BRAND_BRIEF_BYTES`]. `None` when the owner has released nothing,
+    /// so nothing is added and nothing is invented. A read only; the Work-bound compiler below
+    /// is unchanged and still what a Staff Attempt gets.
+    pub async fn brand_brief(&self) -> Result<Option<String>> {
+        let release: Option<Uuid> = sqlx::query_scalar(
+            "SELECT release_id FROM company_identity_current_release WHERE singleton=TRUE",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(release) = release else {
+            return Ok(None);
+        };
+        let evidence = sqlx::query_as::<_, IdentityEvidenceRow>(&format!(
+            "{} e JOIN company_identity_release_evidence re ON re.evidence_id=e.id \
+             WHERE re.release_id=$1 AND e.pillar IN ('truth','voice') AND e.status='active' \
+             ORDER BY e.pillar, e.claim_key, e.id",
+            super::identity::evidence_select()
+        ))
+        .bind(release)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(render_brand_brief(&evidence, BRAND_BRIEF_BYTES))
+    }
+
     pub async fn compile_constitution(
         &self,
         work_id: Uuid,
@@ -430,5 +547,122 @@ impl OrgIntel {
             ));
         }
         Ok(decision)
+    }
+}
+
+#[cfg(test)]
+mod brand_brief_tests {
+    use super::*;
+
+    fn statement(
+        n: u128,
+        pillar: IdentityPillar,
+        claim: &str,
+        text: &str,
+        polarity: IdentityPolarity,
+    ) -> IdentityEvidenceRow {
+        IdentityEvidenceRow {
+            id: Uuid::from_u128(n),
+            pillar,
+            statement_kind: if pillar == IdentityPillar::Truth {
+                IdentityStatementKind::Fact
+            } else {
+                IdentityStatementKind::Guidance
+            },
+            claim_key: claim.into(),
+            statement: text.into(),
+            author_id: "owner".into(),
+            source: "owner".into(),
+            authority: "owner".into(),
+            scope: "company".into(),
+            observed_at: Utc::now(),
+            evidence_locator: "message 4".into(),
+            polarity,
+            status: IdentityEvidenceStatus::Active,
+            channel: None,
+            audience: None,
+            supersedes_evidence_id: None,
+            exception_expires_at: None,
+            exception_indefinite: false,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn with_nothing_released_there_is_no_brief_and_nothing_is_invented() {
+        assert_eq!(render_brand_brief(&[], BRAND_BRIEF_BYTES), None);
+        // A visual statement alone is not truth or voice: still nothing.
+        let visual = statement(
+            1,
+            IdentityPillar::Visual,
+            "palette",
+            "Warm paper tones.",
+            IdentityPolarity::Neutral,
+        );
+        assert_eq!(render_brand_brief(&[visual], BRAND_BRIEF_BYTES), None);
+    }
+
+    #[test]
+    fn truth_comes_first_then_voice_inside_the_bound() {
+        use IdentityPillar::{Truth, Voice};
+        use IdentityPolarity::{Negative, Neutral, Positive};
+        let evidence = vec![
+            statement(1, Voice, "tone", "Plain words, short sentences.", Positive),
+            statement(2, Truth, "founded", "Founded in Sydney in 2019.", Neutral),
+            statement(
+                3,
+                Voice,
+                "hype",
+                "Words like revolutionary or world-class.",
+                Negative,
+            ),
+            statement(4, Truth, "team", "Four people work here.", Neutral),
+            statement(5, Truth, "team", "Six people work here.", Neutral),
+        ];
+        let brief = render_brand_brief(&evidence, BRAND_BRIEF_BYTES).expect("a brief");
+        assert!(
+            brief.starts_with("# Brand [released by the owner"),
+            "{brief}"
+        );
+        let truth = brief.find("What is true about the company:").unwrap();
+        let founded = brief.find("- Founded in Sydney in 2019.").unwrap();
+        let sounds = brief.find("How it sounds:").unwrap();
+        let plain = brief.find("- Plain words, short sentences.").unwrap();
+        assert!(
+            truth < founded && founded < sounds && sounds < plain,
+            "{brief}"
+        );
+        assert!(brief.contains("- Never: Words like revolutionary or world-class."));
+        // The record states the team size two ways: neither is passed on, and it says so.
+        assert!(!brief.contains("people work here"), "{brief}");
+        assert!(brief.contains("Left out because the record states it two ways: team"));
+        assert!(brief.len() <= BRAND_BRIEF_BYTES);
+
+        // Many long statements: whole statements only, the rest counted, inside the bound.
+        let many: Vec<_> = (0..40)
+            .map(|n| {
+                statement(
+                    100 + n,
+                    Truth,
+                    &format!("fact-{n}"),
+                    &format!(
+                        "Fact number {n} about the company, said at some length to fill the line."
+                    ),
+                    Neutral,
+                )
+            })
+            .collect();
+        let brief = render_brand_brief(&many, BRAND_BRIEF_BYTES).expect("a brief");
+        assert!(brief.len() <= BRAND_BRIEF_BYTES, "{} bytes", brief.len());
+        let shown = brief.matches("- Fact number").count();
+        assert!((5..40).contains(&shown), "{shown}");
+        assert!(
+            brief.contains(&format!("- … {} more not shown", 40 - shown)),
+            "{brief}"
+        );
+        assert!(brief
+            .lines()
+            .filter(|line| line.starts_with("- Fact"))
+            .all(|line| line.ends_with("fill the line.")));
     }
 }

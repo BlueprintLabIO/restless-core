@@ -52,6 +52,30 @@ const TITLE_CHARS: usize = 80;
 pub const BRIEF_WITHIN: chrono::Duration = chrono::Duration::hours(1);
 /// Things a brief may ask of the owner.
 pub const MAX_BRIEF_NEEDS: usize = 3;
+/// A due review of how the company is organised rides a daily review at most this often
+/// (Sprint 119). Whether one is due is still decided by the owner's signal, not by this clock.
+pub const ORG_REVIEW_RIDES_EVERY: chrono::Duration = chrono::Duration::days(7);
+/// The words in a daily review that say it carries the team review. Exec's context shows the
+/// review's numbers on a turn with no owner message only when the ask holds them.
+pub const ORG_REVIEW_RIDER: &str = "A review of how the company is organised is also due";
+
+/// Whether a due team review rides this daily review: only when the engine's evidence test
+/// says one is due, and not within [`ORG_REVIEW_RIDES_EVERY`] of the last one a daily review
+/// carried. With no new evidence there is none, whatever the date.
+pub fn org_review_rides(
+    due: bool,
+    last_carried: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> bool {
+    due && last_carried.is_none_or(|at| now - at >= ORG_REVIEW_RIDES_EVERY)
+}
+
+/// Whether a message to Exec is a daily review that carries the team review.
+pub fn carries_org_review(from_actor: &str, body: &str) -> bool {
+    from_actor == "daemon"
+        && body.starts_with(DAILY_REVIEW_MESSAGE_PREFIX)
+        && body.contains(ORG_REVIEW_RIDER)
+}
 
 /// The settling time for a given interval: a quarter of it, at most [`DAILY_REVIEW_SETTLE`], so
 /// shortened test intervals shorten it too.
@@ -392,6 +416,29 @@ impl OrgIntel {
         now: DateTime<Utc>,
         rhythm: DailyReviewRhythm,
     ) -> Result<Option<DailyReviewState>> {
+        self.signal_daily_review_with_at(now, rhythm, false).await
+    }
+
+    /// When a daily review last carried the team review.
+    pub async fn org_review_last_carried(&self) -> Result<Option<DateTime<Utc>>> {
+        Ok(sqlx::query_scalar(&format!(
+            "SELECT max(created_at) FROM events WHERE kind='{DAILY_REVIEW_EVENT}' \
+               AND COALESCE((body->>'org_review_carried')::boolean, false)"
+        ))
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    /// [`Self::signal_daily_review_at`], and when `org_review_due` (the engine's evidence
+    /// test, unchanged) the ask also says a review of how the company is organised is due, at
+    /// most once in [`ORG_REVIEW_RIDES_EVERY`]. It adds no wake: with no daily review due,
+    /// nothing is asked.
+    pub async fn signal_daily_review_with_at(
+        &self,
+        now: DateTime<Utc>,
+        rhythm: DailyReviewRhythm,
+        org_review_due: bool,
+    ) -> Result<Option<DailyReviewState>> {
         if !self.daily_review_state().await?.due(now, rhythm) {
             return Ok(None);
         }
@@ -420,12 +467,27 @@ impl OrgIntel {
             tx.rollback().await?;
             return Ok(None);
         }
+        let last_carried: Option<DateTime<Utc>> = sqlx::query_scalar(&format!(
+            "SELECT max(created_at) FROM events WHERE kind='{DAILY_REVIEW_EVENT}' \
+               AND COALESCE((body->>'org_review_carried')::boolean, false)"
+        ))
+        .fetch_one(&mut *tx)
+        .await?;
+        let carries = org_review_rides(org_review_due, last_carried, now);
+        let mut ask = state.message(now);
+        if carries {
+            ask.push_str(&format!(
+                "\n{ORG_REVIEW_RIDER}: the owner has given enough new signal since the last one. \
+                 Its numbers and what to do are under Company state in this turn; do it now and \
+                 tell the owner each change in one line of today's brief."
+            ));
+        }
         let room_id = ensure_direct_message_room_in_tx(&mut tx, "daemon", Some("exec")).await?;
         sqlx::query(
             "INSERT INTO messages (room_id,from_actor,to_actor,body) VALUES ($1,'daemon','exec',$2)",
         )
         .bind(room_id)
-        .bind(state.message(now))
+        .bind(ask)
         .execute(&mut *tx)
         .await?;
         sqlx::query(&format!(
@@ -438,6 +500,7 @@ impl OrgIntel {
             "open_goals": state.goals.len(),
             "listed": state.listed(now).len(),
             "quiet_reviews": state.quiet_reviews,
+            "org_review_carried": carries,
         }))
         .bind(now)
         .execute(&mut *tx)
@@ -685,6 +748,38 @@ mod tests {
             ..idle()
         };
         assert!(held.due(at(240, 0), rhythm()));
+    }
+
+    #[test]
+    fn the_team_review_rides_only_on_evidence_and_at_most_weekly() {
+        let now = at(24 * 30, 0);
+        // Due by the owner's signal, never carried: it rides.
+        assert!(org_review_rides(true, None, now));
+        // Carried yesterday: not again today, though it is still due.
+        assert!(!org_review_rides(
+            true,
+            Some(now - chrono::Duration::days(1)),
+            now
+        ));
+        // A week on, and still due: once more.
+        assert!(org_review_rides(
+            true,
+            Some(now - chrono::Duration::days(7)),
+            now
+        ));
+        // No new evidence: never, whatever the date.
+        assert!(!org_review_rides(false, None, now));
+        assert!(!org_review_rides(
+            false,
+            Some(now - chrono::Duration::days(60)),
+            now
+        ));
+        // Exec's context tells a carrying review from an ordinary one by the ask's own words.
+        let plain = idle().message(now);
+        assert!(!carries_org_review("daemon", &plain));
+        let carrying = format!("{plain}\n{ORG_REVIEW_RIDER}: the owner has given enough.");
+        assert!(carries_org_review("daemon", &carrying));
+        assert!(!carries_org_review("owner", &carrying));
     }
 
     #[test]

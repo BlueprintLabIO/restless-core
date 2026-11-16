@@ -1354,6 +1354,15 @@ impl OrgIntel {
                     .bind(&effective_summary)
                     .execute(&mut *tx)
                     .await?;
+                // One observation per failure that was the Work's own (Sprint 119).
+                crate::observations::observe_failure_in_tx(
+                    &mut tx,
+                    work_id,
+                    attempt_id,
+                    &attempt_actor,
+                    &effective_summary,
+                )
+                .await?;
             }
             WorkAttemptState::Abandoned => {
                 sqlx::query("UPDATE work SET status = 'abandoned', resolution = $2 WHERE id = $1")

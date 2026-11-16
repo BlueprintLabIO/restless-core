@@ -292,6 +292,24 @@ async fn constitution_is_bounded_immutable_and_company_specific() {
     assert_eq!(brief, repeated);
     assert!(brief.bytes <= 32 * 1024);
     assert_eq!(brief.pillars.len(), 4);
+    // Sprint 119: Exec and leads get a bounded brief of the same release with no Work binding:
+    // truth and voice, not the look.
+    let brand = first
+        .org
+        .brand_brief()
+        .await
+        .unwrap()
+        .expect("a released Brand");
+    assert!(brand.len() <= restless_orgintel::BRAND_BRIEF_BYTES);
+    assert!(
+        brand.contains("Restless runs accountable company work"),
+        "{brand}"
+    );
+    assert!(
+        brand.contains("Name the person, action, proof and consequence"),
+        "{brand}"
+    );
+    assert!(!brand.contains("compact operational grammar"), "{brand}");
     assert!(brief
         .pillars
         .iter()

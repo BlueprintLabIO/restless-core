@@ -1669,6 +1669,7 @@ mod tests {
             recurrence_count,
             last_recurred_at: None,
             last_recurrence_message_id: None,
+            learned: false,
         };
         ruled.lessons = vec![
             lesson(0xaaaa_aaaa, "Never use stock photos.", 2),
