@@ -123,6 +123,9 @@ stored on the message.
 
 Measure: redirect runs, against the owner's 3.9 times baseline.
 
+Built (step 1): the classification, by fixed rules in `restless-orgintel` (`owner_intent`), stored
+on each message as `owner_intent`. What the company does with each class is not built yet.
+
 ### D4. Push, a board, and a digest instead of "progress?"
 
 Today Exec checks in about hourly while the owner is engaged (PR 752, US-398). Change:
@@ -163,6 +166,11 @@ share, redirects per outcome-only request, redirect runs, reopened Work, owner m
 outcome. Self-review triggers when one of them moves past its baseline, so the company changes
 itself on the owner's real signal, not on a clock. Lessons that repeat become a short operator
 profile the owner can read and edit (hours, how they like to be asked, "never code before asked").
+
+Built (step 1): the numbers over a rolling week, on Team results and in `restless org scorecard`,
+and the review trigger (status checks above 8%, redirect runs above the owner's baseline, any
+reopened Work, each only on something new since the last review). The operator profile is not
+built.
 
 ## How we will know it is better than one agent
 

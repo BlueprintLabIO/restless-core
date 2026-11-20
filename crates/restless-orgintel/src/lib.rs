@@ -21,6 +21,7 @@ mod artifacts;
 mod attempts;
 mod attention_dismissals;
 mod block_recheck;
+mod checkin;
 mod colleague_names;
 mod comment_search;
 mod completion_repairs;
@@ -45,10 +46,10 @@ mod messages;
 mod notice_digest;
 mod notifications;
 mod org_review;
+mod owner_intent;
 mod owner_ready;
 mod pending_shares;
 mod progress;
-mod checkin;
 mod responsibility;
 mod review;
 mod rooms;
@@ -76,6 +77,7 @@ pub use attempts::{
 };
 pub use attention_dismissals::*;
 pub use block_recheck::*;
+pub use checkin::*;
 pub use comment_search::*;
 pub use completion_repairs::*;
 pub use decisions::*;
@@ -95,6 +97,7 @@ pub use messages::{ConversationStop, MailSettle};
 pub use notice_digest::notice_digest_body;
 pub use notifications::*;
 pub use org_review::*;
+pub use owner_intent::{classify_owner_message, OwnerFriction, OwnerIntent};
 pub use owner_ready::*;
 pub use pending_shares::*;
 pub use progress::{
@@ -102,7 +105,6 @@ pub use progress::{
     rounded_percent, take_progress_markers, GoalProgress, ProgressReport, ReportedProgress,
     PROGRESS_HISTORY, PROGRESS_MARKER, PROGRESS_POST_STEP,
 };
-pub use checkin::*;
 pub use responsibility::*;
 pub use schedules::{
     validate_calendar_days, ScheduleChange, MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS,

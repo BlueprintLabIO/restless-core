@@ -20,6 +20,7 @@
 	import {
 		NO_TEAM_NAME,
 		earlierRate,
+		frictionRows,
 		goalLine,
 		landedHeadline,
 		reviewDueSentence,
@@ -83,7 +84,7 @@
 
 <Page
 	title="Team results"
-	info="How much of each team's work landed over the last 14 days, what you told the company, and what it changed about how it is organised."
+	info="How much of each team's work landed over the last 14 days, what you told the company, how much you had to steer it this week, and what it changed about how it is organised."
 	warning={refreshWarning.active
 		? { label: 'Team results could not be refreshed', show: refreshWarning.show }
 		: null}
@@ -140,7 +141,28 @@
 						? `For example: ${card.signals.examples.slice(0, 3).join(' · ')}`
 						: undefined}>{signalSentence(card.signals)}</Row
 				>
-				<Row label="Review">{reviewDueSentence(card.due)}</Row>
+				<Row
+					label="Review"
+					info={card.friction_due?.length
+						? `Due because ${card.friction_due.join('; ')}.`
+						: undefined}>{reviewDueSentence(card.due)}</Row
+				>
+			{/if}
+		</Section>
+
+		<Section
+			title="How much you had to steer"
+			info={card
+				? `Your messages since ${formatDay(card.friction_since)}, each read as a request, a question, a correction, a status check, a yes or a stop. The company reviews itself when one of these passes its baseline.`
+				: 'Your messages over the last week, each read as a request, a question, a correction, a status check, a yes or a stop.'}
+		>
+			{#if !card}<Skeleton
+					label="Reading how much you had to steer…"
+					count={5}
+				/>{:else if card.friction}
+				{#each frictionRows(card.friction, card.friction_baseline) as row (row.label)}
+					<Row label={row.label} info={row.info}><span class="value">{row.value}</span></Row>
+				{/each}
 			{/if}
 		</Section>
 
@@ -197,6 +219,11 @@
 		color: var(--ink);
 		font-size: var(--t-body);
 		font-weight: 500;
+	}
+	/* A friction count: one line, digits that do not shift as they change. */
+	.value {
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
 	}
 	/* A team's other counts, on a line of their own under its row. The line is one height
 	 * whatever the counts are, so a row never grows. */

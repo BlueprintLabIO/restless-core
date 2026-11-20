@@ -15,9 +15,17 @@
 //! Exec, so a due review costs one prompt block on a turn that was happening anyway, and no model
 //! is ever woken to find nothing changed. Exec finishes with `restless org review`, which moves
 //! the watermark; the next review compares against the numbers stored then.
+//!
+//! The owner's friction (docs/specs/owner-interaction.md D7, 20 November 2026) is a second way a
+//! review becomes due: over the last week, status checks above 8% of the owner's messages,
+//! redirect runs above the owner's own baseline, or any Work reopened. Each needs something new
+//! since the last review, so a number that stays high asks once, not on every turn.
 
 use chrono::{DateTime, Utc};
-use restless_orgintel::{GoalMinds, OrgIntel, OrgReviewRow, OwnerSignalRow, TeamScore};
+use restless_orgintel::{
+    classify_owner_message, GoalMinds, OrgIntel, OrgReviewRow, OwnerFriction, OwnerIntent,
+    OwnerSignalRow, TeamScore,
+};
 use serde::Serialize;
 
 /// Team numbers always cover this long. Long enough to hold a company's recent shape, short enough
@@ -36,6 +44,26 @@ const CRITIC_RUNS_BEFORE_JUDGING: i64 = 4;
 /// A goal this wide is named in the review whatever its rates.
 const WIDE_GOAL_MINDS: i64 = 5;
 const MAX_TEAMS_SHOWN: usize = 8;
+/// Owner friction covers this long: a week holds the owner's working rhythm.
+const FRICTION_WINDOW_DAYS: i64 = 7;
+/// Status checks were 2% of the owner's prompts with one agent and rose to about 8% (their 20
+/// November report). Above that, the company is making them pull more than one agent did.
+pub const STATUS_CHECK_BASELINE_PERCENT: i64 = 8;
+/// Below this many owner messages in the week a share is anecdote ("progress?" once in five).
+const MIN_OWNER_MESSAGES: i64 = 10;
+/// Below this many redirects a run rate is anecdote.
+const MIN_REDIRECTS: i64 = 3;
+
+/// What the owner's friction is judged against. `redirect_run_percent` is the run rate stored at
+/// the last review when that review had enough redirects to have one; before that it is the
+/// owner's own share of messages that are redirects, so a run counts only when redirects cluster
+/// more than the owner's base rate (their records: 3.9 times as likely after one redirect).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FrictionBaseline {
+    pub status_check_percent: i64,
+    pub redirect_run_percent: i64,
+    pub from_last_review: bool,
+}
 
 /// What the owner's actions since the last review add up to.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -59,10 +87,15 @@ impl OwnerSignals {
     }
 }
 
-/// A short owner message that means "I had to come and pull". Deliberately a closed list of what
-/// the owner actually types (Reno and Frankensurf, October to November: "progress?" 24 times),
-/// matched on the whole message, so a real brief that merely contains "status" is not a nudge.
+/// A short owner message that means "I had to come and pull": a status check, by the same rules
+/// that classify every owner message (`restless_orgintel::classify_owner_message`), or one of a
+/// closed list of what the owner types to push stalled work on (Reno and Frankensurf, October to
+/// November: "progress?" 24 times). Matched on the whole message, so a real brief that merely
+/// contains "status" is not a nudge.
 pub fn is_nudge(body: &str) -> bool {
+    if classify_owner_message(body, false) == OwnerIntent::StatusCheck {
+        return true;
+    }
     let text: String = body
         .trim()
         .to_lowercase()
@@ -71,18 +104,6 @@ pub fn is_nudge(body: &str) -> bool {
         .collect();
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     const NUDGES: &[&str] = &[
-        "progress",
-        "any progress",
-        "status",
-        "status update",
-        "any update",
-        "any updates",
-        "hows it going",
-        "how is it going",
-        "where are we",
-        "where are we at",
-        "whats happening",
-        "whats going on",
         "try now",
         "try again",
         "try it now",
@@ -97,8 +118,6 @@ pub fn is_nudge(body: &str) -> bool {
         "keep going",
         "go on",
         "resume",
-        "still there",
-        "are you there",
     ];
     NUDGES.contains(&text.as_str())
 }
@@ -139,6 +158,12 @@ pub struct Scorecard {
     pub goals: Vec<GoalMinds>,
     pub signals: OwnerSignals,
     pub signals_through: DateTime<Utc>,
+    /// The owner's friction over the last week, from here.
+    pub friction_since: DateTime<Utc>,
+    pub friction: OwnerFriction,
+    pub friction_baseline: FrictionBaseline,
+    /// Why the friction alone makes a review due, one line each; empty when it does not.
+    pub friction_due: Vec<String>,
     pub last_review: Option<LastReview>,
     pub due: bool,
 }
@@ -148,6 +173,8 @@ pub struct LastReview {
     pub at: DateTime<Utc>,
     pub conclusion: String,
     pub teams: Vec<TeamScore>,
+    /// Reviews before 20 November 2026 stored no friction.
+    pub friction: Option<OwnerFriction>,
 }
 
 fn percent(part: i64, whole: i64) -> i64 {
@@ -168,19 +195,110 @@ pub fn due(signals: &OwnerSignals, teams: &[TeamScore]) -> bool {
         && (signals.negative() >= REVIEW_AFTER_NEGATIVE || signals.total() >= REVIEW_AFTER_ANY)
 }
 
+/// A rate as a fraction, so comparisons never lose to rounding.
+fn above(part: i64, whole: i64, base_part: i64, base_whole: i64) -> bool {
+    whole > 0 && base_whole > 0 && part * base_whole > base_part * whole
+}
+
+/// The redirect-run baseline as a fraction: the last review's run rate when it had one, else the
+/// owner's own redirect share this week.
+fn run_baseline(friction: &OwnerFriction, last: Option<&OwnerFriction>) -> (i64, i64, bool) {
+    match last.filter(|last| last.redirects >= MIN_REDIRECTS) {
+        Some(last) => (last.redirect_runs, last.redirects, true),
+        None => (friction.redirects, friction.owner_messages, false),
+    }
+}
+
+pub fn friction_baseline(
+    friction: &OwnerFriction,
+    last: Option<&OwnerFriction>,
+) -> FrictionBaseline {
+    let (part, whole, from_last_review) = run_baseline(friction, last);
+    FrictionBaseline {
+        status_check_percent: STATUS_CHECK_BASELINE_PERCENT,
+        redirect_run_percent: percent(part, whole),
+        from_last_review,
+    }
+}
+
+/// Why the owner's friction makes a review due, one line each. Each reason needs something new
+/// since the last review (`new_*`), so the same week of numbers asks once.
+pub fn friction_due(friction: &OwnerFriction, last: Option<&OwnerFriction>) -> Vec<String> {
+    let mut reasons = Vec::new();
+    if friction.owner_messages >= MIN_OWNER_MESSAGES
+        && friction.new_status_checks > 0
+        && above(
+            friction.status_checks,
+            friction.owner_messages,
+            STATUS_CHECK_BASELINE_PERCENT,
+            100,
+        )
+    {
+        reasons.push(format!(
+            "status checks are {}% of the owner's messages this week ({} of {}), above {}%",
+            percent(friction.status_checks, friction.owner_messages),
+            friction.status_checks,
+            friction.owner_messages,
+            STATUS_CHECK_BASELINE_PERCENT
+        ));
+    }
+    let (base_part, base_whole, from_last) = run_baseline(friction, last);
+    if friction.redirects >= MIN_REDIRECTS
+        && friction.new_redirect_runs > 0
+        && above(
+            friction.redirect_runs,
+            friction.redirects,
+            base_part,
+            base_whole,
+        )
+    {
+        reasons.push(format!(
+            "{} of {} redirects were followed by another on the same thread ({}%), above {} ({}%)",
+            friction.redirect_runs,
+            friction.redirects,
+            percent(friction.redirect_runs, friction.redirects),
+            if from_last {
+                "the rate at the last review"
+            } else {
+                "the owner's own redirect rate"
+            },
+            percent(base_part, base_whole)
+        ));
+    }
+    if friction.new_work_reopened > 0 {
+        reasons.push(format!(
+            "{} sent back after it was done",
+            if friction.new_work_reopened == 1 {
+                "1 Work was".to_string()
+            } else {
+                format!("{} Work were", friction.new_work_reopened)
+            }
+        ));
+    }
+    reasons
+}
+
 pub async fn scorecard(org: &OrgIntel, now: DateTime<Utc>) -> anyhow::Result<Scorecard> {
     let last = org.latest_org_review().await?;
     let since = now - chrono::Duration::days(SCORE_WINDOW_DAYS);
+    let friction_since = now - chrono::Duration::days(FRICTION_WINDOW_DAYS);
     let signals_after = last
         .as_ref()
         .map_or(since, |review| review.signals_through.max(since));
-    let (teams, goals, rows) = tokio::try_join!(
+    let (teams, goals, rows, friction) = tokio::try_join!(
         org.team_scores(since),
         org.goal_minds(since),
         org.owner_signals_after(signals_after),
+        org.owner_friction(friction_since, signals_after),
     )?;
     let signals = classify(&rows);
-    let due = due(&signals, &teams);
+    let last_review = last.map(last_review);
+    let last_friction = last_review
+        .as_ref()
+        .and_then(|review| review.friction.as_ref());
+    let friction_due = friction_due(&friction, last_friction);
+    let friction_baseline = friction_baseline(&friction, last_friction);
+    let due = due(&signals, &teams) || !friction_due.is_empty();
     Ok(Scorecard {
         since,
         signals_since: signals_after,
@@ -189,7 +307,11 @@ pub async fn scorecard(org: &OrgIntel, now: DateTime<Utc>) -> anyhow::Result<Sco
         goals,
         signals,
         signals_through: now,
-        last_review: last.map(last_review),
+        friction_since,
+        friction,
+        friction_baseline,
+        friction_due,
+        last_review,
     })
 }
 
@@ -202,8 +324,75 @@ fn last_review(row: OrgReviewRow) -> LastReview {
             .cloned()
             .and_then(|teams| serde_json::from_value(teams).ok())
             .unwrap_or_default(),
+        friction: row
+            .scorecard
+            .get("friction")
+            .cloned()
+            .and_then(|friction| serde_json::from_value(friction).ok()),
         conclusion: row.conclusion,
     }
+}
+
+/// "4.0", or "none landed" when nothing did.
+fn per_landed(friction: &OwnerFriction) -> String {
+    if friction.work_landed <= 0 {
+        return "no Work landed".to_string();
+    }
+    let tenths = (friction.owner_messages * 10 + friction.work_landed / 2) / friction.work_landed;
+    format!(
+        "{}.{} owner messages per landed Work ({} over {})",
+        tenths / 10,
+        tenths % 10,
+        friction.owner_messages,
+        friction.work_landed
+    )
+}
+
+/// The owner's friction as one paragraph: what `restless org scorecard` prints.
+pub fn friction_lines(card: &Scorecard) -> String {
+    let f = &card.friction;
+    let mut out = format!(
+        "Owner friction since {}: {} {}",
+        card.friction_since.format("%-d %b"),
+        f.owner_messages,
+        if f.owner_messages == 1 {
+            "message"
+        } else {
+            "messages"
+        }
+    );
+    if f.owner_messages == 0 {
+        out.push_str(".\n");
+        return out;
+    }
+    out.push_str(&format!(
+        "; status checks {} ({}%, baseline {}%)",
+        f.status_checks,
+        percent(f.status_checks, f.owner_messages),
+        card.friction_baseline.status_check_percent
+    ));
+    out.push_str(&format!(
+        "; redirected after {} of {} outcome-only asks ({}%) and {} of {} instructions ({}%)",
+        f.outcome_only_redirected,
+        f.outcome_only,
+        percent(f.outcome_only_redirected, f.outcome_only),
+        f.instructions_redirected,
+        f.instructions,
+        percent(f.instructions_redirected, f.instructions)
+    ));
+    out.push_str(&format!(
+        "; redirect runs {} of {} redirects ({}%, baseline {}%)",
+        f.redirect_runs,
+        f.redirects,
+        percent(f.redirect_runs, f.redirects),
+        card.friction_baseline.redirect_run_percent
+    ));
+    out.push_str(&format!("; Work reopened {}", f.work_reopened));
+    out.push_str(&format!("; {}.\n", per_landed(f)));
+    for reason in &card.friction_due {
+        out.push_str(&format!("  - review due: {reason}\n"));
+    }
+    out
 }
 
 fn team_label(team: &TeamScore) -> String {
@@ -306,6 +495,7 @@ pub fn render_numbers(card: &Scorecard) -> String {
     for example in &card.signals.examples {
         out.push_str(&format!("  - {example}\n"));
     }
+    out.push_str(&friction_lines(card));
     out.push_str(&format!(
         "Team results since {}:\n",
         card.since.format("%-d %b")
@@ -372,6 +562,8 @@ pub fn exec_block(card: &Scorecard) -> Option<String> {
          - If the last review's change made its number worse, undo it.\n\
          - Status and try-again messages mean the owner had to pull. Say what you changed so they \
          need not ask next time.\n\
+         - Redirect runs and reopened Work mean the goal was lost or a fix did not hold. Change \
+         who checks the work or how a request is confirmed, not only the one piece of Work.\n\
          Tell the owner each change in one line with the number behind it. Then record it, or this \
          stays owed: `restless org review --conclusion '<what the numbers showed, what you \
          changed, or why nothing needed changing>'`.\n",
@@ -381,7 +573,12 @@ pub fn exec_block(card: &Scorecard) -> Option<String> {
 
 /// What the review stores for the next one to compare against.
 pub fn stored(card: &Scorecard) -> serde_json::Value {
-    serde_json::json!({ "since": card.since, "teams": card.teams, "goals": card.goals })
+    serde_json::json!({
+        "since": card.since,
+        "teams": card.teams,
+        "goals": card.goals,
+        "friction": card.friction,
+    })
 }
 
 #[cfg(test)]
@@ -423,9 +620,135 @@ mod tests {
             goals: Vec::new(),
             signals,
             signals_through: Utc::now(),
+            friction_since: Utc::now() - chrono::Duration::days(7),
+            friction: OwnerFriction::default(),
+            friction_baseline: friction_baseline(&OwnerFriction::default(), None),
+            friction_due: Vec::new(),
             last_review: None,
             due,
         }
+    }
+
+    /// A week of 20 owner messages with 4 redirects, one of them a run, nothing new since the
+    /// last review.
+    fn week() -> OwnerFriction {
+        OwnerFriction {
+            owner_messages: 20,
+            status_checks: 1,
+            outcome_only: 3,
+            outcome_only_redirected: 1,
+            instructions: 10,
+            instructions_redirected: 1,
+            redirects: 4,
+            redirect_runs: 1,
+            work_reopened: 0,
+            work_landed: 5,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn friction_below_its_baselines_asks_nothing() {
+        // 1 status check in 20 is 5%. The run rate (25%) is above the 20% redirect share, but no
+        // run happened since the last review.
+        assert!(friction_due(&week(), None).is_empty());
+    }
+
+    #[test]
+    fn status_checks_above_eight_percent_make_a_review_due_once() {
+        let mut friction = week();
+        friction.status_checks = 2; // 10% of 20
+        assert!(friction_due(&friction, None).is_empty(), "nothing new");
+        friction.new_status_checks = 1;
+        let reasons = friction_due(&friction, None);
+        assert_eq!(reasons.len(), 1, "{reasons:?}");
+        assert!(
+            reasons[0].contains("10% of the owner's messages"),
+            "{reasons:?}"
+        );
+        // Too few messages for a share to mean anything.
+        let few = OwnerFriction {
+            owner_messages: 5,
+            status_checks: 2,
+            new_status_checks: 2,
+            ..Default::default()
+        };
+        assert!(friction_due(&few, None).is_empty());
+        // Exactly 8% is not above it.
+        let even = OwnerFriction {
+            owner_messages: 25,
+            status_checks: 2,
+            new_status_checks: 1,
+            ..Default::default()
+        };
+        assert!(friction_due(&even, None).is_empty());
+    }
+
+    #[test]
+    fn redirect_runs_are_judged_against_the_owners_own_baseline() {
+        let mut friction = week();
+        friction.new_redirect_runs = 1;
+        // 1 run in 4 redirects (25%) against a 20% redirect share: redirects cluster.
+        let reasons = friction_due(&friction, None);
+        assert!(
+            reasons
+                .iter()
+                .any(|r| r.contains("the owner's own redirect rate (20%)")),
+            "{reasons:?}"
+        );
+        // The last review saw 2 runs in 4: 25% now is better, not a reason.
+        let last = OwnerFriction {
+            redirects: 4,
+            redirect_runs: 2,
+            ..Default::default()
+        };
+        assert!(friction_due(&friction, Some(&last)).is_empty());
+        let baseline = friction_baseline(&friction, Some(&last));
+        assert_eq!(
+            (baseline.redirect_run_percent, baseline.from_last_review),
+            (50, true)
+        );
+        // Two redirects are too few to have a rate.
+        friction.redirects = 2;
+        assert!(friction_due(&friction, None).is_empty());
+    }
+
+    #[test]
+    fn any_reopened_work_makes_a_review_due() {
+        let mut friction = week();
+        friction.work_reopened = 1;
+        assert!(friction_due(&friction, None).is_empty(), "already reviewed");
+        friction.new_work_reopened = 1;
+        assert_eq!(
+            friction_due(&friction, None),
+            vec!["1 Work was sent back after it was done".to_string()]
+        );
+    }
+
+    #[test]
+    fn the_scorecard_prints_the_owners_friction() {
+        let mut card = card(OwnerSignals::default(), vec![team("Growth", 10, 8)]);
+        card.friction = week();
+        card.friction_baseline = friction_baseline(&card.friction, None);
+        let text = render_numbers(&card);
+        assert!(
+            text.contains("20 messages; status checks 1 (5%, baseline 8%)"),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "redirected after 1 of 3 outcome-only asks (33%) and 1 of 10 instructions (10%)"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("redirect runs 1 of 4 redirects (25%, baseline 20%)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("4.0 owner messages per landed Work (20 over 5)"),
+            "{text}"
+        );
     }
 
     #[test]
@@ -552,6 +875,7 @@ mod tests {
             at: Utc::now() - chrono::Duration::days(3),
             conclusion: "Released two idle members from Growth.".into(),
             teams: vec![team("Growth", 10, 4)],
+            friction: None,
         });
         let text = render_numbers(&card);
         assert!(text.contains("(80%), was 40% at the last review"), "{text}");

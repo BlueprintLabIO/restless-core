@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::owner_intent::{ANSWERS_CHECKIN, BY_A_HUMAN};
 use crate::{OrgIntel, OrgIntelError, Result};
 
 /// How one team's Attempts ended in a window. Critic Attempts (Work that `revises` other Work)
@@ -142,7 +143,7 @@ impl OrgIntel {
     /// check-in Exec posted is an answer to it ("continue", "go on"), not a nudge they had to
     /// give, so it is left out.
     pub async fn owner_signals_after(&self, after: DateTime<Utc>) -> Result<Vec<OwnerSignalRow>> {
-        Ok(sqlx::query_as(
+        Ok(sqlx::query_as(&format!(
             "SELECT kind, at, actor_id, detail FROM ( \
                SELECT CASE handoff.state WHEN 'declined' THEN 'sent_back' ELSE 'accepted' END AS kind, \
                       handoff.resolved_at AS at, work.owner_id AS actor_id, \
@@ -154,25 +155,16 @@ impl OrgIntel {
                SELECT 'message', message.created_at, NULL, message.body \
                FROM messages message \
                JOIN actors author ON author.id=message.from_actor \
-               WHERE (author.kind='owner' OR author.actor_class='human') \
+               WHERE {BY_A_HUMAN} \
                  AND message.created_at > $1 AND message.deleted_at IS NULL \
                  AND char_length(message.body) <= $2 \
-                 AND NOT EXISTS ( \
-                   SELECT 1 FROM events checkin \
-                   JOIN messages said ON said.from_actor='exec' \
-                     AND (said.to_actor IS NULL OR said.to_actor=message.from_actor) \
-                     AND said.id > (checkin.body->>'message_mark')::bigint \
-                     AND said.id < message.id \
-                   WHERE checkin.kind='exec_checkin' \
-                     AND NOT EXISTS (SELECT 1 FROM messages earlier \
-                       WHERE earlier.from_actor=message.from_actor AND earlier.id < message.id \
-                         AND earlier.id > (checkin.body->>'message_mark')::bigint)) \
+                 AND NOT {ANSWERS_CHECKIN} \
                UNION ALL \
                SELECT 'lesson', event.created_at, event.actor_id, event.kind \
                FROM events event \
                WHERE event.kind IN ('lesson_recorded','lesson_recurred') AND event.created_at > $1 \
-             ) signals ORDER BY at LIMIT $3",
-        )
+             ) signals ORDER BY at LIMIT $3"
+        ))
         .bind(after)
         .bind(SHORT_MESSAGE_CHARS)
         .bind(MAX_SIGNAL_ROWS)
