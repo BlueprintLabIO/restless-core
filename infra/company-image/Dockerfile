@@ -64,7 +64,7 @@ FROM scratch AS binaries-prebuilt
 COPY prebuilt-rust/restless prebuilt-rust/restless-runtime-bridge prebuilt-rust/restless-machine /out/
 FROM binaries-${RUST_BINARIES} AS binaries
 
-FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS node-runtime
+FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS node-runtime
 
 # uv and uvx, pinned: a Python MCP server (an app added from a link such as
 # "uvx --from git+https://... some-mcp") installs itself the way an npx one does.
@@ -83,15 +83,15 @@ RUN set -eu; \
         --connect-timeout 30 "$1" --output "$2"; }; \
     case "$TARGETARCH" in \
         amd64) \
-            fetch "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_157.0.8103.78-1_amd64.deb" /tmp/chrome.deb; \
-            printf '%s  %s\n' 4d740636b5c96f687798602c5aad6a5a270f44dd02e48db0638ae77aa4867b1b /tmp/chrome.deb | sha256sum --check --status; \
+            fetch "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_158.0.8127.36-1_amd64.deb" /tmp/chrome.deb; \
+            printf '%s  %s\n' 4696bce00b128f385a870ba2eb6eede61698f22374ea0d8e09af8a1c6543d397 /tmp/chrome.deb | sha256sum --check --status; \
             dpkg-deb -x /tmp/chrome.deb /tmp/chrome; \
             mkdir -p /browser; \
             mv /tmp/chrome/opt/google/chrome /browser/chrome; \
             rm -rf /tmp/chrome /tmp/chrome.deb ;; \
         arm64) \
-            fetch "https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.78/linux-arm64/chrome-linux-arm64.zip" /tmp/chrome.zip; \
-            printf '%s  %s\n' f354d666822a11d8fe99e923c44be77dd226fab2750c5b5947e6318818bf10f1 /tmp/chrome.zip | sha256sum --check --status; \
+            fetch "https://storage.googleapis.com/chrome-for-testing-public/158.0.8127.36/linux-arm64/chrome-linux-arm64.zip" /tmp/chrome.zip; \
+            printf '%s  %s\n' f811b64a50cbc73f94fda7b3f3b3bf62be5d9409b3207e6ead9b61e6706afffe /tmp/chrome.zip | sha256sum --check --status; \
             unzip -q /tmp/chrome.zip -d /browser; \
             mv /browser/chrome-linux-arm64 /browser/chrome; \
             rm /tmp/chrome.zip ;; \
