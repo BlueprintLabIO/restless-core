@@ -12,6 +12,7 @@ real run disagree, investigate the run first and reconcile the documents deliber
 | an owner-facing cockpit surface | [Owner Cockpit](owner-cockpit.md) |
 | bootstrap, identifiers or cross-plane ownership | [Cross-layer Contract](cross-layer-contract.md) |
 | proof, dogfood or evidence | [Evaluation and Dogfood](evaluation-dogfood.md) |
+| how the owner works with the company: contracts, proof of done, attention, modes | [Owner Interaction](owner-interaction.md) |
 | human Actors, Rooms, native Docs, mobile sync or recipient-relative judgement | [OrgIntel](orgintel.md), [Owner Cockpit](owner-cockpit.md), [Cross-layer Contract](cross-layer-contract.md), and the [company collaboration programme](../sprints/company-collaboration-programme.md) |
 | the public Restless surface or a future managed Cloud deployment | [Core/Cloud boundary pointer](restless-cloud.md), [cell architecture](../CELL_ARCHITECTURE.md) and the [Cloud specification set](https://github.com/BlueprintLabIO/restless-cloud/tree/main/docs/specs) |
 
