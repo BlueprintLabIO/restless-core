@@ -139,15 +139,26 @@ export function gapTimes(gap: Pick<OrgOwnerGap, 'times' | 'new_times'>): string 
 		: nbsp(times);
 }
 
-/** The repair taken for a reason, on one line: what changes and who owns it. */
+/** The repair taken for a reason, on one line: who owns it, then what changes. The owner comes
+ * first because a long repair is cut off at the end of its line. */
 export function repairLine(
 	gap: Pick<OrgOwnerGap, 'repair' | 'repair_lead'>,
 	leadName: (actorId: string) => string
 ): string {
 	if (!gap.repair) return 'No repair named yet';
 	return gap.repair_lead
-		? `Repair: ${gap.repair} · ${leadName(gap.repair_lead)}`
+		? `Repair by ${nbsp(leadName(gap.repair_lead))}: ${gap.repair}`
 		: `Repair: ${gap.repair}`;
+}
+
+/** The whole of a reason's repair line and what the company could have known, for its tooltip,
+ * since the line itself is cut to fit. */
+export function repairDetail(
+	gap: Pick<OrgOwnerGap, 'repair' | 'repair_lead' | 'could_have_known'>,
+	leadName: (actorId: string) => string
+): string {
+	const line = repairLine(gap, leadName);
+	return gap.could_have_known ? `${line}\nCould have known: ${gap.could_have_known}` : line;
 }
 
 /** How many of the owner's messages the company could have spared them, of those Exec judged. */

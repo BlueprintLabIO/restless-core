@@ -28,6 +28,7 @@
 		gapTitle,
 		goalLine,
 		landedHeadline,
+		repairDetail,
 		repairLine,
 		reviewDueSentence,
 		signalSentence,
@@ -173,14 +174,12 @@
 					count={6}
 				/>{:else if card.friction}
 				{@const spared = avoidableRow(card.friction)}
-				<Row label={spared.label} info={spared.info}
-					><span class="value">{spared.value}</span></Row
-				>
+				<Row label={spared.label} info={spared.info}><span class="value">{spared.value}</span></Row>
 				{#each card.friction.gaps ?? [] as gap (gap.gap)}
 					<Item title={gapTitle(gap)}>
 						{#snippet leading()}<CircleAlert size={15} strokeWidth={1.8} />{/snippet}
 						{#snippet trailing()}<span class="value">{gapTimes(gap)}</span>{/snippet}
-						<p class="repair" title={gap.could_have_known ?? undefined}>
+						<p class="repair" title={repairDetail(gap, leadName)}>
 							{repairLine(gap, leadName)}
 						</p>
 					</Item>

@@ -9,6 +9,7 @@ import {
 	goalLine,
 	landedHeadline,
 	landedPercent,
+	repairDetail,
 	repairLine,
 	reviewDueSentence,
 	shareValue,
@@ -215,7 +216,14 @@ test('what Exec judged reads as a share, its reasons in plain words, and the rep
 	assert.equal(gapTimes({ times: 1, new_times: 1 }), 'Once');
 	assert.equal(
 		repairLine(told, (id) => (id === 'growth-lead' ? 'Gwen' : id)),
-		'Repair: Exec posts when Work lands · Gwen'
+		'Repair by Gwen: Exec posts when Work lands'
 	);
-	assert.equal(repairLine({ repair: null, repair_lead: null }, (id) => id), 'No repair named yet');
+	assert.equal(
+		repairDetail({ ...told, could_have_known: 'Work had landed' }, () => 'Gwen'),
+		'Repair by Gwen: Exec posts when Work lands\nCould have known: Work had landed'
+	);
+	assert.equal(
+		repairLine({ repair: null, repair_lead: null }, (id) => id),
+		'No repair named yet'
+	);
 });
