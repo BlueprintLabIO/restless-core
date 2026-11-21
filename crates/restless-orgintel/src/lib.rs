@@ -97,7 +97,10 @@ pub use messages::{ConversationStop, MailSettle};
 pub use notice_digest::notice_digest_body;
 pub use notifications::*;
 pub use org_review::*;
-pub use owner_intent::{classify_owner_message, OwnerFriction, OwnerIntent};
+pub use owner_intent::{
+    classify_owner_message, take_owner_turn_marker, Avoidable, ExecJudgement, Gap, OwnerFriction,
+    OwnerGap, OwnerIntent, StoredJudgement, OWNER_TURN_MARKER,
+};
 pub use owner_ready::*;
 pub use pending_shares::*;
 pub use progress::{

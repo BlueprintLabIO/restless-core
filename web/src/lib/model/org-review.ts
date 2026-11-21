@@ -39,11 +39,43 @@ export interface OrgSignals {
 	examples: string[];
 }
 
-/** How much the owner had to pull, correct and resend over the last week. Every owner message
- * is classified by fixed rules; counts are of owner messages unless named otherwise. A run is a
- * correction followed by another on the same thread. `new_*` counts only what came after the
- * last review. */
+/** The main reason behind messages the owner could have been spared, as Exec judged them. */
+export type OrgGapName =
+	| 'check'
+	| 'told'
+	| 'handoff'
+	| 'look'
+	| 'memory'
+	| 'dropped'
+	| 'misread'
+	| 'idle';
+
+/** One reason behind avoidable messages this week, with the latest repair Exec named for it and
+ * the lead who owns that repair. */
+export interface OrgOwnerGap {
+	gap: OrgGapName | string;
+	times: number;
+	new_times: number;
+	repair: string | null;
+	repair_lead: string | null;
+	could_have_known: string | null;
+}
+
+/** How much the owner had to pull, correct and resend over the last week. Exec judges each owner
+ * message as it answers it; fixed rules classify any it did not. Counts are of owner messages
+ * unless named otherwise, a message counting in every class it has. A run is a correction
+ * followed by another on the same thread. `new_*` counts only what came after the last review. */
 export interface OrgOwnerFriction {
+	/** Messages Exec judged; of those, how many could have been spared the owner (and partly). */
+	judged: number;
+	avoidable: number;
+	partly_avoidable: number;
+	new_avoidable: number;
+	/** The owner's last ten messages this week, and how many of them were avoidable. */
+	recent_messages: number;
+	recent_avoidable: number;
+	/** The commonest reasons, most first. */
+	gaps: OrgOwnerGap[];
 	owner_messages: number;
 	status_checks: number;
 	/** Asks that state an outcome with no method, and how many were corrected next. */

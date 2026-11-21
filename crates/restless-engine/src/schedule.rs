@@ -1510,6 +1510,12 @@ fn exec_owner_update(
     } else {
         reply.into()
     };
+    // So does Exec's judgement of the owner's message, recorded when the reply is.
+    let reply: std::borrow::Cow<'_, str> = if reply.contains(restless_orgintel::OWNER_TURN_MARKER) {
+        restless_orgintel::take_owner_turn_marker(&reply).0.into()
+    } else {
+        reply
+    };
     let reply: std::borrow::Cow<'_, str> = if reply.contains(crate::context::EXEC_NO_UPDATE) {
         reply
             .replace(crate::context::EXEC_NO_UPDATE, "")
@@ -2103,6 +2109,16 @@ async fn run_exec_turn_with_lease(
                         !owner_message_ids.is_empty(),
                     )
                     .await;
+                    // Exec's judgement of the owner's message rode on the reply. A judgement that
+                    // cannot be stored leaves the message to the rules; it never fails the turn.
+                    if reply_message_id.is_some() && !owner_message_ids.is_empty() {
+                        if let Some(raw) = report.owner_reply.as_deref() {
+                            if let Err(error) = org.record_owner_turn(raw, &owner_message_ids).await
+                            {
+                                tracing::info!(company = %config.name, %error, "Exec's judgement of the owner's message not recorded");
+                            }
+                        }
+                    }
                     let protocol_failure_notice = early_reply_commit_attempted
                         .load(Ordering::Acquire)
                         .then(|| {
@@ -2324,6 +2340,21 @@ mod tests {
             .to_string();
         assert!(kept.ends_with(intent), "{kept}");
         assert!(crate::transcript::split_intent_receipt(&kept).1.is_some());
+        // Exec's judgement of the owner's message is taken off too; the intent stays readable.
+        let judged = "<!--restless-owner-turn:{\"intents\":[\"status_check\"],\"avoidable\":\"yes\",\"gap\":\"told\"}-->";
+        let kept = exec_owner_update(
+            Some(&format!(
+                "It landed an hour ago.\n\n{judged}\n{intent}\n{turn}"
+            )),
+            true,
+        )
+        .unwrap()
+        .unwrap()
+        .to_string();
+        assert!(!kept.contains("owner-turn"), "{kept}");
+        let (visible, receipt) = crate::transcript::split_intent_receipt(&kept);
+        assert_eq!(visible, "It landed an hour ago.");
+        assert!(receipt.is_some());
         assert_eq!(
             exec_owner_update(Some(&format!("{EXEC_NO_UPDATE}\n{turn}")), false).unwrap(),
             None

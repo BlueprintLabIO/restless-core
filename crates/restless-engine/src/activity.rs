@@ -29,7 +29,11 @@ const MAX_REPLY_CHARS: usize = 40_000;
 /// response into hundreds of Svelte renders and megabytes of repeated text.
 const MIN_INCREMENTAL_EMIT_INTERVAL: Duration = Duration::from_millis(75);
 const DETAILS_MARKER: &str = "<!--restless-details:";
-const HIDDEN_MARKERS: [&str; 2] = [DETAILS_MARKER, crate::transcript::INTENT_MARKER];
+const HIDDEN_MARKERS: [&str; 3] = [
+    DETAILS_MARKER,
+    restless_orgintel::OWNER_TURN_MARKER,
+    crate::transcript::INTENT_MARKER,
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum ActivityScope {

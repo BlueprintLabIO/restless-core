@@ -1,10 +1,18 @@
-//! What kind of message the owner sent, and how much friction the owner has with the company
-//! (migration 0125; docs/specs/owner-interaction.md D3 and D7).
+//! What kind of message the owner sent, whether the company could have spared them it, and how
+//! much friction the owner has with the company (migrations 0125 and 0126;
+//! docs/specs/owner-interaction.md D3 and D7).
 //!
-//! Every message from the owner (or another human in the company) is put in one class by fixed
-//! rules: no model, no cost, the same answer every time. The class is stored on the message the
-//! first time the company's numbers are read, so a new message is classified on the next turn
-//! that reads them and an old one is never classified twice.
+//! The label comes from Exec. Answering an owner message, Exec judges it in context against the
+//! owner's standards and puts the judgement on its reply ([`OWNER_TURN_MARKER`]): every class that
+//! applies, whether it was avoidable, the gap and the repair. The runtime stores it on the owner's
+//! message with `owner_intent_source = 'exec'`. On a replay of 94 of the owner's real messages
+//! fixed rules caught about 2 of 9 corrections and none of the status checks inside longer
+//! messages, while a model given the owner's standards agreed with hand labels (kappa 0.70).
+//!
+//! Fixed rules are the fallback, for a message Exec has not judged (a reply that failed, a
+//! message to someone else, history from before this). They put the message in one class with no
+//! model and no cost, stored with `owner_intent_source = 'rules'` the first time the company's
+//! numbers are read; a later judgement from Exec replaces it.
 //!
 //! The rules are deliberately narrow. A whole-message list catches what the owner actually types
 //! ("progress?" 609 times in their own records); a phrase list catches the rest. A message the
@@ -70,6 +78,232 @@ impl OwnerIntent {
             .into_iter()
             .find(|intent| intent.as_str() == value)
     }
+
+    /// A class as a model writes it: "Status check", "outcome-only", or the codebook's "report"
+    /// (the owner telling the company something), which is `other`.
+    fn parse_loose(value: &str) -> Option<OwnerIntent> {
+        let value = value.trim().to_lowercase().replace(['-', ' '], "_");
+        match value.as_str() {
+            "report" | "info" => Some(OwnerIntent::Other),
+            "correction" => Some(OwnerIntent::Redirect),
+            "outcome" => Some(OwnerIntent::OutcomeOnly),
+            "status" => Some(OwnerIntent::StatusCheck),
+            _ => OwnerIntent::parse(&value),
+        }
+    }
+}
+
+/// Whether the company could have spared the owner a message (docs/specs/owner-interaction.md,
+/// "Labels come from Exec"). `partly`: a real new ask, but part of it was caused by a shortfall.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Avoidable {
+    Yes,
+    Partly,
+    No,
+}
+
+impl Avoidable {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Avoidable::Yes => "yes",
+            Avoidable::Partly => "partly",
+            Avoidable::No => "no",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Avoidable> {
+        match value.trim().to_lowercase().as_str() {
+            "yes" | "y" => Some(Avoidable::Yes),
+            "partly" | "p" | "partial" => Some(Avoidable::Partly),
+            "no" | "n" => Some(Avoidable::No),
+            _ => None,
+        }
+    }
+}
+
+/// Why an avoidable message was needed: the main shortfall, one of eight (the codebook the
+/// owner's replay was labelled with).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Gap {
+    /// Claimed done or handed over without verifying; the owner found it broken.
+    Check,
+    /// Knew the state and did not say: progress, ETA, what it did, whether it landed.
+    Told,
+    /// Asked the owner to do, check or approve what the company could do itself.
+    Handoff,
+    /// The fact was in the company's own files, browser or machine and nobody looked.
+    Look,
+    /// The owner had said it before and it was not applied.
+    Memory,
+    /// An earlier ask was never done.
+    Dropped,
+    /// What the owner wanted was misunderstood.
+    Misread,
+    /// Waited or looped when it could have been working.
+    Idle,
+}
+
+impl Gap {
+    pub const ALL: [Gap; 8] = [
+        Gap::Check,
+        Gap::Told,
+        Gap::Handoff,
+        Gap::Look,
+        Gap::Memory,
+        Gap::Dropped,
+        Gap::Misread,
+        Gap::Idle,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Gap::Check => "check",
+            Gap::Told => "told",
+            Gap::Handoff => "handoff",
+            Gap::Look => "look",
+            Gap::Memory => "memory",
+            Gap::Dropped => "dropped",
+            Gap::Misread => "misread",
+            Gap::Idle => "idle",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Gap> {
+        let value = value.trim().to_lowercase();
+        Gap::ALL.into_iter().find(|gap| gap.as_str() == value)
+    }
+
+    /// The gap in plain words, as the owner would say it.
+    pub fn plain(self) -> &'static str {
+        match self {
+            Gap::Check => "work said done was not checked",
+            Gap::Told => "you were not told where things stood",
+            Gap::Handoff => "you were handed work the company could do",
+            Gap::Look => "nobody looked where the answer was",
+            Gap::Memory => "something you had said before was not applied",
+            Gap::Dropped => "an earlier ask was dropped",
+            Gap::Misread => "what you wanted was misread",
+            Gap::Idle => "work waited when it could have gone on",
+        }
+    }
+}
+
+/// Exec's judgement of one owner message, carried on its reply in [`OWNER_TURN_MARKER`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ExecJudgement {
+    /// The owner message it judges; the newest one the reply answers when not named.
+    pub message: Option<i64>,
+    /// Every class that applies, first the main one. Never empty.
+    pub intents: Vec<OwnerIntent>,
+    pub avoidable: Avoidable,
+    /// Only when the message was at least partly avoidable.
+    pub gap: Option<Gap>,
+    /// What the company could have known or done instead, in a line.
+    pub could_have_known: Option<String>,
+    /// The structural change that stops this recurring, in a line.
+    pub repair: Option<String>,
+    /// The lead who owns the repair.
+    pub repair_lead: Option<String>,
+}
+
+/// Exec's judgement rides on its reply to the owner, just before the intent marker, and is never
+/// shown: `<!--restless-owner-turn:{"intents":["instruction"],"avoidable":"no"}-->`.
+pub const OWNER_TURN_MARKER: &str = "<!--restless-owner-turn:";
+
+/// A judgement's free text is a line, not an essay.
+const JUDGEMENT_TEXT_CHARS: usize = 300;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawJudgement {
+    #[serde(default)]
+    message: Option<i64>,
+    #[serde(default)]
+    intents: Vec<String>,
+    #[serde(default)]
+    intent: Option<String>,
+    #[serde(default)]
+    avoidable: Option<String>,
+    #[serde(default)]
+    gap: Option<String>,
+    #[serde(default)]
+    could_have_known: Option<String>,
+    #[serde(default)]
+    repair: Option<String>,
+    #[serde(default)]
+    repair_lead: Option<String>,
+}
+
+fn line(value: Option<String>, max: usize) -> Option<String> {
+    let value = value?;
+    let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!value.is_empty()).then(|| value.chars().take(max).collect())
+}
+
+impl RawJudgement {
+    /// A judgement with no class it can read, or no avoidable call, records nothing: the rules
+    /// classify that message instead.
+    fn into_judgement(self) -> Option<ExecJudgement> {
+        let mut intents = Vec::new();
+        for value in self.intents.iter().chain(self.intent.iter()) {
+            if let Some(intent) = OwnerIntent::parse_loose(value) {
+                if !intents.contains(&intent) {
+                    intents.push(intent);
+                }
+            }
+        }
+        intents.truncate(4);
+        if intents.is_empty() {
+            return None;
+        }
+        let avoidable = Avoidable::parse(self.avoidable.as_deref()?)?;
+        let shortfall = avoidable != Avoidable::No;
+        let repair = line(self.repair, JUDGEMENT_TEXT_CHARS).filter(|_| shortfall);
+        Some(ExecJudgement {
+            message: self.message,
+            intents,
+            avoidable,
+            gap: self
+                .gap
+                .as_deref()
+                .and_then(Gap::parse)
+                .filter(|_| shortfall),
+            could_have_known: line(self.could_have_known, JUDGEMENT_TEXT_CHARS)
+                .filter(|_| shortfall),
+            repair_lead: line(self.repair_lead, 80).filter(|_| repair.is_some()),
+            repair,
+        })
+    }
+}
+
+/// The reply without its owner-turn markers, and the last judgement among them that reads. A
+/// marker that does not parse is still removed (the owner never sees it) and records nothing.
+pub fn take_owner_turn_marker(text: &str) -> (String, Option<ExecJudgement>) {
+    if !text.contains(OWNER_TURN_MARKER) {
+        return (text.to_string(), None);
+    }
+    let mut clean = String::with_capacity(text.len());
+    let mut judgement = None;
+    let mut rest = text;
+    while let Some(start) = rest.find(OWNER_TURN_MARKER) {
+        clean.push_str(&rest[..start]);
+        let after = &rest[start + OWNER_TURN_MARKER.len()..];
+        let Some(end) = after.find("-->") else {
+            rest = "";
+            break;
+        };
+        if let Some(found) = serde_json::from_str::<RawJudgement>(after[..end].trim())
+            .ok()
+            .and_then(RawJudgement::into_judgement)
+        {
+            judgement = Some(found);
+        }
+        rest = &after[end + 3..];
+    }
+    clean.push_str(rest);
+    (clean.trim().to_string(), judgement)
 }
 
 /// The message as the rules read it: lower case, apostrophes dropped ("don't" is "dont"), every
@@ -759,11 +993,25 @@ const CLASSIFY_BATCH: i64 = 1000;
 const CLASSIFY_SLACK: i64 = 200;
 
 /// The owner's friction with the company over a window (D7). Counts are of owner messages unless
-/// named otherwise. A run is a redirect whose next owner message on the same thread is another
-/// redirect. `new_*` counts only what happened after the last review, so a number that stays
-/// high does not make the company review itself again and again.
+/// named otherwise; a message counts in every class it has (Exec may give it several). A run is a
+/// redirect whose next owner message on the same thread is another redirect. `new_*` counts only
+/// what happened after the last review, so a number that stays high does not make the company
+/// review itself again and again.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(default)]
 pub struct OwnerFriction {
+    /// Messages Exec judged; the rest were classified by the rules and have no avoidable call.
+    pub judged: i64,
+    /// Judged at least partly avoidable, and of those only partly.
+    pub avoidable: i64,
+    pub partly_avoidable: i64,
+    pub new_avoidable: i64,
+    /// The owner's last ten messages in the window, and how many of them were avoidable.
+    pub recent_messages: i64,
+    pub recent_avoidable: i64,
+    /// The commonest gaps behind avoidable messages, most first, with the latest repair.
+    #[sqlx(skip)]
+    pub gaps: Vec<OwnerGap>,
     pub owner_messages: i64,
     pub status_checks: i64,
     pub outcome_only: i64,
@@ -781,7 +1029,128 @@ pub struct OwnerFriction {
     pub new_work_reopened: i64,
 }
 
+/// One gap behind avoidable owner messages in the window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::FromRow)]
+pub struct OwnerGap {
+    /// The stored name (`check`, `told`, ...); [`Gap::parse`] reads it.
+    pub gap: String,
+    pub times: i64,
+    pub new_times: i64,
+    /// The latest repair Exec named for it, and the lead who owns that repair.
+    pub repair: Option<String>,
+    pub repair_lead: Option<String>,
+    pub could_have_known: Option<String>,
+}
+
+/// The friction counts at most this many gaps.
+const TOP_GAPS: i64 = 3;
+/// "Recent" is the owner's last this many messages.
+const RECENT_MESSAGES: i64 = 10;
+
+/// What one owner message was judged, and by whom.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StoredJudgement {
+    /// `exec` or `rules`.
+    pub source: String,
+    pub intents: Vec<OwnerIntent>,
+    pub avoidable: Option<Avoidable>,
+    pub gap: Option<Gap>,
+    pub could_have_known: Option<String>,
+    pub repair: Option<String>,
+    pub repair_lead: Option<String>,
+}
+
 impl OrgIntel {
+    /// Store Exec's judgement on one owner message, replacing whatever the rules said. Returns
+    /// false when the message is not a human's (or is gone), so nothing was stored.
+    pub async fn record_exec_judgement(
+        &self,
+        message_id: i64,
+        judgement: &ExecJudgement,
+    ) -> Result<bool> {
+        let intents: Vec<String> = judgement
+            .intents
+            .iter()
+            .map(|intent| intent.as_str().to_string())
+            .collect();
+        let stored = sqlx::query(&format!(
+            "UPDATE messages SET owner_intent=$2, owner_intents=$3, owner_intent_source='exec', \
+                    owner_avoidable=$4, owner_gap=$5, owner_could_have_known=$6, \
+                    owner_repair=$7, owner_repair_lead=$8 \
+             FROM actors author \
+             WHERE messages.id=$1 AND author.id=messages.from_actor \
+               AND messages.deleted_at IS NULL \
+               AND {}",
+            BY_A_HUMAN
+        ))
+        .bind(message_id)
+        .bind(&intents[0])
+        .bind(&intents)
+        .bind(judgement.avoidable.as_str())
+        .bind(judgement.gap.map(Gap::as_str))
+        .bind(&judgement.could_have_known)
+        .bind(&judgement.repair)
+        .bind(&judgement.repair_lead)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(stored == 1)
+    }
+
+    /// Record the judgement Exec's reply carried for the owner messages it answered. It judges
+    /// the message it names when that is one of them, else the newest. Returns the message judged.
+    pub async fn record_owner_turn(&self, reply: &str, answered: &[i64]) -> Result<Option<i64>> {
+        let (_, Some(judgement)) = take_owner_turn_marker(reply) else {
+            return Ok(None);
+        };
+        let Some(newest) = answered.iter().copied().max() else {
+            return Ok(None);
+        };
+        let target = judgement
+            .message
+            .filter(|named| answered.contains(named))
+            .unwrap_or(newest);
+        Ok(self
+            .record_exec_judgement(target, &judgement)
+            .await?
+            .then_some(target))
+    }
+
+    /// What one message was judged, by Exec or the rules; `None` until it is classified.
+    pub async fn message_owner_judgement(
+        &self,
+        message_id: i64,
+    ) -> Result<Option<StoredJudgement>> {
+        let row = sqlx::query(
+            "SELECT owner_intent_source, owner_intents, owner_avoidable, owner_gap, \
+                    owner_could_have_known, owner_repair, owner_repair_lead \
+             FROM messages WHERE id=$1 AND owner_intent_source IS NOT NULL",
+        )
+        .bind(message_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|row| StoredJudgement {
+            source: row.get("owner_intent_source"),
+            intents: row
+                .get::<Option<Vec<String>>, _>("owner_intents")
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|intent| OwnerIntent::parse(intent))
+                .collect(),
+            avoidable: row
+                .get::<Option<String>, _>("owner_avoidable")
+                .as_deref()
+                .and_then(Avoidable::parse),
+            gap: row
+                .get::<Option<String>, _>("owner_gap")
+                .as_deref()
+                .and_then(Gap::parse),
+            could_have_known: row.get("owner_could_have_known"),
+            repair: row.get("owner_repair"),
+            repair_lead: row.get("owner_repair_lead"),
+        }))
+    }
+
     /// Classify owner messages not classified yet, oldest first. Returns how many were stored.
     pub async fn classify_owner_messages(&self) -> Result<usize> {
         let rows = sqlx::query(&format!(
@@ -810,7 +1179,8 @@ impl OrgIntel {
             intents.push(classify_owner_message(&body, answers).as_str().to_string());
         }
         let stored = sqlx::query(
-            "UPDATE messages SET owner_intent=data.intent \
+            "UPDATE messages SET owner_intent=data.intent, owner_intents=ARRAY[data.intent], \
+                    owner_intent_source='rules' \
              FROM unnest($1::bigint[], $2::text[]) AS data(id, intent) \
              WHERE messages.id=data.id AND messages.owner_intent IS NULL",
         )
@@ -840,10 +1210,15 @@ impl OrgIntel {
         after: DateTime<Utc>,
     ) -> Result<OwnerFriction> {
         while self.classify_owner_messages().await? as i64 >= CLASSIFY_BATCH {}
-        Ok(sqlx::query_as(&format!(
+        // Exec's labels replace the rules' on the row itself, so every count below prefers them.
+        let mut friction: OwnerFriction = sqlx::query_as(&format!(
             "WITH said AS ( \
-               SELECT message.created_at, message.owner_intent AS intent, \
-                      LEAD(message.owner_intent) OVER thread AS next_intent, \
+               SELECT message.id, message.created_at, \
+                      message.owner_intent_source AS source, \
+                      message.owner_avoidable AS avoidable, \
+                      COALESCE(message.owner_intents, ARRAY[message.owner_intent]) AS intents, \
+                      LEAD(COALESCE(message.owner_intents, ARRAY[message.owner_intent])) \
+                        OVER thread AS next_intents, \
                       LEAD(message.created_at) OVER thread AS next_at \
                FROM messages message \
                JOIN actors author ON author.id=message.from_actor \
@@ -853,35 +1228,70 @@ impl OrgIntel {
                  PARTITION BY COALESCE(message.room_id::text, 'to:' || COALESCE(message.to_actor, '')), \
                               message.thread_root_message_id \
                  ORDER BY message.id) \
-             ) \
+             ), \
+             recent AS (SELECT avoidable FROM said ORDER BY id DESC LIMIT $3) \
              SELECT COUNT(*) AS owner_messages, \
-                    COUNT(*) FILTER (WHERE intent='status_check') AS status_checks, \
-                    COUNT(*) FILTER (WHERE intent='outcome_only') AS outcome_only, \
-                    COUNT(*) FILTER (WHERE intent='outcome_only' AND next_intent='redirect') \
-                      AS outcome_only_redirected, \
-                    COUNT(*) FILTER (WHERE intent='instruction') AS instructions, \
-                    COUNT(*) FILTER (WHERE intent='instruction' AND next_intent='redirect') \
-                      AS instructions_redirected, \
-                    COUNT(*) FILTER (WHERE intent='redirect') AS redirects, \
-                    COUNT(*) FILTER (WHERE intent='redirect' AND next_intent='redirect') \
-                      AS redirect_runs, \
+                    COUNT(*) FILTER (WHERE source='exec') AS judged, \
+                    COUNT(*) FILTER (WHERE avoidable IN ('yes','partly')) AS avoidable, \
+                    COUNT(*) FILTER (WHERE avoidable='partly') AS partly_avoidable, \
+                    COUNT(*) FILTER (WHERE avoidable IN ('yes','partly') AND created_at > $2) \
+                      AS new_avoidable, \
+                    (SELECT COUNT(*) FROM recent) AS recent_messages, \
+                    (SELECT COUNT(*) FROM recent WHERE avoidable IN ('yes','partly')) \
+                      AS recent_avoidable, \
+                    COUNT(*) FILTER (WHERE 'status_check'=ANY(intents)) AS status_checks, \
+                    COUNT(*) FILTER (WHERE 'outcome_only'=ANY(intents)) AS outcome_only, \
+                    COUNT(*) FILTER (WHERE 'outcome_only'=ANY(intents) \
+                      AND 'redirect'=ANY(next_intents)) AS outcome_only_redirected, \
+                    COUNT(*) FILTER (WHERE 'instruction'=ANY(intents)) AS instructions, \
+                    COUNT(*) FILTER (WHERE 'instruction'=ANY(intents) \
+                      AND 'redirect'=ANY(next_intents)) AS instructions_redirected, \
+                    COUNT(*) FILTER (WHERE 'redirect'=ANY(intents)) AS redirects, \
+                    COUNT(*) FILTER (WHERE 'redirect'=ANY(intents) \
+                      AND 'redirect'=ANY(next_intents)) AS redirect_runs, \
                     (SELECT COUNT(*) FROM events \
                       WHERE kind='work_reopened' AND created_at >= $1) AS work_reopened, \
                     (SELECT COUNT(DISTINCT attempt.work_id) FROM work_attempts attempt \
                       JOIN work ON work.id=attempt.work_id AND work.status='completed' \
                       WHERE attempt.state='produced' AND attempt.finished_at >= $1) AS work_landed, \
-                    COUNT(*) FILTER (WHERE intent='status_check' AND created_at > $2) \
+                    COUNT(*) FILTER (WHERE 'status_check'=ANY(intents) AND created_at > $2) \
                       AS new_status_checks, \
-                    COUNT(*) FILTER (WHERE intent='redirect' AND next_intent='redirect' \
-                      AND next_at > $2) AS new_redirect_runs, \
+                    COUNT(*) FILTER (WHERE 'redirect'=ANY(intents) \
+                      AND 'redirect'=ANY(next_intents) AND next_at > $2) AS new_redirect_runs, \
                     (SELECT COUNT(*) FROM events \
                       WHERE kind='work_reopened' AND created_at > $2) AS new_work_reopened \
              FROM said"
         ))
         .bind(since)
         .bind(after)
+        .bind(RECENT_MESSAGES)
         .fetch_one(&self.pool)
-        .await?)
+        .await?;
+        // The latest repair is paired with its own lead: both arrays share one order and filter.
+        friction.gaps = sqlx::query_as(&format!(
+            "SELECT message.owner_gap AS gap, COUNT(*) AS times, \
+                    COUNT(*) FILTER (WHERE message.created_at > $2) AS new_times, \
+                    (array_agg(message.owner_repair ORDER BY message.id DESC) \
+                       FILTER (WHERE message.owner_repair IS NOT NULL))[1] AS repair, \
+                    (array_agg(message.owner_repair_lead ORDER BY message.id DESC) \
+                       FILTER (WHERE message.owner_repair IS NOT NULL))[1] AS repair_lead, \
+                    (array_agg(message.owner_could_have_known ORDER BY message.id DESC) \
+                       FILTER (WHERE message.owner_could_have_known IS NOT NULL))[1] \
+                      AS could_have_known \
+             FROM messages message \
+             JOIN actors author ON author.id=message.from_actor \
+             WHERE {BY_A_HUMAN} AND message.owner_gap IS NOT NULL \
+               AND message.owner_avoidable IN ('yes','partly') \
+               AND message.deleted_at IS NULL AND message.created_at >= $1 \
+             GROUP BY message.owner_gap \
+             ORDER BY COUNT(*) DESC, max(message.id) DESC LIMIT $3"
+        ))
+        .bind(since)
+        .bind(after)
+        .bind(TOP_GAPS)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(friction)
     }
 }
 
@@ -1050,6 +1460,50 @@ mod tests {
             ("good morning", Other),
             ("hmm", Other),
         ]);
+    }
+
+    #[test]
+    fn exec_judgement_is_read_from_the_reply_and_never_shown() {
+        let reply = concat!(
+            "The importer is fixed and checked on the live data.\n\n",
+            "<!--restless-owner-turn:{\"intents\":[\"redirect\",\"Status check\",\"nonsense\"],",
+            "\"avoidable\":\"yes\",\"gap\":\"check\",",
+            "\"couldHaveKnown\":\"  The import was never run   on real rows. \",",
+            "\"repair\":\"The importer lead runs a real import before saying done.\",",
+            "\"repairLead\":\"data-lead\"}-->\n",
+            "<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Fixed.\"}-->"
+        );
+        let (clean, judgement) = take_owner_turn_marker(reply);
+        assert!(!clean.contains("owner-turn"), "{clean}");
+        assert!(clean.ends_with("\"summary\":\"Fixed.\"}-->"), "{clean}");
+        let judgement = judgement.expect("a judgement");
+        assert_eq!(judgement.intents, vec![Redirect, StatusCheck]);
+        assert_eq!(judgement.avoidable, Avoidable::Yes);
+        assert_eq!(judgement.gap, Some(Gap::Check));
+        assert_eq!(
+            judgement.could_have_known.as_deref(),
+            Some("The import was never run on real rows.")
+        );
+        assert_eq!(judgement.repair_lead.as_deref(), Some("data-lead"));
+
+        // A fair message keeps no gap or repair, whatever was written.
+        let (_, fair) = take_owner_turn_marker(
+            "Ok.<!--restless-owner-turn:{\"intent\":\"instruction\",\"avoidable\":\"no\",\"gap\":\"told\",\"repair\":\"x\"}-->",
+        );
+        let fair = fair.unwrap();
+        assert_eq!((fair.gap, fair.repair), (None, None));
+
+        // No class, no avoidable call, or no JSON: nothing recorded, marker still hidden.
+        for bad in [
+            "Ok.<!--restless-owner-turn:{\"intents\":[\"vibes\"],\"avoidable\":\"no\"}-->",
+            "Ok.<!--restless-owner-turn:{\"intents\":[\"question\"]}-->",
+            "Ok.<!--restless-owner-turn:not json-->",
+        ] {
+            let (clean, judgement) = take_owner_turn_marker(bad);
+            assert_eq!(clean, "Ok.");
+            assert!(judgement.is_none(), "{bad}");
+        }
+        assert_eq!(take_owner_turn_marker("plain").0, "plain");
     }
 
     #[test]

@@ -2,12 +2,14 @@
 //! it (20 November 2026, docs/specs/owner-interaction.md D3 and D7): every owner message gets a
 //! class stored on it, agent messages never do, a redirect run is two redirects in a row on the
 //! same thread, reopened and landed Work are counted, and the owner's answer to a check-in is an
-//! approval, not a nudge. Runs only when RESTLESS_TEST_DATABASE_URL is set.
+//! approval, not a nudge. Exec's judgement on its reply replaces the rules' class, and the rules
+//! remain the fallback for a message Exec did not judge. Runs only when
+//! RESTLESS_TEST_DATABASE_URL is set.
 
 use chrono::{Duration, Utc};
 use restless_orgintel::{
-    CheckinKind, CheckinRhythm, NewArtifactRef, NewWork, OrgIntel, OwnerIntent, WorkAttemptState,
-    WorkStatus, WorkspaceSpec,
+    Avoidable, CheckinKind, CheckinRhythm, Gap, NewArtifactRef, NewWork, OrgIntel, OwnerIntent,
+    WorkAttemptState, WorkStatus, WorkspaceSpec,
 };
 
 async fn company() -> Option<OrgIntel> {
@@ -181,6 +183,152 @@ async fn owner_messages_are_classified_and_the_friction_is_counted() {
         .await
         .unwrap();
     assert_eq!(next_week.owner_messages, 0);
+    org.drop_schema().await.unwrap();
+}
+
+/// What a scripted Exec answers the owner with: a visible reply, its judgement of the owner's
+/// message, and the intent marker, in the order the prompt asks for.
+fn exec_reply(judgement: &str) -> String {
+    format!(
+        "Done, and checked.\n\n<!--restless-owner-turn:{judgement}-->\n\
+         <!--restless-intent:{{\"kind\":\"conversation\",\"summary\":\"Answered.\"}}-->"
+    )
+}
+
+#[tokio::test]
+async fn exec_judges_owner_messages_and_the_rules_fill_in_the_rest() {
+    let Some(org) = company().await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping owner friction scenario");
+        return;
+    };
+    let start = Utc::now() - Duration::minutes(1);
+    // A status check buried in a longer message: the rules see only an instruction.
+    let buried = owner_to(
+        &org,
+        "exec",
+        "rename the export button, and where are we on the launch page?",
+    )
+    .await;
+    // The rules classify it first (any read of the numbers), then Exec's answer judges it.
+    org.owner_friction(start, start).await.unwrap();
+    assert_eq!(
+        org.message_owner_judgement(buried)
+            .await
+            .unwrap()
+            .unwrap()
+            .source,
+        "rules"
+    );
+    let reply = exec_reply(
+        "{\"intents\":[\"instruction\",\"status_check\"],\"avoidable\":\"partly\",\"gap\":\"told\",\
+         \"couldHaveKnown\":\"The launch page went live this morning.\",\
+         \"repair\":\"Exec posts when a launch lands.\",\"repairLead\":\"exec\"}",
+    );
+    assert_eq!(
+        org.record_owner_turn(&reply, &[buried]).await.unwrap(),
+        Some(buried)
+    );
+    let judged = org.message_owner_judgement(buried).await.unwrap().unwrap();
+    assert_eq!(judged.source, "exec");
+    assert_eq!(
+        judged.intents,
+        vec![OwnerIntent::Instruction, OwnerIntent::StatusCheck]
+    );
+    assert_eq!(judged.avoidable, Some(Avoidable::Partly));
+    assert_eq!(judged.gap, Some(Gap::Told));
+    assert_eq!(
+        org.message_owner_intent(buried).await.unwrap(),
+        Some(OwnerIntent::Instruction),
+        "the main class is the first"
+    );
+
+    // A reply answering two messages judges the newest unless it names one; a fallback message
+    // Exec never judged keeps the rules' class.
+    let unjudged = owner_to(&org, "exec", "progress?").await;
+    let older = owner_to(&org, "exec", "the export still fails on big files").await;
+    let newest = owner_to(&org, "exec", "it's still broken").await;
+    let reply = exec_reply(
+        "{\"intents\":[\"redirect\"],\"avoidable\":\"yes\",\"gap\":\"check\",\
+         \"repair\":\"The export lead runs a big-file export before saying done.\",\
+         \"repairLead\":\"alpha-build\"}",
+    );
+    assert_eq!(
+        org.record_owner_turn(&reply, &[older, newest])
+            .await
+            .unwrap(),
+        Some(newest)
+    );
+    let named = exec_reply(&format!(
+        "{{\"message\":{older},\"intents\":[\"redirect\"],\"avoidable\":\"yes\",\"gap\":\"check\"}}"
+    ));
+    assert_eq!(
+        org.record_owner_turn(&named, &[older, newest])
+            .await
+            .unwrap(),
+        Some(older)
+    );
+    // A reply with no judgement records nothing.
+    assert_eq!(
+        org.record_owner_turn("Plain reply.", &[unjudged])
+            .await
+            .unwrap(),
+        None
+    );
+    // An agent's message cannot be judged.
+    let agent = exec_says(&org, "On it.").await;
+    assert_eq!(org.record_owner_turn(&reply, &[agent]).await.unwrap(), None);
+
+    let friction = org.owner_friction(start, start).await.unwrap();
+    assert_eq!(friction.owner_messages, 4, "{friction:?}");
+    assert_eq!(friction.judged, 3);
+    assert_eq!(
+        (
+            friction.avoidable,
+            friction.partly_avoidable,
+            friction.new_avoidable
+        ),
+        (3, 1, 3)
+    );
+    assert_eq!(
+        (friction.recent_messages, friction.recent_avoidable),
+        (4, 3)
+    );
+    assert_eq!(
+        friction.status_checks, 2,
+        "the buried check (Exec) and \"progress?\" (rules)"
+    );
+    assert_eq!(
+        org.message_owner_judgement(unjudged)
+            .await
+            .unwrap()
+            .unwrap()
+            .source,
+        "rules"
+    );
+    assert_eq!(friction.redirects, 2);
+    assert_eq!(friction.redirect_runs, 1);
+    // The commonest gap first, with its latest repair and lead.
+    assert_eq!(friction.gaps.len(), 2, "{:?}", friction.gaps);
+    assert_eq!(
+        (friction.gaps[0].gap.as_str(), friction.gaps[0].times),
+        ("check", 2)
+    );
+    assert_eq!(
+        friction.gaps[0].repair.as_deref(),
+        Some("The export lead runs a big-file export before saying done.")
+    );
+    assert_eq!(friction.gaps[0].repair_lead.as_deref(), Some("alpha-build"));
+    assert_eq!(
+        (
+            friction.gaps[1].gap.as_str(),
+            friction.gaps[1].repair_lead.as_deref()
+        ),
+        ("told", Some("exec"))
+    );
+    // Nothing is new after a review.
+    let later = org.owner_friction(start, Utc::now()).await.unwrap();
+    assert_eq!(later.new_avoidable, 0);
+    assert!(later.gaps.iter().all(|gap| gap.new_times == 0));
     org.drop_schema().await.unwrap();
 }
 

@@ -1,13 +1,15 @@
 <script lang="ts">
 	/* Is each team's work landing, and what has the company changed about itself? One row per
 	 * team with how much of its work landed, what the owner told the company since its last
-	 * review, and the reviews it made of how it is organised, in Exec's words. The counting is
+	 * review, how much the owner had to steer it (with the reasons Exec judged and the repairs
+	 * taken), and the reviews it made of how it is organised, in Exec's words. The counting is
 	 * the owner plane's; this page only reads it. */
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { Page, Section, Item, Empty, Row, Notice } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import Users from '@lucide/svelte/icons/users';
 	import GitCompareArrows from '@lucide/svelte/icons/git-compare-arrows';
+	import CircleAlert from '@lucide/svelte/icons/circle-alert';
 	import { page } from '$app/state';
 	import { createQuery } from '@tanstack/svelte-query';
 	import {
@@ -19,10 +21,14 @@
 	import { orgReviewOptions, type OrgTeamResult } from '$lib/model/org-review';
 	import {
 		NO_TEAM_NAME,
+		avoidableRow,
 		earlierRate,
 		frictionRows,
+		gapTimes,
+		gapTitle,
 		goalLine,
 		landedHeadline,
+		repairLine,
 		reviewDueSentence,
 		signalSentence,
 		teamFacts,
@@ -58,6 +64,12 @@
 		if (!team.team_id) return 'No lead';
 		const lead = people.find((person) => person.actor_id === team.lead_actor_id);
 		return lead ? `Led by ${personName(lead.display)}` : 'No lead';
+	}
+	/* Who owns a repair, as People names them. */
+	function leadName(actorId: string): string {
+		if (actorId === 'exec') return 'Exec';
+		const lead = people.find((person) => person.actor_id === actorId);
+		return lead ? personName(lead.display) : actorId;
 	}
 
 	const goals = $derived(wideGoals(card?.goals ?? []));
@@ -153,13 +165,26 @@
 		<Section
 			title="How much you had to steer"
 			info={card
-				? `Your messages since ${formatDay(card.friction_since)}, each read as a request, a question, a correction, a status check, a yes or a stop. The company reviews itself when one of these passes its baseline.`
-				: 'Your messages over the last week, each read as a request, a question, a correction, a status check, a yes or a stop.'}
+				? `Your messages since ${formatDay(card.friction_since)}. Exec judges each one as it answers: what kind of message it was, and whether the company could have spared you it. The company reviews itself when these pass their baselines.`
+				: 'Your messages over the last week. Exec judges each one as it answers: what kind of message it was, and whether the company could have spared you it.'}
 		>
 			{#if !card}<Skeleton
 					label="Reading how much you had to steer…"
-					count={5}
+					count={6}
 				/>{:else if card.friction}
+				{@const spared = avoidableRow(card.friction)}
+				<Row label={spared.label} info={spared.info}
+					><span class="value">{spared.value}</span></Row
+				>
+				{#each card.friction.gaps ?? [] as gap (gap.gap)}
+					<Item title={gapTitle(gap)}>
+						{#snippet leading()}<CircleAlert size={15} strokeWidth={1.8} />{/snippet}
+						{#snippet trailing()}<span class="value">{gapTimes(gap)}</span>{/snippet}
+						<p class="repair" title={gap.could_have_known ?? undefined}>
+							{repairLine(gap, leadName)}
+						</p>
+					</Item>
+				{/each}
 				{#each frictionRows(card.friction, card.friction_baseline) as row (row.label)}
 					<Row label={row.label} info={row.info}><span class="value">{row.value}</span></Row>
 				{/each}
@@ -239,6 +264,17 @@
 		font-size: var(--t-label);
 		font-variant-numeric: tabular-nums;
 		line-height: 1.5;
+		white-space: nowrap;
+	}
+	/* The repair taken for a reason, one line under it whatever its length. */
+	.repair {
+		height: 1.5em;
+		margin: 0;
+		overflow: hidden;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		line-height: 1.5;
+		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 	.facts li {

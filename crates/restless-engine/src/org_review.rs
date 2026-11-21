@@ -20,11 +20,17 @@
 //! review becomes due: over the last week, status checks above 8% of the owner's messages,
 //! redirect runs above the owner's own baseline, or any Work reopened. Each needs something new
 //! since the last review, so a number that stays high asks once, not on every turn.
+//!
+//! Exec judges each owner message as it answers it (21 November 2026): whether the company could
+//! have spared the owner it, the gap and the repair. Those labels come first: at least 3 avoidable
+//! in the owner's last 10 messages, or the same gap twice in the week, makes a review due, and the
+//! review hands each repair to the lead who owns it as Work. Once Exec has judged enough of the
+//! week, the status-check and redirect-run triggers, which read the rules' classes, stand down.
 
 use chrono::{DateTime, Utc};
 use restless_orgintel::{
-    classify_owner_message, GoalMinds, OrgIntel, OrgReviewRow, OwnerFriction, OwnerIntent,
-    OwnerSignalRow, TeamScore,
+    classify_owner_message, Gap, GoalMinds, OrgIntel, OrgReviewRow, OwnerFriction, OwnerGap,
+    OwnerIntent, OwnerSignalRow, TeamScore,
 };
 use serde::Serialize;
 
@@ -53,6 +59,13 @@ pub const STATUS_CHECK_BASELINE_PERCENT: i64 = 8;
 const MIN_OWNER_MESSAGES: i64 = 10;
 /// Below this many redirects a run rate is anecdote.
 const MIN_REDIRECTS: i64 = 3;
+/// This many of the owner's last ten messages judged avoidable make a review due.
+pub const AVOIDABLE_IN_RECENT: i64 = 3;
+/// A gap behind this many avoidable messages in the week is a pattern, not a slip.
+pub const REPEATED_GAP: i64 = 2;
+/// From this many messages Exec judged in the week, its labels decide: the share-of-status-checks
+/// and redirect-run triggers, which read the rules' classes, stand down for the avoidable ones.
+const EXEC_LABELS_DECIDE: i64 = 5;
 
 /// What the owner's friction is judged against. `redirect_run_percent` is the run rate stored at
 /// the last review when that review had enough redirects to have one; before that it is the
@@ -225,7 +238,28 @@ pub fn friction_baseline(
 /// since the last review (`new_*`), so the same week of numbers asks once.
 pub fn friction_due(friction: &OwnerFriction, last: Option<&OwnerFriction>) -> Vec<String> {
     let mut reasons = Vec::new();
-    if friction.owner_messages >= MIN_OWNER_MESSAGES
+    // Exec judged the owner's messages in context: whether each could have been spared them is
+    // the signal. The rules' counts below are the fallback for a company without those labels.
+    let exec_decides = friction.judged >= EXEC_LABELS_DECIDE;
+    if friction.recent_avoidable >= AVOIDABLE_IN_RECENT && friction.new_avoidable > 0 {
+        reasons.push(format!(
+            "{} of the owner's last {} messages could have been spared them",
+            friction.recent_avoidable, friction.recent_messages
+        ));
+    }
+    for gap in friction
+        .gaps
+        .iter()
+        .filter(|gap| gap.times >= REPEATED_GAP && gap.new_times > 0)
+    {
+        reasons.push(format!(
+            "the same gap came back {} times this week: {}",
+            gap.times,
+            gap_words(gap)
+        ));
+    }
+    if !exec_decides
+        && friction.owner_messages >= MIN_OWNER_MESSAGES
         && friction.new_status_checks > 0
         && above(
             friction.status_checks,
@@ -243,7 +277,8 @@ pub fn friction_due(friction: &OwnerFriction, last: Option<&OwnerFriction>) -> V
         ));
     }
     let (base_part, base_whole, from_last) = run_baseline(friction, last);
-    if friction.redirects >= MIN_REDIRECTS
+    if !exec_decides
+        && friction.redirects >= MIN_REDIRECTS
         && friction.new_redirect_runs > 0
         && above(
             friction.redirect_runs,
@@ -333,6 +368,34 @@ fn last_review(row: OrgReviewRow) -> LastReview {
     }
 }
 
+/// A gap in plain words; a name this build does not know is shown as stored.
+pub fn gap_words(gap: &OwnerGap) -> String {
+    Gap::parse(&gap.gap).map_or_else(|| gap.gap.clone(), |known| known.plain().to_string())
+}
+
+/// One gap with the repair Exec named for it, for the review to act on.
+fn gap_line(gap: &OwnerGap) -> String {
+    let mut line = format!(
+        "{} ({}): {} time{}",
+        gap.gap,
+        gap_words(gap),
+        gap.times,
+        if gap.times == 1 { "" } else { "s" }
+    );
+    if gap.new_times > 0 && gap.new_times < gap.times {
+        line.push_str(&format!(", {} since the last review", gap.new_times));
+    }
+    if let Some(known) = &gap.could_have_known {
+        line.push_str(&format!("; could have known: {known}"));
+    }
+    match (&gap.repair, &gap.repair_lead) {
+        (Some(repair), Some(lead)) => line.push_str(&format!("; repair: {repair} (lead {lead})")),
+        (Some(repair), None) => line.push_str(&format!("; repair: {repair} (no lead named)")),
+        _ => line.push_str("; no repair named yet"),
+    }
+    line
+}
+
 /// "4.0", or "none landed" when nothing did.
 fn per_landed(friction: &OwnerFriction) -> String {
     if friction.work_landed <= 0 {
@@ -365,6 +428,18 @@ pub fn friction_lines(card: &Scorecard) -> String {
         out.push_str(".\n");
         return out;
     }
+    if f.judged > 0 {
+        out.push_str(&format!(
+            "; Exec judged {} and {} could have been spared ({}%, {} of them partly), {} of the \
+             last {}",
+            f.judged,
+            f.avoidable,
+            percent(f.avoidable, f.judged),
+            f.partly_avoidable,
+            f.recent_avoidable,
+            f.recent_messages
+        ));
+    }
     out.push_str(&format!(
         "; status checks {} ({}%, baseline {}%)",
         f.status_checks,
@@ -389,6 +464,9 @@ pub fn friction_lines(card: &Scorecard) -> String {
     ));
     out.push_str(&format!("; Work reopened {}", f.work_reopened));
     out.push_str(&format!("; {}.\n", per_landed(f)));
+    for gap in &f.gaps {
+        out.push_str(&format!("  - gap {}\n", gap_line(gap)));
+    }
     for reason in &card.friction_due {
         out.push_str(&format!("  - review due: {reason}\n"));
     }
@@ -564,11 +642,30 @@ pub fn exec_block(card: &Scorecard) -> Option<String> {
          need not ask next time.\n\
          - Redirect runs and reopened Work mean the goal was lost or a fix did not hold. Change \
          who checks the work or how a request is confirmed, not only the one piece of Work.\n\
+         {}\
          Tell the owner each change in one line with the number behind it. Then record it, or this \
          stays owed: `restless org review --conclusion '<what the numbers showed, what you \
          changed, or why nothing needed changing>'`.\n",
-        render_numbers(card)
+        render_numbers(card),
+        repairs_owed(card)
     ))
+}
+
+/// What a review owes for the gaps behind avoidable messages: each repair handed to the lead who
+/// owns it as Work, so the review changes the company instead of reporting on it.
+fn repairs_owed(card: &Scorecard) -> String {
+    if card.friction.gaps.is_empty() {
+        return String::new();
+    }
+    String::from(
+        "- The gap lines above are messages the owner could have been spared. For each gap, hand \
+         its repair to the lead who owns it as Work: `restless commission --lead <lead> --title \
+         '<the repair>' --outcome '<what stops this gap recurring, with the owner's words and how \
+         the lead will show it held>'`, unless that Work is already open. A repair changes a \
+         check, a rule or who does what, not one message. With no lead named, give it to the \
+         lead closest to the work, or do it yourself if it is your own habit (a lesson, a push \
+         you owe). Name each Work in the conclusion.\n",
+    )
 }
 
 /// What the review stores for the next one to compare against.
@@ -723,6 +820,101 @@ mod tests {
             friction_due(&friction, None),
             vec!["1 Work was sent back after it was done".to_string()]
         );
+    }
+
+    fn told(times: i64, new_times: i64) -> OwnerGap {
+        OwnerGap {
+            gap: "told".into(),
+            times,
+            new_times,
+            repair: Some("Exec posts when Work lands, with the proof.".into()),
+            repair_lead: Some("growth-lead".into()),
+            could_have_known: Some("The deploy finished an hour ago.".into()),
+        }
+    }
+
+    #[test]
+    fn exec_labels_make_a_review_due_on_avoidable_messages_and_repeated_gaps() {
+        let mut friction = week();
+        friction.judged = 10;
+        friction.recent_messages = 10;
+        friction.recent_avoidable = 2;
+        friction.new_avoidable = 2;
+        assert!(
+            friction_due(&friction, None).is_empty(),
+            "2 of 10 is a slip"
+        );
+        friction.recent_avoidable = 3;
+        let reasons = friction_due(&friction, None);
+        assert_eq!(
+            reasons,
+            vec!["3 of the owner's last 10 messages could have been spared them".to_string()]
+        );
+        friction.new_avoidable = 0;
+        assert!(friction_due(&friction, None).is_empty(), "nothing new");
+
+        // The same gap twice, once since the last review.
+        friction.gaps = vec![told(2, 1)];
+        let reasons = friction_due(&friction, None);
+        assert_eq!(reasons.len(), 1, "{reasons:?}");
+        assert!(
+            reasons[0]
+                .contains("came back 2 times this week: you were not told where things stood"),
+            "{reasons:?}"
+        );
+        friction.gaps = vec![told(2, 0)];
+        assert!(friction_due(&friction, None).is_empty());
+    }
+
+    #[test]
+    fn exec_labels_stand_the_rules_triggers_down_and_the_rules_remain_the_fallback() {
+        let mut friction = week();
+        friction.status_checks = 3; // 15% of 20
+        friction.new_status_checks = 1;
+        assert_eq!(friction_due(&friction, None).len(), 1, "rules decide");
+        friction.judged = EXEC_LABELS_DECIDE;
+        assert!(
+            friction_due(&friction, None).is_empty(),
+            "Exec judged them, and none was avoidable"
+        );
+        // Reopened Work is a fact, not a label: it still counts.
+        friction.new_work_reopened = 1;
+        assert_eq!(friction_due(&friction, None).len(), 1);
+    }
+
+    #[test]
+    fn a_due_review_hands_each_repair_to_its_lead() {
+        let mut card = card(OwnerSignals::default(), vec![team("Growth", 10, 8)]);
+        card.friction = week();
+        card.friction.judged = 10;
+        card.friction.avoidable = 4;
+        card.friction.partly_avoidable = 1;
+        card.friction.recent_messages = 10;
+        card.friction.recent_avoidable = 3;
+        card.friction.new_avoidable = 1;
+        card.friction.gaps = vec![told(3, 1)];
+        card.friction_due = friction_due(&card.friction, None);
+        card.due = true;
+        let block = exec_block(&card).unwrap();
+        assert!(
+            block.contains("Exec judged 10 and 4 could have been spared (40%, 1 of them partly), 3 of the last 10"),
+            "{block}"
+        );
+        assert!(
+            block.contains("gap told (you were not told where things stood): 3 times, 1 since the last review; could have known: The deploy finished an hour ago.; repair: Exec posts when Work lands, with the proof. (lead growth-lead)"),
+            "{block}"
+        );
+        assert!(
+            block.contains("restless commission --lead <lead>"),
+            "{block}"
+        );
+        assert!(
+            block.contains("Name each Work in the conclusion"),
+            "{block}"
+        );
+        // No gaps, no repair instructions.
+        card.friction.gaps.clear();
+        assert!(!exec_block(&card).unwrap().contains("restless commission"));
     }
 
     #[test]

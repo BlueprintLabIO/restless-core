@@ -4,6 +4,7 @@ import type {
 	OrgFrictionBaseline,
 	OrgGoalWidth,
 	OrgOwnerFriction,
+	OrgOwnerGap,
 	OrgSignals,
 	OrgTeamResult
 } from './org-review.ts';
@@ -112,6 +113,57 @@ export function frictionRows(
 			info: `Your messages (${friction.owner_messages}) for each piece of Work that landed (${friction.work_landed}).`
 		}
 	];
+}
+
+const GAP_WORDS: Record<string, string> = {
+	check: 'Work said done was not checked',
+	told: 'You were not told where things stood',
+	handoff: 'You were handed work the company could do',
+	look: 'Nobody looked where the answer was',
+	memory: 'Something you said before was not applied',
+	dropped: 'An earlier ask was dropped',
+	misread: 'What you wanted was misread',
+	idle: 'Work waited when it could have gone on'
+};
+
+/** A reason in plain words; one this page does not know reads as itself. */
+export function gapTitle(gap: Pick<OrgOwnerGap, 'gap'>): string {
+	return GAP_WORDS[gap.gap] ?? gap.gap;
+}
+
+/** "3 times", with how many came since the last review when that is not all of them. */
+export function gapTimes(gap: Pick<OrgOwnerGap, 'times' | 'new_times'>): string {
+	const times = gap.times === 1 ? 'Once' : `${gap.times} times`;
+	return gap.new_times > 0 && gap.new_times < gap.times
+		? nbsp(`${times} · ${gap.new_times} new`)
+		: nbsp(times);
+}
+
+/** The repair taken for a reason, on one line: what changes and who owns it. */
+export function repairLine(
+	gap: Pick<OrgOwnerGap, 'repair' | 'repair_lead'>,
+	leadName: (actorId: string) => string
+): string {
+	if (!gap.repair) return 'No repair named yet';
+	return gap.repair_lead
+		? `Repair: ${gap.repair} · ${leadName(gap.repair_lead)}`
+		: `Repair: ${gap.repair}`;
+}
+
+/** How many of the owner's messages the company could have spared them, of those Exec judged. */
+export function avoidableRow(friction: OrgOwnerFriction): {
+	label: string;
+	value: string;
+	info: string;
+} {
+	const judged = friction.judged ?? 0;
+	return {
+		label: 'Could have been spared',
+		value: shareValue(friction.avoidable ?? 0, judged, 'Not judged yet'),
+		info: judged
+			? `Messages Exec judged you should not have had to send, ${friction.partly_avoidable} of them only partly. ${friction.recent_avoidable} of your last ${friction.recent_messages}. Three in your last ten, or the same reason twice, and the company reviews itself and hands each repair to the lead who owns it.`
+			: 'Exec judges each message as it answers it: whether the company could have spared you it, and why.'
+	};
 }
 
 export function reviewDueSentence(due: boolean): string {

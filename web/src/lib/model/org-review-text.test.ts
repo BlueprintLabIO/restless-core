@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+	avoidableRow,
 	earlierRate,
 	frictionRows,
+	gapTimes,
+	gapTitle,
 	goalLine,
 	landedHeadline,
 	landedPercent,
+	repairLine,
 	reviewDueSentence,
 	shareValue,
 	signalSentence,
@@ -114,6 +118,13 @@ test('a goal is wide at five people or two reviewers', () => {
 
 test('the owner friction reads as labelled shares, and an empty week says what is missing', () => {
 	const friction = {
+		judged: 0,
+		avoidable: 0,
+		partly_avoidable: 0,
+		new_avoidable: 0,
+		recent_messages: 10,
+		recent_avoidable: 0,
+		gaps: [],
 		owner_messages: 20,
 		status_checks: 2,
 		outcome_only: 3,
@@ -160,4 +171,51 @@ test('the owner friction reads as labelled shares, and an empty week says what i
 		quiet.map((row) => row.value),
 		['No messages', 'No big asks', 'No corrections', 'None', 'No Work landed']
 	);
+});
+
+test('what Exec judged reads as a share, its reasons in plain words, and the repair on one line', () => {
+	const friction = {
+		judged: 9,
+		avoidable: 3,
+		partly_avoidable: 1,
+		new_avoidable: 1,
+		recent_messages: 9,
+		recent_avoidable: 3,
+		gaps: [],
+		owner_messages: 10,
+		status_checks: 1,
+		outcome_only: 0,
+		outcome_only_redirected: 0,
+		instructions: 6,
+		instructions_redirected: 0,
+		redirects: 1,
+		redirect_runs: 0,
+		work_reopened: 0,
+		work_landed: 2,
+		new_status_checks: 0,
+		new_redirect_runs: 0,
+		new_work_reopened: 0
+	};
+	const row = avoidableRow(friction);
+	assert.equal(row.value, '3 of 9 · 33%');
+	assert.match(row.info, /1 of them only partly\. 3 of your last 9/);
+	assert.equal(avoidableRow({ ...friction, judged: 0, avoidable: 0 }).value, 'Not judged yet');
+
+	const told = {
+		gap: 'told',
+		times: 3,
+		new_times: 1,
+		repair: 'Exec posts when Work lands',
+		repair_lead: 'growth-lead',
+		could_have_known: null
+	};
+	assert.equal(gapTitle(told), 'You were not told where things stood');
+	assert.equal(gapTitle({ gap: 'newgap' }), 'newgap');
+	assert.equal(gapTimes(told), '3 times · 1 new');
+	assert.equal(gapTimes({ times: 1, new_times: 1 }), 'Once');
+	assert.equal(
+		repairLine(told, (id) => (id === 'growth-lead' ? 'Gwen' : id)),
+		'Repair: Exec posts when Work lands · Gwen'
+	);
+	assert.equal(repairLine({ repair: null, repair_lead: null }, (id) => id), 'No repair named yet');
 });
