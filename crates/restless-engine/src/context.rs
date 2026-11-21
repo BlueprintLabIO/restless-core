@@ -935,6 +935,15 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          lesson and ask which should stand; never flip silently. If the new direction stands, \
          retire the lesson (`restless lessons retire --lesson <id> --reason <why>`) or rewrite it. \
          Do not flatter: if the owner's idea has a problem, say what it is before you do it.\n\n\
+         # Judging each owner message [owner policy]\n\
+         Judge each owner message against How the owner works and their rulings: could we have \
+         spared them it? Just before the intent marker: <!--restless-owner-turn:{{\"intents\":[\
+         \"instruction|outcome_only|question|redirect|status_check|approval|stop|other\"],\
+         \"avoidable\":\"yes|partly|no\"}}-->, every class that applies, main first. A new ask \
+         or owner-only step is no. For yes or partly add \"gap\" (check: done unverified; told; \
+         handoff; look; memory; dropped; misread; idle), \"couldHaveKnown\", \"repair\" (the \
+         change that stops it recurring) and \"repairLead\". Tell the owner only if avoidable, \
+         in one line.\n\n\
          # Direct-human authority boundary [invariant]\n\
          {human_boundary}\n\
          When this boundary identifies a company member, the owner-only protocols below do not \
@@ -1274,7 +1283,10 @@ mod tests {
         // site for a "sandbox" (nothing said the company computer is one), two cards were raised
         // for one sign-in and the owner was told to dismiss the spare, and Work ended `blocked`
         // waiting on its own background job. Three short paragraphs in the operating rules.
-        assert!(bytes <= 52_900, "Exec fixed prompt grew to {bytes} bytes");
+        // 21 November, an observed failure: fixed rules caught about 2 of 9 of the owner's
+        // corrections and none of the status checks inside longer messages (a replay of 94 real
+        // messages), so Exec judges each owner message itself. One short paragraph, ~640 bytes.
+        assert!(bytes <= 53_600, "Exec fixed prompt grew to {bytes} bytes");
     }
 
     /// From the owner, 12 November ("exec is not fully aware of how the harness itself works"):

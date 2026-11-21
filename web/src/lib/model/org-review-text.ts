@@ -1,6 +1,13 @@
 /* The words Team results shows for the counts it reads: how much of a team's work landed, what
  * the owner told the company, and which goals are spread across many people. */
-import type { OrgGoalWidth, OrgSignals, OrgTeamResult } from './org-review.ts';
+import type {
+	OrgFrictionBaseline,
+	OrgGoalWidth,
+	OrgOwnerFriction,
+	OrgOwnerGap,
+	OrgSignals,
+	OrgTeamResult
+} from './org-review.ts';
 
 /** The row for Exec and anyone on no team has no name of its own. */
 export const NO_TEAM_NAME = 'Exec and people on no team';
@@ -58,6 +65,116 @@ export function signalSentence(signals: OrgSignals): string {
 	]
 		.map((part) => part.replaceAll(' ', '\u00a0'))
 		.join(' · ');
+}
+
+const nbsp = (text: string) => text.replaceAll(' ', ' ');
+
+/** "2 of 10 · 20%", or `none` when there was nothing to count against. */
+export function shareValue(part: number, whole: number, none: string): string {
+	if (whole <= 0) return none;
+	const percent = Math.round((Math.min(part, whole) / whole) * 100);
+	return `${nbsp(`${part} of ${whole}`)} · ${percent}%`;
+}
+
+/** The owner's friction over the last week as labelled rows, in one order. Each value is short
+ * and keeps to one line, so a row never grows. */
+export function frictionRows(
+	friction: OrgOwnerFriction,
+	baseline: OrgFrictionBaseline
+): { label: string; value: string; info: string }[] {
+	const perLanded =
+		friction.work_landed > 0
+			? `${(friction.owner_messages / friction.work_landed).toFixed(1)} per landed`
+			: 'No Work landed';
+	return [
+		{
+			label: 'Status checks',
+			value: shareValue(friction.status_checks, friction.owner_messages, 'No messages'),
+			info: `Messages asking where things are, out of everything you sent. With one agent this was about ${baseline.status_check_percent}%; above that the company reviews itself.`
+		},
+		{
+			label: 'Corrected after a big ask',
+			value: shareValue(friction.outcome_only_redirected, friction.outcome_only, 'No big asks'),
+			info: `Asks that named an outcome but no method, corrected in your next message on the thread. Plain instructions: ${friction.instructions_redirected} of ${friction.instructions}.`
+		},
+		{
+			label: 'Corrections in a row',
+			value: shareValue(friction.redirect_runs, friction.redirects, 'No corrections'),
+			info: `Corrections followed by another on the same thread. Baseline ${baseline.redirect_run_percent}%: ${baseline.from_last_review ? 'the rate at the last review' : 'how often any of your messages is a correction'}. Above it the company reviews itself.`
+		},
+		{
+			label: 'Work sent back',
+			value: friction.work_reopened ? nbsp(plural(friction.work_reopened, 'item')) : 'None',
+			info: 'Work reopened after it was done. Any of it makes the company review itself.'
+		},
+		{
+			label: 'Messages per landed Work',
+			value: perLanded,
+			info: `Your messages (${friction.owner_messages}) for each piece of Work that landed (${friction.work_landed}).`
+		}
+	];
+}
+
+const GAP_WORDS: Record<string, string> = {
+	check: 'Work said done was not checked',
+	told: 'You were not told where things stood',
+	handoff: 'You were handed work the company could do',
+	look: 'Nobody looked where the answer was',
+	memory: 'Something you said before was not applied',
+	dropped: 'An earlier ask was dropped',
+	misread: 'What you wanted was misread',
+	idle: 'Work waited when it could have gone on'
+};
+
+/** A reason in plain words; one this page does not know reads as itself. */
+export function gapTitle(gap: Pick<OrgOwnerGap, 'gap'>): string {
+	return GAP_WORDS[gap.gap] ?? gap.gap;
+}
+
+/** "3 times", with how many came since the last review when that is not all of them. */
+export function gapTimes(gap: Pick<OrgOwnerGap, 'times' | 'new_times'>): string {
+	const times = gap.times === 1 ? 'Once' : `${gap.times} times`;
+	return gap.new_times > 0 && gap.new_times < gap.times
+		? nbsp(`${times} · ${gap.new_times} new`)
+		: nbsp(times);
+}
+
+/** The repair taken for a reason, on one line: who owns it, then what changes. The owner comes
+ * first because a long repair is cut off at the end of its line. */
+export function repairLine(
+	gap: Pick<OrgOwnerGap, 'repair' | 'repair_lead'>,
+	leadName: (actorId: string) => string
+): string {
+	if (!gap.repair) return 'No repair named yet';
+	return gap.repair_lead
+		? `Repair by ${nbsp(leadName(gap.repair_lead))}: ${gap.repair}`
+		: `Repair: ${gap.repair}`;
+}
+
+/** The whole of a reason's repair line and what the company could have known, for its tooltip,
+ * since the line itself is cut to fit. */
+export function repairDetail(
+	gap: Pick<OrgOwnerGap, 'repair' | 'repair_lead' | 'could_have_known'>,
+	leadName: (actorId: string) => string
+): string {
+	const line = repairLine(gap, leadName);
+	return gap.could_have_known ? `${line}\nCould have known: ${gap.could_have_known}` : line;
+}
+
+/** How many of the owner's messages the company could have spared them, of those Exec judged. */
+export function avoidableRow(friction: OrgOwnerFriction): {
+	label: string;
+	value: string;
+	info: string;
+} {
+	const judged = friction.judged ?? 0;
+	return {
+		label: 'Could have been spared',
+		value: shareValue(friction.avoidable ?? 0, judged, 'Not judged yet'),
+		info: judged
+			? `Messages Exec judged you should not have had to send, ${friction.partly_avoidable} of them only partly. ${friction.recent_avoidable} of your last ${friction.recent_messages}. Three in your last ten, or the same reason twice, and the company reviews itself and hands each repair to the lead who owns it.`
+			: 'Exec judges each message as it answers it: whether the company could have spared you it, and why.'
+	};
 }
 
 export function reviewDueSentence(due: boolean): string {

@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+	avoidableRow,
 	earlierRate,
+	frictionRows,
+	gapTimes,
+	gapTitle,
 	goalLine,
 	landedHeadline,
 	landedPercent,
+	repairDetail,
+	repairLine,
 	reviewDueSentence,
+	shareValue,
 	signalSentence,
 	teamFacts,
 	wideGoals
@@ -108,4 +115,115 @@ test('a goal is wide at five people or two reviewers', () => {
 		['5-0', '1-2']
 	);
 	assert.equal(goalLine(goal(6, 1)), '6 people · 1 reviewer · 9 pieces of work');
+});
+
+test('the owner friction reads as labelled shares, and an empty week says what is missing', () => {
+	const friction = {
+		judged: 0,
+		avoidable: 0,
+		partly_avoidable: 0,
+		new_avoidable: 0,
+		recent_messages: 10,
+		recent_avoidable: 0,
+		gaps: [],
+		owner_messages: 20,
+		status_checks: 2,
+		outcome_only: 3,
+		outcome_only_redirected: 1,
+		instructions: 10,
+		instructions_redirected: 1,
+		redirects: 4,
+		redirect_runs: 1,
+		work_reopened: 1,
+		work_landed: 5,
+		new_status_checks: 0,
+		new_redirect_runs: 0,
+		new_work_reopened: 0
+	};
+	const baseline = { status_check_percent: 8, redirect_run_percent: 20, from_last_review: false };
+	const rows = frictionRows(friction, baseline);
+	assert.deepEqual(
+		rows.map((row) => [row.label, row.value]),
+		[
+			['Status checks', '2 of 20 · 10%'],
+			['Corrected after a big ask', '1 of 3 · 33%'],
+			['Corrections in a row', '1 of 4 · 25%'],
+			['Work sent back', '1 item'],
+			['Messages per landed Work', '4.0 per landed']
+		]
+	);
+	assert.match(rows[2].info, /Baseline 20%: how often any of your messages is a correction/);
+	/* Never "0 of 0", and never a rate from a division by nothing. */
+	assert.equal(shareValue(0, 0, 'No messages'), 'No messages');
+	const quiet = frictionRows(
+		{
+			...friction,
+			owner_messages: 0,
+			status_checks: 0,
+			outcome_only: 0,
+			redirects: 0,
+			redirect_runs: 0,
+			work_reopened: 0,
+			work_landed: 0
+		},
+		baseline
+	);
+	assert.deepEqual(
+		quiet.map((row) => row.value),
+		['No messages', 'No big asks', 'No corrections', 'None', 'No Work landed']
+	);
+});
+
+test('what Exec judged reads as a share, its reasons in plain words, and the repair on one line', () => {
+	const friction = {
+		judged: 9,
+		avoidable: 3,
+		partly_avoidable: 1,
+		new_avoidable: 1,
+		recent_messages: 9,
+		recent_avoidable: 3,
+		gaps: [],
+		owner_messages: 10,
+		status_checks: 1,
+		outcome_only: 0,
+		outcome_only_redirected: 0,
+		instructions: 6,
+		instructions_redirected: 0,
+		redirects: 1,
+		redirect_runs: 0,
+		work_reopened: 0,
+		work_landed: 2,
+		new_status_checks: 0,
+		new_redirect_runs: 0,
+		new_work_reopened: 0
+	};
+	const row = avoidableRow(friction);
+	assert.equal(row.value, '3 of 9 · 33%');
+	assert.match(row.info, /1 of them only partly\. 3 of your last 9/);
+	assert.equal(avoidableRow({ ...friction, judged: 0, avoidable: 0 }).value, 'Not judged yet');
+
+	const told = {
+		gap: 'told',
+		times: 3,
+		new_times: 1,
+		repair: 'Exec posts when Work lands',
+		repair_lead: 'growth-lead',
+		could_have_known: null
+	};
+	assert.equal(gapTitle(told), 'You were not told where things stood');
+	assert.equal(gapTitle({ gap: 'newgap' }), 'newgap');
+	assert.equal(gapTimes(told), '3 times · 1 new');
+	assert.equal(gapTimes({ times: 1, new_times: 1 }), 'Once');
+	assert.equal(
+		repairLine(told, (id) => (id === 'growth-lead' ? 'Gwen' : id)),
+		'Repair by Gwen: Exec posts when Work lands'
+	);
+	assert.equal(
+		repairDetail({ ...told, could_have_known: 'Work had landed' }, () => 'Gwen'),
+		'Repair by Gwen: Exec posts when Work lands\nCould have known: Work had landed'
+	);
+	assert.equal(
+		repairLine({ repair: null, repair_lead: null }, (id) => id),
+		'No repair named yet'
+	);
 });

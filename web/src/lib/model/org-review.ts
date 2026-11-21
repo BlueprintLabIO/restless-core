@@ -39,6 +39,67 @@ export interface OrgSignals {
 	examples: string[];
 }
 
+/** The main reason behind messages the owner could have been spared, as Exec judged them. */
+export type OrgGapName =
+	| 'check'
+	| 'told'
+	| 'handoff'
+	| 'look'
+	| 'memory'
+	| 'dropped'
+	| 'misread'
+	| 'idle';
+
+/** One reason behind avoidable messages this week, with the latest repair Exec named for it and
+ * the lead who owns that repair. */
+export interface OrgOwnerGap {
+	gap: OrgGapName | string;
+	times: number;
+	new_times: number;
+	repair: string | null;
+	repair_lead: string | null;
+	could_have_known: string | null;
+}
+
+/** How much the owner had to pull, correct and resend over the last week. Exec judges each owner
+ * message as it answers it; fixed rules classify any it did not. Counts are of owner messages
+ * unless named otherwise, a message counting in every class it has. A run is a correction
+ * followed by another on the same thread. `new_*` counts only what came after the last review. */
+export interface OrgOwnerFriction {
+	/** Messages Exec judged; of those, how many could have been spared the owner (and partly). */
+	judged: number;
+	avoidable: number;
+	partly_avoidable: number;
+	new_avoidable: number;
+	/** The owner's last ten messages this week, and how many of them were avoidable. */
+	recent_messages: number;
+	recent_avoidable: number;
+	/** The commonest reasons, most first. */
+	gaps: OrgOwnerGap[];
+	owner_messages: number;
+	status_checks: number;
+	/** Asks that state an outcome with no method, and how many were corrected next. */
+	outcome_only: number;
+	outcome_only_redirected: number;
+	instructions: number;
+	instructions_redirected: number;
+	redirects: number;
+	redirect_runs: number;
+	/** Work sent back after it was done. */
+	work_reopened: number;
+	work_landed: number;
+	new_status_checks: number;
+	new_redirect_runs: number;
+	new_work_reopened: number;
+}
+
+export interface OrgFrictionBaseline {
+	status_check_percent: number;
+	redirect_run_percent: number;
+	/** The run baseline is the last review's rate; otherwise the owner's own correction rate. */
+	from_last_review: boolean;
+}
+
 export interface OrgScorecard {
 	since: string;
 	signals_since: string;
@@ -48,6 +109,11 @@ export interface OrgScorecard {
 	teams: OrgTeamResult[];
 	goals: OrgGoalWidth[];
 	signals: OrgSignals;
+	friction_since: string;
+	friction: OrgOwnerFriction;
+	friction_baseline: OrgFrictionBaseline;
+	/** Why the friction alone makes a review due, one line each. */
+	friction_due: string[];
 	last_review: { at: string; conclusion: string; teams: OrgTeamResult[] } | null;
 }
 
